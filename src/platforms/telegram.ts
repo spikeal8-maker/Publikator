@@ -8,7 +8,8 @@ const CAPTION_LIMIT = 1024;
 function telegramError(body: any): PlatformError {
   const code = Number(body?.error_code || 0);
   return new PlatformError(`Telegram: ${body?.description || 'неизвестная ошибка'}`, {
-    retryable: code === 429 || code >= 500,
+    retryable: code === 429,
+    outcomeUnknown: code >= 500,
     code
   });
 }
@@ -66,7 +67,15 @@ export const telegramPublisher: SocialPublisher = {
       result = body.result?.[0];
     }
 
-    if (input.text.length > CAPTION_LIMIT) await sendMessage(token, chatId, input.text);
+    if (input.text.length > CAPTION_LIMIT) {
+      try {
+        await sendMessage(token, chatId, input.text);
+      } catch (error) {
+        throw new PlatformError(`Telegram: изображение уже опубликовано, но дополнительный текст не отправлен: ${error instanceof Error ? error.message : String(error)}`, {
+          outcomeUnknown: true
+        });
+      }
+    }
     return { externalId: String(result?.message_id ?? 'unknown'), raw: result };
   }
 };
