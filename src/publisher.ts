@@ -6,6 +6,11 @@ import { PlatformError } from './platforms/types.js';
 
 const RETRY_DELAYS_MS = [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000];
 
+export type TargetSelection = {
+  accountId: string;
+  overrideText?: string | null;
+};
+
 function retryTime(attempts: number): string | null {
   const delay = RETRY_DELAYS_MS[Math.min(attempts - 1, RETRY_DELAYS_MS.length - 1)];
   return attempts <= RETRY_DELAYS_MS.length && delay ? new Date(Date.now() + delay).toISOString() : null;
@@ -27,16 +32,23 @@ export function ensureTargets(postId: string): void {
   tx();
 }
 
-export function setTargetSelection(postId: string, accountIds: string[]): void {
+export function setTargetSelection(postId: string, selections: Array<string | TargetSelection>): void {
   ensureTargets(postId);
   const allowed = new Set(
     (db.prepare('SELECT id FROM social_accounts WHERE enabled=1').all() as Array<{ id: string }>).map((row) => row.id)
   );
-  const selected = [...new Set(accountIds)].filter((accountId) => allowed.has(accountId));
+  const normalized = new Map<string, string | null>();
+  for (const item of selections) {
+    const accountId = typeof item === 'string' ? item : item.accountId;
+    if (!allowed.has(accountId)) continue;
+    const overrideText = typeof item === 'string' ? null : (item.overrideText?.trim() || null);
+    normalized.set(accountId, overrideText);
+  }
+
   const tx = db.transaction(() => {
-    db.prepare("UPDATE post_targets SET enabled=0, updated_at=? WHERE post_id=? AND state!='PUBLISHED'").run(nowIso(), postId);
-    const enable = db.prepare("UPDATE post_targets SET enabled=1, updated_at=? WHERE post_id=? AND account_id=? AND state!='PUBLISHED'");
-    for (const accountId of selected) enable.run(nowIso(), postId, accountId);
+    db.prepare("UPDATE post_targets SET enabled=0, override_text=NULL, updated_at=? WHERE post_id=? AND state!='PUBLISHED'").run(nowIso(), postId);
+    const enable = db.prepare("UPDATE post_targets SET enabled=1, override_text=?, updated_at=? WHERE post_id=? AND account_id=? AND state!='PUBLISHED'");
+    for (const [accountId, overrideText] of normalized) enable.run(overrideText, nowIso(), postId, accountId);
   });
   tx();
 }
