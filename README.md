@@ -4,6 +4,8 @@
 
 Publikator специально построен как **модульный монолит**: один репозиторий, один Docker-контейнер, один интерфейс, одна SQLite-база и встроенный scheduler. n8n, Redis, RabbitMQ и отдельный worker не нужны.
 
+Текущая версия: **0.6.0**.
+
 ## Что уже реализовано
 
 - Web UI с авторизацией и ограничением перебора пароля;
@@ -31,9 +33,10 @@ Publikator специально построен как **модульный м�
 - `RECOVERY_NEEDED` при неопределённом результате внешнего POST — автоматического дубля не будет;
 - запрет изменения текста, площадок и медиа после частичной публикации;
 - журнал событий;
-- SQLite backups;
+- полные `.tgz` backup bundles: SQLite + media + manifest;
+- безопасный restore через staging, pre-restore backup и перезапуск до открытия SQLite;
 - Docker HEALTHCHECK;
-- CI проверяет компиляцию, frontend JS, Docker build и runtime/API smoke-flow;
+- CI проверяет компиляцию, frontend JS, миграции, Docker build, runtime/API smoke и полный backup/restore cycle;
 - Docker deployment.
 
 ## Быстрый запуск
@@ -62,7 +65,7 @@ docker compose up -d --build
 
 ## Данные
 
-Весь переносимый runtime state лежит в `./data`:
+Весь runtime state лежит в `./data`:
 
 ```text
 data/
@@ -71,7 +74,36 @@ data/
   backups/
 ```
 
-Для переноса инсталляции остановите контейнер и перенесите `data/` вместе с тем же `APP_MASTER_KEY`.
+`APP_MASTER_KEY` хранится **вне** `data/` и backup bundle. Этот ключ нужен для расшифровки credentials соцсетей. Не меняйте и не теряйте его: восстановление bundle с другим ключом намеренно блокируется.
+
+## Полные резервные копии
+
+Новый backup bundle имеет вид:
+
+```text
+publikator-2026-09-09T20-00-00-000Z-manual.tgz
+  manifest.json
+  publikator.sqlite
+  media/
+```
+
+Перед созданием snapshot приложение кратко входит во встроенный maintenance mode: новые изменения и scheduler не пересекаются с копированием, а уже активную публикацию backup прервать не может.
+
+Перед восстановлением проверяются:
+
+- формат и версия backup;
+- версия SQLite-схемы;
+- fingerprint текущего `APP_MASTER_KEY`;
+- SHA-256 SQLite;
+- `PRAGMA integrity_check`;
+- обязательные таблицы;
+- список, размеры и SHA-256 каждого media-файла;
+- отсутствие неизвестных/лишних файлов;
+- безопасность tar entries: path traversal и links запрещены.
+
+После успешной проверки Publikator сначала создаёт полный `pre-restore` backup текущего состояния, затем помещает восстановление в `.restore-pending`, делает graceful restart и применяет его **до открытия runtime SQLite**. Если файловая замена не завершается, startup-код пытается вернуть прежние SQLite/WAL/SHM/media из локального rollback.
+
+Подробно: [`docs/BACKUP_RESTORE.md`](docs/BACKUP_RESTORE.md).
 
 ## Media pipeline
 
