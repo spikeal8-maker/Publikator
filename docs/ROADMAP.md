@@ -43,11 +43,26 @@
 
 ## V0.6 — переносимость и данные
 
-1. Полный backup bundle: SQLite + media + metadata.
-2. Восстановление backup через UI с обязательной предварительной проверкой.
-3. Экспорт/импорт контент-плана CSV/XLSX.
-4. Google Sheets только как необязательный импорт/экспорт, никогда как runtime-зависимость.
-5. Версионированный manifest backup bundle для проверки совместимости перед restore.
+### V0.6A — backup / restore — закрыто
+
+1. Полный `.tgz` bundle: согласованный SQLite snapshot + media + versioned manifest.
+2. SHA-256 SQLite и каждого media, `PRAGMA integrity_check`, обязательные таблицы и schema compatibility.
+3. Fingerprint `APP_MASTER_KEY` без включения самого секрета в bundle.
+4. Защищённая распаковка untrusted tar: path traversal, links, duplicate/unknown entries и лишние media запрещены.
+5. Maintenance gate исключает пересечение backup/restore с активной публикацией и незавершёнными API-операциями.
+6. Автоматический `pre-restore` backup текущего состояния.
+7. Restore через `.restore-pending` и graceful restart; SQLite заменяется до `import('./db.js')`.
+8. Файловый rollback SQLite/WAL/SHM/media при ошибке применения pending restore.
+9. API create/list/download/restore/upload и Web UI с обязательным ручным подтверждением `RESTORE`.
+10. CI проверяет полный цикл `backup → mutation → restore → Docker restart → rollback state/media`.
+
+### V0.6B — контент-план — следующий этап
+
+1. Экспорт контент-плана в CSV.
+2. Импорт CSV с dry-run preview и валидацией строк до записи в БД.
+3. XLSX import/export без зависимости от LibreOffice/Google Sheets runtime.
+4. Явная схема колонок: project, title, body, schedule mode/time, targets, platform overrides, media references.
+5. Google Sheets только как необязательный импорт/экспорт в будущем, никогда как runtime-зависимость.
 
 ## V0.7 — эксплуатация и test hardening
 
