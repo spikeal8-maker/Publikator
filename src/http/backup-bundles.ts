@@ -3,7 +3,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { config } from '../config.js';
 import { event } from '../db.js';
 import { createBackupBundle, listBackupBundles, resolveBackupBundle, stageRestoreBundle } from '../backups.js';
@@ -14,6 +14,11 @@ function scheduleRestart(app: FastifyInstance): void {
   app.log.warn('Validated restore staged; graceful process restart requested');
   const timer = setTimeout(() => process.kill(process.pid, 'SIGTERM'), 500);
   timer.unref();
+}
+
+function restoreConfirmed(request: FastifyRequest): boolean {
+  const value = request.headers['x-publikator-restore'];
+  return typeof value === 'string' && value === 'RESTORE';
 }
 
 async function stageAndReply(app: FastifyInstance, reply: FastifyReply, archivePath: string) {
@@ -72,21 +77,8 @@ export async function registerBackupBundleRoutes(app: FastifyInstance): Promise<
     return reply.send(fs.createReadStream(filePath));
   });
 
-  app.post('/api/backup-bundles/:name/restore', async (request, reply) => {
-    const params = request.params as { name: string };
-    let filePath: string;
-    try {
-      filePath = resolveBackupBundle(params.name);
-      const stat = await fsp.stat(filePath);
-      if (!stat.isFile()) throw new Error('Backup bundle не найден');
-      return await stageAndReply(app, reply, filePath);
-    } catch (error) {
-      app.log.error(error, 'restore from stored backup failed');
-      return reply.code(409).send({ error: error instanceof Error ? error.message : String(error) });
-    }
-  });
-
   app.post('/api/backup-bundles/restore-upload', async (request, reply) => {
+    if (!restoreConfirmed(request)) return reply.code(400).send({ error: 'Для восстановления требуется явное подтверждение RESTORE' });
     const part = await request.file({ limits: { files: 1, fileSize: MAX_BACKUP_UPLOAD_BYTES } });
     if (!part) return reply.code(400).send({ error: 'Backup bundle не передан' });
     const originalName = path.basename(part.filename || 'backup.tgz');
@@ -105,6 +97,21 @@ export async function registerBackupBundleRoutes(app: FastifyInstance): Promise<
       return reply.code(409).send({ error: error instanceof Error ? error.message : String(error) });
     } finally {
       await fsp.rm(incomingPath, { force: true }).catch(() => undefined);
+    }
+  });
+
+  app.post('/api/backup-bundles/:name/restore', async (request, reply) => {
+    if (!restoreConfirmed(request)) return reply.code(400).send({ error: 'Для восстановления требуется явное подтверждение RESTORE' });
+    const params = request.params as { name: string };
+    let filePath: string;
+    try {
+      filePath = resolveBackupBundle(params.name);
+      const stat = await fsp.stat(filePath);
+      if (!stat.isFile()) throw new Error('Backup bundle не найден');
+      return await stageAndReply(app, reply, filePath);
+    } catch (error) {
+      app.log.error(error, 'restore from stored backup failed');
+      return reply.code(409).send({ error: error instanceof Error ? error.message : String(error) });
     }
   });
 }
