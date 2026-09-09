@@ -13,13 +13,19 @@
 5. Базовый CI smoke-flow и Docker healthcheck.
 6. Backend-контракт отдельного текста для каждой целевой площадки.
 
-## Ближайший этап V0.4
+## V0.4 — редактор публикации
 
-1. UI редактирования `override_text` для каждого выбранного аккаунта.
-2. Platform-specific preview: Telegram / VK / MAX / Instagram.
-3. Счётчики длины и предупреждения по ограничениям конкретных площадок.
-4. Явное отображение `base text` против `platform override`.
-5. E2E-проверка, что publisher реально использует override и не меняет уже опубликованные цели.
+Функциональный объём V0.4 закрыт:
+
+1. UI редактирования и сброса `override_text` для каждого аккаунта.
+2. Live preview Telegram / VK / MAX / Instagram с реальным изображением поста.
+3. Счётчик длины итогового текста и предупреждение о текущем media-ограничении Instagram.
+4. Явное отображение `Базовый текст` / `Свой текст` и выбранности площадки.
+5. Сохранённое `scheduled_at` корректно возвращается в поле `datetime-local`; дата скрыта вне режима `AT`.
+6. `PUBLISHING` / `PARTIAL` / `PUBLISHED` визуально блокируются от редактирования так же, как на backend.
+7. CI проверяет синтаксис UI-модуля и API-flow сохранения platform override.
+
+Отдельный полностью изолированный тест publisher-orchestration с mock-adapter остаётся задачей test-hardening и не требует новой runtime-инфраструктуры.
 
 ## V0.5 — медиа
 
@@ -36,9 +42,9 @@
 3. Экспорт/импорт контент-плана CSV/XLSX.
 4. Google Sheets только как необязательный импорт/экспорт, никогда как runtime-зависимость.
 
-## V0.7 — эксплуатация
+## V0.7 — эксплуатация и test hardening
 
-1. Полные CRUD/scheduler E2E-тесты на временной SQLite и mock-adapters.
+1. Полные CRUD/scheduler/publisher E2E-тесты на временной SQLite и mock-adapters.
 2. Экран диагностики: версия приложения, состояние БД, scheduler, media storage, PUBLIC_BASE_URL.
 3. Более удобная ручная обработка `RECOVERY_NEEDED`.
 4. Retention журнала событий и backup policy.
