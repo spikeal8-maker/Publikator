@@ -1,3 +1,4 @@
+import { config } from '../config.js';
 import type { Platform } from '../db.js';
 import { requireString, responseJson } from './types.js';
 import { vkCall } from './vk.js';
@@ -80,7 +81,9 @@ async function vkTest(credentials: Record<string, unknown>): Promise<ConnectionT
 async function instagramTest(credentials: Record<string, unknown>): Promise<ConnectionTestResult> {
   const accessToken = requireString(credentials, 'accessToken');
   const igUserId = requireString(credentials, 'igUserId');
-  const graphVersion = requireString(credentials, 'graphVersion');
+  const graphVersion = typeof credentials.graphVersion === 'string' && credentials.graphVersion.trim()
+    ? credentials.graphVersion.trim()
+    : config.metaGraphVersion;
   const params = new URLSearchParams({ fields: 'id,username', access_token: accessToken });
   const response = await fetch(`https://graph.facebook.com/${encodeURIComponent(graphVersion)}/${encodeURIComponent(igUserId)}?${params}`, { signal: AbortSignal.timeout(15000) });
   const body = await responseJson(response, 'Instagram account check');
