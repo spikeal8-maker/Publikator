@@ -24,20 +24,18 @@ export interface SocialPublisher {
 
 export class PlatformError extends Error {
   readonly retryable: boolean;
+  readonly outcomeUnknown: boolean;
   readonly status?: number;
   readonly code?: string | number;
 
-  constructor(message: string, options: { retryable?: boolean; status?: number; code?: string | number } = {}) {
+  constructor(message: string, options: { retryable?: boolean; outcomeUnknown?: boolean; status?: number; code?: string | number } = {}) {
     super(message);
     this.name = 'PlatformError';
     this.retryable = options.retryable ?? false;
+    this.outcomeUnknown = options.outcomeUnknown ?? false;
     this.status = options.status;
     this.code = options.code;
   }
-}
-
-export function retryableHttpStatus(status: number): boolean {
-  return status === 408 || status === 425 || status === 429 || status >= 500;
 }
 
 export function requireString(obj: Record<string, unknown>, key: string): string {
@@ -51,9 +49,11 @@ export async function responseJson(response: Response, context: string): Promise
   let body: any;
   try { body = text ? JSON.parse(text) : {}; } catch { body = { raw: text }; }
   if (!response.ok) {
-    throw new PlatformError(`${context}: HTTP ${response.status}: ${JSON.stringify(body)}`, {
-      retryable: retryableHttpStatus(response.status),
-      status: response.status
+    const status = response.status;
+    throw new PlatformError(`${context}: HTTP ${status}: ${JSON.stringify(body)}`, {
+      retryable: status === 425 || status === 429,
+      outcomeUnknown: status === 408 || status >= 500,
+      status
     });
   }
   return body;
