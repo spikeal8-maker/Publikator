@@ -9,6 +9,8 @@ import { DATABASE_SCHEMA_VERSION } from './schema.js';
 
 export const BACKUP_FORMAT = 'publikator-backup';
 export const BACKUP_FORMAT_VERSION = 1;
+const MAX_ARCHIVE_ENTRIES = 100_000;
+const MAX_EXPANDED_BYTES = 16 * 1024 * 1024 * 1024;
 
 export type BackupMediaEntry = {
   relativePath: string;
@@ -65,23 +67,44 @@ export function safeMediaRelativePath(relativePath: string): string {
   return normalized;
 }
 
-function safeArchiveEntry(entryPath: string): boolean {
-  const normalized = entryPath.replace(/\\/g, '/').replace(/^\.\//, '');
-  if (!normalized || normalized.startsWith('/') || normalized.split('/').some((part) => part === '..')) return false;
-  return normalized === 'manifest.json' || normalized === 'publikator.sqlite' || normalized === 'media' || normalized.startsWith('media/');
+function canonicalArchiveEntry(entryPath: string): string {
+  const normalized = entryPath.replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/\/+$/, '');
+  if (!normalized || normalized.startsWith('/') || normalized.includes('\0')) throw new Error(`Backup содержит небезопасный path: ${entryPath}`);
+  const segments = normalized.split('/');
+  if (segments.some((part) => !part || part === '.' || part === '..')) throw new Error(`Backup содержит небезопасный path: ${entryPath}`);
+  if (normalized !== 'manifest.json' && normalized !== 'publikator.sqlite' && normalized !== 'media' && !normalized.startsWith('media/')) {
+    throw new Error(`Backup содержит неизвестный entry: ${entryPath}`);
+  }
+  return normalized;
 }
 
 export async function extractBackupArchive(archivePath: string, destination: string): Promise<void> {
   await fs.mkdir(destination, { recursive: true });
+  const seen = new Set<string>();
+  let entries = 0;
+  let expandedBytes = 0;
   await tar.extract({
     file: archivePath,
     cwd: destination,
     strict: true,
     preservePaths: false,
     filter: (entryPath, entry) => {
-      if (!safeArchiveEntry(entryPath)) return false;
+      const canonical = canonicalArchiveEntry(entryPath);
+      if (seen.has(canonical)) throw new Error(`Backup содержит повторяющийся entry: ${canonical}`);
+      seen.add(canonical);
+      entries += 1;
+      if (entries > MAX_ARCHIVE_ENTRIES) throw new Error(`Backup содержит больше ${MAX_ARCHIVE_ENTRIES} entries`);
+
       const type = String((entry as { type?: string }).type || '');
-      if (type && !['File', 'OldFile', 'ContiguousFile', 'Directory'].includes(type)) return false;
+      if (!['File', 'OldFile', 'ContiguousFile', 'Directory'].includes(type)) {
+        throw new Error(`Backup содержит запрещённый тип entry ${type || 'unknown'}: ${canonical}`);
+      }
+      if (type !== 'Directory') {
+        const size = Number((entry as { size?: number }).size || 0);
+        if (!Number.isSafeInteger(size) || size < 0) throw new Error(`Backup содержит некорректный размер entry: ${canonical}`);
+        expandedBytes += size;
+        if (expandedBytes > MAX_EXPANDED_BYTES) throw new Error('Распакованный backup превышает безопасный лимит 16 ГБ');
+      }
       return true;
     }
   });
@@ -91,13 +114,35 @@ function readCount(database: Database.Database, table: string): number {
   return Number((database.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number }).count);
 }
 
+async function walkFiles(root: string, relative = ''): Promise<string[]> {
+  const directory = path.join(root, ...relative.split('/').filter(Boolean));
+  const entries = await fs.readdir(directory, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return [];
+    throw error;
+  });
+  const files: string[] = [];
+  for (const entry of entries) {
+    const child = relative ? `${relative}/${entry.name}` : entry.name;
+    if (entry.isSymbolicLink()) throw new Error(`Backup media содержит symlink: ${child}`);
+    if (entry.isDirectory()) files.push(...await walkFiles(root, child));
+    else if (entry.isFile()) files.push(safeMediaRelativePath(child));
+    else throw new Error(`Backup media содержит неподдерживаемый filesystem entry: ${child}`);
+  }
+  return files.sort();
+}
+
 export async function validateBackupDirectory(directory: string): Promise<BackupManifest> {
   const manifestPath = path.join(directory, 'manifest.json');
   const manifestStat = await fs.stat(manifestPath).catch(() => null);
   if (!manifestStat?.isFile()) throw new Error('Backup bundle не содержит manifest.json');
   if (manifestStat.size > 10 * 1024 * 1024) throw new Error('manifest.json слишком большой');
 
-  const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8')) as Partial<BackupManifest>;
+  let manifest: Partial<BackupManifest>;
+  try {
+    manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8')) as Partial<BackupManifest>;
+  } catch (error) {
+    throw new Error(`manifest.json повреждён: ${error instanceof Error ? error.message : String(error)}`);
+  }
   if (manifest.format !== BACKUP_FORMAT || manifest.formatVersion !== BACKUP_FORMAT_VERSION) {
     throw new Error('Неподдерживаемый формат backup bundle');
   }
@@ -131,14 +176,22 @@ export async function validateBackupDirectory(directory: string): Promise<Backup
 
     const mediaRows = snapshot.prepare('SELECT relative_path,size_bytes,sha256 FROM media ORDER BY relative_path').all() as Array<{ relative_path: string; size_bytes: number; sha256: string }>;
     if (mediaRows.length !== manifest.mediaFiles.length) throw new Error('Количество media в manifest не совпадает с SQLite');
-    const manifestMedia = new Map(manifest.mediaFiles.map((item) => [safeMediaRelativePath(String(item.relativePath)), item]));
-    if (manifestMedia.size !== manifest.mediaFiles.length) throw new Error('manifest содержит повторяющиеся media path');
+    const manifestMedia = new Map<string, BackupMediaEntry>();
+    for (const rawItem of manifest.mediaFiles) {
+      if (!rawItem || typeof rawItem !== 'object') throw new Error('manifest содержит некорректный media entry');
+      const relativePath = safeMediaRelativePath(String(rawItem.relativePath));
+      const sizeBytes = Number(rawItem.sizeBytes);
+      const sha256 = String(rawItem.sha256);
+      if (!Number.isSafeInteger(sizeBytes) || sizeBytes < 0 || !/^[a-f0-9]{64}$/.test(sha256)) throw new Error(`manifest содержит некорректную metadata для ${relativePath}`);
+      if (manifestMedia.has(relativePath)) throw new Error(`manifest содержит повторяющийся media path ${relativePath}`);
+      manifestMedia.set(relativePath, { relativePath, sizeBytes, sha256 });
+    }
 
     for (const row of mediaRows) {
       const relativePath = safeMediaRelativePath(row.relative_path);
       const expected = manifestMedia.get(relativePath);
       if (!expected) throw new Error(`manifest не содержит media ${relativePath}`);
-      if (Number(expected.sizeBytes) !== Number(row.size_bytes) || String(expected.sha256) !== String(row.sha256)) {
+      if (expected.sizeBytes !== Number(row.size_bytes) || expected.sha256 !== String(row.sha256)) {
         throw new Error(`manifest metadata не совпадает с SQLite для ${relativePath}`);
       }
       const filePath = path.join(directory, 'media', ...relativePath.split('/'));
@@ -147,6 +200,12 @@ export async function validateBackupDirectory(directory: string): Promise<Backup
       if (stat.size !== Number(row.size_bytes)) throw new Error(`Размер media/${relativePath} не совпадает с SQLite`);
       const hash = await sha256File(filePath);
       if (hash !== row.sha256) throw new Error(`SHA-256 media/${relativePath} не совпадает с SQLite`);
+    }
+
+    const extractedMediaFiles = await walkFiles(path.join(directory, 'media'));
+    const expectedMediaFiles = [...manifestMedia.keys()].sort();
+    if (extractedMediaFiles.length !== expectedMediaFiles.length || extractedMediaFiles.some((file, index) => file !== expectedMediaFiles[index])) {
+      throw new Error('Backup media содержит лишние или отсутствующие файлы');
     }
 
     if (!manifest.counts ||
