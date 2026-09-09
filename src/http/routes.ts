@@ -4,7 +4,7 @@ import { config } from '../config.js';
 import { createSessionToken, decryptJson, encryptJson, securePasswordEqual, verifySessionToken } from '../crypto.js';
 import { db, event, id, nowIso, type Platform } from '../db.js';
 import { deleteMedia, listMedia, saveImage } from '../media.js';
-import { ensureTargets, publishPost, publishTarget, refreshPostStatus, setTargetSelection } from '../publisher.js';
+import { ensureTargets, preflightPost, publishPost, publishTarget, refreshPostStatus, setTargetSelection } from '../publisher.js';
 import { testConnection } from '../platforms/connection-test.js';
 
 const PLATFORMS = new Set<Platform>(['telegram','vk','max','instagram']);
@@ -205,9 +205,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (!part) return reply.code(400).send({ error: 'Файл не передан' });
     if (!part.mimetype.startsWith('image/')) return reply.code(400).send({ error: 'Допускаются только изображения' });
     const buffer = await part.toBuffer();
-    const saved = await saveImage(params.id, part.filename, buffer);
-    db.prepare("UPDATE posts SET status='DRAFT',updated_at=? WHERE id=?").run(nowIso(), params.id);
-    return reply.code(201).send(saved);
+    try {
+      const saved = await saveImage(params.id, part.filename, buffer);
+      db.prepare("UPDATE posts SET status='DRAFT',updated_at=? WHERE id=?").run(nowIso(), params.id);
+      return reply.code(201).send(saved);
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
   });
   app.delete('/api/media/:id', async (request, reply) => {
     const params = request.params as { id: string };
@@ -229,6 +233,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     ensureTargets(params.id);
     const accountCount = db.prepare("SELECT COUNT(*) AS count FROM post_targets pt JOIN social_accounts a ON a.id=pt.account_id WHERE pt.post_id=? AND pt.enabled=1 AND a.enabled=1").get(params.id) as { count: number };
     if (accountCount.count < 1) return reply.code(409).send({ error: 'Не выбрана ни одна активная соцсеть' });
+
+    const preflight = preflightPost(params.id);
+    if (!preflight.ok) {
+      const details = preflight.issues.map((issue) => `${issue.platform} / ${issue.accountName}: ${issue.message}`).join('\n');
+      event({ postId: params.id, level: 'warning', type: 'post_preflight_failed', message: 'Пост не прошёл проверку перед READY', data: { issues: preflight.issues } });
+      return reply.code(409).send({ error: `Пост не готов к публикации:\n${details}`, issues: preflight.issues });
+    }
+
     db.prepare("UPDATE posts SET status='READY',updated_at=? WHERE id=?").run(nowIso(), params.id);
     event({ postId: params.id, type: 'post_ready', message: 'Пост готов к публикации' });
     return { ok: true };
