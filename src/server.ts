@@ -9,6 +9,7 @@ import { applyPendingRestore } from './restore-bootstrap.js';
 const restoreResult = await applyPendingRestore();
 
 const { migrate } = await import('./db.js');
+const { registerMaintenanceGuard } = await import('./http/maintenance.js');
 const { registerRoutes } = await import('./http/routes.js');
 const { registerTargetOverrideRoutes } = await import('./http/target-overrides.js');
 const { registerMediaOrderRoutes } = await import('./http/media-order.js');
@@ -22,6 +23,7 @@ await app.register(cookie);
 await app.register(multipart);
 await app.register(fastifyStatic, { root: config.publicDir, prefix: '/' });
 await app.register(fastifyStatic, { root: config.mediaDir, prefix: '/public-media/', decorateReply: false, index: false });
+await registerMaintenanceGuard(app);
 await registerRoutes(app);
 await registerTargetOverrideRoutes(app);
 await registerMediaOrderRoutes(app);
