@@ -17,6 +17,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       - run: node --check public/app.js
+      - run: node --check public/post-editor-v04.js
       - run: docker build -t publikator-ci .
       - name: Runtime and API smoke test
         shell: bash
@@ -71,6 +72,20 @@ jobs:
             -d "{\"projectId\":\"${PROJECT_ID}\",\"title\":\"CI post\",\"body\":\"Smoke test body\",\"scheduleMode\":\"MANUAL\"}" \
             http://127.0.0.1:18080/api/posts | jq -er '.id')"
 
+          TARGET_ID="$(curl -fsS -b /tmp/publikator-cookies.txt \
+            "http://127.0.0.1:18080/api/posts/${POST_ID}" | jq -er '.targets[0].id')"
+
+          curl -fsS -b /tmp/publikator-cookies.txt \
+            -X PATCH \
+            -H 'content-type: application/json' \
+            -d '{"text":"Telegram CI override"}' \
+            "http://127.0.0.1:18080/api/posts/${POST_ID}/targets/${TARGET_ID}/text" | \
+            jq -e '.ok == true and .target.overrideText == "Telegram CI override" and .target.resolvedText == "Telegram CI override"'
+
+          curl -fsS -b /tmp/publikator-cookies.txt \
+            "http://127.0.0.1:18080/api/posts/${POST_ID}" | \
+            jq -e '.status == "DRAFT" and .targets[0].override_text == "Telegram CI override"'
+
           node --input-type=module -e "import sharp from 'sharp'; await sharp({create:{width:16,height:16,channels:3,background:{r:255,g:255,b:255}}}).png().toFile('/tmp/publikator-pixel.png')"
           curl -fsS -b /tmp/publikator-cookies.txt \
             -F 'file=@/tmp/publikator-pixel.png;type=image/png' \
@@ -81,4 +96,4 @@ jobs:
 
           curl -fsS -b /tmp/publikator-cookies.txt \
             "http://127.0.0.1:18080/api/posts/${POST_ID}" | \
-            jq -e '.status == "READY" and (.media | length) == 1 and (.targets | length) == 1 and (.targets[0].enabled == 1)'
+            jq -e '.status == "READY" and (.media | length) == 1 and (.targets | length) == 1 and (.targets[0].enabled == 1) and .targets[0].override_text == "Telegram CI override"'
