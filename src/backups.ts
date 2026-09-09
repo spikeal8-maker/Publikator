@@ -5,6 +5,7 @@ import Database from 'better-sqlite3';
 import * as tar from 'tar';
 import { config } from './config.js';
 import { db } from './db.js';
+import { beginMaintenance } from './runtime-gate.js';
 import {
   BACKUP_FORMAT,
   BACKUP_FORMAT_VERSION,
@@ -111,18 +112,27 @@ async function createBackupBundleInternal(label: string): Promise<BackupListItem
   }
 }
 
-async function withBundleOperation<T>(operation: () => Promise<T>): Promise<T> {
+function claimBundleOperation(): () => void {
   if (bundleOperationInProgress) throw new Error('Уже выполняется операция с backup bundle');
   bundleOperationInProgress = true;
-  try {
-    return await operation();
-  } finally {
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
     bundleOperationInProgress = false;
-  }
+  };
 }
 
 export async function createBackupBundle(label = 'manual'): Promise<BackupListItem> {
-  return withBundleOperation(() => createBackupBundleInternal(label));
+  const releaseOperation = claimBundleOperation();
+  let releaseMaintenance: (() => void) | null = null;
+  try {
+    releaseMaintenance = beginMaintenance('создание backup');
+    return await createBackupBundleInternal(label);
+  } finally {
+    releaseMaintenance?.();
+    releaseOperation();
+  }
 }
 
 export async function listBackupBundles(): Promise<BackupListItem[]> {
@@ -141,21 +151,28 @@ export function resolveBackupBundle(name: string): string {
 }
 
 export async function stageRestoreBundle(archivePath: string): Promise<{ manifest: BackupManifest; preRestoreBackup: BackupListItem }> {
-  return withBundleOperation(async () => {
+  const releaseOperation = claimBundleOperation();
+  let releaseMaintenance: (() => void) | null = null;
+  let staged = false;
+  const extractionDir = path.join(config.backupDir, `.restore-stage-${crypto.randomUUID()}`);
+  try {
+    releaseMaintenance = beginMaintenance('подготовка восстановления backup');
     const pendingExists = await fs.stat(config.restorePendingDir).then(() => true).catch(() => false);
     if (pendingExists) throw new Error('Уже существует подготовленное восстановление. Перезапустите Publikator или удалите повреждённый pending restore вручную.');
 
-    const extractionDir = path.join(config.backupDir, `.restore-stage-${crypto.randomUUID()}`);
-    let moved = false;
-    try {
-      await extractBackupArchive(archivePath, extractionDir);
-      const manifest = await validateBackupDirectory(extractionDir);
-      const preRestoreBackup = await createBackupBundleInternal('pre-restore');
-      await fs.rename(extractionDir, config.restorePendingDir);
-      moved = true;
-      return { manifest, preRestoreBackup };
-    } finally {
-      if (!moved) await fs.rm(extractionDir, { recursive: true, force: true }).catch(() => undefined);
+    await extractBackupArchive(archivePath, extractionDir);
+    const manifest = await validateBackupDirectory(extractionDir);
+    const preRestoreBackup = await createBackupBundleInternal('pre-restore');
+    await fs.rename(extractionDir, config.restorePendingDir);
+    staged = true;
+    return { manifest, preRestoreBackup };
+  } finally {
+    if (!staged) {
+      await fs.rm(extractionDir, { recursive: true, force: true }).catch(() => undefined);
+      releaseMaintenance?.();
+      releaseOperation();
     }
-  });
+    // При успешном staging maintenance и operation lock намеренно остаются активными
+    // до SIGTERM: между подготовкой restore и остановкой процесса нельзя менять runtime state.
+  }
 }
