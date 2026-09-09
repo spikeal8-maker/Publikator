@@ -6,6 +6,7 @@ import fastifyStatic from '@fastify/static';
 import { config } from './config.js';
 import { migrate } from './db.js';
 import { registerRoutes } from './http/routes.js';
+import { registerContentPlanRoutes } from './http/content-plan-routes.js';
 import { schedulerTick } from './scheduler.js';
 
 migrate();
@@ -16,6 +17,7 @@ await app.register(multipart);
 await app.register(fastifyStatic, { root: config.publicDir, prefix: '/' });
 await app.register(fastifyStatic, { root: config.mediaDir, prefix: '/public-media/', decorateReply: false, index: false });
 await registerRoutes(app);
+await registerContentPlanRoutes(app);
 
 app.setNotFoundHandler((request, reply) => {
   if (request.url.startsWith('/api/') || request.url.startsWith('/public-media/')) return reply.code(404).send({ error: 'Not found' });
@@ -36,4 +38,4 @@ process.on('SIGTERM', close);
 process.on('SIGINT', close);
 
 await app.listen({ port: config.port, host: config.host });
-app.log.info({ publicBaseUrl: config.publicBaseUrl || null }, 'Publikator started');
+app.log.info({ publicBaseUrl: config.publicBaseUrl || null, metaGraphVersion: config.metaGraphVersion }, 'Publikator started');
