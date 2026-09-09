@@ -13,13 +13,16 @@ function retryTime(attempts: number): string | null {
 
 export function ensureTargets(postId: string): void {
   const now = nowIso();
-  const existing = db.prepare('SELECT COUNT(*) AS count FROM post_targets WHERE post_id=?').get(postId) as { count: number };
-  const defaultEnabled = existing.count === 0 ? 1 : 0;
-  const accounts = db.prepare('SELECT id FROM social_accounts WHERE enabled=1 ORDER BY created_at').all() as Array<{ id: string }>;
+  const post = db.prepare('SELECT created_at FROM posts WHERE id=?').get(postId) as { created_at: string } | undefined;
+  if (!post) throw new Error('Пост не найден');
+  const accounts = db.prepare('SELECT id,created_at FROM social_accounts WHERE enabled=1 ORDER BY created_at').all() as Array<{ id: string; created_at: string }>;
   const insert = db.prepare(`INSERT OR IGNORE INTO post_targets
     (id,post_id,account_id,enabled,state,attempts,updated_at) VALUES (lower(hex(randomblob(16))),?,?,?,?,0,?)`);
   const tx = db.transaction(() => {
-    for (const account of accounts) insert.run(postId, account.id, defaultEnabled, 'PENDING', now);
+    for (const account of accounts) {
+      const existedWhenPostWasCreated = account.created_at <= post.created_at ? 1 : 0;
+      insert.run(postId, account.id, existedWhenPostWasCreated, 'PENDING', now);
+    }
   });
   tx();
 }
@@ -90,8 +93,12 @@ export async function publishTarget(targetId: string): Promise<void> {
     let next: string | null = null;
 
     if (error instanceof PlatformError) {
-      next = error.retryable ? retryTime(fresh.attempts) : null;
-      state = next ? 'RETRY' : 'FAILED';
+      if (error.outcomeUnknown) {
+        state = 'RECOVERY_NEEDED';
+      } else {
+        next = error.retryable ? retryTime(fresh.attempts) : null;
+        state = next ? 'RETRY' : 'FAILED';
+      }
     } else {
       state = 'RECOVERY_NEEDED';
     }
@@ -107,7 +114,7 @@ export async function publishTarget(targetId: string): Promise<void> {
       level: 'error',
       type: state === 'RECOVERY_NEEDED' ? 'publish_recovery_needed' : 'publish_failed',
       message: storedMessage,
-      data: { platform: target.platform, attempts: fresh.attempts, next, retryable: error instanceof PlatformError ? error.retryable : null }
+      data: { platform: target.platform, attempts: fresh.attempts, next, retryable: error instanceof PlatformError ? error.retryable : null, outcomeUnknown: error instanceof PlatformError ? error.outcomeUnknown : true }
     });
   }
 }
