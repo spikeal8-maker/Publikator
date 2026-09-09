@@ -22,6 +22,7 @@ export const config = {
   publicBaseUrl,
   adminPassword: required('ADMIN_PASSWORD'),
   masterKey,
+  metaGraphVersion: process.env.META_GRAPH_VERSION?.trim() || 'v26.0',
   sessionTtlMs: Number(process.env.SESSION_TTL_HOURS || 24) * 60 * 60 * 1000,
   schedulerIntervalMs: Math.max(5000, Number(process.env.SCHEDULER_INTERVAL_MS || 15000))
 };
