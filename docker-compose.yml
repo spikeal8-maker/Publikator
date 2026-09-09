@@ -1,0 +1,18 @@
+services:
+  publikator:
+    build: .
+    container_name: publikator
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"
+      HOST: "0.0.0.0"
+      DATA_DIR: "/app/data"
+      PUBLIC_BASE_URL: "${PUBLIC_BASE_URL}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD}"
+      APP_MASTER_KEY: "${APP_MASTER_KEY}"
+      SESSION_TTL_HOURS: "${SESSION_TTL_HOURS:-24}"
+      SCHEDULER_INTERVAL_MS: "${SCHEDULER_INTERVAL_MS:-15000}"
+    volumes:
+      - ./data:/app/data

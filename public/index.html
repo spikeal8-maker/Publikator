@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Publikator</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div id="login" class="center-card hidden">
+    <h1>Publikator</h1>
+    <p>Единая система публикации</p>
+    <form id="login-form">
+      <input id="password" type="password" autocomplete="current-password" placeholder="Пароль администратора" required>
+      <button type="submit">Войти</button>
+    </form>
+    <div id="login-error" class="error"></div>
+  </div>
+
+  <div id="app" class="hidden shell">
+    <aside>
+      <div class="brand">Publikator</div>
+      <button class="nav active" data-view="dashboard">Обзор</button>
+      <button class="nav" data-view="posts">Контент</button>
+      <button class="nav" data-view="accounts">Соцсети</button>
+      <button class="nav" data-view="schedules">Расписание</button>
+      <button class="nav" data-view="events">Журнал</button>
+      <button class="nav" data-view="backups">Резервные копии</button>
+      <button id="logout" class="nav bottom">Выйти</button>
+    </aside>
+    <main>
+      <header><h1 id="page-title">Обзор</h1><div id="status-line"></div></header>
+      <section id="view"></section>
+    </main>
+  </div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
