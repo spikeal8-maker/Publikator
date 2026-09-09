@@ -2,6 +2,7 @@ import { decryptJson } from './crypto.js';
 import { db, event, nowIso, type Platform, type TargetState } from './db.js';
 import { listMedia, mediaPublicUrl } from './media.js';
 import { getPublisher } from './platforms/index.js';
+import { PlatformError } from './platforms/types.js';
 
 const RETRY_DELAYS_MS = [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000];
 
@@ -54,30 +55,60 @@ export async function publishTarget(targetId: string): Promise<void> {
   const publisher = getPublisher(target.platform as Platform);
   const text = target.override_text || target.body;
 
+  const input = {
+    postId: target.post_id,
+    title: target.title,
+    text,
+    media,
+    credentials,
+    publicMediaUrls
+  };
+
+  try {
+    publisher.validate(input);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    db.prepare("UPDATE post_targets SET state='FAILED', next_attempt_at=NULL, last_error=?, updated_at=? WHERE id=?")
+      .run(message, nowIso(), targetId);
+    event({ postId: target.post_id, accountId: target.account_id, level: 'error', type: 'publish_validation_failed', message, data: { platform: target.platform } });
+    return;
+  }
+
   db.prepare("UPDATE post_targets SET state='PUBLISHING', attempts=attempts+1, last_error=NULL, updated_at=? WHERE id=?")
     .run(nowIso(), targetId);
   event({ postId: target.post_id, accountId: target.account_id, type: 'publish_started', message: `Публикация начата: ${target.platform}` });
 
   try {
-    const result = await publisher.publish({
-      postId: target.post_id,
-      title: target.title,
-      text,
-      media,
-      credentials,
-      publicMediaUrls
-    });
+    const result = await publisher.publish(input);
     db.prepare(`UPDATE post_targets SET state='PUBLISHED', external_id=?, external_url=?, published_at=?, next_attempt_at=NULL, updated_at=? WHERE id=?`)
       .run(result.externalId, result.externalUrl ?? null, nowIso(), nowIso(), targetId);
     event({ postId: target.post_id, accountId: target.account_id, type: 'publish_succeeded', message: `Опубликовано: ${target.platform}`, data: { externalId: result.externalId, externalUrl: result.externalUrl } });
   } catch (error) {
     const fresh = db.prepare('SELECT attempts FROM post_targets WHERE id=?').get(targetId) as { attempts: number };
-    const next = retryTime(fresh.attempts);
-    const state: TargetState = next ? 'RETRY' : 'FAILED';
     const message = error instanceof Error ? error.message : String(error);
+    let state: TargetState;
+    let next: string | null = null;
+
+    if (error instanceof PlatformError) {
+      next = error.retryable ? retryTime(fresh.attempts) : null;
+      state = next ? 'RETRY' : 'FAILED';
+    } else {
+      state = 'RECOVERY_NEEDED';
+    }
+
+    const storedMessage = state === 'RECOVERY_NEEDED'
+      ? `${message} Результат внешнего POST может быть неопределён; автоматический повтор отключён во избежание дубля.`
+      : message;
     db.prepare('UPDATE post_targets SET state=?, next_attempt_at=?, last_error=?, updated_at=? WHERE id=?')
-      .run(state, next, message, nowIso(), targetId);
-    event({ postId: target.post_id, accountId: target.account_id, level: 'error', type: 'publish_failed', message, data: { platform: target.platform, attempts: fresh.attempts, next } });
+      .run(state, next, storedMessage, nowIso(), targetId);
+    event({
+      postId: target.post_id,
+      accountId: target.account_id,
+      level: 'error',
+      type: state === 'RECOVERY_NEEDED' ? 'publish_recovery_needed' : 'publish_failed',
+      message: storedMessage,
+      data: { platform: target.platform, attempts: fresh.attempts, next, retryable: error instanceof PlatformError ? error.retryable : null }
+    });
   }
 }
 
