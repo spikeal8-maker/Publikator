@@ -1,9 +1,17 @@
 import fs from 'node:fs/promises';
 import { mediaAbsolutePath } from '../media.js';
 import type { PublishInput, PublishResult, SocialPublisher } from './types.js';
-import { requireString, responseJson } from './types.js';
+import { PlatformError, requireString, responseJson } from './types.js';
 
 const CAPTION_LIMIT = 1024;
+
+function telegramError(body: any): PlatformError {
+  const code = Number(body?.error_code || 0);
+  return new PlatformError(`Telegram: ${body?.description || 'неизвестная ошибка'}`, {
+    retryable: code === 429 || code >= 500,
+    code
+  });
+}
 
 async function sendMessage(token: string, chatId: string, text: string): Promise<any> {
   const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -12,7 +20,7 @@ async function sendMessage(token: string, chatId: string, text: string): Promise
     body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: false })
   });
   const body = await responseJson(response, 'Telegram sendMessage');
-  if (!body.ok) throw new Error(`Telegram: ${body.description || 'неизвестная ошибка'}`);
+  if (!body.ok) throw telegramError(body);
   return body.result;
 }
 
@@ -39,7 +47,7 @@ export const telegramPublisher: SocialPublisher = {
       data.set('photo', new Blob([await fs.readFile(mediaAbsolutePath(media))], { type: 'image/jpeg' }), media.original_name.replace(/\.[^.]+$/, '') + '.jpg');
       const response = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, { method: 'POST', body: data });
       const body = await responseJson(response, 'Telegram sendPhoto');
-      if (!body.ok) throw new Error(`Telegram: ${body.description || 'неизвестная ошибка'}`);
+      if (!body.ok) throw telegramError(body);
       result = body.result;
     } else {
       const data = new FormData();
@@ -54,7 +62,7 @@ export const telegramPublisher: SocialPublisher = {
       data.set('media', JSON.stringify(descriptors));
       const response = await fetch(`https://api.telegram.org/bot${token}/sendMediaGroup`, { method: 'POST', body: data });
       const body = await responseJson(response, 'Telegram sendMediaGroup');
-      if (!body.ok) throw new Error(`Telegram: ${body.description || 'неизвестная ошибка'}`);
+      if (!body.ok) throw telegramError(body);
       result = body.result?.[0];
     }
 
