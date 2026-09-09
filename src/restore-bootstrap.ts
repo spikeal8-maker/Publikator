@@ -74,9 +74,14 @@ export async function applyPendingRestore(): Promise<{ applied: boolean; created
     try { if (oldShmMoved) await fs.rename(rollbackShm, liveShm); } catch (rollbackError) { rollbackErrors.push(`shm: ${String(rollbackError)}`); }
     try { if (oldMediaMoved) await fs.rename(rollbackMedia, config.mediaDir); } catch (rollbackError) { rollbackErrors.push(`media: ${String(rollbackError)}`); }
 
-    if (rollbackErrors.length === 0) await removeIfExists(rollbackDir);
+    if (rollbackErrors.length === 0) {
+      await removeIfExists(config.restorePendingDir);
+      await removeIfExists(rollbackDir);
+    }
     const message = error instanceof Error ? error.message : String(error);
-    const rollbackSuffix = rollbackErrors.length ? ` Rollback errors: ${rollbackErrors.join('; ')}` : ' Текущие данные восстановлены из локального rollback.';
+    const rollbackSuffix = rollbackErrors.length
+      ? ` Rollback errors: ${rollbackErrors.join('; ')}`
+      : ' Текущие данные восстановлены из локального rollback; повреждённый pending restore удалён.';
     throw new Error(`Не удалось применить pending restore: ${message}.${rollbackSuffix}`);
   }
 }
