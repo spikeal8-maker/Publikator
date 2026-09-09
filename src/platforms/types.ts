@@ -22,6 +22,22 @@ export interface SocialPublisher {
   publish(input: PublishInput): Promise<PublishResult>;
 }
 
+export class PlatformError extends Error {
+  readonly retryable: boolean;
+  readonly outcomeUnknown: boolean;
+  readonly status?: number;
+  readonly code?: string | number;
+
+  constructor(message: string, options: { retryable?: boolean; outcomeUnknown?: boolean; status?: number; code?: string | number } = {}) {
+    super(message);
+    this.name = 'PlatformError';
+    this.retryable = options.retryable ?? false;
+    this.outcomeUnknown = options.outcomeUnknown ?? false;
+    this.status = options.status;
+    this.code = options.code;
+  }
+}
+
 export function requireString(obj: Record<string, unknown>, key: string): string {
   const value = obj[key];
   if (typeof value !== 'string' || !value.trim()) throw new Error(`Не заполнено поле ${key}`);
@@ -32,6 +48,13 @@ export async function responseJson(response: Response, context: string): Promise
   const text = await response.text();
   let body: any;
   try { body = text ? JSON.parse(text) : {}; } catch { body = { raw: text }; }
-  if (!response.ok) throw new Error(`${context}: HTTP ${response.status}: ${JSON.stringify(body)}`);
+  if (!response.ok) {
+    const status = response.status;
+    throw new PlatformError(`${context}: HTTP ${status}: ${JSON.stringify(body)}`, {
+      retryable: status === 425 || status === 429,
+      outcomeUnknown: status === 408 || status >= 500,
+      status
+    });
+  }
   return body;
 }

@@ -18,19 +18,67 @@ jobs:
       - run: npm run build
       - run: node --check public/app.js
       - run: docker build -t publikator-ci .
-      - name: Runtime smoke test
+      - name: Runtime and API smoke test
+        shell: bash
         run: |
+          set -euo pipefail
           docker run -d --name publikator-smoke -p 18080:8080 \
             -e ADMIN_PASSWORD=ci-password \
             -e APP_MASTER_KEY=ci-master-key-that-is-longer-than-32-characters \
             publikator-ci
+
+          cleanup() {
+            docker rm -f publikator-smoke >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          READY=0
           for i in $(seq 1 20); do
             if curl -fsS http://127.0.0.1:18080/api/health; then
-              docker rm -f publikator-smoke
-              exit 0
+              READY=1
+              break
             fi
             sleep 1
           done
-          docker logs publikator-smoke
-          docker rm -f publikator-smoke
-          exit 1
+          if [ "$READY" != "1" ]; then
+            docker logs publikator-smoke
+            exit 1
+          fi
+
+          curl -fsS -c /tmp/publikator-cookies.txt \
+            -H 'content-type: application/json' \
+            -d '{"password":"ci-password"}' \
+            http://127.0.0.1:18080/api/auth/login | jq -e '.ok == true'
+
+          PROJECT_ID="$(curl -fsS -b /tmp/publikator-cookies.txt http://127.0.0.1:18080/api/projects | jq -er '.[0].id')"
+
+          OLD_POST_ID="$(curl -fsS -b /tmp/publikator-cookies.txt \
+            -H 'content-type: application/json' \
+            -d "{\"projectId\":\"${PROJECT_ID}\",\"title\":\"Before account\",\"body\":\"Must not auto-target future accounts\",\"scheduleMode\":\"MANUAL\"}" \
+            http://127.0.0.1:18080/api/posts | jq -er '.id')"
+
+          curl -fsS -b /tmp/publikator-cookies.txt \
+            -H 'content-type: application/json' \
+            -d '{"platform":"telegram","name":"CI target","credentials":{"botToken":"fake-token","chatId":"@fake-channel"}}' \
+            http://127.0.0.1:18080/api/accounts | jq -e '.id != null'
+
+          curl -fsS -b /tmp/publikator-cookies.txt \
+            "http://127.0.0.1:18080/api/posts/${OLD_POST_ID}" | \
+            jq -e '(.targets | length) == 1 and (.targets[0].enabled == 0)'
+
+          POST_ID="$(curl -fsS -b /tmp/publikator-cookies.txt \
+            -H 'content-type: application/json' \
+            -d "{\"projectId\":\"${PROJECT_ID}\",\"title\":\"CI post\",\"body\":\"Smoke test body\",\"scheduleMode\":\"MANUAL\"}" \
+            http://127.0.0.1:18080/api/posts | jq -er '.id')"
+
+          node --input-type=module -e "import sharp from 'sharp'; await sharp({create:{width:16,height:16,channels:3,background:{r:255,g:255,b:255}}}).png().toFile('/tmp/publikator-pixel.png')"
+          curl -fsS -b /tmp/publikator-cookies.txt \
+            -F 'file=@/tmp/publikator-pixel.png;type=image/png' \
+            "http://127.0.0.1:18080/api/posts/${POST_ID}/media" | jq -e '.id != null'
+
+          curl -fsS -b /tmp/publikator-cookies.txt -X POST \
+            "http://127.0.0.1:18080/api/posts/${POST_ID}/ready" | jq -e '.ok == true'
+
+          curl -fsS -b /tmp/publikator-cookies.txt \
+            "http://127.0.0.1:18080/api/posts/${POST_ID}" | \
+            jq -e '.status == "READY" and (.media | length) == 1 and (.targets | length) == 1 and (.targets[0].enabled == 1)'

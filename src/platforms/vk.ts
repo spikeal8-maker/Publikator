@@ -1,13 +1,21 @@
 import fs from 'node:fs/promises';
 import { mediaAbsolutePath } from '../media.js';
 import type { PublishInput, PublishResult, SocialPublisher } from './types.js';
-import { requireString, responseJson } from './types.js';
+import { PlatformError, requireString, responseJson } from './types.js';
 
-async function vkCall(method: string, params: Record<string, string>): Promise<any> {
+const VK_RETRYABLE_CODES = new Set([1, 6, 9, 10, 29]);
+
+export async function vkCall(method: string, params: Record<string, string>): Promise<any> {
   const body = new URLSearchParams(params);
   const response = await fetch(`https://api.vk.com/method/${method}`, { method: 'POST', body });
   const payload = await responseJson(response, `VK ${method}`);
-  if (payload.error) throw new Error(`VK ${method}: ${payload.error.error_code} ${payload.error.error_msg}`);
+  if (payload.error) {
+    const code = Number(payload.error.error_code || 0);
+    throw new PlatformError(`VK ${method}: ${code} ${payload.error.error_msg}`, {
+      retryable: VK_RETRYABLE_CODES.has(code),
+      code
+    });
+  }
   return payload.response;
 }
 

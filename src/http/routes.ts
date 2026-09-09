@@ -5,11 +5,13 @@ import { createSessionToken, decryptJson, encryptJson, securePasswordEqual, veri
 import { db, event, id, nowIso, type Platform } from '../db.js';
 import { deleteMedia, listMedia, saveImage } from '../media.js';
 import { ensureTargets, publishPost, publishTarget, refreshPostStatus, setTargetSelection } from '../publisher.js';
+import { testConnection } from '../platforms/connection-test.js';
 
 const PLATFORMS = new Set<Platform>(['telegram','vk','max','instagram']);
 const loginFailures = new Map<string, { count: number; windowStartedAt: number; blockedUntil: number }>();
 const LOGIN_WINDOW_MS = 10 * 60 * 1000;
 const LOGIN_MAX_FAILURES = 5;
+const IMMUTABLE_POST_STATUSES = new Set(['PUBLISHING','PUBLISHED','PARTIAL']);
 
 function bodyObject(body: unknown): Record<string, any> {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('Ожидается JSON-объект');
@@ -80,6 +82,17 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const rows = db.prepare('SELECT id,platform,name,enabled,created_at,updated_at FROM social_accounts ORDER BY platform,name').all();
     return rows;
   });
+  app.post('/api/accounts/test', async (request, reply) => {
+    const body = bodyObject(request.body);
+    const platform = String(body.platform || '') as Platform;
+    if (!PLATFORMS.has(platform)) return reply.code(400).send({ error: 'Неизвестная площадка' });
+    if (!body.credentials || typeof body.credentials !== 'object' || Array.isArray(body.credentials)) return reply.code(400).send({ error: 'Нужны credentials' });
+    try {
+      return await testConnection(platform, body.credentials as Record<string, unknown>);
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
   app.post('/api/accounts', async (request, reply) => {
     const body = bodyObject(request.body);
     const platform = String(body.platform || '') as Platform;
@@ -109,6 +122,16 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (!row) return reply.code(404).send({ error: 'Аккаунт не найден' });
     const value = decryptJson<Record<string, unknown>>(row.credentials_encrypted);
     return { ok: true, fields: Object.keys(value) };
+  });
+  app.post('/api/accounts/:id/test', async (request, reply) => {
+    const params = request.params as { id: string };
+    const row = db.prepare('SELECT platform,credentials_encrypted FROM social_accounts WHERE id=?').get(params.id) as { platform: Platform; credentials_encrypted: string } | undefined;
+    if (!row) return reply.code(404).send({ error: 'Аккаунт не найден' });
+    try {
+      return await testConnection(row.platform, decryptJson<Record<string, unknown>>(row.credentials_encrypted));
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
   });
 
   app.get('/api/posts', async (request) => {
@@ -151,13 +174,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const body = bodyObject(request.body);
     const current = db.prepare('SELECT * FROM posts WHERE id=?').get(params.id) as any;
     if (!current) return reply.code(404).send({ error: 'Пост не найден' });
-    if (['PUBLISHING','PUBLISHED'].includes(current.status)) return reply.code(409).send({ error: 'Нельзя редактировать публикующийся или опубликованный пост' });
+    if (IMMUTABLE_POST_STATUSES.has(current.status)) return reply.code(409).send({ error: 'Нельзя редактировать частично или полностью опубликованный пост' });
     const title = body.title === undefined ? current.title : String(body.title).trim();
     const text = body.body === undefined ? current.body : String(body.body).trim();
     const mode = body.scheduleMode === undefined ? current.schedule_mode : String(body.scheduleMode);
     if (!['MANUAL','AT','QUEUE'].includes(mode)) return reply.code(400).send({ error: 'Неверный scheduleMode' });
     const scheduledAt = mode === 'AT' ? (body.scheduledAt ? new Date(body.scheduledAt).toISOString() : current.scheduled_at) : null;
-    db.prepare('UPDATE posts SET title=?,body=?,schedule_mode=?,scheduled_at=?,updated_at=? WHERE id=?').run(title, text, mode, scheduledAt, nowIso(), params.id);
+    db.prepare("UPDATE posts SET title=?,body=?,schedule_mode=?,scheduled_at=?,status='DRAFT',updated_at=? WHERE id=?").run(title, text, mode, scheduledAt, nowIso(), params.id);
     return { ok: true };
   });
 
@@ -165,26 +188,34 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const params = request.params as { id: string };
     const post = db.prepare('SELECT status FROM posts WHERE id=?').get(params.id) as { status: string } | undefined;
     if (!post) return reply.code(404).send({ error: 'Пост не найден' });
-    if (['PUBLISHING','PUBLISHED'].includes(post.status)) return reply.code(409).send({ error: 'Нельзя менять площадки после начала публикации' });
+    if (IMMUTABLE_POST_STATUSES.has(post.status)) return reply.code(409).send({ error: 'Нельзя менять площадки после начала публикации' });
     const body = bodyObject(request.body);
     if (!Array.isArray(body.accountIds) || body.accountIds.some((value: unknown) => typeof value !== 'string')) return reply.code(400).send({ error: 'accountIds должен быть массивом строк' });
     setTargetSelection(params.id, body.accountIds as string[]);
+    db.prepare("UPDATE posts SET status='DRAFT',updated_at=? WHERE id=?").run(nowIso(), params.id);
     return { ok: true, targets: (postView(db.prepare('SELECT * FROM posts WHERE id=?').get(params.id)) as any).targets };
   });
 
   app.post('/api/posts/:id/media', async (request, reply) => {
     const params = request.params as { id: string };
-    if (!db.prepare('SELECT 1 FROM posts WHERE id=?').get(params.id)) return reply.code(404).send({ error: 'Пост не найден' });
+    const post = db.prepare('SELECT status FROM posts WHERE id=?').get(params.id) as { status: string } | undefined;
+    if (!post) return reply.code(404).send({ error: 'Пост не найден' });
+    if (IMMUTABLE_POST_STATUSES.has(post.status)) return reply.code(409).send({ error: 'Нельзя менять медиа после начала публикации' });
     const part = await request.file({ limits: { fileSize: 50 * 1024 * 1024, files: 1 } });
     if (!part) return reply.code(400).send({ error: 'Файл не передан' });
     if (!part.mimetype.startsWith('image/')) return reply.code(400).send({ error: 'Допускаются только изображения' });
     const buffer = await part.toBuffer();
     const saved = await saveImage(params.id, part.filename, buffer);
+    db.prepare("UPDATE posts SET status='DRAFT',updated_at=? WHERE id=?").run(nowIso(), params.id);
     return reply.code(201).send(saved);
   });
-  app.delete('/api/media/:id', async (request) => {
+  app.delete('/api/media/:id', async (request, reply) => {
     const params = request.params as { id: string };
+    const row = db.prepare('SELECT m.post_id,p.status FROM media m JOIN posts p ON p.id=m.post_id WHERE m.id=?').get(params.id) as { post_id: string; status: string } | undefined;
+    if (!row) return reply.code(404).send({ error: 'Медиа не найдено' });
+    if (IMMUTABLE_POST_STATUSES.has(row.status)) return reply.code(409).send({ error: 'Нельзя менять медиа после начала публикации' });
     await deleteMedia(params.id);
+    db.prepare("UPDATE posts SET status='DRAFT',updated_at=? WHERE id=?").run(nowIso(), row.post_id);
     return { ok: true };
   });
 
@@ -192,6 +223,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const params = request.params as { id: string };
     const post = db.prepare('SELECT * FROM posts WHERE id=?').get(params.id) as any;
     if (!post) return reply.code(404).send({ error: 'Пост не найден' });
+    if (IMMUTABLE_POST_STATUSES.has(post.status)) return reply.code(409).send({ error: 'Пост уже начал публикацию; используйте повтор конкретной ошибочной площадки' });
     const mediaCount = db.prepare('SELECT COUNT(*) AS count FROM media WHERE post_id=?').get(params.id) as { count: number };
     if (mediaCount.count < 1) return reply.code(409).send({ error: 'Публикация без изображения запрещена' });
     ensureTargets(params.id);
