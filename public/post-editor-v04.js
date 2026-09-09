@@ -45,6 +45,11 @@ function localDateTimeValue(iso) {
   return local.toISOString().slice(0, 16);
 }
 
+function mediaRatio(media) {
+  if (!media?.width || !media?.height) return '—';
+  return (media.width / media.height).toFixed(2);
+}
+
 function mediaPreviewHtml(post) {
   if (!post.media?.length) {
     return '<div class="platform-preview-media empty">Изображение обязательно</div>';
@@ -55,17 +60,18 @@ function mediaPreviewHtml(post) {
 }
 
 function platformWarning(target, post) {
-  if (!post.media?.length) return 'Добавьте хотя бы одно изображение — без него READY запрещён.';
-  if (target.platform === 'instagram' && post.media.length !== 1) {
-    return 'Текущий Instagram-адаптер публикует ровно одно изображение.';
-  }
+  const count = post.media?.length || 0;
+  if (count < 1) return 'Добавьте хотя бы одно изображение — без него READY запрещён.';
+  if (target.platform === 'telegram' && count > 10) return 'Telegram: в одной медиагруппе допускается не более 10 изображений.';
+  if (target.platform === 'max' && count > 12) return 'MAX: в одном сообщении допускается не более 12 вложений.';
+  if (target.platform === 'instagram' && count > 10) return 'Instagram: карусель допускает не более 10 изображений.';
+  if (target.platform === 'instagram' && count > 1) return 'Instagram: это будет карусель; первый кадр определяет визуальную основу кадрирования остальных изображений.';
   return '';
 }
 
 function targetCardHtml(target, post) {
   const platformName = PLATFORM_NAMES[target.platform] || target.platform;
   const override = target.override_text || '';
-  const warning = platformWarning(target, post);
   return `<article class="platform-editor-card" data-target-id="${escapeHtml(target.id)}" data-account-id="${escapeHtml(target.account_id)}" data-platform="${escapeHtml(target.platform)}">
     <div class="platform-editor-head">
       <div>
@@ -89,7 +95,7 @@ function targetCardHtml(target, post) {
         </div>
       </div>
       <div class="platform-save-state small muted"></div>
-      ${warning ? `<div class="platform-warning small">${escapeHtml(warning)}</div>` : ''}
+      <div class="platform-warning small hidden"></div>
     </div>
     <div class="platform-preview ${escapeHtml(target.platform)}">
       <div class="platform-preview-top">
@@ -109,6 +115,20 @@ function setSaveState(card, message, kind = '') {
   element.classList.toggle('success-text', kind === 'success');
 }
 
+function renderPreviewMedia(card, post) {
+  const preview = card.querySelector('.platform-preview-media');
+  if (!preview) return;
+  if (!post.media?.length) {
+    preview.classList.add('empty');
+    preview.innerHTML = 'Изображение обязательно';
+    return;
+  }
+  const first = post.media[0];
+  const rest = post.media.length - 1;
+  preview.classList.remove('empty');
+  preview.innerHTML = `<img src="/public-media/${escapeHtml(first.relative_path)}" alt=""><span class="media-count ${rest > 0 ? '' : 'hidden'}">+${rest}</span>`;
+}
+
 function renderTargetCard(card, target, post, form) {
   const baseText = form.querySelector('textarea[name="body"]')?.value || '';
   const textarea = card.querySelector('.platform-text');
@@ -122,17 +142,18 @@ function renderTargetCard(card, target, post, form) {
   card.querySelector('.text-mode').textContent = ownText ? 'Свой текст' : 'Базовый текст';
   card.querySelector('.resolved-count').textContent = String(resolvedText.length);
   card.querySelector('.platform-preview-text').textContent = resolvedText || 'Текст публикации пока пуст.';
+  renderPreviewMedia(card, post);
 
   const warning = card.querySelector('.platform-warning');
-  if (warning && target.platform === 'instagram') {
-    warning.classList.toggle('hidden', post.media?.length === 1);
-  }
+  const message = platformWarning(target, post);
+  warning.textContent = message;
+  warning.classList.toggle('hidden', !message);
 }
 
 function lockPublishedEditor(form, post, section) {
   if (!IMMUTABLE_POST_STATUSES.has(post.status)) return;
   section.insertAdjacentHTML('afterbegin', `<div class="editor-lock-notice">Пост имеет статус ${escapeHtml(post.status)}. Контент и площадки зафиксированы; доступны только безопасные действия восстановления для ошибочных публикаций.</div>`);
-  form.querySelectorAll('input, textarea, select, button[type="submit"], #mark-ready, #publish-now, .delete-media, .save-platform-text, .reset-platform-text')
+  form.querySelectorAll('input, textarea, select, button[type="submit"], #mark-ready, #publish-now, .delete-media, .save-platform-text, .reset-platform-text, .move-media')
     .forEach((element) => { element.disabled = true; });
 }
 
@@ -144,6 +165,61 @@ function enhanceScheduleField(form, post) {
   if (post.schedule_mode === 'AT' && post.scheduled_at && !input.value) input.value = localDateTimeValue(post.scheduled_at);
   const sync = () => label?.classList.toggle('hidden', mode.value !== 'AT');
   mode.addEventListener('change', sync);
+  sync();
+}
+
+function enhanceMediaOrdering(form, post, rerenderAll) {
+  const mediaList = form.querySelector('.media-list');
+  if (!mediaList || !post.media?.length) return;
+
+  const nodeMap = new Map();
+  [...mediaList.children].forEach((node) => {
+    const deleteButton = node.querySelector('.delete-media');
+    if (deleteButton?.dataset.id) nodeMap.set(deleteButton.dataset.id, node);
+  });
+
+  const sync = () => {
+    post.media.forEach((media, index) => {
+      const node = nodeMap.get(media.id);
+      if (!node) return;
+      let controls = node.querySelector('.media-order-controls');
+      if (!controls) {
+        controls = document.createElement('div');
+        controls.className = 'media-order-controls';
+        node.append(controls);
+      }
+      controls.innerHTML = `<div class="media-dimensions small muted">#${index + 1} · ${media.width || '?'}×${media.height || '?'} · ${mediaRatio(media)}</div><div class="row-actions"><button type="button" class="secondary move-media move-left" ${index === 0 ? 'disabled' : ''}>←</button><button type="button" class="secondary move-media move-right" ${index === post.media.length - 1 ? 'disabled' : ''}>→</button></div>`;
+
+      const move = async (direction) => {
+        const currentIndex = post.media.findIndex((item) => item.id === media.id);
+        const nextIndex = currentIndex + direction;
+        if (currentIndex < 0 || nextIndex < 0 || nextIndex >= post.media.length) return;
+        const ids = post.media.map((item) => item.id);
+        [ids[currentIndex], ids[nextIndex]] = [ids[nextIndex], ids[currentIndex]];
+        const result = await requestJson(`/api/posts/${encodeURIComponent(post.id)}/media-order`, {
+          method: 'PUT',
+          body: JSON.stringify({ mediaIds: ids })
+        });
+        post.media = result.media;
+        post.media.forEach((item) => {
+          const itemNode = nodeMap.get(item.id);
+          if (itemNode) mediaList.append(itemNode);
+        });
+        sync();
+        rerenderAll();
+      };
+
+      controls.querySelector('.move-left')?.addEventListener('click', () => move(-1).catch((error) => {
+        const errorBox = form.closest('.modal-card')?.querySelector('#post-error');
+        if (errorBox) errorBox.textContent = error instanceof Error ? error.message : String(error);
+      }));
+      controls.querySelector('.move-right')?.addEventListener('click', () => move(1).catch((error) => {
+        const errorBox = form.closest('.modal-card')?.querySelector('#post-error');
+        if (errorBox) errorBox.textContent = error instanceof Error ? error.message : String(error);
+      }));
+    });
+  };
+
   sync();
 }
 
@@ -188,6 +264,7 @@ async function enhancePostEditor(form, postId) {
 
   baseTextarea?.addEventListener('input', rerenderAll);
   form.querySelectorAll('input[name="accountId"]').forEach((checkbox) => checkbox.addEventListener('change', rerenderAll));
+  enhanceMediaOrdering(form, post, rerenderAll);
 
   for (const card of cards) {
     const target = targetById.get(card.dataset.targetId);
