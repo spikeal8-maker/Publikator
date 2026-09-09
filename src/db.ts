@@ -24,6 +24,23 @@ export function id(prefix: string): string {
   return `${prefix}_${crypto.randomUUID()}`;
 }
 
+function migrateMediaOrder(): void {
+  const columns = db.prepare('PRAGMA table_info(media)').all() as Array<{ name: string }>;
+  if (columns.some((column) => column.name === 'sort_order')) return;
+
+  db.exec('ALTER TABLE media ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0');
+  const rows = db.prepare('SELECT id,post_id FROM media ORDER BY post_id,created_at,rowid').all() as Array<{ id: string; post_id: string }>;
+  const update = db.prepare('UPDATE media SET sort_order=? WHERE id=?');
+  const nextByPost = new Map<string, number>();
+  db.transaction(() => {
+    for (const row of rows) {
+      const order = nextByPost.get(row.post_id) ?? 0;
+      update.run(order, row.id);
+      nextByPost.set(row.post_id, order + 1);
+    }
+  })();
+}
+
 export function migrate(): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS projects (
@@ -65,7 +82,8 @@ export function migrate(): void {
       width INTEGER,
       height INTEGER,
       sha256 TEXT NOT NULL,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS post_targets (
@@ -106,10 +124,15 @@ export function migrate(): void {
       data_json TEXT,
       created_at TEXT NOT NULL
     );
+  `);
 
+  migrateMediaOrder();
+
+  db.exec(`
     CREATE INDEX IF NOT EXISTS idx_posts_status_schedule ON posts(status, schedule_mode, scheduled_at);
     CREATE INDEX IF NOT EXISTS idx_targets_state_retry ON post_targets(state, next_attempt_at);
     CREATE INDEX IF NOT EXISTS idx_media_post ON media(post_id);
+    CREATE INDEX IF NOT EXISTS idx_media_post_order ON media(post_id, sort_order, created_at);
     CREATE INDEX IF NOT EXISTS idx_events_created ON publication_events(created_at DESC);
   `);
 
