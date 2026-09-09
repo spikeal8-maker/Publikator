@@ -12,11 +12,27 @@ function retryTime(attempts: number): string | null {
 
 export function ensureTargets(postId: string): void {
   const now = nowIso();
+  const existing = db.prepare('SELECT COUNT(*) AS count FROM post_targets WHERE post_id=?').get(postId) as { count: number };
+  const defaultEnabled = existing.count === 0 ? 1 : 0;
   const accounts = db.prepare('SELECT id FROM social_accounts WHERE enabled=1 ORDER BY created_at').all() as Array<{ id: string }>;
   const insert = db.prepare(`INSERT OR IGNORE INTO post_targets
     (id,post_id,account_id,enabled,state,attempts,updated_at) VALUES (lower(hex(randomblob(16))),?,?,?,?,0,?)`);
   const tx = db.transaction(() => {
-    for (const account of accounts) insert.run(postId, account.id, 1, 'PENDING', now);
+    for (const account of accounts) insert.run(postId, account.id, defaultEnabled, 'PENDING', now);
+  });
+  tx();
+}
+
+export function setTargetSelection(postId: string, accountIds: string[]): void {
+  ensureTargets(postId);
+  const allowed = new Set(
+    (db.prepare('SELECT id FROM social_accounts WHERE enabled=1').all() as Array<{ id: string }>).map((row) => row.id)
+  );
+  const selected = [...new Set(accountIds)].filter((accountId) => allowed.has(accountId));
+  const tx = db.transaction(() => {
+    db.prepare("UPDATE post_targets SET enabled=0, updated_at=? WHERE post_id=? AND state!='PUBLISHED'").run(nowIso(), postId);
+    const enable = db.prepare("UPDATE post_targets SET enabled=1, updated_at=? WHERE post_id=? AND account_id=? AND state!='PUBLISHED'");
+    for (const accountId of selected) enable.run(nowIso(), postId, accountId);
   });
   tx();
 }
@@ -66,7 +82,7 @@ export async function publishTarget(targetId: string): Promise<void> {
 }
 
 export function refreshPostStatus(postId: string): void {
-  const states = db.prepare('SELECT state FROM post_targets WHERE post_id=? AND enabled=1').all(postId) as Array<{ state: TargetState }>;
+  const states = db.prepare("SELECT pt.state FROM post_targets pt JOIN social_accounts a ON a.id=pt.account_id WHERE pt.post_id=? AND pt.enabled=1 AND a.enabled=1").all(postId) as Array<{ state: TargetState }>;
   if (states.length === 0) return;
   const values = states.map((s) => s.state);
   let status = 'PUBLISHING';
@@ -81,6 +97,8 @@ export async function publishPost(postId: string): Promise<void> {
   const mediaCount = db.prepare('SELECT COUNT(*) AS count FROM media WHERE post_id=?').get(postId) as { count: number };
   if (mediaCount.count < 1) throw new Error('Публикация без изображения запрещена');
   ensureTargets(postId);
+  const targetCount = db.prepare("SELECT COUNT(*) AS count FROM post_targets pt JOIN social_accounts a ON a.id=pt.account_id WHERE pt.post_id=? AND pt.enabled=1 AND a.enabled=1").get(postId) as { count: number };
+  if (targetCount.count < 1) throw new Error('Не выбрана ни одна активная площадка для публикации');
   db.prepare("UPDATE posts SET status='PUBLISHING', updated_at=? WHERE id=?").run(nowIso(), postId);
   const targets = db.prepare("SELECT pt.id FROM post_targets pt JOIN social_accounts a ON a.id=pt.account_id WHERE pt.post_id=? AND pt.enabled=1 AND a.enabled=1 AND pt.state IN ('PENDING','RETRY','FAILED') ORDER BY pt.rowid").all(postId) as Array<{ id: string }>;
   for (const target of targets) await publishTarget(target.id);
