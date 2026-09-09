@@ -7,6 +7,7 @@ import { config } from './config.js';
 import { migrate } from './db.js';
 import { registerRoutes } from './http/routes.js';
 import { registerTargetOverrideRoutes } from './http/target-overrides.js';
+import { registerMediaOrderRoutes } from './http/media-order.js';
 import { schedulerTick } from './scheduler.js';
 
 migrate();
@@ -18,6 +19,7 @@ await app.register(fastifyStatic, { root: config.publicDir, prefix: '/' });
 await app.register(fastifyStatic, { root: config.mediaDir, prefix: '/public-media/', decorateReply: false, index: false });
 await registerRoutes(app);
 await registerTargetOverrideRoutes(app);
+await registerMediaOrderRoutes(app);
 
 app.setNotFoundHandler((request, reply) => {
   if (request.url.startsWith('/api/') || request.url.startsWith('/public-media/')) return reply.code(404).send({ error: 'Not found' });

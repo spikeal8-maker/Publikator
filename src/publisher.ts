@@ -2,13 +2,58 @@ import { decryptJson } from './crypto.js';
 import { db, event, nowIso, type Platform, type TargetState } from './db.js';
 import { listMedia, mediaPublicUrl } from './media.js';
 import { getPublisher } from './platforms/index.js';
-import { PlatformError } from './platforms/types.js';
+import { PlatformError, type PublishInput } from './platforms/types.js';
 
 const RETRY_DELAYS_MS = [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000];
+
+type PublishTargetRow = {
+  id: string;
+  post_id: string;
+  account_id: string;
+  enabled: number;
+  override_text: string | null;
+  state: TargetState;
+  title: string;
+  body: string;
+  platform: Platform;
+  account_name?: string;
+  credentials_encrypted: string;
+};
+
+export type PreflightIssue = {
+  targetId: string;
+  accountId: string;
+  platform: Platform;
+  accountName: string;
+  message: string;
+};
+
+export type PreflightResult = {
+  ok: boolean;
+  issues: PreflightIssue[];
+};
 
 function retryTime(attempts: number): string | null {
   const delay = RETRY_DELAYS_MS[Math.min(attempts - 1, RETRY_DELAYS_MS.length - 1)];
   return attempts <= RETRY_DELAYS_MS.length && delay ? new Date(Date.now() + delay).toISOString() : null;
+}
+
+function buildPublishInput(target: PublishTargetRow): PublishInput {
+  const media = listMedia(target.post_id);
+  const publicMediaUrls = (target.platform === 'max' || target.platform === 'instagram') ? media.map(mediaPublicUrl) : [];
+  const credentials = decryptJson<Record<string, unknown>>(target.credentials_encrypted);
+  return {
+    postId: target.post_id,
+    title: target.title,
+    text: target.override_text ?? target.body,
+    media,
+    credentials,
+    publicMediaUrls
+  };
+}
+
+function formatPreflightIssues(issues: PreflightIssue[]): string {
+  return issues.map((issue) => `${issue.platform} / ${issue.accountName}: ${issue.message}`).join('\n');
 }
 
 export function ensureTargets(postId: string): void {
@@ -41,33 +86,51 @@ export function setTargetSelection(postId: string, accountIds: string[]): void {
   tx();
 }
 
-export async function publishTarget(targetId: string): Promise<void> {
-  const target = db.prepare(`SELECT pt.*, p.title, p.body, p.id AS post_id, a.platform, a.credentials_encrypted
+export function preflightPost(postId: string): PreflightResult {
+  ensureTargets(postId);
+  const targets = db.prepare(`SELECT pt.id,pt.post_id,pt.account_id,pt.enabled,pt.override_text,pt.state,
+      p.title,p.body,a.platform,a.name AS account_name,a.credentials_encrypted
     FROM post_targets pt
     JOIN posts p ON p.id=pt.post_id
     JOIN social_accounts a ON a.id=pt.account_id
-    WHERE pt.id=?`).get(targetId) as any;
+    WHERE pt.post_id=? AND pt.enabled=1 AND a.enabled=1
+    ORDER BY a.platform,a.name`).all(postId) as PublishTargetRow[];
+
+  const issues: PreflightIssue[] = [];
+  for (const target of targets) {
+    try {
+      const input = buildPublishInput(target);
+      getPublisher(target.platform).validate(input);
+    } catch (error) {
+      issues.push({
+        targetId: target.id,
+        accountId: target.account_id,
+        platform: target.platform,
+        accountName: target.account_name || target.platform,
+        message: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+  return { ok: issues.length === 0, issues };
+}
+
+export async function publishTarget(targetId: string): Promise<void> {
+  const target = db.prepare(`SELECT pt.*, p.title, p.body, p.id AS post_id, a.platform, a.name AS account_name, a.credentials_encrypted
+    FROM post_targets pt
+    JOIN posts p ON p.id=pt.post_id
+    JOIN social_accounts a ON a.id=pt.account_id
+    WHERE pt.id=?`).get(targetId) as PublishTargetRow | undefined;
   if (!target) throw new Error('Цель публикации не найдена');
   const currentState = target.state as TargetState;
   if (currentState === 'PUBLISHED' || currentState === 'RECOVERY_NEEDED') return;
 
   const media = listMedia(target.post_id);
   if (media.length < 1) throw new Error('Публикация заблокирована: нет изображения');
-  const publicMediaUrls = (target.platform === 'max' || target.platform === 'instagram') ? media.map(mediaPublicUrl) : [];
-  const credentials = decryptJson<Record<string, unknown>>(target.credentials_encrypted);
-  const publisher = getPublisher(target.platform as Platform);
-  const text = target.override_text || target.body;
-
-  const input = {
-    postId: target.post_id,
-    title: target.title,
-    text,
-    media,
-    credentials,
-    publicMediaUrls
-  };
+  const publisher = getPublisher(target.platform);
+  let input: PublishInput;
 
   try {
+    input = buildPublishInput(target);
     publisher.validate(input);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -137,6 +200,9 @@ export async function publishPost(postId: string): Promise<void> {
   ensureTargets(postId);
   const targetCount = db.prepare("SELECT COUNT(*) AS count FROM post_targets pt JOIN social_accounts a ON a.id=pt.account_id WHERE pt.post_id=? AND pt.enabled=1 AND a.enabled=1").get(postId) as { count: number };
   if (targetCount.count < 1) throw new Error('Не выбрана ни одна активная площадка для публикации');
+  const preflight = preflightPost(postId);
+  if (!preflight.ok) throw new Error(`Публикация не прошла preflight:\n${formatPreflightIssues(preflight.issues)}`);
+
   db.prepare("UPDATE posts SET status='PUBLISHING', updated_at=? WHERE id=?").run(nowIso(), postId);
   const targets = db.prepare("SELECT pt.id FROM post_targets pt JOIN social_accounts a ON a.id=pt.account_id WHERE pt.post_id=? AND pt.enabled=1 AND a.enabled=1 AND pt.state IN ('PENDING','RETRY','FAILED') ORDER BY pt.rowid").all(postId) as Array<{ id: string }>;
   for (const target of targets) await publishTarget(target.id);
