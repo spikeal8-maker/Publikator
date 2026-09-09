@@ -52,10 +52,19 @@ jobs:
 
           PROJECT_ID="$(curl -fsS -b /tmp/publikator-cookies.txt http://127.0.0.1:18080/api/projects | jq -er '.[0].id')"
 
+          OLD_POST_ID="$(curl -fsS -b /tmp/publikator-cookies.txt \
+            -H 'content-type: application/json' \
+            -d "{\"projectId\":\"${PROJECT_ID}\",\"title\":\"Before account\",\"body\":\"Must not auto-target future accounts\",\"scheduleMode\":\"MANUAL\"}" \
+            http://127.0.0.1:18080/api/posts | jq -er '.id')"
+
           curl -fsS -b /tmp/publikator-cookies.txt \
             -H 'content-type: application/json' \
             -d '{"platform":"telegram","name":"CI target","credentials":{"botToken":"fake-token","chatId":"@fake-channel"}}' \
             http://127.0.0.1:18080/api/accounts | jq -e '.id != null'
+
+          curl -fsS -b /tmp/publikator-cookies.txt \
+            "http://127.0.0.1:18080/api/posts/${OLD_POST_ID}" | \
+            jq -e '(.targets | length) == 1 and (.targets[0].enabled == 0)'
 
           POST_ID="$(curl -fsS -b /tmp/publikator-cookies.txt \
             -H 'content-type: application/json' \
@@ -71,4 +80,5 @@ jobs:
             "http://127.0.0.1:18080/api/posts/${POST_ID}/ready" | jq -e '.ok == true'
 
           curl -fsS -b /tmp/publikator-cookies.txt \
-            "http://127.0.0.1:18080/api/posts/${POST_ID}" | jq -e '.status == "READY" and (.media | length) == 1 and (.targets | length) == 1'
+            "http://127.0.0.1:18080/api/posts/${POST_ID}" | \
+            jq -e '.status == "READY" and (.media | length) == 1 and (.targets | length) == 1 and (.targets[0].enabled == 1)'
