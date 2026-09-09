@@ -18,13 +18,22 @@ function zonedParts(timeZone: string): { weekday: number; hhmm: string; date: st
 
 let running = false;
 
+async function safePublishPost(postId: string, source: string): Promise<void> {
+  try {
+    await publishPost(postId);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    event({ postId, level: 'error', type: 'scheduler_publish_blocked', message, data: { source } });
+  }
+}
+
 export async function schedulerTick(): Promise<void> {
   if (running) return;
   running = true;
   try {
     const due = db.prepare("SELECT id FROM posts WHERE status='READY' AND schedule_mode='AT' AND scheduled_at IS NOT NULL AND scheduled_at<=? ORDER BY scheduled_at LIMIT 10")
       .all(nowIso()) as Array<{ id: string }>;
-    for (const post of due) await publishPost(post.id);
+    for (const post of due) await safePublishPost(post.id, 'AT');
 
     const slots = db.prepare('SELECT * FROM schedule_slots WHERE enabled=1 ORDER BY time_hhmm').all() as any[];
     for (const slot of slots) {
@@ -36,11 +45,11 @@ export async function schedulerTick(): Promise<void> {
         .get(slot.project_id) as { id: string } | undefined;
       if (post) {
         event({ postId: post.id, type: 'queue_slot_fired', message: `Сработал слот ${slot.time_hhmm} ${slot.timezone}` });
-        await publishPost(post.id);
+        await safePublishPost(post.id, 'QUEUE');
       }
     }
 
-    const retries = db.prepare("SELECT pt.id, pt.post_id FROM post_targets pt JOIN social_accounts a ON a.id=pt.account_id WHERE pt.state='RETRY' AND a.enabled=1 AND pt.next_attempt_at IS NOT NULL AND pt.next_attempt_at<=? ORDER BY pt.next_attempt_at LIMIT 20")
+    const retries = db.prepare("SELECT pt.id, pt.post_id FROM post_targets pt JOIN social_accounts a ON a.id=pt.account_id WHERE pt.state='RETRY' AND pt.enabled=1 AND a.enabled=1 AND pt.next_attempt_at IS NOT NULL AND pt.next_attempt_at<=? ORDER BY pt.next_attempt_at LIMIT 20")
       .all(nowIso()) as Array<{ id: string; post_id: string }>;
     for (const target of retries) {
       await publishTarget(target.id);
