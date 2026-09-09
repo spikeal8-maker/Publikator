@@ -62,7 +62,7 @@ jobs:
             -d "{\"projectId\":\"${PROJECT_ID}\",\"title\":\"CI post\",\"body\":\"Smoke test body\",\"scheduleMode\":\"MANUAL\"}" \
             http://127.0.0.1:18080/api/posts | jq -er '.id')"
 
-          printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9WlU9xkAAAAASUVORK5CYII=' | base64 -d > /tmp/publikator-pixel.png
+          node --input-type=module -e "import sharp from 'sharp'; await sharp({create:{width:16,height:16,channels:3,background:{r:255,g:255,b:255}}}).png().toFile('/tmp/publikator-pixel.png')"
           curl -fsS -b /tmp/publikator-cookies.txt \
             -F 'file=@/tmp/publikator-pixel.png;type=image/png' \
             "http://127.0.0.1:18080/api/posts/${POST_ID}/media" | jq -e '.id != null'
