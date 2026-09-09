@@ -16,4 +16,21 @@ jobs:
       - run: npm install --no-audit --no-fund
       - run: npm run typecheck
       - run: npm run build
+      - run: node --check public/app.js
       - run: docker build -t publikator-ci .
+      - name: Runtime smoke test
+        run: |
+          docker run -d --name publikator-smoke -p 18080:8080 \
+            -e ADMIN_PASSWORD=ci-password \
+            -e APP_MASTER_KEY=ci-master-key-that-is-longer-than-32-characters \
+            publikator-ci
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:18080/api/health; then
+              docker rm -f publikator-smoke
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs publikator-smoke
+          docker rm -f publikator-smoke
+          exit 1

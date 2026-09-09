@@ -4,9 +4,12 @@ import { config } from '../config.js';
 import { createSessionToken, decryptJson, encryptJson, securePasswordEqual, verifySessionToken } from '../crypto.js';
 import { db, event, id, nowIso, type Platform } from '../db.js';
 import { deleteMedia, listMedia, saveImage } from '../media.js';
-import { ensureTargets, publishPost, publishTarget, refreshPostStatus } from '../publisher.js';
+import { ensureTargets, publishPost, publishTarget, refreshPostStatus, setTargetSelection } from '../publisher.js';
 
 const PLATFORMS = new Set<Platform>(['telegram','vk','max','instagram']);
+const loginFailures = new Map<string, { count: number; windowStartedAt: number; blockedUntil: number }>();
+const LOGIN_WINDOW_MS = 10 * 60 * 1000;
+const LOGIN_MAX_FAILURES = 5;
 
 function bodyObject(body: unknown): Record<string, any> {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('Ожидается JSON-объект');
@@ -27,8 +30,19 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/health', async () => ({ ok: true, service: 'publikator', time: nowIso() }));
 
   app.post('/api/auth/login', async (request, reply) => {
+    const key = request.ip;
+    const now = Date.now();
+    const failure = loginFailures.get(key);
+    if (failure && failure.blockedUntil > now) return reply.code(429).send({ error: 'Слишком много неудачных попыток. Повторите вход позже.' });
     const body = bodyObject(request.body);
-    if (typeof body.password !== 'string' || !securePasswordEqual(body.password)) return reply.code(401).send({ error: 'Неверный пароль' });
+    if (typeof body.password !== 'string' || !securePasswordEqual(body.password)) {
+      const inWindow = Boolean(failure && now - failure.windowStartedAt < LOGIN_WINDOW_MS && failure.blockedUntil <= now);
+      const nextCount = inWindow ? failure!.count + 1 : 1;
+      const windowStartedAt = inWindow ? failure!.windowStartedAt : now;
+      loginFailures.set(key, { count: nextCount, windowStartedAt, blockedUntil: nextCount >= LOGIN_MAX_FAILURES ? now + LOGIN_WINDOW_MS : 0 });
+      return reply.code(401).send({ error: 'Неверный пароль' });
+    }
+    loginFailures.delete(key);
     const token = createSessionToken();
     reply.setCookie('publikator_session', token, { path: '/', httpOnly: true, sameSite: 'strict', secure: config.publicBaseUrl.startsWith('https://'), maxAge: Math.floor(config.sessionTtlMs / 1000) });
     return { ok: true };
@@ -63,7 +77,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get('/api/accounts', async () => {
-    return db.prepare('SELECT id,platform,name,enabled,created_at,updated_at FROM social_accounts ORDER BY platform,name').all();
+    const rows = db.prepare('SELECT id,platform,name,enabled,created_at,updated_at FROM social_accounts ORDER BY platform,name').all();
+    return rows;
   });
   app.post('/api/accounts', async (request, reply) => {
     const body = bodyObject(request.body);
@@ -103,14 +118,16 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (query.status) { conditions.push('p.status=?'); values.push(query.status); }
     if (query.projectId) { conditions.push('p.project_id=?'); values.push(query.projectId); }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-    return db.prepare(`SELECT p.*, pr.name AS project_name,
+    const rows = db.prepare(`SELECT p.*, pr.name AS project_name,
       (SELECT COUNT(*) FROM media m WHERE m.post_id=p.id) AS media_count
       FROM posts p JOIN projects pr ON pr.id=p.project_id ${where} ORDER BY p.created_at DESC`).all(...values);
+    return rows;
   });
   app.get('/api/posts/:id', async (request, reply) => {
     const params = request.params as { id: string };
     const row = db.prepare('SELECT p.*, pr.name AS project_name FROM posts p JOIN projects pr ON pr.id=p.project_id WHERE p.id=?').get(params.id) as any;
     if (!row) return reply.code(404).send({ error: 'Пост не найден' });
+    ensureTargets(params.id);
     return postView(row);
   });
   app.post('/api/posts', async (request, reply) => {
@@ -126,6 +143,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const now = nowIso();
     db.prepare('INSERT INTO posts (id,project_id,title,body,status,schedule_mode,scheduled_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)')
       .run(postId, projectId, title, text, 'DRAFT', mode, scheduledAt, now, now);
+    ensureTargets(postId);
     return reply.code(201).send(postView(db.prepare('SELECT * FROM posts WHERE id=?').get(postId)));
   });
   app.patch('/api/posts/:id', async (request, reply) => {
@@ -141,6 +159,17 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const scheduledAt = mode === 'AT' ? (body.scheduledAt ? new Date(body.scheduledAt).toISOString() : current.scheduled_at) : null;
     db.prepare('UPDATE posts SET title=?,body=?,schedule_mode=?,scheduled_at=?,updated_at=? WHERE id=?').run(title, text, mode, scheduledAt, nowIso(), params.id);
     return { ok: true };
+  });
+
+  app.put('/api/posts/:id/targets', async (request, reply) => {
+    const params = request.params as { id: string };
+    const post = db.prepare('SELECT status FROM posts WHERE id=?').get(params.id) as { status: string } | undefined;
+    if (!post) return reply.code(404).send({ error: 'Пост не найден' });
+    if (['PUBLISHING','PUBLISHED'].includes(post.status)) return reply.code(409).send({ error: 'Нельзя менять площадки после начала публикации' });
+    const body = bodyObject(request.body);
+    if (!Array.isArray(body.accountIds) || body.accountIds.some((value: unknown) => typeof value !== 'string')) return reply.code(400).send({ error: 'accountIds должен быть массивом строк' });
+    setTargetSelection(params.id, body.accountIds as string[]);
+    return { ok: true, targets: (postView(db.prepare('SELECT * FROM posts WHERE id=?').get(params.id)) as any).targets };
   });
 
   app.post('/api/posts/:id/media', async (request, reply) => {
@@ -165,9 +194,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (!post) return reply.code(404).send({ error: 'Пост не найден' });
     const mediaCount = db.prepare('SELECT COUNT(*) AS count FROM media WHERE post_id=?').get(params.id) as { count: number };
     if (mediaCount.count < 1) return reply.code(409).send({ error: 'Публикация без изображения запрещена' });
-    const accountCount = db.prepare('SELECT COUNT(*) AS count FROM social_accounts WHERE enabled=1').get() as { count: number };
-    if (accountCount.count < 1) return reply.code(409).send({ error: 'Нет подключённых соцсетей' });
     ensureTargets(params.id);
+    const accountCount = db.prepare("SELECT COUNT(*) AS count FROM post_targets pt JOIN social_accounts a ON a.id=pt.account_id WHERE pt.post_id=? AND pt.enabled=1 AND a.enabled=1").get(params.id) as { count: number };
+    if (accountCount.count < 1) return reply.code(409).send({ error: 'Не выбрана ни одна активная соцсеть' });
     db.prepare("UPDATE posts SET status='READY',updated_at=? WHERE id=?").run(nowIso(), params.id);
     event({ postId: params.id, type: 'post_ready', message: 'Пост готов к публикации' });
     return { ok: true };
@@ -179,8 +208,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
   app.post('/api/targets/:id/retry', async (request, reply) => {
     const params = request.params as { id: string };
-    const target = db.prepare('SELECT post_id FROM post_targets WHERE id=?').get(params.id) as { post_id: string } | undefined;
-    if (!target) return reply.code(404).send({ error: 'Цель не найдена' });
+    const target = db.prepare('SELECT pt.post_id FROM post_targets pt JOIN social_accounts a ON a.id=pt.account_id WHERE pt.id=? AND pt.enabled=1 AND a.enabled=1').get(params.id) as { post_id: string } | undefined;
+    if (!target) return reply.code(409).send({ error: 'Цель отключена или не найдена' });
     db.prepare("UPDATE post_targets SET state='PENDING',next_attempt_at=NULL,last_error=NULL,updated_at=? WHERE id=?").run(nowIso(), params.id);
     await publishTarget(params.id);
     refreshPostStatus(target.post_id);
@@ -200,6 +229,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const slotId = id('slot');
     db.prepare('INSERT INTO schedule_slots (id,project_id,weekday,time_hhmm,timezone,enabled,created_at) VALUES (?,?,?,?,?,1,?)').run(slotId, projectId, weekday, time, timezone, nowIso());
     return reply.code(201).send(db.prepare('SELECT * FROM schedule_slots WHERE id=?').get(slotId));
+  });
+
+  app.delete('/api/schedules/:id', async (request, reply) => {
+    const params = request.params as { id: string };
+    const result = db.prepare('DELETE FROM schedule_slots WHERE id=?').run(params.id);
+    if (result.changes === 0) return reply.code(404).send({ error: 'Слот не найден' });
+    return { ok: true };
   });
 
   app.get('/api/events', async (request) => {
