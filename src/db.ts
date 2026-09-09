@@ -2,8 +2,9 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import Database from 'better-sqlite3';
 import { config } from './config.js';
+import { DATABASE_SCHEMA_VERSION } from './schema.js';
 
-export const DATABASE_SCHEMA_VERSION = 1;
+export { DATABASE_SCHEMA_VERSION } from './schema.js';
 
 fs.mkdirSync(config.dataDir, { recursive: true });
 fs.mkdirSync(config.mediaDir, { recursive: true });
