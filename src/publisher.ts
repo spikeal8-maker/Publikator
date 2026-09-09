@@ -3,6 +3,7 @@ import { db, event, nowIso, type Platform, type TargetState } from './db.js';
 import { listMedia, mediaPublicUrl } from './media.js';
 import { getPublisher } from './platforms/index.js';
 import { PlatformError, type PublishInput } from './platforms/types.js';
+import { beginPublicationActivity } from './runtime-gate.js';
 
 const RETRY_DELAYS_MS = [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000];
 
@@ -114,7 +115,7 @@ export function preflightPost(postId: string): PreflightResult {
   return { ok: issues.length === 0, issues };
 }
 
-export async function publishTarget(targetId: string): Promise<void> {
+async function publishTargetInternal(targetId: string): Promise<void> {
   const target = db.prepare(`SELECT pt.*, p.title, p.body, p.id AS post_id, a.platform, a.name AS account_name, a.credentials_encrypted
     FROM post_targets pt
     JOIN posts p ON p.id=pt.post_id
@@ -182,6 +183,15 @@ export async function publishTarget(targetId: string): Promise<void> {
   }
 }
 
+export async function publishTarget(targetId: string): Promise<void> {
+  const releasePublication = beginPublicationActivity();
+  try {
+    await publishTargetInternal(targetId);
+  } finally {
+    releasePublication();
+  }
+}
+
 export function refreshPostStatus(postId: string): void {
   const states = db.prepare("SELECT pt.state FROM post_targets pt JOIN social_accounts a ON a.id=pt.account_id WHERE pt.post_id=? AND pt.enabled=1 AND a.enabled=1").all(postId) as Array<{ state: TargetState }>;
   if (states.length === 0) return;
@@ -195,16 +205,21 @@ export function refreshPostStatus(postId: string): void {
 }
 
 export async function publishPost(postId: string): Promise<void> {
-  const mediaCount = db.prepare('SELECT COUNT(*) AS count FROM media WHERE post_id=?').get(postId) as { count: number };
-  if (mediaCount.count < 1) throw new Error('Публикация без изображения запрещена');
-  ensureTargets(postId);
-  const targetCount = db.prepare("SELECT COUNT(*) AS count FROM post_targets pt JOIN social_accounts a ON a.id=pt.account_id WHERE pt.post_id=? AND pt.enabled=1 AND a.enabled=1").get(postId) as { count: number };
-  if (targetCount.count < 1) throw new Error('Не выбрана ни одна активная площадка для публикации');
-  const preflight = preflightPost(postId);
-  if (!preflight.ok) throw new Error(`Публикация не прошла preflight:\n${formatPreflightIssues(preflight.issues)}`);
+  const releasePublication = beginPublicationActivity();
+  try {
+    const mediaCount = db.prepare('SELECT COUNT(*) AS count FROM media WHERE post_id=?').get(postId) as { count: number };
+    if (mediaCount.count < 1) throw new Error('Публикация без изображения запрещена');
+    ensureTargets(postId);
+    const targetCount = db.prepare("SELECT COUNT(*) AS count FROM post_targets pt JOIN social_accounts a ON a.id=pt.account_id WHERE pt.post_id=? AND pt.enabled=1 AND a.enabled=1").get(postId) as { count: number };
+    if (targetCount.count < 1) throw new Error('Не выбрана ни одна активная площадка для публикации');
+    const preflight = preflightPost(postId);
+    if (!preflight.ok) throw new Error(`Публикация не прошла preflight:\n${formatPreflightIssues(preflight.issues)}`);
 
-  db.prepare("UPDATE posts SET status='PUBLISHING', updated_at=? WHERE id=?").run(nowIso(), postId);
-  const targets = db.prepare("SELECT pt.id FROM post_targets pt JOIN social_accounts a ON a.id=pt.account_id WHERE pt.post_id=? AND pt.enabled=1 AND a.enabled=1 AND pt.state IN ('PENDING','RETRY','FAILED') ORDER BY pt.rowid").all(postId) as Array<{ id: string }>;
-  for (const target of targets) await publishTarget(target.id);
-  refreshPostStatus(postId);
+    db.prepare("UPDATE posts SET status='PUBLISHING', updated_at=? WHERE id=?").run(nowIso(), postId);
+    const targets = db.prepare("SELECT pt.id FROM post_targets pt JOIN social_accounts a ON a.id=pt.account_id WHERE pt.post_id=? AND pt.enabled=1 AND a.enabled=1 AND pt.state IN ('PENDING','RETRY','FAILED') ORDER BY pt.rowid").all(postId) as Array<{ id: string }>;
+    for (const target of targets) await publishTargetInternal(target.id);
+    refreshPostStatus(postId);
+  } finally {
+    releasePublication();
+  }
 }
