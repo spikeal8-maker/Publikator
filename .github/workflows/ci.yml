@@ -18,6 +18,48 @@ jobs:
       - run: npm run build
       - run: node --check public/app.js
       - run: node --check public/post-editor-v04.js
+      - name: Legacy SQLite migration test
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/publikator-legacy
+          mkdir -p /tmp/publikator-legacy
+          node --input-type=module <<'NODE'
+          import Database from 'better-sqlite3';
+          const database = new Database('/tmp/publikator-legacy/publikator.sqlite');
+          database.exec(`
+            CREATE TABLE media (
+              id TEXT PRIMARY KEY,
+              post_id TEXT NOT NULL,
+              original_name TEXT NOT NULL,
+              relative_path TEXT NOT NULL,
+              mime_type TEXT NOT NULL,
+              size_bytes INTEGER NOT NULL,
+              width INTEGER,
+              height INTEGER,
+              sha256 TEXT NOT NULL,
+              created_at TEXT NOT NULL
+            );
+          `);
+          const insert = database.prepare('INSERT INTO media (id,post_id,original_name,relative_path,mime_type,size_bytes,width,height,sha256,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)');
+          insert.run('old-2','post-old','second.jpg','post-old/second.jpg','image/jpeg',10,20,20,'sha2','2026-01-02T00:00:00.000Z');
+          insert.run('old-1','post-old','first.jpg','post-old/first.jpg','image/jpeg',10,20,20,'sha1','2026-01-01T00:00:00.000Z');
+          database.close();
+          NODE
+          DATA_DIR=/tmp/publikator-legacy \
+          ADMIN_PASSWORD=ci-password \
+          APP_MASTER_KEY=ci-master-key-that-is-longer-than-32-characters \
+          node --input-type=module <<'NODE'
+          const module = await import('./dist/db.js');
+          module.migrate();
+          const columns = module.db.prepare('PRAGMA table_info(media)').all().map((column) => column.name);
+          if (!columns.includes('sort_order')) throw new Error('sort_order migration missing');
+          const rows = module.db.prepare('SELECT id,sort_order FROM media WHERE post_id=? ORDER BY sort_order').all('post-old');
+          if (rows.length !== 2 || rows[0].id !== 'old-1' || rows[0].sort_order !== 0 || rows[1].id !== 'old-2' || rows[1].sort_order !== 1) {
+            throw new Error(`legacy order migration failed: ${JSON.stringify(rows)}`);
+          }
+          module.db.close();
+          NODE
       - run: docker build -t publikator-ci .
       - name: Runtime and API smoke test
         shell: bash
