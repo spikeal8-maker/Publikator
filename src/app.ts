@@ -5,6 +5,7 @@ import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import { config } from './config.js';
 import { registerMaintenanceGuard } from './http/maintenance.js';
+import { registerLegacyBackupBlocker } from './http/legacy-backups.js';
 import { registerRoutes } from './http/routes.js';
 import { registerTargetOverrideRoutes } from './http/target-overrides.js';
 import { registerMediaOrderRoutes } from './http/media-order.js';
@@ -20,6 +21,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(fastifyStatic, { root: config.publicDir, prefix: '/' });
   await app.register(fastifyStatic, { root: config.mediaDir, prefix: '/public-media/', decorateReply: false, index: false });
   await registerMaintenanceGuard(app);
+  await registerLegacyBackupBlocker(app);
   await registerRoutes(app);
   await registerTargetOverrideRoutes(app);
   await registerMediaOrderRoutes(app);
