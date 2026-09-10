@@ -18,6 +18,7 @@ export const config = {
   dbPath: path.join(dataDir, 'publikator.sqlite'),
   mediaDir: path.join(dataDir, 'media'),
   backupDir: path.join(dataDir, 'backups'),
+  restorePendingDir: path.join(dataDir, '.restore-pending'),
   publicDir: path.resolve('public'),
   publicBaseUrl,
   adminPassword: required('ADMIN_PASSWORD'),

@@ -2,6 +2,9 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import Database from 'better-sqlite3';
 import { config } from './config.js';
+import { DATABASE_SCHEMA_VERSION } from './schema.js';
+
+export { DATABASE_SCHEMA_VERSION } from './schema.js';
 
 fs.mkdirSync(config.dataDir, { recursive: true });
 fs.mkdirSync(config.mediaDir, { recursive: true });
@@ -144,6 +147,7 @@ export function migrate(): void {
 
   db.prepare("UPDATE post_targets SET state='RECOVERY_NEEDED', last_error=COALESCE(last_error, 'Приложение было остановлено во время публикации. Требуется ручная проверка.'), updated_at=? WHERE state='PUBLISHING'")
     .run(nowIso());
+  db.pragma(`user_version = ${DATABASE_SCHEMA_VERSION}`);
 }
 
 export function event(params: {
