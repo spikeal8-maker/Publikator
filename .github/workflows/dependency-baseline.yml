@@ -5,36 +5,17 @@ on:
     branches: [main]
   pull_request:
 
-permissions:
-  contents: write
-
 jobs:
   locked-dependencies:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref || github.ref_name }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Refresh lockfile metadata for RC4 if needed
-        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
       - name: Install exact locked dependency graph
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Enforce clean production dependency audit
         run: npm audit --omit=dev --audit-level=high
-      - name: Commit lockfile version refresh on RC4 branch
-        if: github.event_name == 'pull_request' && github.head_ref == 'feature/v084-browser-security'
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -z "$(git status --porcelain -- package-lock.json)" ]; then
-            echo 'package-lock.json already matches package.json'
-            exit 0
-          fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add package-lock.json
-          git commit -m 'chore(rc4): sync lockfile version metadata'
-          git push origin HEAD:${GITHUB_HEAD_REF}
+      - name: Lockfile hash
+        run: sha256sum package-lock.json
