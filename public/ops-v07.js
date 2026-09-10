@@ -90,6 +90,8 @@ async function renderDiagnostics() {
     const publicNeeds = data.publicMedia.requiredByEnabledPlatforms?.length
       ? `Нужен для: ${data.publicMedia.requiredByEnabledPlatforms.join(', ')}`
       : 'Сейчас не требуется активными площадками';
+    const eventRetention = Number(data.retention?.eventRetentionDays || 0);
+    const backupRetention = Number(data.retention?.backupRetentionCount || 0);
 
     const cards = [
       diagnosticCard('Приложение', 'ok', [
@@ -113,6 +115,14 @@ async function renderDiagnostics() {
         ['Завершение', opsEsc(opsDate(data.scheduler.lastCompletedAt))],
         ['Длительность', data.scheduler.lastDurationMs === null ? '—' : `${Number(data.scheduler.lastDurationMs)} мс`],
         ['Работа', `AT ${Number(data.scheduler.lastWork?.duePosts || 0)} · Queue ${Number(data.scheduler.lastWork?.queuePosts || 0)} · Retry ${Number(data.scheduler.lastWork?.retries || 0)}`]
+      ]),
+      diagnosticCard('Retention', data.retention?.lastError ? 'warning' : 'ok', [
+        ['События', eventRetention === 0 ? 'автоочистка выключена' : `${eventRetention} дней`],
+        ['Backup bundles', backupRetention === 0 ? 'автоочистка выключена' : `хранить ${backupRetention} последних`],
+        ['Последний запуск', opsEsc(opsDate(data.retention?.lastRunAt))],
+        ['Удалено событий', String(Number(data.retention?.lastDeletedEvents || 0))],
+        ['Удалено backup', String((data.retention?.lastDeletedBackups || []).length)],
+        ['Последняя ошибка', data.retention?.lastError ? `<span class="ops-value warning">${opsEsc(data.retention.lastError)}</span>` : '—']
       ]),
       diagnosticCard('Media storage', mediaSeverity(data.media), [
         ['SQLite / диск', `${Number(data.media.databaseFiles)} / ${Number(data.media.diskFiles)} файлов`],
