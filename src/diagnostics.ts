@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { config } from './config.js';
 import { db, type Platform } from './db.js';
+import { retentionStatus } from './retention.js';
 import { maintenanceState } from './runtime-gate.js';
 import { schedulerStatus } from './scheduler.js';
 
@@ -25,6 +26,7 @@ export type DiagnosticsSnapshot = {
     counts: Record<string, number>;
   };
   scheduler: ReturnType<typeof schedulerStatus> & { intervalMs: number };
+  retention: ReturnType<typeof retentionStatus>;
   media: {
     directory: string;
     databaseFiles: number;
@@ -228,6 +230,8 @@ export async function collectDiagnostics(): Promise<DiagnosticsSnapshot> {
 
   const scheduler = schedulerStatus();
   if (scheduler.lastError) warnings.push(`Последняя ошибка scheduler: ${scheduler.lastError}`);
+  const retention = retentionStatus();
+  if (retention.lastError) warnings.push(`Последняя ошибка retention: ${retention.lastError}`);
 
   return {
     severity: errors.length > 0 ? 'error' : warnings.length > 0 ? 'warning' : 'ok',
@@ -247,6 +251,7 @@ export async function collectDiagnostics(): Promise<DiagnosticsSnapshot> {
       counts
     },
     scheduler: { ...scheduler, intervalMs: config.schedulerIntervalMs },
+    retention,
     media: {
       directory: config.mediaDir,
       databaseFiles: dbMedia.size,
