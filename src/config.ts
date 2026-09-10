@@ -26,6 +26,13 @@ function optionalCommitSha(name: string): string {
   return value;
 }
 
+function bakedCommitSha(name: string): string {
+  const value = process.env[name]?.trim().toLowerCase() || '';
+  if (!value || value === 'unknown') return '';
+  if (!/^[a-f0-9]{40}$/.test(value)) throw new Error(`${name} must be unknown or a 40-character Git commit SHA`);
+  return value;
+}
+
 function releaseVersion(name: string, fallback: string): string {
   const value = process.env[name]?.trim() || fallback;
   if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(value)) throw new Error(`${name} must be a semantic version`);
@@ -48,6 +55,10 @@ const publicBaseUrl = process.env.PUBLIC_BASE_URL?.trim().replace(/\/$/, '') || 
 const masterKey = required('APP_MASTER_KEY');
 if (masterKey.length < 32) throw new Error('APP_MASTER_KEY must be at least 32 characters long');
 
+const imageBuildSha = bakedCommitSha('IMAGE_BUILD_SHA');
+const nonProductionBuildSha = optionalCommitSha('APP_BUILD_SHA');
+const appBuildSha = imageBuildSha || (process.env.NODE_ENV === 'production' ? '' : nonProductionBuildSha);
+
 export const config = {
   port: Number(process.env.PORT || 8080),
   host: process.env.HOST || '0.0.0.0',
@@ -66,6 +77,7 @@ export const config = {
   queueSlotGraceMinutes: boundedNonNegativeInteger('QUEUE_SLOT_GRACE_MINUTES', 60, 1440),
   eventRetentionDays: nonNegativeInteger('EVENT_RETENTION_DAYS', 180),
   backupRetentionCount: nonNegativeInteger('BACKUP_RETENTION_COUNT', 30),
-  appBuildSha: optionalCommitSha('APP_BUILD_SHA'),
+  imageBuildSha,
+  appBuildSha,
   releaseTargetVersion: releaseVersion('RELEASE_TARGET_VERSION', '1.0.0')
 };
