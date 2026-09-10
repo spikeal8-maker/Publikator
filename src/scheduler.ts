@@ -1,5 +1,6 @@
 import { db, event, nowIso } from './db.js';
 import { publishPost, publishTarget, refreshPostStatus } from './publisher.js';
+import { runRetentionIfDue } from './retention.js';
 import { maintenanceState } from './runtime-gate.js';
 
 function zonedParts(timeZone: string): { weekday: number; hhmm: string; date: string } {
@@ -77,6 +78,7 @@ export async function schedulerTick(): Promise<void> {
   const work = { duePosts: 0, queuePosts: 0, retries: 0 };
 
   try {
+    await runRetentionIfDue();
     if (maintenanceState().active) return;
     const due = db.prepare("SELECT id FROM posts WHERE status='READY' AND schedule_mode='AT' AND scheduled_at IS NOT NULL AND scheduled_at<=? ORDER BY scheduled_at LIMIT 10")
       .all(nowIso()) as Array<{ id: string }>;
