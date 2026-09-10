@@ -20,3 +20,5 @@ jobs:
         run: node scripts/runtime-reliability-e2e.mjs
       - name: Atomic publication claim concurrency E2E
         run: node scripts/publication-concurrency-e2e.mjs
+      - name: Telegram local-read and public-POST phase E2E
+        run: node scripts/telegram-adapter-e2e.mjs
