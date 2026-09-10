@@ -32,6 +32,17 @@ function releaseVersion(name: string, fallback: string): string {
   return value;
 }
 
+function trustedProxyList(name: string): false | string[] {
+  const raw = process.env[name]?.trim();
+  if (!raw) return false;
+  const values = raw.split(',').map((value) => value.trim()).filter(Boolean);
+  if (values.length === 0) return false;
+  if (values.some((value) => value === '*' || value.toLowerCase() === 'true')) {
+    throw new Error(`${name} must list trusted proxy IP/CIDR names explicitly; wildcard trust is forbidden`);
+  }
+  return values;
+}
+
 const dataDir = process.env.DATA_DIR?.trim() || path.resolve('data');
 const publicBaseUrl = process.env.PUBLIC_BASE_URL?.trim().replace(/\/$/, '') || '';
 const masterKey = required('APP_MASTER_KEY');
@@ -47,6 +58,7 @@ export const config = {
   restorePendingDir: path.join(dataDir, '.restore-pending'),
   publicDir: path.resolve('public'),
   publicBaseUrl,
+  trustProxy: trustedProxyList('TRUST_PROXY'),
   adminPassword: required('ADMIN_PASSWORD'),
   masterKey,
   sessionTtlMs: Number(process.env.SESSION_TTL_HOURS || 24) * 60 * 60 * 1000,
