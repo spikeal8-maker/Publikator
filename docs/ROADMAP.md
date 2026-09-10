@@ -56,15 +56,23 @@
 9. API create/list/download/restore/upload и Web UI с обязательным ручным подтверждением `RESTORE`.
 10. CI проверяет полный цикл `backup → mutation → restore → Docker restart → rollback state/media`.
 
-### V0.6B — контент-план — следующий этап
+### V0.6B — контент-план — закрыто
 
-1. Экспорт контент-плана в CSV.
-2. Импорт CSV с dry-run preview и валидацией строк до записи в БД.
-3. XLSX import/export без зависимости от LibreOffice/Google Sheets runtime.
-4. Явная схема колонок: project, title, body, schedule mode/time, targets, platform overrides, media references.
-5. Google Sheets только как необязательный импорт/экспорт в будущем, никогда как runtime-зависимость.
+1. CSV export всех проектов или одного проекта; UTF-8 BOM, `;`, корректные quoted/multiline cells.
+2. CSV import распознаёт `;`, `,` и tab и использует тот же versioned parser/validator, что XLSX.
+3. XLSX import/export выполняется непосредственно Node.js без LibreOffice/Google Sheets/Python runtime.
+4. Схема v1: `project`, `title`, `body`, `schedule_mode`, `scheduled_at`, `targets`, `platform_overrides`, `media_references`.
+5. Target refs поддерживают несколько аккаунтов одной площадки через `accountId` с fallback на уникальную пару `platform + name`.
+6. Dry-run preview не меняет БД, показывает ошибки/предупреждения по каждой строке и выдаёт SHA-256 проверенного файла.
+7. Apply требует явный `IMPORT`, тот же SHA-256 и повторную полную валидацию под exclusive maintenance gate.
+8. Media references проверяются по SQLite, наличию файла, размеру и SHA-256; при импорте нормализованные bytes копируются в новый post без повторного JPEG encode.
+9. Любой импорт создаёт только `DRAFT`; автоматический `READY`/publish из таблицы запрещён.
+10. При ошибке apply созданные этим импортом posts/media очищаются.
+11. Web UI `Контент-план`: project-scoped export CSV/XLSX, выбор файла, dry-run, post-row diagnostics и подтверждаемый apply.
+12. Regression CI проверяет настоящий CSV/XLSX round-trip с `;`, кавычками, multiline body/override, расписанием, target и media SHA, а также негативную строку `AT` без даты.
+13. Google Sheets остаётся только возможным необязательным import/export connector после V1 и не является runtime-зависимостью.
 
-## V0.7 — эксплуатация и test hardening
+## V0.7 — эксплуатация и test hardening — следующий этап
 
 1. Полные CRUD/scheduler/publisher E2E-тесты на временной SQLite и mock-adapters.
 2. Экран диагностики: версия приложения, состояние БД, scheduler, media storage, PUBLIC_BASE_URL.
