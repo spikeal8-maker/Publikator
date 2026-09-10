@@ -18,3 +18,5 @@ jobs:
       - run: npm run build
       - name: Queue catch-up, blocked AT and Telegram length E2E
         run: node scripts/runtime-reliability-e2e.mjs
+      - name: Atomic publication claim concurrency E2E
+        run: node scripts/publication-concurrency-e2e.mjs
