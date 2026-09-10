@@ -10,6 +10,7 @@ services:
       HOST: "0.0.0.0"
       DATA_DIR: "/app/data"
       PUBLIC_BASE_URL: "${PUBLIC_BASE_URL}"
+      TRUST_PROXY: "${TRUST_PROXY:-}"
       ADMIN_PASSWORD: "${ADMIN_PASSWORD}"
       APP_MASTER_KEY: "${APP_MASTER_KEY}"
       SESSION_TTL_HOURS: "${SESSION_TTL_HOURS:-24}"
