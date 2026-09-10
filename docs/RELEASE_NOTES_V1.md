@@ -1,118 +1,184 @@
-# Publikator V1 — release candidate notes
+# Publikator 1.0.0 — release notes draft
 
-Текущий pre-release: **0.8.0-rc.3**.
+Текущий кандидат: **`1.0.0-rc.1`**.
 
-Стабильный тег `v1.0.0` не должен создаваться до завершения реального live acceptance Telegram, VK, MAX и Instagram на одном release commit.
+Этот документ станет release notes стабильного `v1.0.0` только после четырёх реальных platform `LIVE PASS`, post-acceptance backup/restore и зелёного `Publikator CI / Acceptance` на том же commit.
 
-## Что входит в кандидат V1
+## Назначение
 
-### Публикация
+Publikator — единая self-hosted система планирования и публикации контента в Telegram, VK, MAX и Instagram.
 
-- Telegram, VK, MAX и Instagram adapters;
-- отдельный текст для каждой площадки/аккаунта;
-- одиночные изображения и поддерживаемые media groups/carousels;
-- обязательный platform preflight;
-- ручная публикация, `AT` и проектная `QUEUE`;
-- retry только при определённо безопасных временных ошибках;
-- `RECOVERY_NEEDED` при неизвестном результате внешнего POST с отдельным операторским разбором.
+Production architecture:
 
-### Контент и media
+```text
+1 repository
+1 Docker container
+1 Fastify process
+1 SQLite/WAL database
+local media storage
+embedded scheduler
+```
 
-- локальное JPEG media storage;
+n8n, Redis, RabbitMQ, Kafka и отдельный worker не используются.
+
+## V1 capabilities
+
+### Content
+
+- проекты;
+- drafts;
+- обязательное изображение;
+- platform/account selection;
+- platform-specific text override;
+- live preview;
+- media reorder;
+- manual / AT / QUEUE scheduling;
+- CSV/XLSX content-plan import/export.
+
+### Media
+
 - EXIF orientation;
-- SHA-256 дедупликация;
-- управляемый `sort_order`;
-- CSV/XLSX content plan import/export;
-- dry-run и SHA-256 binding перед импортом.
+- JPEG normalization;
+- size/dimensions/SHA-256;
+- duplicate detection;
+- deterministic `sort_order`;
+- Telegram album до 10;
+- MAX до 12;
+- Instagram carousel 2–10.
 
-### Эксплуатация
+### Publishing safety
 
-- один production Docker-контейнер;
+- platform-specific preflight;
+- atomic SQLite claim before public POST;
+- duplicate-safe concurrent publish/retry;
+- per-target durable state;
+- retry только известных временных ошибок;
+- phase-aware external API semantics;
+- `RECOVERY_NEEDED` для unknown/partial public outcome;
+- manual recovery confirmation;
+- content freeze после partial/published.
+
+### Scheduler
+
+- `AT` exact datetime;
+- `QUEUE` weekly project slots with timezone;
+- grace-window для краткого restart/maintenance;
+- duplicate schedule slots запрещены SQLite UNIQUE;
+- schema v3 migration очищает исторические дубли.
+
+### Platform hardening
+
+**Telegram**
+- Unicode text limits;
+- local media read before POST;
+- 30s request timeout;
+- safe long-text partial recovery.
+
+**VK**
+- preparation upload phase отдельно от `wall.post`;
+- `guid=post.id`;
+- 30s timeout;
+- unknown only on public phase.
+
+**MAX**
+- Unicode 4000;
+- max 12 media;
+- strict public HTTPS URL validation;
+- 30s public POST timeout/recovery.
+
+**Instagram**
+- container readiness polling;
+- child/parent carousel readiness;
+- safe preparation retry;
+- unknown `media_publish` recovery.
+
+### Security
+
+- AES-256-GCM credentials;
+- HttpOnly/SameSite session cookie;
+- login throttling;
+- exact same-origin browser mutation guard;
+- CSP / nosniff / frame deny / no-referrer / Permissions-Policy / COOP;
+- HSTS under HTTPS;
+- API no-store;
+- explicit trusted reverse proxy list;
+- wildcard proxy trust forbidden;
+- `/public-media` intentionally cross-origin for social media ingestion.
+
+### Data / disaster recovery
+
 - SQLite/WAL;
-- encrypted social credentials;
-- diagnostics UI;
-- event/backup retention;
-- единый full `.tgz` backup и safe restore до открытия SQLite;
-- SQLite-only backup API ранних версий отключён;
-- committed `package-lock.json` и воспроизводимая установка через `npm ci`;
-- production dependency security gate;
-- mock publisher/scheduler E2E;
-- authenticated HTTP CRUD E2E;
-- content-plan round-trip CI;
-- canonical backup-path E2E;
-- production Docker/restore CI.
+- schema v3;
+- one canonical `.tgz` backup format;
+- DB/media SHA-256 manifest;
+- key fingerprint;
+- tar traversal/link protection;
+- staging restore;
+- pre-restore backup;
+- restart-before-open apply;
+- filesystem rollback;
+- release acceptance evidence included in backup.
 
-## Новое в 0.8.0-rc.1
+### Diagnostics / release gate
 
-- SQLite schema `2`;
-- таблица `release_acceptance` внутри основной SQLite;
-- Web UI `Release gate`;
-- live evidence: platform, status, test account, tested time, full Git SHA, notes;
-- `LIVE PASS` требует явного подтверждения и полного 40-символьного commit SHA;
-- четыре площадки должны иметь PASS на одном commit;
-- `APP_BUILD_SHA` связывает запущенный контейнер с проверенным commit;
-- release gate учитывает diagnostics, `RECOVERY_NEEDED`, scheduler last error, HTTPS `PUBLIC_BASE_URL` и полный backup после последнего acceptance;
-- release evidence автоматически попадает в тот же backup/restore;
-- старый бинарник больше не должен принимать SQLite с более новой schema;
-- `docker-compose.yml` реально передаёт пользовательские `EVENT_RETENTION_DAYS` и `BACKUP_RETENTION_COUNT` в контейнер;
-- добавлен отдельный Release gate CI.
+- SQLite health;
+- scheduler/retention state;
+- media DB↔disk reconciliation;
+- disk space;
+- PUBLIC_BASE_URL readiness;
+- pending recovery;
+- full backups;
+- four persistent live acceptance records.
 
-## Новое в 0.8.0-rc.2
+Stable gate requires:
 
-- отключены legacy `GET /api/backups` и `POST /api/backups`, создававшие SQLite-only копии;
-- раздел «Резервные копии» сразу открывает canonical full-bundle UI и не делает промежуточный legacy-запрос;
-- рабочий backup-формат теперь однозначен: только `.tgz` с SQLite, media и manifest;
-- исторические `.sqlite` файлы не удаляются автоматически только из-за обновления, но новые через приложение не создаются;
-- добавлен отдельный `Backup path CI`, который проверяет `410 Gone` для legacy API и успешное создание full bundle.
+```text
+Telegram PASS
+VK PASS
+MAX PASS
+Instagram PASS
+same commit SHA
+baked image revision == acceptance SHA
+no RECOVERY_NEEDED
+clean diagnostics
+full backup after latest PASS
+restore verification
+Publikator CI / Acceptance PASS
+```
 
-## Новое в 0.8.0-rc.3
+## Reproducible release identity
 
-Pre-live dependency audit обнаружил две **high** production vulnerabilities в прямых зависимостях предыдущего RC:
+- Node `22.23.2`;
+- pinned `node:22.23.2-bookworm-slim` digest;
+- `package-lock.json`;
+- production `npm ci`;
+- production high/critical audit gate;
+- `BUILD_SHA` baked into Docker `IMAGE_BUILD_SHA`;
+- OCI `org.opencontainers.image.revision` label;
+- non-root runtime.
 
-- `@fastify/static` обновлён до `10.1.3`;
-- `sharp` обновлён до `0.35.4`.
+## CI
 
-После обновления `npm audit --omit=dev` показывает **0 vulnerabilities**.
+В V1 остаётся один постоянный GitHub Actions workflow:
 
-Дополнительно:
+```text
+.github/workflows/publikator-ci.yml
+```
 
-- в репозиторий добавлен `package-lock.json` (`lockfileVersion: 3`);
-- Docker собирается через `npm ci` и использует зафиксированный dependency graph;
-- все acceptance workflows переведены на `npm ci`;
-- добавлен read-only `Dependency security CI`, который выполняет exact lock install и блокирует high/critical production vulnerabilities;
-- правила разработки запрещают удалять lockfile, возвращать acceptance/production к плавающему `npm install` и выполнять dependency fix вслепую через `npm audit fix --force`;
-- Git commit SHA теперь идентифицирует не только исходный код, но и committed dependency graph.
+Один `Acceptance` job проверяет весь release-контур, включая concurrent publication and full Docker restore/restart.
 
-## Что намеренно не автоматизировано
+## Не входит в V1
 
-Publikator не ставит live PASS после mock/E2E и не обращается к GitHub API из production runtime, чтобы самостоятельно объявить релиз готовым.
+- AI generation как часть core runtime;
+- analytics всех соцсетей;
+- обязательный Google Sheets;
+- n8n;
+- Redis/queue broker;
+- отдельный worker;
+- отдельная database service.
 
-Причина: реальный acceptance должен подтвердить внешние API, права, сетевую доступность media URL и фактический результат публикации. Эти условия нельзя достоверно заменить локальным mock.
+Эти возможности могут рассматриваться после стабильного V1 только если не разрушают простую архитектуру.
 
-## Условие стабильного v1.0.0
+## Release procedure
 
-Для одного и того же release commit должны одновременно выполняться:
-
-1. `CI` — PASS;
-2. `Content plan CI` — PASS;
-3. `Ops hardening CI` — PASS;
-4. `Release gate CI` — PASS;
-5. `Backup path CI` — PASS;
-6. `Dependency security CI` — PASS;
-7. production audit не содержит high/critical vulnerabilities;
-8. live Telegram — PASS;
-9. live VK — PASS;
-10. live MAX — PASS;
-11. live Instagram — PASS;
-12. нет необработанных `RECOVERY_NEEDED`;
-13. diagnostics не содержит ошибок SQLite/media/public URL;
-14. после последнего live acceptance создан полный `.tgz` backup;
-15. runtime `APP_BUILD_SHA` совпадает с acceptance commit.
-
-Только после этого версия меняется на `1.0.0` и создаётся стабильный Git tag/release.
-
-## Обновление
-
-Порядок обновления и rollback: `docs/UPGRADE_TO_V1.md`.
-
-Live сценарии: `docs/LIVE_INTEGRATION_CHECKLIST.md`.
+Перед финальным `v1.0.0` выполнить [`LIVE_INTEGRATION_CHECKLIST.md`](LIVE_INTEGRATION_CHECKLIST.md). Пока хотя бы один пункт release gate не выполнен, `1.0.0-rc.1` остаётся release candidate и stable tag не создаётся.

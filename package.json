@@ -1,9 +1,11 @@
 {
   "name": "publikator",
-  "version": "0.8.0-rc.3",
+  "version": "1.0.0-rc.1",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",

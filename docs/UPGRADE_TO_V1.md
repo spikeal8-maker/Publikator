@@ -1,133 +1,200 @@
-# Обновление Publikator 0.6.x / 0.7.0 → 0.8.0-rc.3 → V1
+# Upgrade to Publikator 1.0.0-rc.1
 
-Publikator 0.8.0-rc.3 сохраняет архитектуру одного production-контейнера и локального `data/`, поднимает SQLite schema с **1 до 2**, оставляет один рабочий формат резервной копии — полный `.tgz` bundle — и фиксирует npm dependency graph через committed `package-lock.json`.
+Этот документ описывает переход существующей установки на текущий release candidate перед live acceptance.
 
-## Перед обновлением
+## 1. Не обновляться без backup
 
-1. В текущем Publikator создайте **полный `.tgz` backup bundle** через раздел «Резервные копии».
-2. Скачайте этот bundle на отдельный диск/компьютер.
-3. Убедитесь, что сохранён текущий `APP_MASTER_KEY`. Он не входит в backup и нужен для расшифровки credentials после восстановления.
-4. Запишите текущую версию/commit и убедитесь, что раздел «Диагностика» не показывает ошибок SQLite/media.
-5. Не удаляйте существующий каталог `data/`.
+На работающей старой версии сначала создать canonical full `.tgz` backup через интерфейс Publikator.
 
-Старые `.sqlite`-файлы из ранних версий можно оставить в `data/backups`, но приложение больше не создаёт SQLite-only backup через `/api/backups`.
+Убедиться, что bundle содержит:
 
-## Обновление
+```text
+manifest.json
+publikator.sqlite
+media/
+```
 
-После получения нужного release commit выполните:
+Отдельно сохранить текущий `APP_MASTER_KEY`. Сам ключ намеренно не входит в bundle.
+
+## 2. Зафиксировать старое состояние
+
+Перед обновлением записать:
+
+```text
+текущий Git commit
+текущую версию Publikator
+имя последнего full backup
+APP_MASTER_KEY fingerprint/место безопасного хранения ключа
+PUBLIC_BASE_URL
+reverse-proxy configuration
+```
+
+Если используется reverse proxy, определить его реальный IP/CIDR для `TRUST_PROXY`. Не использовать wildcard trust.
+
+## 3. Получить 1.0.0-rc.1
 
 ```bash
+git checkout main
 git pull --ff-only
 git rev-parse HEAD
 ```
 
-В `.env` задайте `APP_BUILD_SHA` равным **точному полному выводу** второй команды. Сокращённый SHA не подходит.
-
-Остальные release-параметры:
-
-```env
-RELEASE_TARGET_VERSION=1.0.0
-EVENT_RETENTION_DAYS=180
-BACKUP_RETENTION_COUNT=30
-```
-
-Проверьте, что committed dependency graph согласован:
+Проверить:
 
 ```bash
 npm ci --ignore-scripts --no-audit --no-fund
 npm audit --omit=dev --audit-level=high
 ```
 
-Production audit перед release не должен содержать high/critical vulnerabilities.
+High/critical production vulnerability блокирует deployment.
 
-Затем пересоберите **тот же единственный контейнер**:
+## 4. Обновить `.env`
 
-```bash
-docker compose up -d --build
+Минимум:
+
+```env
+PUBLIC_BASE_URL=https://publisher.example.ru
+ADMIN_PASSWORD=<existing-or-new-strong-password>
+APP_MASTER_KEY=<ТОТ ЖЕ КЛЮЧ, ЧТО И ДО ОБНОВЛЕНИЯ>
+RELEASE_TARGET_VERSION=1.0.0
 ```
 
-Dockerfile использует `npm ci`, поэтому build обязан совпадать с `package-lock.json`. Если `package.json` и lockfile расходятся, сборка должна падать, а не тихо разрешать новый набор зависимостей.
+При reverse proxy:
 
-При старте Publikator:
+```env
+TRUST_PROXY=127.0.0.1,172.16.0.0/12
+```
 
-- проверит, что SQLite schema не новее поддерживаемой бинарником;
-- создаст таблицу `release_acceptance`;
-- сохранит существующие проекты, аккаунты, посты, media, targets, расписание и журнал;
-- выставит `PRAGMA user_version = 2`.
+Подставьте только реально доверенные адреса/сети.
 
-## Проверка после обновления
+Scheduler settings при необходимости:
 
-Откройте «Диагностика» и проверьте:
+```env
+SCHEDULER_INTERVAL_MS=15000
+QUEUE_SLOT_GRACE_MINUTES=60
+EVENT_RETENTION_DAYS=180
+BACKUP_RETENTION_COUNT=30
+```
 
-- `quick_check = ok`;
-- `journal_mode = wal`;
-- schema version = `2`;
-- нет missing media и size mismatch;
-- scheduler не имеет необработанной последней ошибки;
-- `PUBLIC_BASE_URL` корректен;
-- нет неожиданных `RECOVERY_NEEDED`.
+## 5. Собрать image с baked revision
 
-Откройте «Резервные копии» и убедитесь, что отображаются только полные `.tgz` bundles; создание новой копии должно формировать bundle с SQLite, media и manifest.
+```bash
+export BUILD_SHA="$(git rev-parse HEAD)"
+docker compose build --no-cache
+docker compose up -d
+```
 
-Затем откройте **Release gate**. После обновления все четыре площадки должны быть `Не проверено` до реального live acceptance.
+Не передавайте release identity через runtime `APP_BUILD_SHA`. Production image должен содержать:
 
-## APP_BUILD_SHA и зависимости
+```text
+IMAGE_BUILD_SHA=$BUILD_SHA
+org.opencontainers.image.revision=$BUILD_SHA
+```
 
-`APP_BUILD_SHA` — не секрет. Это полный Git commit SHA исходников, из которых собран текущий контейнер. Release gate использует его, чтобы не принять результаты тестов другого build.
+Проверить label можно командой:
 
-Начиная с RC3, тот же commit содержит `package-lock.json`, поэтому SHA также фиксирует точный dependency graph. Не перегенерируйте lockfile после live acceptance без нового commit и повторного полного acceptance.
+```bash
+docker image inspect publikator-publikator --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}'
+```
 
-Значение `APP_BUILD_SHA` должно состоять ровно из 40 hex-символов и совпадать с выводом `git rev-parse HEAD` непосредственно перед сборкой контейнера.
+Имя image может отличаться в зависимости от имени compose project; важен сам label.
 
-## Live acceptance перед V1
+## 6. Schema migration
 
-Для одного и того же `APP_BUILD_SHA` выполните `docs/LIVE_INTEGRATION_CHECKLIST.md` отдельно для:
+Текущая SQLite schema version: **3**.
 
-- Telegram;
-- VK;
-- MAX;
-- Instagram.
+Upgrade выполняется автоматически при старте.
 
-После фактической проверки каждой площадки заполните её карточку в Release gate и зафиксируйте `LIVE PASS`.
+Schema v3 добавляет уникальность schedule slots:
 
-Release gate остаётся заблокированным, если:
+```text
+(project_id, weekday, time_hhmm, timezone)
+```
 
-- хотя бы одна площадка не имеет PASS;
-- PASS относятся к разным commit SHA;
-- `APP_BUILD_SHA` не задан или не совпадает с acceptance commit;
-- есть ошибки диагностики;
-- остался `RECOVERY_NEEDED`;
-- scheduler хранит последнюю ошибку;
-- нет корректного HTTPS `PUBLIC_BASE_URL`;
-- после последней live-проверки не создан новый полный `.tgz` backup.
+Если в старой SQLite были дубли:
 
-Перед стабильным тегом дополнительно должны быть зелёными `CI`, `Content plan CI`, `Ops hardening CI`, `Release gate CI`, `Backup path CI` и `Dependency security CI` на том же commit.
+- сохраняется детерминированный самый ранний slot;
+- `last_fired_on` объединяется до наиболее поздней известной даты;
+- остальные дубли удаляются;
+- затем создаётся UNIQUE index.
 
-После четырёх PASS создайте **ещё один полный backup bundle**. Только backup, созданный после последнего acceptance, закрывает release gate.
+Также сохраняются прежние media-order/release-acceptance migrations.
 
-## Rollback
+Более новая неизвестная schema по-прежнему блокирует запуск старого бинарника.
 
-После миграции schema 1 → 2 не запускайте старую 0.7.0 поверх уже мигрированного рабочего `data/` как способ rollback.
+## 7. Первый запуск после upgrade
 
-Правильный rollback:
+Открыть **Диагностика** и проверить:
 
-1. остановить текущий контейнер;
-2. вернуть исходники/образ прежней версии;
-3. восстановить **pre-upgrade полный backup** вместе с тем же `APP_MASTER_KEY`;
-4. запустить прежнюю версию;
-5. проверить диагностику и данные.
+- version = `1.0.0-rc.1`;
+- schema = `3`;
+- SQLite `quick_check = ok`;
+- WAL;
+- media missing/size mismatch = 0;
+- scheduler без last error;
+- PUBLIC_BASE_URL корректен;
+- нет неожиданного `RECOVERY_NEEDED`;
+- backup bundles видны.
 
-Такой порядок исключает запуск старого бинарника на схеме, о которой он не знает.
+Проверить список schedule slots: исторические точные дубли должны исчезнуть.
 
-## Что не меняется
+## 8. Security smoke
 
-Обновление не добавляет:
+Через обычный браузер:
 
-- n8n;
-- Redis;
-- RabbitMQ;
-- отдельный worker;
-- отдельную runtime-БД;
-- внешнее media storage.
+- login работает;
+- mutation UI работает с основного origin;
+- cookie остаётся HttpOnly/SameSite;
+- интерфейс не должен открываться во frame;
+- `/public-media/...` остаётся доступным извне.
 
-По-прежнему достаточно одного Docker-контейнера и каталога `data/`.
+Если включён `TRUST_PROXY`, убедиться, что он содержит только proxy, который действительно стоит перед Publikator.
+
+## 9. Publication smoke
+
+До live acceptance использовать тестовый проект.
+
+Проверить:
+
+1. создать draft;
+2. добавить media;
+3. выбрать один тестовый account;
+4. READY;
+5. открыть две вкладки и почти одновременно выполнить publish;
+6. внешний пост должен появиться ровно один раз;
+7. target attempts не должен показывать двойной первый запуск.
+
+Этот smoke подтверждает atomic publication claim на конкретном deployment.
+
+## 10. Rollback
+
+После успешного старта schema v3 **не запускайте старый бинарник поверх уже мигрированного `data/`**.
+
+Rollback делается так:
+
+1. остановить новый container;
+2. вернуть предыдущую версию кода/image;
+3. восстановить pre-upgrade full `.tgz` backup через совместимую процедуру с тем же `APP_MASTER_KEY`;
+4. запустить старую версию на восстановленных данных.
+
+Нельзя считать downgrade кода заменой rollback данных.
+
+## 11. После upgrade
+
+Upgrade до RC не означает stable release. Далее выполнить:
+
+```text
+docs/LIVE_INTEGRATION_CHECKLIST.md
+```
+
+Четыре площадки должны получить `LIVE PASS` на одном baked build SHA. После последнего PASS нужен новый full backup и его restore-test. Только затем разрешается выпуск `v1.0.0`.
+
+## 12. CI gate
+
+В репозитории теперь один постоянный workflow:
+
+```text
+Publikator CI / Acceptance
+```
+
+Перед merge/release он должен быть зелёным целиком. Отдельные старые `Content plan CI`, `Ops hardening CI`, `Toolchain CI`, platform workflows и т.п. больше не являются самостоятельными release gates: их сценарии включены внутрь единого acceptance.

@@ -162,9 +162,11 @@ export async function collectReleaseGate(): Promise<ReleaseGateSnapshot> {
   }
 
   if (!config.appBuildSha) {
-    blockers.push('APP_BUILD_SHA не задан: нельзя доказать, что запущен именно проверенный release commit');
+    blockers.push(process.env.NODE_ENV === 'production'
+      ? 'IMAGE_BUILD_SHA не зашит в production image: пересоберите контейнер с BUILD_SHA=<git rev-parse HEAD>'
+      : 'Build SHA не задан: нельзя доказать, что проверяется нужный release commit');
   } else if (acceptanceCommitSha && acceptanceCommitSha !== config.appBuildSha) {
-    blockers.push(`APP_BUILD_SHA ${config.appBuildSha} не совпадает с acceptance commit ${acceptanceCommitSha}`);
+    blockers.push(`Встроенный build SHA ${config.appBuildSha} не совпадает с acceptance commit ${acceptanceCommitSha}`);
   }
 
   if (!validReleasePublicBaseUrl(config.publicBaseUrl)) {
@@ -183,7 +185,7 @@ export async function collectReleaseGate(): Promise<ReleaseGateSnapshot> {
   else if (latestAcceptanceAt && !backupAfterAcceptance) blockers.push('Последний полный backup создан до завершения live acceptance');
 
   if (blockers.length === 0) {
-    warnings.push('Runtime/live gate пройден. Перед созданием стабильного V1 всё равно требуется зелёный automated CI на том же commit SHA.');
+    warnings.push('Runtime/live gate пройден. Перед созданием стабильного V1 всё равно требуется зелёный Publikator CI / Acceptance на том же commit SHA.');
   }
 
   return {
