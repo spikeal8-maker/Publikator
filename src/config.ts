@@ -6,6 +6,14 @@ function required(name: string): string {
   return value;
 }
 
+function nonNegativeInteger(name: string, fallback: number): number {
+  const raw = process.env[name]?.trim();
+  if (!raw) return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) throw new Error(`${name} must be a non-negative integer`);
+  return value;
+}
+
 const dataDir = process.env.DATA_DIR?.trim() || path.resolve('data');
 const publicBaseUrl = process.env.PUBLIC_BASE_URL?.trim().replace(/\/$/, '') || '';
 const masterKey = required('APP_MASTER_KEY');
@@ -24,5 +32,7 @@ export const config = {
   adminPassword: required('ADMIN_PASSWORD'),
   masterKey,
   sessionTtlMs: Number(process.env.SESSION_TTL_HOURS || 24) * 60 * 60 * 1000,
-  schedulerIntervalMs: Math.max(5000, Number(process.env.SCHEDULER_INTERVAL_MS || 15000))
+  schedulerIntervalMs: Math.max(5000, Number(process.env.SCHEDULER_INTERVAL_MS || 15000)),
+  eventRetentionDays: nonNegativeInteger('EVENT_RETENTION_DAYS', 180),
+  backupRetentionCount: nonNegativeInteger('BACKUP_RETENTION_COUNT', 30)
 };

@@ -4,7 +4,15 @@ import { config } from '../config.js';
 import { createSessionToken, decryptJson, encryptJson, securePasswordEqual, verifySessionToken } from '../crypto.js';
 import { db, event, id, nowIso, type Platform } from '../db.js';
 import { deleteMedia, listMedia, saveImage } from '../media.js';
-import { ensureTargets, preflightPost, publishPost, publishTarget, refreshPostStatus, setTargetSelection } from '../publisher.js';
+import {
+  confirmRecoveryNotPublished,
+  confirmRecoveryPublished,
+  ensureTargets,
+  preflightPost,
+  publishPost,
+  retryFailedTarget,
+  setTargetSelection
+} from '../publisher.js';
 import { testConnection } from '../platforms/connection-test.js';
 
 const PLATFORMS = new Set<Platform>(['telegram','vk','max','instagram']);
@@ -252,12 +260,36 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
   app.post('/api/targets/:id/retry', async (request, reply) => {
     const params = request.params as { id: string };
-    const target = db.prepare('SELECT pt.post_id FROM post_targets pt JOIN social_accounts a ON a.id=pt.account_id WHERE pt.id=? AND pt.enabled=1 AND a.enabled=1').get(params.id) as { post_id: string } | undefined;
-    if (!target) return reply.code(409).send({ error: 'Цель отключена или не найдена' });
-    db.prepare("UPDATE post_targets SET state='PENDING',next_attempt_at=NULL,last_error=NULL,updated_at=? WHERE id=?").run(nowIso(), params.id);
-    await publishTarget(params.id);
-    refreshPostStatus(target.post_id);
-    return { ok: true };
+    try {
+      await retryFailedTarget(params.id);
+      return { ok: true };
+    } catch (error) {
+      return reply.code(409).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+  app.post('/api/targets/:id/recovery/confirm-published', async (request, reply) => {
+    const params = request.params as { id: string };
+    let body: Record<string, any> = {};
+    if (request.body !== undefined && request.body !== null) {
+      try { body = bodyObject(request.body); } catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) }); }
+    }
+    if (body.externalId !== undefined && body.externalId !== null && typeof body.externalId !== 'string') return reply.code(400).send({ error: 'externalId должен быть строкой или null' });
+    if (body.externalUrl !== undefined && body.externalUrl !== null && typeof body.externalUrl !== 'string') return reply.code(400).send({ error: 'externalUrl должен быть строкой или null' });
+    try {
+      const result = confirmRecoveryPublished(params.id, body.externalId ?? null, body.externalUrl ?? null);
+      return { ok: true, postId: result.postId };
+    } catch (error) {
+      return reply.code(409).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+  app.post('/api/targets/:id/recovery/confirm-not-published', async (request, reply) => {
+    const params = request.params as { id: string };
+    try {
+      const result = confirmRecoveryNotPublished(params.id);
+      return { ok: true, postId: result.postId };
+    } catch (error) {
+      return reply.code(409).send({ error: error instanceof Error ? error.message : String(error) });
+    }
   });
 
   app.get('/api/schedules', async () => db.prepare('SELECT s.*, p.name AS project_name FROM schedule_slots s JOIN projects p ON p.id=s.project_id ORDER BY project_name,weekday,time_hhmm').all());

@@ -4,7 +4,7 @@
 
 Publikator специально построен как **модульный монолит**: один репозиторий, один Docker-контейнер, один интерфейс, одна SQLite-база и встроенный scheduler. n8n, Redis, RabbitMQ и отдельный worker не нужны.
 
-Текущая версия: **0.6.1**.
+Текущая версия: **0.7.0**.
 
 ## Что уже реализовано
 
@@ -30,15 +30,20 @@ Publikator специально построен как **модульный м�
 - публикация по точной дате (`AT`);
 - проектная очередь публикаций (`QUEUE`) со слотами по дням недели и timezone;
 - retry только для явно временных API-ошибок;
-- `RECOVERY_NEEDED` при неопределённом результате внешнего POST — автоматического дубля не будет;
+- `RECOVERY_NEEDED` при неопределённом результате внешнего POST;
+- обычный retry не может обойти `RECOVERY_NEEDED`: требуется отдельное ручное решение после проверки площадки;
 - запрет изменения текста, площадок и медиа после частичной публикации;
 - журнал событий;
+- автоматический retention журнала и backup bundles без отдельного cron/worker;
 - CSV/XLSX экспорт контент-плана;
 - CSV/XLSX импорт с обязательным dry-run, построчной валидацией и SHA-256 привязкой apply к проверенному файлу;
 - полные `.tgz` backup bundles: SQLite + media + manifest;
 - безопасный restore через staging, pre-restore backup и перезапуск до открытия SQLite;
+- экран **Диагностика**: SQLite, scheduler, media reconciliation, disk space, PUBLIC_BASE_URL, backups, retention и recovery;
 - Docker HEALTHCHECK;
 - CI проверяет компиляцию, frontend JS, миграции, Docker build, runtime/API smoke и полный backup/restore cycle;
+- отдельный mock E2E проверяет publisher/recovery/scheduler/retention на временной SQLite;
+- authenticated HTTP E2E проходит настоящий Fastify router stack с mock publisher;
 - Docker deployment.
 
 ## Быстрый запуск
@@ -77,6 +82,45 @@ data/
 ```
 
 `APP_MASTER_KEY` хранится **вне** `data/` и backup bundle. Этот ключ нужен для расшифровки credentials соцсетей. Не меняйте и не теряйте его: восстановление bundle с другим ключом намеренно блокируется.
+
+## Диагностика
+
+Раздел **«Диагностика»** собирает read-only снимок эксплуатационного состояния:
+
+- версию приложения, Node.js и uptime;
+- SQLite `quick_check`, `journal_mode`, schema version, размеры DB/WAL и counts;
+- состояние scheduler и сведения о последнем tick;
+- сверку media SQLite ↔ файлы на диске, включая missing/orphan/size mismatch;
+- свободное место файловой системы `DATA_DIR`;
+- готовность `PUBLIC_BASE_URL` для активных MAX/Instagram;
+- активные аккаунты, `RECOVERY_NEEDED`, maintenance;
+- backup bundles и retention policy.
+
+Диагностика не возвращает `APP_MASTER_KEY`, `ADMIN_PASSWORD` или расшифрованные credentials.
+
+## RECOVERY_NEEDED
+
+`RECOVERY_NEEDED` означает, что после начала внешнего POST возникла ошибка с неопределённым исходом: публикация могла реально появиться на площадке. Поэтому обычный retry заблокирован и не может автоматически сбросить это состояние.
+
+В Web UI нужно нажать **«Разобрать»**, затем вручную проверить площадку и выбрать один из двух вариантов:
+
+- **Публикация найдена** — target становится `PUBLISHED` без нового внешнего POST; при желании можно сохранить external ID/URL.
+- **Публикации точно нет** — target становится `FAILED`, и только после этого обычный ручной retry снова доступен. Сам retry автоматически не запускается.
+
+Оба решения записываются в журнал вместе с предыдущей ошибкой.
+
+## Retention
+
+Retention выполняется тем же встроенным scheduler, без второго процесса:
+
+```env
+EVENT_RETENTION_DAYS=180
+BACKUP_RETENTION_COUNT=30
+```
+
+`EVENT_RETENTION_DAYS=0` отключает автоочистку событий. История постов, у которых остаётся активный `RECOVERY_NEEDED`, от удаления защищена.
+
+`BACKUP_RETENTION_COUNT=0` отключает автоочистку `.tgz` backup bundles. При включённой политике сохраняются N самых свежих bundle; дополнительно сохраняется самый свежий `pre-restore` bundle, даже если он оказался за пределами N.
 
 ## Контент-план CSV/XLSX
 
@@ -123,9 +167,11 @@ publikator-2026-09-09T20-00-00-000Z-manual.tgz
 
 Перед `READY` каждый выбранный adapter проверяет свои локальные требования. Ошибка одной площадки не маскируется общей надписью: API возвращает конкретный аккаунт, площадку и причину блокировки.
 
-## Параметры площадок
+## Параметры площадок и V1 acceptance
 
-См. [`docs/PLATFORMS.md`](docs/PLATFORMS.md).
+Подключения и adapter-поведение: [`docs/PLATFORMS.md`](docs/PLATFORMS.md).
+
+Обязательный ручной gate перед стабильным V1: [`docs/LIVE_INTEGRATION_CHECKLIST.md`](docs/LIVE_INTEGRATION_CHECKLIST.md).
 
 ## Архитектура
 
