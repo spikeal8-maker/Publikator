@@ -45,6 +45,11 @@ function migrateMediaOrder(): void {
 }
 
 export function migrate(): void {
+  const currentSchemaVersion = Number(db.pragma('user_version', { simple: true }) ?? 0);
+  if (currentSchemaVersion > DATABASE_SCHEMA_VERSION) {
+    throw new Error(`SQLite schema ${currentSchemaVersion} новее поддерживаемой ${DATABASE_SCHEMA_VERSION}. Запуск старой версии Publikator заблокирован.`);
+  }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY,
@@ -127,6 +132,19 @@ export function migrate(): void {
       data_json TEXT,
       created_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS release_acceptance (
+      id TEXT PRIMARY KEY,
+      target_version TEXT NOT NULL,
+      platform TEXT NOT NULL CHECK(platform IN ('telegram','vk','max','instagram')),
+      status TEXT NOT NULL CHECK(status IN ('PASS','FAIL')),
+      commit_sha TEXT NOT NULL,
+      account_name TEXT NOT NULL,
+      tested_at TEXT NOT NULL,
+      notes TEXT,
+      updated_at TEXT NOT NULL,
+      UNIQUE(target_version, platform)
+    );
   `);
 
   migrateMediaOrder();
@@ -137,6 +155,7 @@ export function migrate(): void {
     CREATE INDEX IF NOT EXISTS idx_media_post ON media(post_id);
     CREATE INDEX IF NOT EXISTS idx_media_post_order ON media(post_id, sort_order, created_at);
     CREATE INDEX IF NOT EXISTS idx_events_created ON publication_events(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_release_acceptance_version ON release_acceptance(target_version, platform);
   `);
 
   const projectCount = db.prepare('SELECT COUNT(*) AS count FROM projects').get() as { count: number };
