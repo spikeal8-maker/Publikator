@@ -1,0 +1,21 @@
+name: Ops hardening CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ops-hardening:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm run build
+      - run: node --check public/ops-v07.js
+      - name: Mock publisher, recovery, scheduler and diagnostics E2E
+        run: node scripts/v07-mock-e2e.mjs
