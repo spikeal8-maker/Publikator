@@ -1,54 +1,63 @@
 # Publikator
 
-Единая self-hosted система автопубликации контента в **Telegram, VK, MAX и Instagram**.
+Self-hosted система автопубликации контента в **Telegram, VK, MAX и Instagram**.
 
-Publikator специально построен как **модульный монолит**: один репозиторий, один Docker-контейнер, один интерфейс, одна SQLite-база и встроенный scheduler. n8n, Redis, RabbitMQ и отдельный worker не нужны.
+Publikator намеренно построен как **модульный монолит**: один репозиторий, один production Docker-контейнер, один Web UI, одна SQLite/WAL база, локальное media storage и встроенный scheduler. n8n, Redis, RabbitMQ, Kafka, отдельный worker и отдельная runtime-БД не требуются.
 
-Текущая версия: **0.8.0-rc.3** — release candidate. Стабильный `v1.0.0` намеренно не создаётся до реального live acceptance всех четырёх заявленных площадок.
+Текущая версия: **1.0.0-rc.1**. Стабильный `v1.0.0` выпускается только после реального live acceptance всех четырёх площадок на одном release build.
 
-## Что уже реализовано
+## Основной контур
 
-- Web UI с авторизацией и ограничением перебора пароля;
-- проекты и независимые контентные очереди;
-- создание и редактирование публикаций;
-- явный выбор конкретных подключённых соцсетей для каждого поста;
-- обязательное изображение перед переводом поста в `READY`;
-- обязательный platform preflight перед `READY` и ручной публикацией;
-- загрузка изображений, EXIF rotation, нормализация в JPEG и локальное хранение;
-- SHA-256 дедупликация одинаковых изображений внутри поста;
-- управляемый порядок изображений с сохранением `sort_order`;
-- Instagram carousel до 10 изображений;
-- Telegram media group до 10 изображений;
-- MAX до 12 изображений;
-- формы подключения Telegram / VK / MAX / Instagram без ручного JSON;
-- проверка токена, назначения и доступных прав через официальные API до сохранения подключения;
-- шифрование credentials AES-256-GCM;
-- отдельный статус публикации для каждой площадки;
-- отдельный текст для каждой целевой площадки/аккаунта;
-- live preview публикации в Web UI;
+```text
+Web UI / REST API
+       │
+       ├── Posts / Projects / Accounts
+       ├── Media pipeline
+       ├── Scheduler AT / QUEUE
+       ├── Publication state machine
+       ├── Diagnostics / Release gate
+       └── Backup / Restore
+              │
+           SQLite/WAL + data/media
+              │
+    Telegram │ VK │ MAX │ Instagram
+```
+
+Каждая площадка имеет отдельный target state. Ошибка одной соцсети не заставляет публиковать остальные повторно.
+
+## Что реализовано
+
+- проекты и независимые очереди контента;
+- редактор поста с отдельным `override_text` для каждого аккаунта/площадки;
+- live preview площадок;
+- обязательное изображение: пост без media не может стать `READY`;
+- JPEG normalization, EXIF orientation, размеры, SHA-256 и дедупликация;
+- явный `media.sort_order` и изменение порядка до публикации;
+- Telegram: single image / media group до 10 изображений;
+- VK: загрузка нескольких изображений и `wall.post` с `guid=post.id`;
+- MAX: до 12 изображений через публичные HTTPS URL;
+- Instagram: single JPEG и carousel 2–10 JPEG;
+- проверка подключения и прав до сохранения/использования аккаунта;
 - ручная публикация;
-- публикация по точной дате (`AT`);
-- проектная очередь публикаций (`QUEUE`) со слотами по дням недели и timezone;
-- retry только для явно временных API-ошибок;
-- `RECOVERY_NEEDED` при неопределённом результате внешнего POST;
-- обычный retry не может обойти `RECOVERY_NEEDED`: требуется отдельное ручное решение после проверки площадки;
-- запрет изменения текста, площадок и медиа после частичной публикации;
-- журнал событий;
-- автоматический retention журнала и backup bundles без отдельного cron/worker;
-- CSV/XLSX экспорт контент-плана;
-- CSV/XLSX импорт с обязательным dry-run, построчной валидацией и SHA-256 привязкой apply к проверенному файлу;
-- единый backup-контур: только полные `.tgz` bundles с SQLite + media + manifest;
-- legacy `/api/backups` для SQLite-only копий отключён, чтобы не существовало двух разных систем резервного копирования;
-- безопасный restore через staging, pre-restore backup и перезапуск до открытия SQLite;
-- экран **Диагностика**: SQLite, scheduler, media reconciliation, disk space, PUBLIC_BASE_URL, backups, retention и recovery;
-- экран **Release gate** с persistent live evidence по четырём площадкам;
-- SQLite schema v2 с блокировкой запуска на более новой неизвестной схеме;
-- committed `package-lock.json` и воспроизводимый dependency graph;
-- Docker и acceptance CI устанавливают зависимости через `npm ci`;
-- read-only `Dependency security CI`, блокирующий high/critical production vulnerabilities;
-- Docker HEALTHCHECK;
-- CI для компиляции, frontend, миграций, Docker/runtime/restore, content-plan, operations, backup path, dependency security и release gate;
-- Docker deployment.
+- `AT` — точная дата/время;
+- `QUEUE` — проектные недельные слоты с timezone и grace-window;
+- уникальность schedule slots `(project, weekday, time, timezone)`;
+- platform-specific preflight перед `READY` и перед внешним publish;
+- retry только для известных временных ошибок;
+- `RECOVERY_NEEDED` при небезопасном для автоматического повтора исходе;
+- atomic SQLite claim перед внешним POST: конкурентные вызовы одного target не создают два запроса;
+- immutable content после частичной/полной публикации;
+- журнал событий и retention;
+- диагностика SQLite/media/scheduler/storage/public URL/recovery;
+- CSV/XLSX export/import контент-плана с dry-run и SHA-256 привязкой apply;
+- единый full backup `.tgz`: SQLite + media + manifest;
+- staging restore, проверка SHA/integrity/key fingerprint, pre-restore backup и rollback;
+- Release gate с persistent live evidence;
+- AES-256-GCM для credentials;
+- same-origin guard для browser mutations и security headers;
+- явная конфигурация доверенного reverse proxy;
+- SQLite schema v3;
+- один GitHub Actions pipeline: **`Publikator CI / Acceptance`**.
 
 ## Быстрый запуск
 
@@ -56,45 +65,121 @@ Publikator специально построен как **модульный м�
 cp .env.example .env
 ```
 
-Задайте как минимум:
+Обязательно задайте:
 
 ```env
 PUBLIC_BASE_URL=https://publisher.example.ru
-ADMIN_PASSWORD=very-strong-admin-password
-APP_MASTER_KEY=very-long-random-secret-at-least-32-characters
+ADMIN_PASSWORD=<сильный пароль>
+APP_MASTER_KEY=<случайный секрет минимум 32 символа>
 ```
 
-Затем:
+`APP_MASTER_KEY` нельзя терять: он не входит в backup и нужен для расшифровки credentials после restore.
+
+Для обычной разработки:
 
 ```bash
 docker compose up -d --build
 ```
 
-Интерфейс по умолчанию: `http://localhost:8080`.
-
-> Для MAX и Instagram `PUBLIC_BASE_URL` должен быть реальным публичным HTTPS-адресом: внешняя площадка должна суметь скачать изображение из `/public-media/...`.
-
-## Воспроизводимые и проверяемые зависимости
-
-Начиная с `0.8.0-rc.3`, `package-lock.json` коммитится в репозиторий и является частью release identity. Docker и все acceptance workflows используют `npm ci`, поэтому один Git commit соответствует одному зафиксированному npm dependency graph.
-
-Pre-live audit RC2 обнаружил две high production vulnerabilities в direct dependencies. В RC3 обновлены:
-
-- `@fastify/static` → `10.1.3`;
-- `sharp` → `0.35.4`.
-
-После обновления production audit показывает 0 vulnerabilities. Перед merge/release обязательна проверка:
+Для release/live acceptance SHA должен быть зашит в image на этапе build:
 
 ```bash
-npm ci --ignore-scripts --no-audit --no-fund
-npm audit --omit=dev --audit-level=high
+export BUILD_SHA="$(git rev-parse HEAD)"
+docker compose build --no-cache
+docker compose up -d
 ```
 
-High/critical production vulnerability блокирует выпуск. `Dependency security CI` не имеет write permissions к репозиторию.
+Dockerfile сохраняет этот SHA как:
+
+```text
+IMAGE_BUILD_SHA
+org.opencontainers.image.revision
+```
+
+В production Release gate использует именно встроенную revision образа. Переданный при запуске `APP_BUILD_SHA` не является release identity.
+
+## HTTPS и reverse proxy
+
+Publikator внутри контейнера слушает HTTP `:8080`. TLS обычно завершается существующим reverse proxy/ingress сервера.
+
+MAX и Instagram требуют, чтобы `PUBLIC_BASE_URL` был реально доступен из интернета по HTTPS, потому внешняя площадка должна получить `/public-media/...` без cookie и VPN.
+
+Если приложение стоит за reverse proxy и нужно учитывать реальный IP клиента для login throttling, задайте **только доверенные proxy адреса/сети**:
+
+```env
+TRUST_PROXY=127.0.0.1,172.16.0.0/12
+```
+
+`TRUST_PROXY=true` и `TRUST_PROXY=*` намеренно запрещены.
+
+## Публикационная безопасность
+
+Перед внешним POST target атомарно захватывается SQLite compare-and-set:
+
+```text
+PENDING / RETRY / FAILED
+          │
+          ├── CAS успешен → PUBLISHING → внешний API
+          │
+          └── CAS неуспешен → другой вызов уже владеет target → STOP
+```
+
+Это защищает от double-click, двух вкладок, ручного запуска рядом со scheduler и stale retry.
+
+После неизвестного исхода публичного POST target получает `RECOVERY_NEEDED`. Обычный retry для этого состояния запрещён. Оператор вручную проверяет площадку и выбирает:
+
+- **Публикация найдена** → `PUBLISHED` без нового POST;
+- **Публикации точно нет** → `FAILED`, после чего разрешён один обычный retry.
+
+## Scheduler
+
+Поддерживаются три режима поста:
+
+```text
+MANUAL — только ручная публикация
+AT     — конкретная дата/время
+QUEUE  — следующий подходящий slot проекта
+```
+
+Для `QUEUE` действует `QUEUE_SLOT_GRACE_MINUTES` (по умолчанию 60). Краткий restart/maintenance не теряет слот; после завершения grace-window stale публикация не выполняется.
+
+Одинаковые slots физически запрещены UNIQUE-индексом. При миграции schema v2→v3 исторические дубли схлопываются детерминированно, при этом сохраняется наиболее поздний `last_fired_on`.
+
+## Площадки
+
+### Telegram
+
+- media group: до 10 изображений;
+- caption: до 1024 Unicode-символов;
+- 1025–4096: media + отдельный `sendMessage`;
+- >4096 блокируется preflight;
+- local file read выполняется до публичного POST;
+- external request timeout: 30 секунд;
+- если media уже опубликовано, а follow-up text не подтверждён, используется `RECOVERY_NEEDED` с исходным media `message_id`.
+
+### VK
+
+Подготовительные шаги `getWallUploadServer → upload → saveWallPhoto` не создают запись стены. Их временные ошибки можно безопасно повторять. Только `wall.post` является публичной фазой; неопределённый исход этой фазы требует recovery.
+
+### MAX
+
+- до 12 изображений;
+- текст до 4000 Unicode-символов;
+- каждому media соответствует один валидный HTTPS URL;
+- `POST /messages` имеет timeout 30 секунд и сразу является публичной фазой.
+
+### Instagram
+
+- single JPEG или carousel 2–10 JPEG;
+- каждый child/parent media container ожидается до `status_code=FINISHED`;
+- `ERROR/EXPIRED` останавливают подготовку;
+- неопределённый исход только после начала `media_publish` требует recovery.
+
+Подробно: [`docs/PLATFORMS.md`](docs/PLATFORMS.md).
 
 ## Данные
 
-Весь runtime state лежит в `./data`:
+Всё runtime-состояние находится в одном volume:
 
 ```text
 data/
@@ -103,121 +188,91 @@ data/
   backups/
 ```
 
-`APP_MASTER_KEY` хранится **вне** `data/` и backup bundle. Этот ключ нужен для расшифровки credentials соцсетей. Не меняйте и не теряйте его: восстановление bundle с другим ключом намеренно блокируется.
+SQLite работает в WAL mode. Текущая schema version: **3**.
 
-## Release gate перед V1
+## Backup / restore
 
-Встроенный release gate не подменяет реальный тест соцсетей mock-результатами.
-
-Перед live acceptance получите идентификатор реально запущенного release build:
-
-```bash
-git rev-parse HEAD
-```
-
-В `.env` задайте `APP_BUILD_SHA` равным точному полному 40-символьному выводу этой команды и оставьте целевую версию:
-
-```env
-RELEASE_TARGET_VERSION=1.0.0
-```
-
-Для Telegram, VK, MAX и Instagram оператор выполняет `docs/LIVE_INTEGRATION_CHECKLIST.md`, после чего фиксирует результат в разделе **Release gate**. `LIVE PASS` требует имя тестового аккаунта, полный commit SHA и явное текстовое подтверждение.
-
-Gate остаётся заблокированным, пока одновременно не выполнены все условия:
-
-- четыре площадки имеют `PASS`;
-- все PASS относятся к одному commit SHA;
-- этот SHA совпадает с `APP_BUILD_SHA` запущенного контейнера;
-- diagnostics не содержит ошибок;
-- нет `RECOVERY_NEEDED`;
-- scheduler не хранит последнюю ошибку;
-- `PUBLIC_BASE_URL` является корректным HTTPS URL;
-- после последней live-проверки создан новый полный `.tgz` backup.
-
-Даже после зелёного runtime/live gate стабильный тег создаётся только после зелёных automated CI, включая `Dependency security CI`, на том же commit.
-
-Подробно: [`docs/LIVE_INTEGRATION_CHECKLIST.md`](docs/LIVE_INTEGRATION_CHECKLIST.md), [`docs/UPGRADE_TO_V1.md`](docs/UPGRADE_TO_V1.md), [`docs/RELEASE_NOTES_V1.md`](docs/RELEASE_NOTES_V1.md).
-
-## Диагностика
-
-Раздел **«Диагностика»** собирает read-only снимок эксплуатационного состояния:
-
-- версию приложения, Node.js и uptime;
-- SQLite `quick_check`, `journal_mode`, schema version, размеры DB/WAL и counts;
-- состояние scheduler и сведения о последнем tick;
-- сверку media SQLite ↔ файлы на диске, включая missing/orphan/size mismatch;
-- свободное место файловой системы `DATA_DIR`;
-- готовность `PUBLIC_BASE_URL` для активных MAX/Instagram;
-- активные аккаунты, `RECOVERY_NEEDED`, maintenance;
-- backup bundles и retention policy.
-
-Диагностика не возвращает `APP_MASTER_KEY`, `ADMIN_PASSWORD` или расшифрованные credentials.
-
-## RECOVERY_NEEDED
-
-`RECOVERY_NEEDED` означает, что после начала внешнего POST возникла ошибка с неопределённым исходом: публикация могла реально появиться на площадке. Поэтому обычный retry заблокирован и не может автоматически сбросить это состояние.
-
-В Web UI нужно нажать **«Разобрать»**, затем вручную проверить площадку и выбрать один из двух вариантов:
-
-- **Публикация найдена** — target становится `PUBLISHED` без нового внешнего POST; при желании можно сохранить external ID/URL.
-- **Публикации точно нет** — target становится `FAILED`, и только после этого обычный ручной retry снова доступен. Сам retry автоматически не запускается.
-
-Оба решения записываются в журнал вместе с предыдущей ошибкой.
-
-## Retention
-
-Retention выполняется тем же встроенным scheduler, без второго процесса:
-
-```env
-EVENT_RETENTION_DAYS=180
-BACKUP_RETENTION_COUNT=30
-```
-
-`EVENT_RETENTION_DAYS=0` отключает автоочистку событий. История постов, у которых остаётся активный `RECOVERY_NEEDED`, от удаления защищена.
-
-`BACKUP_RETENTION_COUNT=0` отключает автоочистку `.tgz` backup bundles. При включённой политике сохраняются N самых свежих bundle; дополнительно сохраняется самый свежий `pre-restore` bundle, даже если он оказался за пределами N.
-
-`docker-compose.yml` явно передаёт обе retention-переменные в контейнер; пользовательские значения из `.env` не теряются.
-
-## Контент-план CSV/XLSX
-
-Раздел **«Контент-план»** позволяет выгрузить все публикации или один проект в CSV/XLSX, отредактировать таблицу и загрузить её обратно.
-
-Перед импортом всегда выполняется dry-run: Publikator проверяет каждую строку, проект, режим расписания, целевые аккаунты, platform overrides и media references **без записи в БД**. Apply разрешается только при нуле ошибок и повторно проверяет SHA-256 того же файла под эксклюзивным maintenance gate.
-
-Импорт никогда не публикует автоматически: каждая строка создаёт новый `DRAFT`.
-
-Табличная схема и правила: [`docs/CONTENT_PLAN.md`](docs/CONTENT_PLAN.md).
-
-## Полные резервные копии
-
-Рабочий backup-формат в Publikator только один:
+Единственный рабочий backup-формат:
 
 ```text
-publikator-2026-09-09T20-00-00-000Z-manual.tgz
+publikator-....tgz
   manifest.json
   publikator.sqlite
   media/
 ```
 
-Перед созданием snapshot приложение кратко входит во встроенный maintenance mode: новые изменения и scheduler не пересекаются с копированием, а уже активную публикацию backup прервать не может.
+Backup проверяет согласованность SQLite/media и SHA-256. Restore дополнительно проверяет структуру tar, `APP_MASTER_KEY` fingerprint, SQLite integrity/schema и media manifest. Перед заменой данных создаётся `pre-restore` bundle; применение выполняется при следующем старте **до открытия runtime SQLite**.
 
-Перед восстановлением проверяются формат/версия bundle, fingerprint `APP_MASTER_KEY`, SHA-256 SQLite/media, `PRAGMA integrity_check`, обязательные таблицы и безопасность tar entries. Для schema v2 backup обязательно содержит таблицу `release_acceptance`.
-
-После успешной проверки Publikator сначала создаёт полный `pre-restore` backup текущего состояния, затем помещает восстановление в `.restore-pending`, делает graceful restart и применяет его **до открытия runtime SQLite**. Если файловая замена не завершается, startup-код пытается вернуть прежние SQLite/WAL/SHM/media из локального rollback.
-
-Старые `.sqlite`-файлы, созданные ранними версиями, можно оставить в `data/backups` как исторические артефакты. API создания SQLite-only копий отключён; новые резервные копии создаются только через `/api/backup-bundles` и соответствующий Web UI.
+Legacy `/api/backups` не создаёт SQLite-only копии и возвращает `410 Gone`.
 
 Подробно: [`docs/BACKUP_RESTORE.md`](docs/BACKUP_RESTORE.md).
 
-## Media pipeline
+## Контент-план
 
-Изображения не хранятся в стороннем S3 и не требуют отдельного сервиса. Publikator приводит их к JPEG, сохраняет размеры и SHA-256, отсекает дубли внутри одного поста и хранит явный порядок. Порядок можно менять до начала публикации; после `PUBLISHING` / `PARTIAL` / `PUBLISHED` он замораживается вместе с остальным контентом.
+CSV/XLSX содержит:
 
-Перед `READY` каждый выбранный adapter проверяет свои локальные требования. Ошибка одной площадки не маскируется общей надписью: API возвращает конкретный аккаунт, площадку и причину блокировки.
+```text
+project
+title
+body
+schedule_mode
+scheduled_at
+targets
+platform_overrides
+media_references
+```
 
-## Архитектура
+Импорт всегда начинается с dry-run. Apply разрешён только для того же файла по SHA-256 и создаёт исключительно `DRAFT`.
 
-Подключения и adapter-поведение: [`docs/PLATFORMS.md`](docs/PLATFORMS.md).
+Подробно: [`docs/CONTENT_PLAN.md`](docs/CONTENT_PLAN.md).
 
-Архитектура и обязательные правила для coding agents: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/DEVELOPMENT_RULES.md`](docs/DEVELOPMENT_RULES.md).
+## CI
+
+В репозитории существует один workflow:
+
+```text
+.github/workflows/publikator-ci.yml
+```
+
+Один job **Acceptance** последовательно проверяет:
+
+```text
+npm ci / typecheck / build / frontend syntax
+npm audit
+legacy + schema-v3 migrations
+HTTP CRUD / recovery / diagnostics
+browser security / trusted proxy
+scheduler reliability
+atomic publication concurrency
+Telegram / VK / MAX / Instagram adapters
+CSV/XLSX content-plan
+backup API / release gate
+pinned Docker base + baked revision + non-root runtime
+production Docker backup → mutation → restore → restart
+```
+
+Если любой шаг падает, `Publikator CI / Acceptance` не проходит.
+
+## Release gate и stable V1
+
+`1.0.0-rc.1` — кандидат, а не стабильный V1. Перед `v1.0.0` требуется:
+
+1. собрать финальный commit с `BUILD_SHA=$(git rev-parse HEAD)`;
+2. выполнить [`docs/LIVE_INTEGRATION_CHECKLIST.md`](docs/LIVE_INTEGRATION_CHECKLIST.md) для Telegram, VK, MAX и Instagram;
+3. записать четыре `LIVE PASS` на одном SHA;
+4. убедиться, что нет `RECOVERY_NEEDED` и diagnostics не содержит ошибок;
+5. создать full backup **после** последнего live PASS;
+6. получить `Publikator CI / Acceptance = PASS` на том же release commit;
+7. только затем выпустить tag/release `v1.0.0`.
+
+## Правила архитектуры
+
+Publikator остаётся одним production-приложением. Добавление n8n, Redis, RabbitMQ, Kafka, отдельного worker, отдельной runtime-БД или нового обязательного инфраструктурного сервиса требует отдельного ADR с доказанной необходимостью.
+
+См. также:
+
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- [`docs/DEVELOPMENT_RULES.md`](docs/DEVELOPMENT_RULES.md)
+- [`docs/ROADMAP.md`](docs/ROADMAP.md)
+- [`docs/SCHEDULER.md`](docs/SCHEDULER.md)
+- [`docs/LIVE_INTEGRATION_CHECKLIST.md`](docs/LIVE_INTEGRATION_CHECKLIST.md)
