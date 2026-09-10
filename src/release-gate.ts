@@ -46,6 +46,16 @@ function validCommitSha(value: string): boolean {
   return /^[a-f0-9]{40}$/.test(value);
 }
 
+function validReleasePublicBaseUrl(value: string): boolean {
+  if (!value) return false;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'https:' && Boolean(parsed.hostname) && !parsed.username && !parsed.password;
+  } catch {
+    return false;
+  }
+}
+
 export function listReleaseAcceptance(targetVersion = config.releaseTargetVersion): ReleaseAcceptanceView[] {
   const rows = db.prepare(`SELECT platform,target_version,status,commit_sha,account_name,tested_at,notes
     FROM release_acceptance WHERE target_version=? ORDER BY platform`).all(targetVersion) as AcceptanceRow[];
@@ -157,8 +167,8 @@ export async function collectReleaseGate(): Promise<ReleaseGateSnapshot> {
     blockers.push(`APP_BUILD_SHA ${config.appBuildSha} не совпадает с acceptance commit ${acceptanceCommitSha}`);
   }
 
-  if (!config.publicBaseUrl.startsWith('https://')) {
-    blockers.push('Для release acceptance MAX/Instagram требуется PUBLIC_BASE_URL с HTTPS');
+  if (!validReleasePublicBaseUrl(config.publicBaseUrl)) {
+    blockers.push('Для release acceptance требуется корректный PUBLIC_BASE_URL с HTTPS и hostname');
   }
   if (diagnostics.errors.length > 0) blockers.push(...diagnostics.errors.map((message) => `Диагностика: ${message}`));
   if (diagnostics.recovery.pendingTargets > 0) blockers.push(`Осталось RECOVERY_NEEDED: ${diagnostics.recovery.pendingTargets}`);
