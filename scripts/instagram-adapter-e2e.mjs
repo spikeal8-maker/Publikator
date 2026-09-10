@@ -56,7 +56,7 @@ function mockFetch(steps) {
     if (step.path) assert.equal(new URL(url).pathname, step.path);
     if (step.check) step.check({ url, method, body });
     if (step.error) throw step.error;
-    return json(step.response ?? {} , step.status ?? 200);
+    return json(step.response ?? {}, step.status ?? 200);
   };
   return calls;
 }
@@ -100,12 +100,14 @@ async function expectPlatformError(promise, expected) {
     { method: 'GET', path: '/v24.0/parent-carousel', response: { status_code: 'FINISHED' } },
     { method: 'POST', path: '/v24.0/17841400000000000/media_publish', check: ({ body }) => assert.equal(body.creation_id, 'parent-carousel'), response: { id: 'published-carousel' } }
   ];
+  const calls = mockFetch(steps);
   const result = await instagramPublisher.publish(input([
     'https://publisher.example.test/public-media/one.jpg',
     'https://publisher.example.test/public-media/two.jpg'
   ]));
   assert.equal(result.externalId, 'published-carousel');
   assert.equal(steps.length, 0);
+  assert.equal(calls.length, 7);
 }
 
 // Failure before media_publish is safe to retry: a container may exist, but no public post exists yet.
