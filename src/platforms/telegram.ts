@@ -5,6 +5,7 @@ import { PlatformError, requireString, responseJson } from './types.js';
 
 const CAPTION_LIMIT = 1024;
 const MESSAGE_LIMIT = 4096;
+const TELEGRAM_REQUEST_TIMEOUT_MS = 30_000;
 
 function characterCount(value: string): number {
   return Array.from(value).length;
@@ -19,14 +20,48 @@ function telegramError(body: any): PlatformError {
   });
 }
 
+function publicPostError(error: unknown, context: string): PlatformError {
+  if (error instanceof PlatformError) return error;
+  return new PlatformError(`${context}: ${error instanceof Error ? error.message : String(error)}`, {
+    retryable: false,
+    outcomeUnknown: true
+  });
+}
+
+async function readMediaBytes(mediaPath: string): Promise<Uint8Array<ArrayBuffer>> {
+  try {
+    const bytes = await fs.readFile(mediaPath);
+    const copy = new Uint8Array(bytes.byteLength);
+    copy.set(bytes);
+    return copy;
+  } catch (error) {
+    throw new PlatformError(`Telegram: локальное изображение недоступно до внешнего POST: ${error instanceof Error ? error.message : String(error)}`, {
+      retryable: false,
+      outcomeUnknown: false
+    });
+  }
+}
+
+async function telegramRequest(url: string, init: RequestInit, context: string): Promise<any> {
+  try {
+    const response = await fetch(url, {
+      ...init,
+      signal: AbortSignal.timeout(TELEGRAM_REQUEST_TIMEOUT_MS)
+    });
+    const body = await responseJson(response, context);
+    if (!body.ok) throw telegramError(body);
+    return body;
+  } catch (error) {
+    throw publicPostError(error, context);
+  }
+}
+
 async function sendMessage(token: string, chatId: string, text: string): Promise<any> {
-  const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+  const body = await telegramRequest(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: false })
-  });
-  const body = await responseJson(response, 'Telegram sendMessage');
-  if (!body.ok) throw telegramError(body);
+  }, 'Telegram sendMessage');
   return body.result;
 }
 
@@ -52,13 +87,15 @@ export const telegramPublisher: SocialPublisher = {
 
     if (input.media.length === 1) {
       const media = input.media[0]!;
+      const bytes = await readMediaBytes(mediaAbsolutePath(media));
       const data = new FormData();
       data.set('chat_id', chatId);
       data.set('caption', caption);
-      data.set('photo', new Blob([await fs.readFile(mediaAbsolutePath(media))], { type: 'image/jpeg' }), media.original_name.replace(/\.[^.]+$/, '') + '.jpg');
-      const response = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, { method: 'POST', body: data });
-      const body = await responseJson(response, 'Telegram sendPhoto');
-      if (!body.ok) throw telegramError(body);
+      data.set('photo', new Blob([bytes], { type: 'image/jpeg' }), media.original_name.replace(/\.[^.]+$/, '') + '.jpg');
+      const body = await telegramRequest(`https://api.telegram.org/bot${token}/sendPhoto`, {
+        method: 'POST',
+        body: data
+      }, 'Telegram sendPhoto');
       result = body.result;
     } else {
       const data = new FormData();
@@ -67,25 +104,41 @@ export const telegramPublisher: SocialPublisher = {
       for (let index = 0; index < input.media.length; index += 1) {
         const media = input.media[index]!;
         const name = `media${index}`;
-        data.set(name, new Blob([await fs.readFile(mediaAbsolutePath(media))], { type: 'image/jpeg' }), `${name}.jpg`);
+        const bytes = await readMediaBytes(mediaAbsolutePath(media));
+        data.set(name, new Blob([bytes], { type: 'image/jpeg' }), `${name}.jpg`);
         descriptors.push({ type: 'photo', media: `attach://${name}`, ...(index === 0 && caption ? { caption } : {}) });
       }
       data.set('media', JSON.stringify(descriptors));
-      const response = await fetch(`https://api.telegram.org/bot${token}/sendMediaGroup`, { method: 'POST', body: data });
-      const body = await responseJson(response, 'Telegram sendMediaGroup');
-      if (!body.ok) throw telegramError(body);
+      const body = await telegramRequest(`https://api.telegram.org/bot${token}/sendMediaGroup`, {
+        method: 'POST',
+        body: data
+      }, 'Telegram sendMediaGroup');
       result = body.result?.[0];
+    }
+
+    if (!result?.message_id) {
+      throw new PlatformError('Telegram: API подтвердил запрос, но не вернул message_id; автоматический повтор небезопасен', {
+        retryable: false,
+        outcomeUnknown: true
+      });
     }
 
     if (textLength > CAPTION_LIMIT) {
       try {
-        await sendMessage(token, chatId, input.text);
+        const textResult = await sendMessage(token, chatId, input.text);
+        if (!textResult?.message_id) {
+          throw new PlatformError('Telegram sendMessage: API не вернул message_id', {
+            retryable: false,
+            outcomeUnknown: true
+          });
+        }
       } catch (error) {
-        throw new PlatformError(`Telegram: изображение уже опубликовано, но дополнительный текст не отправлен: ${error instanceof Error ? error.message : String(error)}`, {
+        throw new PlatformError(`Telegram: media уже опубликовано (message_id=${result.message_id}), но дополнительный текст не подтверждён: ${error instanceof Error ? error.message : String(error)}. Требуется ручная проверка, повтор всего target заблокирован.`, {
+          retryable: false,
           outcomeUnknown: true
         });
       }
     }
-    return { externalId: String(result?.message_id ?? 'unknown'), raw: result };
+    return { externalId: String(result.message_id), raw: result };
   }
 };
