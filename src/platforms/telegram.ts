@@ -4,6 +4,11 @@ import type { PublishInput, PublishResult, SocialPublisher } from './types.js';
 import { PlatformError, requireString, responseJson } from './types.js';
 
 const CAPTION_LIMIT = 1024;
+const MESSAGE_LIMIT = 4096;
+
+function characterCount(value: string): number {
+  return Array.from(value).length;
+}
 
 function telegramError(body: any): PlatformError {
   const code = Number(body?.error_code || 0);
@@ -32,12 +37,17 @@ export const telegramPublisher: SocialPublisher = {
     requireString(input.credentials, 'chatId');
     if (input.media.length < 1) throw new Error('Telegram: требуется минимум одно изображение');
     if (input.media.length > 10) throw new Error('Telegram: в одной медиагруппе допускается не более 10 файлов');
+    const textLength = characterCount(input.text);
+    if (textLength > MESSAGE_LIMIT) {
+      throw new Error(`Telegram: текст ${textLength} символов превышает предел ${MESSAGE_LIMIT}. Сократите базовый текст или задайте отдельный текст Telegram.`);
+    }
   },
   async publish(input: PublishInput): Promise<PublishResult> {
     this.validate(input);
     const token = requireString(input.credentials, 'botToken');
     const chatId = requireString(input.credentials, 'chatId');
-    const caption = input.text.length <= CAPTION_LIMIT ? input.text : '';
+    const textLength = characterCount(input.text);
+    const caption = textLength <= CAPTION_LIMIT ? input.text : '';
     let result: any;
 
     if (input.media.length === 1) {
@@ -67,7 +77,7 @@ export const telegramPublisher: SocialPublisher = {
       result = body.result?.[0];
     }
 
-    if (input.text.length > CAPTION_LIMIT) {
+    if (textLength > CAPTION_LIMIT) {
       try {
         await sendMessage(token, chatId, input.text);
       } catch (error) {
