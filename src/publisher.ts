@@ -21,6 +21,18 @@ type PublishTargetRow = {
   credentials_encrypted: string;
 };
 
+type RecoveryTargetRow = {
+  id: string;
+  post_id: string;
+  account_id: string;
+  state: TargetState;
+  enabled: number;
+  last_error: string | null;
+  platform: Platform;
+  account_name: string;
+  account_enabled: number;
+};
+
 export type PreflightIssue = {
   targetId: string;
   accountId: string;
@@ -55,6 +67,16 @@ function buildPublishInput(target: PublishTargetRow): PublishInput {
 
 function formatPreflightIssues(issues: PreflightIssue[]): string {
   return issues.map((issue) => `${issue.platform} / ${issue.accountName}: ${issue.message}`).join('\n');
+}
+
+function recoveryTarget(targetId: string): RecoveryTargetRow {
+  const row = db.prepare(`SELECT pt.id,pt.post_id,pt.account_id,pt.state,pt.enabled,pt.last_error,
+      a.platform,a.name AS account_name,a.enabled AS account_enabled
+    FROM post_targets pt
+    JOIN social_accounts a ON a.id=pt.account_id
+    WHERE pt.id=?`).get(targetId) as RecoveryTargetRow | undefined;
+  if (!row) throw new Error('Цель публикации не найдена');
+  return row;
 }
 
 export function ensureTargets(postId: string): void {
@@ -202,6 +224,65 @@ export function refreshPostStatus(postId: string): void {
   else if (values.every((s) => s === 'FAILED')) status = 'FAILED';
   else if (values.some((s) => s === 'RECOVERY_NEEDED')) status = 'PARTIAL';
   db.prepare('UPDATE posts SET status=?, updated_at=? WHERE id=?').run(status, nowIso(), postId);
+}
+
+export async function retryFailedTarget(targetId: string): Promise<void> {
+  const target = recoveryTarget(targetId);
+  if (!target.enabled || !target.account_enabled) throw new Error('Цель или аккаунт отключены');
+  if (!['FAILED', 'RETRY'].includes(target.state)) {
+    if (target.state === 'RECOVERY_NEEDED') {
+      throw new Error('Повтор заблокирован: сначала вручную проверьте площадку и разрешите RECOVERY_NEEDED');
+    }
+    throw new Error(`Повтор недоступен для состояния ${target.state}`);
+  }
+  db.prepare("UPDATE post_targets SET state='PENDING',next_attempt_at=NULL,last_error=NULL,updated_at=? WHERE id=?")
+    .run(nowIso(), targetId);
+  await publishTarget(targetId);
+  refreshPostStatus(target.post_id);
+}
+
+export function confirmRecoveryPublished(targetId: string, externalId?: string | null, externalUrl?: string | null): { postId: string } {
+  const target = recoveryTarget(targetId);
+  if (target.state !== 'RECOVERY_NEEDED') throw new Error(`Ручное подтверждение недоступно для состояния ${target.state}`);
+  const cleanExternalId = externalId?.trim() || null;
+  const cleanExternalUrl = externalUrl?.trim() || null;
+  if (cleanExternalUrl) {
+    let parsed: URL;
+    try { parsed = new URL(cleanExternalUrl); } catch { throw new Error('externalUrl должен быть корректным URL'); }
+    if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('externalUrl должен использовать http или https');
+  }
+  const previousError = target.last_error;
+  const now = nowIso();
+  db.prepare(`UPDATE post_targets SET state='PUBLISHED',external_id=?,external_url=?,published_at=?,next_attempt_at=NULL,last_error=NULL,updated_at=? WHERE id=?`)
+    .run(cleanExternalId, cleanExternalUrl, now, now, targetId);
+  event({
+    postId: target.post_id,
+    accountId: target.account_id,
+    type: 'publish_recovery_confirmed_published',
+    message: `Ручная проверка: публикация подтверждена на ${target.platform} / ${target.account_name}`,
+    data: { previousError, externalId: cleanExternalId, externalUrl: cleanExternalUrl }
+  });
+  refreshPostStatus(target.post_id);
+  return { postId: target.post_id };
+}
+
+export function confirmRecoveryNotPublished(targetId: string): { postId: string } {
+  const target = recoveryTarget(targetId);
+  if (target.state !== 'RECOVERY_NEEDED') throw new Error(`Ручное подтверждение недоступно для состояния ${target.state}`);
+  const previousError = target.last_error;
+  const message = 'Ручная проверка: публикация на внешней площадке не найдена. Обычный ручной повтор снова разрешён.';
+  db.prepare("UPDATE post_targets SET state='FAILED',next_attempt_at=NULL,last_error=?,updated_at=? WHERE id=?")
+    .run(message, nowIso(), targetId);
+  event({
+    postId: target.post_id,
+    accountId: target.account_id,
+    level: 'warning',
+    type: 'publish_recovery_confirmed_absent',
+    message: `Ручная проверка: публикация не найдена на ${target.platform} / ${target.account_name}`,
+    data: { previousError }
+  });
+  refreshPostStatus(target.post_id);
+  return { postId: target.post_id };
 }
 
 export async function publishPost(postId: string): Promise<void> {
