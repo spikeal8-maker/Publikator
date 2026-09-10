@@ -10,9 +10,11 @@ process.env.ADMIN_PASSWORD = 'v07-ci-password';
 process.env.APP_MASTER_KEY = 'v07-ci-master-key-that-is-definitely-longer-than-32-characters';
 process.env.PUBLIC_BASE_URL = 'https://publisher.example.test';
 process.env.SCHEDULER_INTERVAL_MS = '15000';
+process.env.EVENT_RETENTION_DAYS = '1';
+process.env.BACKUP_RETENTION_COUNT = '2';
 
 const sharp = (await import('sharp')).default;
-const { db, migrate, id, nowIso } = await import('../dist/db.js');
+const { db, migrate, id, nowIso, event } = await import('../dist/db.js');
 const { encryptJson } = await import('../dist/crypto.js');
 const { saveImage } = await import('../dist/media.js');
 const {
@@ -26,6 +28,7 @@ const {
 const { PlatformError } = await import('../dist/platforms/types.js');
 const { setPublisherForTests } = await import('../dist/platforms/index.js');
 const { schedulerTick, schedulerStatus } = await import('../dist/scheduler.js');
+const { retentionStatus } = await import('../dist/retention.js');
 const { collectDiagnostics } = await import('../dist/diagnostics.js');
 
 migrate();
@@ -107,6 +110,25 @@ function postStatus(postId) {
   return db.prepare('SELECT status FROM posts WHERE id=?').get(postId)?.status;
 }
 
+async function seedRetentionBackups() {
+  const backupDir = path.join(dataDir, 'backups');
+  await fs.mkdir(backupDir, { recursive: true });
+  const now = Date.now();
+  const files = [
+    ['publikator-2026-01-01T00-00-00-000Z-manual.tgz', now - 4 * 86_400_000],
+    ['publikator-2026-01-02T00-00-00-000Z-pre-restore.tgz', now - 3 * 86_400_000],
+    ['publikator-2026-01-03T00-00-00-000Z-manual.tgz', now - 2 * 86_400_000],
+    ['publikator-2026-01-04T00-00-00-000Z-manual.tgz', now - 1 * 86_400_000]
+  ];
+  for (const [name, mtimeMs] of files) {
+    const filePath = path.join(backupDir, name);
+    await fs.writeFile(filePath, `fixture:${name}`, 'utf8');
+    const timestamp = new Date(mtimeMs);
+    await fs.utimes(filePath, timestamp, timestamp);
+  }
+  return backupDir;
+}
+
 try {
   const successPostId = await createPost({ title: 'Publisher success' });
   publishMode = 'success';
@@ -172,6 +194,26 @@ try {
     ORDER BY created_at DESC LIMIT 1`).get(manualPublishedPostId);
   assert.equal(manualEvent?.event_type, 'publish_recovery_confirmed_published');
 
+  event({ type: 'old-prunable-event', message: 'This old event should be removed by retention' });
+  db.prepare("UPDATE publication_events SET created_at=? WHERE event_type='old-prunable-event'")
+    .run(new Date(Date.now() - 3 * 86_400_000).toISOString());
+
+  const protectedRecoveryPostId = await createPost({ title: 'Protected recovery history', status: 'PARTIAL' });
+  const protectedRecoveryTarget = targetFor(protectedRecoveryPostId);
+  db.prepare("UPDATE post_targets SET state='RECOVERY_NEEDED',last_error='Protected old recovery',updated_at=? WHERE id=?")
+    .run(nowIso(), protectedRecoveryTarget.id);
+  event({
+    postId: protectedRecoveryPostId,
+    accountId,
+    level: 'error',
+    type: 'old-protected-recovery-event',
+    message: 'This old recovery history must survive retention'
+  });
+  db.prepare("UPDATE publication_events SET created_at=? WHERE event_type='old-protected-recovery-event'")
+    .run(new Date(Date.now() - 3 * 86_400_000).toISOString());
+
+  const backupDir = await seedRetentionBackups();
+
   const schedulerPostId = await createPost({
     title: 'Scheduler AT success',
     scheduleMode: 'AT',
@@ -192,6 +234,37 @@ try {
   assert.ok(scheduler.lastWork.duePosts >= 1);
   assert.equal(scheduler.lastError, null);
 
+  assert.equal(
+    db.prepare("SELECT COUNT(*) AS count FROM publication_events WHERE event_type='old-prunable-event'").get().count,
+    0,
+    'old unrelated event must be pruned'
+  );
+  assert.equal(
+    db.prepare("SELECT COUNT(*) AS count FROM publication_events WHERE event_type='old-protected-recovery-event'").get().count,
+    1,
+    'active recovery history must be protected from retention'
+  );
+  const retention = retentionStatus();
+  assert.equal(retention.eventRetentionDays, 1);
+  assert.equal(retention.backupRetentionCount, 2);
+  assert.equal(retention.lastDeletedEvents, 1);
+  assert.deepEqual(retention.lastDeletedBackups, ['publikator-2026-01-01T00-00-00-000Z-manual.tgz']);
+  const remainingBackups = (await fs.readdir(backupDir)).filter((name) => name.endsWith('.tgz')).sort();
+  assert.deepEqual(remainingBackups, [
+    'publikator-2026-01-02T00-00-00-000Z-pre-restore.tgz',
+    'publikator-2026-01-03T00-00-00-000Z-manual.tgz',
+    'publikator-2026-01-04T00-00-00-000Z-manual.tgz'
+  ]);
+
+  const callsBeforeProtectedResolution = publishCalls;
+  confirmRecoveryPublished(
+    protectedRecoveryTarget.id,
+    'protected-manual-id',
+    'https://example.test/posts/protected-manual-id'
+  );
+  assert.equal(publishCalls, callsBeforeProtectedResolution);
+  assert.equal(targetFor(protectedRecoveryPostId).state, 'PUBLISHED');
+
   const diagnostics = await collectDiagnostics();
   assert.equal(diagnostics.database.quickCheck.toLowerCase(), 'ok');
   assert.equal(diagnostics.database.journalMode.toLowerCase(), 'wal');
@@ -201,6 +274,9 @@ try {
   assert.equal(diagnostics.publicMedia.ready, true);
   assert.equal(diagnostics.publicMedia.https, true);
   assert.ok(diagnostics.scheduler.lastCompletedAt);
+  assert.equal(diagnostics.retention.eventRetentionDays, 1);
+  assert.equal(diagnostics.retention.backupRetentionCount, 2);
+  assert.equal(diagnostics.retention.lastDeletedEvents, 1);
 
   const absentEventCount = db.prepare(`SELECT COUNT(*) AS count FROM publication_events
     WHERE event_type='publish_recovery_confirmed_absent'`).get().count;
@@ -211,6 +287,7 @@ try {
     publishCalls,
     publishedInputs,
     scheduler: schedulerStatus(),
+    retention: retentionStatus(),
     diagnosticsSeverity: diagnostics.severity,
     counts: diagnostics.database.counts
   }, null, 2));
