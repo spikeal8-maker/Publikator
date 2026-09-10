@@ -1,0 +1,191 @@
+name: Content plan CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  content-plan-roundtrip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm run build
+      - run: node --check public/content-plan-v06b.js
+      - name: CSV and XLSX round-trip
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/publikator-content-plan-ci
+          mkdir -p /tmp/publikator-content-plan-ci
+
+          DATA_DIR=/tmp/publikator-content-plan-ci \
+          PORT=18081 \
+          ADMIN_PASSWORD=ci-password \
+          APP_MASTER_KEY=ci-master-key-that-is-longer-than-32-characters \
+          node dist/server.js >/tmp/publikator-content-plan-server.log 2>&1 &
+          SERVER_PID=$!
+
+          cleanup() {
+            kill "$SERVER_PID" >/dev/null 2>&1 || true
+            wait "$SERVER_PID" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          for i in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:18081/api/health >/dev/null 2>&1; then
+              break
+            fi
+            if [ "$i" = "40" ]; then
+              cat /tmp/publikator-content-plan-server.log
+              exit 1
+            fi
+            sleep 1
+          done
+
+          curl -fsS -c /tmp/publikator-content-plan-cookies.txt \
+            -H 'content-type: application/json' \
+            -d '{"password":"ci-password"}' \
+            http://127.0.0.1:18081/api/auth/login | jq -e '.ok == true'
+
+          PROJECT_JSON="$(curl -fsS -b /tmp/publikator-content-plan-cookies.txt http://127.0.0.1:18081/api/projects | jq -c '.[0]')"
+          PROJECT_ID="$(jq -r '.id' <<<"$PROJECT_JSON")"
+          PROJECT_SLUG="$(jq -r '.slug' <<<"$PROJECT_JSON")"
+
+          ACCOUNT_ID="$(curl -fsS -b /tmp/publikator-content-plan-cookies.txt \
+            -H 'content-type: application/json' \
+            -d '{"platform":"telegram","name":"Roundtrip channel","credentials":{"botToken":"fake-token","chatId":"@roundtrip"}}' \
+            http://127.0.0.1:18081/api/accounts | jq -er '.id')"
+
+          TITLE='Roundtrip; "quoted" title'
+          BODY=$'Line one; semicolon\n"Line two" with quotes'
+          OVERRIDE=$'Telegram; override\n"second line"'
+          POST_PAYLOAD="$(jq -nc \
+            --arg projectId "$PROJECT_ID" \
+            --arg title "$TITLE" \
+            --arg body "$BODY" \
+            --arg scheduledAt '2027-01-15T09:30:00.000Z' \
+            '{projectId:$projectId,title:$title,body:$body,scheduleMode:"AT",scheduledAt:$scheduledAt}')"
+
+          SOURCE_POST_ID="$(curl -fsS -b /tmp/publikator-content-plan-cookies.txt \
+            -H 'content-type: application/json' \
+            -d "$POST_PAYLOAD" \
+            http://127.0.0.1:18081/api/posts | jq -er '.id')"
+
+          TARGET_ID="$(curl -fsS -b /tmp/publikator-content-plan-cookies.txt \
+            "http://127.0.0.1:18081/api/posts/${SOURCE_POST_ID}" | \
+            jq -er '.targets[] | select(.platform == "telegram") | .id')"
+
+          OVERRIDE_PAYLOAD="$(jq -nc --arg text "$OVERRIDE" '{text:$text}')"
+          curl -fsS -b /tmp/publikator-content-plan-cookies.txt \
+            -X PATCH \
+            -H 'content-type: application/json' \
+            -d "$OVERRIDE_PAYLOAD" \
+            "http://127.0.0.1:18081/api/posts/${SOURCE_POST_ID}/targets/${TARGET_ID}/text" | \
+            jq -e --arg expected "$OVERRIDE" '.ok == true and .target.overrideText == $expected'
+
+          node --input-type=module <<'NODE'
+          import sharp from 'sharp';
+          await sharp({ create: { width: 48, height: 32, channels: 3, background: { r: 25, g: 100, b: 180 } } })
+            .png()
+            .toFile('/tmp/publikator-content-plan-source.png');
+          NODE
+
+          SOURCE_MEDIA_JSON="$(curl -fsS -b /tmp/publikator-content-plan-cookies.txt \
+            -F 'file=@/tmp/publikator-content-plan-source.png;type=image/png' \
+            "http://127.0.0.1:18081/api/posts/${SOURCE_POST_ID}/media")"
+          SOURCE_MEDIA_ID="$(jq -r '.id' <<<"$SOURCE_MEDIA_JSON")"
+          SOURCE_MEDIA_SHA="$(jq -r '.sha256' <<<"$SOURCE_MEDIA_JSON")"
+
+          curl -fsS -b /tmp/publikator-content-plan-cookies.txt \
+            "http://127.0.0.1:18081/api/content-plan/export.csv?projectId=${PROJECT_ID}" \
+            -o /tmp/publikator-content-plan.csv
+          curl -fsS -b /tmp/publikator-content-plan-cookies.txt \
+            "http://127.0.0.1:18081/api/content-plan/export.xlsx?projectId=${PROJECT_ID}" \
+            -o /tmp/publikator-content-plan.xlsx
+          test -s /tmp/publikator-content-plan.csv
+          test -s /tmp/publikator-content-plan.xlsx
+          grep -F 'platform_overrides' /tmp/publikator-content-plan.csv
+          grep -F 'Roundtrip channel' /tmp/publikator-content-plan.csv
+
+          curl -fsS -b /tmp/publikator-content-plan-cookies.txt \
+            -F 'file=@/tmp/publikator-content-plan.csv;type=text/csv' \
+            http://127.0.0.1:18081/api/content-plan/import/preview \
+            -o /tmp/publikator-content-plan-csv-preview.json
+          jq -e \
+            --arg title "$TITLE" \
+            --arg body "$BODY" \
+            --arg override "$OVERRIDE" \
+            '.canApply == true and .summary.totalRows == 1 and .summary.invalidRows == 0 and .rows[0].normalized.title == $title and .rows[0].normalized.body == $body and .rows[0].normalized.scheduleMode == "AT" and .rows[0].normalized.targets[0].platform == "telegram" and .rows[0].normalized.overrides[0].text == $override and (.rows[0].normalized.media | length) == 1' \
+            /tmp/publikator-content-plan-csv-preview.json
+
+          curl -fsS -b /tmp/publikator-content-plan-cookies.txt \
+            -F 'file=@/tmp/publikator-content-plan.xlsx;type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' \
+            http://127.0.0.1:18081/api/content-plan/import/preview \
+            -o /tmp/publikator-content-plan-xlsx-preview.json
+          jq -e \
+            --arg title "$TITLE" \
+            --arg body "$BODY" \
+            --arg override "$OVERRIDE" \
+            '.canApply == true and .summary.totalRows == 1 and .rows[0].normalized.title == $title and .rows[0].normalized.body == $body and .rows[0].normalized.overrides[0].text == $override and (.rows[0].normalized.media | length) == 1' \
+            /tmp/publikator-content-plan-xlsx-preview.json
+          XLSX_SHA="$(jq -er '.fileSha256' /tmp/publikator-content-plan-xlsx-preview.json)"
+
+          NO_CONFIRM_STATUS="$(curl -sS -o /tmp/publikator-content-plan-no-confirm.json -w '%{http_code}' \
+            -b /tmp/publikator-content-plan-cookies.txt \
+            -H "x-content-plan-sha256: ${XLSX_SHA}" \
+            -F 'file=@/tmp/publikator-content-plan.xlsx;type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' \
+            http://127.0.0.1:18081/api/content-plan/import/apply)"
+          test "$NO_CONFIRM_STATUS" = "400"
+          jq -e '.error | contains("IMPORT")' /tmp/publikator-content-plan-no-confirm.json
+
+          curl -fsS -b /tmp/publikator-content-plan-cookies.txt \
+            -H 'x-publikator-content-plan: IMPORT' \
+            -H "x-content-plan-sha256: ${XLSX_SHA}" \
+            -F 'file=@/tmp/publikator-content-plan.xlsx;type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' \
+            http://127.0.0.1:18081/api/content-plan/import/apply \
+            -o /tmp/publikator-content-plan-apply.json
+          jq -e '.ok == true and .createdCount == 1 and (.postIds | length) == 1' /tmp/publikator-content-plan-apply.json
+          IMPORTED_POST_ID="$(jq -er '.postIds[0]' /tmp/publikator-content-plan-apply.json)"
+          test "$IMPORTED_POST_ID" != "$SOURCE_POST_ID"
+
+          curl -fsS -b /tmp/publikator-content-plan-cookies.txt \
+            "http://127.0.0.1:18081/api/posts/${IMPORTED_POST_ID}" \
+            -o /tmp/publikator-content-plan-imported.json
+          jq -e \
+            --arg title "$TITLE" \
+            --arg body "$BODY" \
+            --arg override "$OVERRIDE" \
+            --arg sourceMediaId "$SOURCE_MEDIA_ID" \
+            --arg sourceSha "$SOURCE_MEDIA_SHA" \
+            --arg accountId "$ACCOUNT_ID" \
+            '.status == "DRAFT" and .title == $title and .body == $body and .schedule_mode == "AT" and .scheduled_at == "2027-01-15T09:30:00.000Z" and (.media | length) == 1 and .media[0].id != $sourceMediaId and .media[0].sha256 == $sourceSha and any(.targets[]; .account_id == $accountId and .platform == "telegram" and .enabled == 1 and .override_text == $override)' \
+            /tmp/publikator-content-plan-imported.json
+
+          PROJECT_SLUG="$PROJECT_SLUG" node --input-type=module <<'NODE'
+          import fs from 'node:fs/promises';
+          import { serializeContentPlanCsv } from './dist/content-plan.js';
+          const row = {
+            project: process.env.PROJECT_SLUG,
+            title: 'Invalid AT row',
+            body: 'This row must fail dry-run',
+            schedule_mode: 'AT',
+            scheduled_at: '',
+            targets: '[]',
+            platform_overrides: '[]',
+            media_references: '[]'
+          };
+          await fs.writeFile('/tmp/publikator-content-plan-invalid.csv', serializeContentPlanCsv([row]), 'utf8');
+          NODE
+
+          curl -fsS -b /tmp/publikator-content-plan-cookies.txt \
+            -F 'file=@/tmp/publikator-content-plan-invalid.csv;type=text/csv' \
+            http://127.0.0.1:18081/api/content-plan/import/preview \
+            -o /tmp/publikator-content-plan-invalid-preview.json
+          jq -e '.canApply == false and .summary.invalidRows == 1 and (.rows[0].issues | any(.level == "error" and .column == "scheduled_at"))' \
+            /tmp/publikator-content-plan-invalid-preview.json
