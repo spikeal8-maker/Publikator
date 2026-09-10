@@ -168,7 +168,9 @@ export async function validateBackupDirectory(directory: string): Promise<Backup
     const integrity = String(snapshot.pragma('integrity_check', { simple: true }));
     if (integrity.toLowerCase() !== 'ok') throw new Error(`SQLite integrity_check: ${integrity}`);
     const tables = new Set((snapshot.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>).map((row) => row.name));
-    for (const required of ['projects', 'social_accounts', 'posts', 'media', 'post_targets', 'schedule_slots', 'publication_events']) {
+    const requiredTables = ['projects', 'social_accounts', 'posts', 'media', 'post_targets', 'schedule_slots', 'publication_events'];
+    if (Number(manifest.schemaVersion) >= 2) requiredTables.push('release_acceptance');
+    for (const required of requiredTables) {
       if (!tables.has(required)) throw new Error(`SQLite backup не содержит таблицу ${required}`);
     }
     const schemaVersion = Number(snapshot.pragma('user_version', { simple: true }));
