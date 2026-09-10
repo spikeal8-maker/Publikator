@@ -44,6 +44,45 @@ function migrateMediaOrder(): void {
   })();
 }
 
+function migrateUniqueScheduleSlots(): void {
+  const rows = db.prepare(`SELECT rowid,id,project_id,weekday,time_hhmm,timezone,last_fired_on
+    FROM schedule_slots
+    ORDER BY project_id,weekday,time_hhmm,timezone,created_at,rowid`).all() as Array<{
+      rowid: number;
+      id: string;
+      project_id: string;
+      weekday: number;
+      time_hhmm: string;
+      timezone: string;
+      last_fired_on: string | null;
+    }>;
+
+  const seen = new Map<string, { id: string; lastFiredOn: string | null }>();
+  const updateKeeper = db.prepare('UPDATE schedule_slots SET last_fired_on=? WHERE id=?');
+  const removeDuplicate = db.prepare('DELETE FROM schedule_slots WHERE id=?');
+
+  db.transaction(() => {
+    for (const row of rows) {
+      const key = `${row.project_id}\u0000${row.weekday}\u0000${row.time_hhmm}\u0000${row.timezone}`;
+      const existing = seen.get(key);
+      if (!existing) {
+        seen.set(key, { id: row.id, lastFiredOn: row.last_fired_on });
+        continue;
+      }
+
+      const mergedLastFiredOn = [existing.lastFiredOn, row.last_fired_on]
+        .filter((value): value is string => Boolean(value))
+        .sort()
+        .at(-1) ?? null;
+      if (mergedLastFiredOn !== existing.lastFiredOn) {
+        updateKeeper.run(mergedLastFiredOn, existing.id);
+        existing.lastFiredOn = mergedLastFiredOn;
+      }
+      removeDuplicate.run(row.id);
+    }
+  })();
+}
+
 export function migrate(): void {
   const currentSchemaVersion = Number(db.pragma('user_version', { simple: true }) ?? 0);
   if (currentSchemaVersion > DATABASE_SCHEMA_VERSION) {
@@ -148,6 +187,7 @@ export function migrate(): void {
   `);
 
   migrateMediaOrder();
+  migrateUniqueScheduleSlots();
 
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_posts_status_schedule ON posts(status, schedule_mode, scheduled_at);
@@ -156,6 +196,8 @@ export function migrate(): void {
     CREATE INDEX IF NOT EXISTS idx_media_post_order ON media(post_id, sort_order, created_at);
     CREATE INDEX IF NOT EXISTS idx_events_created ON publication_events(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_release_acceptance_version ON release_acceptance(target_version, platform);
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_schedule_slots_project_weekday_time_timezone
+      ON schedule_slots(project_id,weekday,time_hhmm,timezone);
   `);
 
   const projectCount = db.prepare('SELECT COUNT(*) AS count FROM projects').get() as { count: number };
