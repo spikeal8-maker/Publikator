@@ -17,5 +17,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       - run: node --check public/ops-v07.js
-      - name: Mock publisher, recovery, scheduler and diagnostics E2E
+      - name: Mock publisher, recovery, scheduler, retention and diagnostics E2E
         run: node scripts/v07-mock-e2e.mjs
+      - name: Authenticated HTTP CRUD E2E with mock publisher
+        run: node scripts/v07-http-e2e.mjs
