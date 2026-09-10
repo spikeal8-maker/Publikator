@@ -4,19 +4,83 @@ import type { PublishInput, PublishResult, SocialPublisher } from './types.js';
 import { PlatformError, requireString, responseJson } from './types.js';
 
 const VK_RETRYABLE_CODES = new Set([1, 6, 9, 10, 29]);
+const VK_REQUEST_TIMEOUT_MS = 30_000;
 
-export async function vkCall(method: string, params: Record<string, string>): Promise<any> {
-  const body = new URLSearchParams(params);
-  const response = await fetch(`https://api.vk.com/method/${method}`, { method: 'POST', body });
-  const payload = await responseJson(response, `VK ${method}`);
-  if (payload.error) {
-    const code = Number(payload.error.error_code || 0);
-    throw new PlatformError(`VK ${method}: ${code} ${payload.error.error_msg}`, {
-      retryable: VK_RETRYABLE_CODES.has(code),
-      code
+type VkCallOptions = {
+  publicPost?: boolean;
+};
+
+function preparationError(error: unknown, context: string): PlatformError {
+  if (error instanceof PlatformError) {
+    return new PlatformError(`${context}: ${error.message}`, {
+      retryable: error.retryable || error.outcomeUnknown || error.status === 408 || (error.status !== undefined && error.status >= 500),
+      outcomeUnknown: false,
+      status: error.status,
+      code: error.code
     });
   }
-  return payload.response;
+  return new PlatformError(`${context}: ${error instanceof Error ? error.message : String(error)}`, {
+    retryable: true,
+    outcomeUnknown: false
+  });
+}
+
+function publicPostError(error: unknown, context: string): PlatformError {
+  if (error instanceof PlatformError) return error;
+  return new PlatformError(`${context}: ${error instanceof Error ? error.message : String(error)}`, {
+    retryable: false,
+    outcomeUnknown: true
+  });
+}
+
+export async function vkCall(method: string, params: Record<string, string>, options: VkCallOptions = {}): Promise<any> {
+  try {
+    const body = new URLSearchParams(params);
+    const response = await fetch(`https://api.vk.com/method/${method}`, {
+      method: 'POST',
+      body,
+      signal: AbortSignal.timeout(VK_REQUEST_TIMEOUT_MS)
+    });
+    const payload = await responseJson(response, `VK ${method}`);
+    if (payload.error) {
+      const code = Number(payload.error.error_code || 0);
+      throw new PlatformError(`VK ${method}: ${code} ${payload.error.error_msg}`, {
+        retryable: VK_RETRYABLE_CODES.has(code),
+        outcomeUnknown: false,
+        code
+      });
+    }
+    return payload.response;
+  } catch (error) {
+    if (options.publicPost) throw publicPostError(error, `VK ${method}`);
+    throw preparationError(error, `VK ${method} — подготовительная фаза`);
+  }
+}
+
+async function readPublicationMedia(mediaPath: string): Promise<Buffer> {
+  try {
+    return await fs.readFile(mediaPath);
+  } catch (error) {
+    throw new PlatformError(`VK: локальное изображение недоступно до внешнего POST: ${error instanceof Error ? error.message : String(error)}`, {
+      retryable: false,
+      outcomeUnknown: false
+    });
+  }
+}
+
+async function uploadWallImage(uploadUrl: string, bytes: Buffer): Promise<any> {
+  try {
+    const form = new FormData();
+    form.set('photo', new Blob([bytes], { type: 'image/jpeg' }), 'image.jpg');
+    const uploadResponse = await fetch(uploadUrl, {
+      method: 'POST',
+      body: form,
+      signal: AbortSignal.timeout(VK_REQUEST_TIMEOUT_MS)
+    });
+    return await responseJson(uploadResponse, 'VK upload image');
+  } catch (error) {
+    throw preparationError(error, 'VK upload image — подготовительная фаза');
+  }
 }
 
 export const vkPublisher: SocialPublisher = {
@@ -36,11 +100,22 @@ export const vkPublisher: SocialPublisher = {
 
     for (const media of input.media) {
       const server = await vkCall('photos.getWallUploadServer', { ...common, group_id: groupId });
-      if (!server?.upload_url) throw new Error('VK: photos.getWallUploadServer не вернул upload_url');
-      const form = new FormData();
-      form.set('photo', new Blob([await fs.readFile(mediaAbsolutePath(media))], { type: 'image/jpeg' }), 'image.jpg');
-      const uploadResponse = await fetch(server.upload_url, { method: 'POST', body: form });
-      const uploaded = await responseJson(uploadResponse, 'VK upload image');
+      if (!server?.upload_url) {
+        throw new PlatformError('VK: photos.getWallUploadServer не вернул upload_url', {
+          retryable: false,
+          outcomeUnknown: false
+        });
+      }
+
+      const bytes = await readPublicationMedia(mediaAbsolutePath(media));
+      const uploaded = await uploadWallImage(String(server.upload_url), bytes);
+      if (uploaded?.server === undefined || uploaded?.photo === undefined || uploaded?.hash === undefined) {
+        throw new PlatformError(`VK upload image: неожиданный ответ ${JSON.stringify(uploaded)}`, {
+          retryable: false,
+          outcomeUnknown: false
+        });
+      }
+
       const saved = await vkCall('photos.saveWallPhoto', {
         ...common,
         group_id: groupId,
@@ -49,7 +124,12 @@ export const vkPublisher: SocialPublisher = {
         hash: String(uploaded.hash)
       });
       const photo = saved?.[0];
-      if (!photo?.id || photo.owner_id === undefined) throw new Error(`VK: photos.saveWallPhoto вернул неожиданный ответ: ${JSON.stringify(saved)}`);
+      if (!photo?.id || photo.owner_id === undefined) {
+        throw new PlatformError(`VK: photos.saveWallPhoto вернул неожиданный ответ: ${JSON.stringify(saved)}`, {
+          retryable: false,
+          outcomeUnknown: false
+        });
+      }
       attachments.push(`photo${photo.owner_id}_${photo.id}`);
     }
 
@@ -61,9 +141,14 @@ export const vkPublisher: SocialPublisher = {
       message: input.text,
       attachments: attachments.join(','),
       guid: input.postId
-    });
+    }, { publicPost: true });
     const postId = posted?.post_id;
-    if (!postId) throw new Error(`VK: wall.post не вернул post_id: ${JSON.stringify(posted)}`);
+    if (!postId) {
+      throw new PlatformError(`VK: wall.post не вернул post_id: ${JSON.stringify(posted)}`, {
+        retryable: false,
+        outcomeUnknown: true
+      });
+    }
     return {
       externalId: String(postId),
       externalUrl: `https://vk.com/wall${ownerId}_${postId}`,
