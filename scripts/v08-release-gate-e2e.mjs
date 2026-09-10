@@ -9,32 +9,57 @@ process.env.DATA_DIR = dataDir;
 
 const { config } = await import('../dist/config.js');
 const { db, migrate } = await import('../dist/db.js');
+const { buildApp } = await import('../dist/app.js');
 const { createBackupBundle } = await import('../dist/backups.js');
 const { extractBackupArchive } = await import('../dist/backup-format.js');
 const { collectReleaseGate, setReleaseAcceptance } = await import('../dist/release-gate.js');
 
 const releaseSha = process.env.APP_BUILD_SHA;
+const adminPassword = process.env.ADMIN_PASSWORD;
 assert.match(releaseSha || '', /^[a-f0-9]{40}$/);
+assert.ok(adminPassword);
 
 migrate();
 assert.equal(Number(db.pragma('user_version', { simple: true })), 2);
 assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='release_acceptance'").get());
 
+const app = await buildApp();
+await app.ready();
+
 try {
+  const anonymous = await app.inject({ method: 'GET', url: '/api/release-gate' });
+  assert.equal(anonymous.statusCode, 401);
+
+  const login = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { password: adminPassword } });
+  assert.equal(login.statusCode, 200);
+  const setCookie = login.headers['set-cookie'];
+  assert.equal(typeof setCookie, 'string');
+  const cookie = setCookie.split(';')[0];
+
+  const authenticated = await app.inject({ method: 'GET', url: '/api/release-gate', headers: { cookie } });
+  assert.equal(authenticated.statusCode, 200);
+  assert.equal(authenticated.json().targetVersion, '1.0.0');
+
+  const rejectedPass = await app.inject({
+    method: 'PUT',
+    url: '/api/release-gate/telegram',
+    headers: { cookie },
+    payload: {
+      status: 'PASS',
+      accountName: 'Telegram release test',
+      commitSha: releaseSha,
+      confirmation: 'PASS'
+    }
+  });
+  assert.equal(rejectedPass.statusCode, 400);
+  assert.match(rejectedPass.json().error, /LIVE PASS/);
+
   let gate = await collectReleaseGate();
   assert.equal(gate.targetVersion, '1.0.0');
   assert.equal(gate.appBuildSha, releaseSha);
   assert.equal(gate.releaseReady, false);
   assert.equal(gate.acceptance.length, 4);
   assert.equal(gate.acceptance.every((row) => row.status === 'NOT_TESTED'), true);
-
-  assert.throws(() => setReleaseAcceptance({
-    platform: 'telegram',
-    status: 'PASS',
-    accountName: 'Telegram release test',
-    commitSha: releaseSha,
-    confirmation: 'PASS'
-  }), /LIVE PASS/);
 
   for (const platform of ['telegram', 'vk', 'max', 'instagram']) {
     const result = setReleaseAcceptance({
@@ -116,6 +141,7 @@ try {
 
   console.log(JSON.stringify({ ok: true, releaseSha, firstBundle: firstBundle.name, auditCount }, null, 2));
 } finally {
+  await app.close();
   db.close();
   await fs.rm(dataDir, { recursive: true, force: true });
 }
