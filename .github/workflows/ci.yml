@@ -261,7 +261,7 @@ jobs:
           test "$EXTRA_MEDIA_STATUS" = "404"
 
           curl -fsS -b /tmp/publikator-cookies.txt "http://127.0.0.1:18080/api/posts/${POST_ID}" | \
-            jq -e --arg first "$MEDIA_2" '.status == "READY" and (.media | length) == 2 and .media[0].id == $first and .targets[0].override_text == "Telegram CI override"'
+            jq -e --arg first "$MEDIA_2" '.status == "READY" and (.media | length) == 2 and .media[0].id == $first and any(.targets[]; .platform == "telegram" and .enabled == 1 and .override_text == "Telegram CI override") and any(.targets[]; .platform == "max" and .enabled == 0)'
 
           curl -fsS -b /tmp/publikator-cookies.txt http://127.0.0.1:18080/api/backup-bundles | \
             jq -e 'any(.[]; .name | contains("pre-restore"))'
