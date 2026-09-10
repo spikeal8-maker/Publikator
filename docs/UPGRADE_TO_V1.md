@@ -12,17 +12,18 @@ Publikator 0.8.0-rc.1 сохраняет архитектуру одного pro
 
 ## Обновление
 
-После получения нужного release commit:
+После получения нужного release commit выполните:
 
 ```bash
 git pull --ff-only
 git rev-parse HEAD
 ```
 
-Полный SHA из второй команды запишите в `.env`:
+В `.env` задайте `APP_BUILD_SHA` равным **точному полному выводу** второй команды. Сокращённый SHA не подходит.
+
+Остальные release-параметры:
 
 ```env
-APP_BUILD_SHA=<полный 40-символьный SHA команды git rev-parse HEAD>
 RELEASE_TARGET_VERSION=1.0.0
 EVENT_RETENTION_DAYS=180
 BACKUP_RETENTION_COUNT=30
@@ -59,7 +60,7 @@ docker compose up -d --build
 
 `APP_BUILD_SHA` — не секрет. Это полный Git commit SHA исходников, из которых собран текущий контейнер. Release gate использует его, чтобы не принять результаты тестов другого build.
 
-Не записывайте сокращённый SHA. Требуются все 40 hex-символов.
+Значение должно состоять ровно из 40 hex-символов и совпадать с выводом `git rev-parse HEAD` непосредственно перед сборкой контейнера.
 
 ## Live acceptance перед V1
 
