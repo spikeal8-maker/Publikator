@@ -87,20 +87,17 @@ data/
 
 `0.8.0-rc.1` добавляет встроенный release gate. Он не подменяет реальный тест соцсетей mock-результатами.
 
-Перед live acceptance release build должен знать свой полный Git SHA:
+Перед live acceptance получите идентификатор реально запущенного release build:
 
 ```bash
 git rev-parse HEAD
 ```
 
-Полученный 40-символьный SHA задаётся в `.env`:
+В `.env` задайте `APP_BUILD_SHA` равным точному полному 40-символьному выводу этой команды и оставьте целевую версию:
 
 ```env
-APP_BUILD_SHA=0123456789abcdef0123456789abcdef01234567
 RELEASE_TARGET_VERSION=1.0.0
 ```
-
-В production используйте **фактический SHA команды `git rev-parse HEAD`**, а не пример из документации.
 
 Для Telegram, VK, MAX и Instagram оператор выполняет `docs/LIVE_INTEGRATION_CHECKLIST.md`, после чего фиксирует результат в разделе **Release gate**. `LIVE PASS` требует имя тестового аккаунта, полный commit SHA и явное текстовое подтверждение.
 
