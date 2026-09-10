@@ -14,6 +14,18 @@ function nonNegativeInteger(name: string, fallback: number): number {
   return value;
 }
 
+function optionalCommitSha(name: string): string {
+  const value = process.env[name]?.trim().toLowerCase() || '';
+  if (value && !/^[a-f0-9]{40}$/.test(value)) throw new Error(`${name} must be a 40-character Git commit SHA`);
+  return value;
+}
+
+function releaseVersion(name: string, fallback: string): string {
+  const value = process.env[name]?.trim() || fallback;
+  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(value)) throw new Error(`${name} must be a semantic version`);
+  return value;
+}
+
 const dataDir = process.env.DATA_DIR?.trim() || path.resolve('data');
 const publicBaseUrl = process.env.PUBLIC_BASE_URL?.trim().replace(/\/$/, '') || '';
 const masterKey = required('APP_MASTER_KEY');
@@ -34,5 +46,7 @@ export const config = {
   sessionTtlMs: Number(process.env.SESSION_TTL_HOURS || 24) * 60 * 60 * 1000,
   schedulerIntervalMs: Math.max(5000, Number(process.env.SCHEDULER_INTERVAL_MS || 15000)),
   eventRetentionDays: nonNegativeInteger('EVENT_RETENTION_DAYS', 180),
-  backupRetentionCount: nonNegativeInteger('BACKUP_RETENTION_COUNT', 30)
+  backupRetentionCount: nonNegativeInteger('BACKUP_RETENTION_COUNT', 30),
+  appBuildSha: optionalCommitSha('APP_BUILD_SHA'),
+  releaseTargetVersion: releaseVersion('RELEASE_TARGET_VERSION', '1.0.0')
 };

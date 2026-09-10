@@ -11,6 +11,7 @@ import { registerMediaOrderRoutes } from './http/media-order.js';
 import { registerBackupBundleRoutes } from './http/backup-bundles.js';
 import { registerContentPlanRoutes } from './http/content-plan.js';
 import { registerDiagnosticsRoutes } from './http/diagnostics.js';
+import { registerReleaseGateRoutes } from './http/release-gate.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: true, bodyLimit: 2 * 1024 * 1024 });
@@ -25,6 +26,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await registerBackupBundleRoutes(app);
   await registerContentPlanRoutes(app);
   await registerDiagnosticsRoutes(app);
+  await registerReleaseGateRoutes(app);
 
   app.setNotFoundHandler((request, reply) => {
     if (request.url.startsWith('/api/') || request.url.startsWith('/public-media/')) return reply.code(404).send({ error: 'Not found' });
