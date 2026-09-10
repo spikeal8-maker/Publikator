@@ -14,6 +14,12 @@ function nonNegativeInteger(name: string, fallback: number): number {
   return value;
 }
 
+function boundedNonNegativeInteger(name: string, fallback: number, max: number): number {
+  const value = nonNegativeInteger(name, fallback);
+  if (value > max) throw new Error(`${name} must be between 0 and ${max}`);
+  return value;
+}
+
 function optionalCommitSha(name: string): string {
   const value = process.env[name]?.trim().toLowerCase() || '';
   if (value && !/^[a-f0-9]{40}$/.test(value)) throw new Error(`${name} must be a 40-character Git commit SHA`);
@@ -45,6 +51,7 @@ export const config = {
   masterKey,
   sessionTtlMs: Number(process.env.SESSION_TTL_HOURS || 24) * 60 * 60 * 1000,
   schedulerIntervalMs: Math.max(5000, Number(process.env.SCHEDULER_INTERVAL_MS || 15000)),
+  queueSlotGraceMinutes: boundedNonNegativeInteger('QUEUE_SLOT_GRACE_MINUTES', 60, 1440),
   eventRetentionDays: nonNegativeInteger('EVENT_RETENTION_DAYS', 180),
   backupRetentionCount: nonNegativeInteger('BACKUP_RETENTION_COUNT', 30),
   appBuildSha: optionalCommitSha('APP_BUILD_SHA'),
