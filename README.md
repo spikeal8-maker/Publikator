@@ -4,7 +4,7 @@
 
 Publikator специально построен как **модульный монолит**: один репозиторий, один Docker-контейнер, один интерфейс, одна SQLite-база и встроенный scheduler. n8n, Redis, RabbitMQ и отдельный worker не нужны.
 
-Текущая версия: **0.7.0**.
+Текущая версия: **0.8.0-rc.1** — release candidate, не stable V1.
 
 ## Что уже реализовано
 
@@ -40,10 +40,13 @@ Publikator специально построен как **модульный м�
 - полные `.tgz` backup bundles: SQLite + media + manifest;
 - безопасный restore через staging, pre-restore backup и перезапуск до открытия SQLite;
 - экран **Диагностика**: SQLite, scheduler, media reconciliation, disk space, PUBLIC_BASE_URL, backups, retention и recovery;
+- экран **Готовность V1** и authenticated release-readiness report;
+- явное разделение `automatedReady` и `stableV1Ready`: mock/CI не могут заменить live acceptance внешних площадок;
 - Docker HEALTHCHECK;
 - CI проверяет компиляцию, frontend JS, миграции, Docker build, runtime/API smoke и полный backup/restore cycle;
 - отдельный mock E2E проверяет publisher/recovery/scheduler/retention на временной SQLite;
 - authenticated HTTP E2E проходит настоящий Fastify router stack с mock publisher;
+- отдельный RC E2E проверяет release blockers и скачиваемый JSON evidence;
 - Docker deployment.
 
 ## Быстрый запуск
@@ -97,6 +100,32 @@ data/
 - backup bundles и retention policy.
 
 Диагностика не возвращает `APP_MASTER_KEY`, `ADMIN_PASSWORD` или расшифрованные credentials.
+
+## Готовность V1
+
+Раздел **«Готовность V1»** строит release-readiness report поверх текущей диагностики.
+
+`automatedReady=true` означает, что локальные автоматические условия позволяют переходить к live acceptance. Среди блокеров:
+
+- ошибка SQLite integrity или режим не WAL;
+- missing/size-mismatched media;
+- активный `RECOVERY_NEEDED`;
+- неподходящий `PUBLIC_BASE_URL` при активных MAX/Instagram;
+- активный maintenance;
+- критически мало дискового места;
+- последняя необработанная ошибка scheduler;
+- отсутствие полного `.tgz` backup bundle.
+
+`stableV1Ready` в release candidate намеренно остаётся `false`. Telegram/VK/MAX/Instagram должны быть проверены вручную на реальных тестовых аккаунтах по [`docs/LIVE_INTEGRATION_CHECKLIST.md`](docs/LIVE_INTEGRATION_CHECKLIST.md).
+
+API:
+
+```text
+GET /api/release-readiness
+GET /api/release-readiness/report.json
+```
+
+Второй endpoint скачивает JSON evidence текущего release gate.
 
 ## RECOVERY_NEEDED
 
@@ -172,6 +201,10 @@ publikator-2026-09-09T20-00-00-000Z-manual.tgz
 Подключения и adapter-поведение: [`docs/PLATFORMS.md`](docs/PLATFORMS.md).
 
 Обязательный ручной gate перед стабильным V1: [`docs/LIVE_INTEGRATION_CHECKLIST.md`](docs/LIVE_INTEGRATION_CHECKLIST.md).
+
+Безопасное обновление/rollback: [`docs/UPGRADE.md`](docs/UPGRADE.md).
+
+Release notes RC: [`docs/releases/0.8.0-rc.1.md`](docs/releases/0.8.0-rc.1.md).
 
 ## Архитектура
 
