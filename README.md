@@ -4,7 +4,7 @@
 
 Publikator специально построен как **модульный монолит**: один репозиторий, один Docker-контейнер, один интерфейс, одна SQLite-база и встроенный scheduler. n8n, Redis, RabbitMQ и отдельный worker не нужны.
 
-Текущая версия: **0.8.0-rc.2** — release candidate. Стабильный `v1.0.0` намеренно не создаётся до реального live acceptance всех четырёх заявленных площадок.
+Текущая версия: **0.8.0-rc.3** — release candidate. Стабильный `v1.0.0` намеренно не создаётся до реального live acceptance всех четырёх заявленных площадок.
 
 ## Что уже реализовано
 
@@ -43,8 +43,11 @@ Publikator специально построен как **модульный м�
 - экран **Диагностика**: SQLite, scheduler, media reconciliation, disk space, PUBLIC_BASE_URL, backups, retention и recovery;
 - экран **Release gate** с persistent live evidence по четырём площадкам;
 - SQLite schema v2 с блокировкой запуска на более новой неизвестной схеме;
+- committed `package-lock.json` и воспроизводимый dependency graph;
+- Docker и acceptance CI устанавливают зависимости через `npm ci`;
+- read-only `Dependency security CI`, блокирующий high/critical production vulnerabilities;
 - Docker HEALTHCHECK;
-- CI для компиляции, frontend, миграций, Docker/runtime/restore, content-plan, operations, backup path и release gate;
+- CI для компиляции, frontend, миграций, Docker/runtime/restore, content-plan, operations, backup path, dependency security и release gate;
 - Docker deployment.
 
 ## Быстрый запуск
@@ -70,6 +73,24 @@ docker compose up -d --build
 Интерфейс по умолчанию: `http://localhost:8080`.
 
 > Для MAX и Instagram `PUBLIC_BASE_URL` должен быть реальным публичным HTTPS-адресом: внешняя площадка должна суметь скачать изображение из `/public-media/...`.
+
+## Воспроизводимые и проверяемые зависимости
+
+Начиная с `0.8.0-rc.3`, `package-lock.json` коммитится в репозиторий и является частью release identity. Docker и все acceptance workflows используют `npm ci`, поэтому один Git commit соответствует одному зафиксированному npm dependency graph.
+
+Pre-live audit RC2 обнаружил две high production vulnerabilities в direct dependencies. В RC3 обновлены:
+
+- `@fastify/static` → `10.1.3`;
+- `sharp` → `0.35.4`.
+
+После обновления production audit показывает 0 vulnerabilities. Перед merge/release обязательна проверка:
+
+```bash
+npm ci --ignore-scripts --no-audit --no-fund
+npm audit --omit=dev --audit-level=high
+```
+
+High/critical production vulnerability блокирует выпуск. `Dependency security CI` не имеет write permissions к репозиторию.
 
 ## Данные
 
@@ -113,7 +134,7 @@ Gate остаётся заблокированным, пока одноврем�
 - `PUBLIC_BASE_URL` является корректным HTTPS URL;
 - после последней live-проверки создан новый полный `.tgz` backup.
 
-Даже после зелёного runtime/live gate стабильный тег создаётся только после зелёного automated CI на том же commit.
+Даже после зелёного runtime/live gate стабильный тег создаётся только после зелёных automated CI, включая `Dependency security CI`, на том же commit.
 
 Подробно: [`docs/LIVE_INTEGRATION_CHECKLIST.md`](docs/LIVE_INTEGRATION_CHECKLIST.md), [`docs/UPGRADE_TO_V1.md`](docs/UPGRADE_TO_V1.md), [`docs/RELEASE_NOTES_V1.md`](docs/RELEASE_NOTES_V1.md).
 
