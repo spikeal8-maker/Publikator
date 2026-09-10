@@ -70,8 +70,10 @@ async function readPublicationMedia(mediaPath: string): Promise<Buffer> {
 
 async function uploadWallImage(uploadUrl: string, bytes: Buffer): Promise<any> {
   try {
+    const blobBytes = new Uint8Array(bytes.byteLength);
+    blobBytes.set(bytes);
     const form = new FormData();
-    form.set('photo', new Blob([bytes], { type: 'image/jpeg' }), 'image.jpg');
+    form.set('photo', new Blob([blobBytes], { type: 'image/jpeg' }), 'image.jpg');
     const uploadResponse = await fetch(uploadUrl, {
       method: 'POST',
       body: form,
