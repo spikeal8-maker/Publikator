@@ -4,15 +4,6 @@
 
 Рабочий модульный монолит: один production-контейнер, Fastify, SQLite/WAL, локальное media storage, встроенный scheduler, Telegram/VK/MAX/Instagram adapters, явный выбор целевых аккаунтов, retry/recovery, журнал событий и шифрование credentials.
 
-Уже закрыто:
-
-1. Platform-specific формы подключения без ручного JSON.
-2. Проверка соединения и прав до сохранения аккаунта.
-3. Защита от автоматических дублей через консервативный `RECOVERY_NEEDED`.
-4. Блокировка изменения контента после частичной/полной публикации.
-5. Базовый CI smoke-flow и Docker healthcheck.
-6. Backend-контракт отдельного текста для каждой целевой площадки.
-
 ## V0.4 — редактор публикации — закрыто
 
 1. UI редактирования и сброса `override_text` для каждого аккаунта.
@@ -34,8 +25,6 @@
 7. Порядок можно менять через API и Web UI; после удаления он автоматически уплотняется.
 8. Preview показывает первый кадр, количество остальных изображений, размеры и aspect ratio; Instagram явно предупреждает, что первый кадр задаёт основу кадрирования carousel.
 9. CI smoke-flow проверяет дедупликацию, порядок, перестановку, успешный Telegram preflight и блокировку `READY` при невалидном MAX public media URL.
-
-Точный набор дополнительных aspect-ratio ограничений каждой платформы следует добавлять только после проверки по актуальной официальной документации/реальному API, без догадок и «универсальных» жёстких чисел.
 
 ## V0.6 — переносимость и данные — закрыто
 
@@ -82,19 +71,41 @@
 10. Создан обязательный `docs/LIVE_INTEGRATION_CHECKLIST.md` для Telegram/VK/MAX/Instagram, recovery и backup/restore acceptance перед стабильным V1.
 11. Архитектура осталась модульным монолитом: новый cron, worker, Redis, RabbitMQ или второй runtime не добавлялись.
 
-## V0.8 — release candidate / стабильный V1 — следующий этап
+## V0.8 — release candidate / стабильный V1 — в работе
 
-1. Выполнить live integration checklist на реальных тестовых аккаунтах всех заявленных площадок.
-2. Зафиксировать результат acceptance по каждой площадке и release commit SHA.
-3. Исправлять только подтверждённые live/API несовместимости без расширения архитектуры.
-4. Подготовить upgrade/release notes для перехода с 0.6.x/0.7.0.
-5. После зелёного automated CI + live acceptance создать стабильный V1 tag/release.
+### V0.8A — release tooling — реализовано в 0.8.0-rc.1
+
+1. SQLite schema поднята до `2`; добавлена таблица `release_acceptance`.
+2. При запуске более старого бинарника на более новой SQLite schema выполнение блокируется вместо silent downgrade `user_version`.
+3. В Web UI появился `Release gate` для Telegram/VK/MAX/Instagram.
+4. Live evidence хранит platform, PASS/FAIL, test account, tested time, полный Git commit SHA и notes.
+5. `PASS` требует явного подтверждения `LIVE PASS`, полного 40-char SHA и имени реального тестового аккаунта/канала.
+6. Четыре PASS должны относиться к одному commit SHA.
+7. `APP_BUILD_SHA` связывает запущенный контейнер с acceptance commit; несовпадение блокирует выпуск.
+8. Gate также блокируется при diagnostics errors, `RECOVERY_NEEDED`, scheduler last error, отсутствии HTTPS `PUBLIC_BASE_URL` или полного backup после последнего acceptance.
+9. Release evidence находится в основной SQLite и автоматически входит в full backup/restore.
+10. Исправлен `docker-compose.yml`: `EVENT_RETENTION_DAYS` и `BACKUP_RETENTION_COUNT` теперь действительно передаются из `.env` в container runtime.
+11. Добавлены `docs/UPGRADE_TO_V1.md` и `docs/RELEASE_NOTES_V1.md`.
+12. Добавлен отдельный Release gate E2E/CI; общий migration/restore CI переведён на schema v2.
+
+### V0.8B — live acceptance — блокирует стабильный V1
+
+1. Выбрать финальный RC commit и собрать именно его с заданным `APP_BUILD_SHA`.
+2. Выполнить `docs/LIVE_INTEGRATION_CHECKLIST.md` на реальных тестовых Telegram/VK/MAX/Instagram аккаунтах.
+3. Зафиксировать четыре `LIVE PASS` в Release gate на одном commit SHA.
+4. Убедиться, что нет `RECOVERY_NEEDED` и diagnostics не содержит ошибок.
+5. После последнего live acceptance создать новый полный `.tgz` backup release-state.
+6. Получить PASS всех automated CI на том же release commit.
+7. Только после пунктов 1–6 изменить version на `1.0.0` и создать стабильный Git tag/release `v1.0.0`.
+
+Ни один mock/E2E тест не имеет права автоматически записывать реальный live PASS в production data.
 
 ## После стабильного V1
 
 - статистика публикаций там, где официальные API позволяют получать её стабильно;
 - генерация черновиков и изображений через внешние AI API как подключаемая функция;
-- интеграции с ASSA Lab / IZO только через стабильный внутренний HTTP API Publikator.
+- интеграции с ASSA Lab / IZO только через стабильный внутренний HTTP API Publikator;
+- Google Sheets только как необязательный connector импорта/экспорта, если он действительно понадобится.
 
 ## Архитектурный запрет
 
