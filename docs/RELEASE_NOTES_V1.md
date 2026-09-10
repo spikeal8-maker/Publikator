@@ -1,6 +1,6 @@
 # Publikator V1 — release candidate notes
 
-Текущий pre-release: **0.8.0-rc.2**.
+Текущий pre-release: **0.8.0-rc.3**.
 
 Стабильный тег `v1.0.0` не должен создаваться до завершения реального live acceptance Telegram, VK, MAX и Instagram на одном release commit.
 
@@ -34,6 +34,8 @@
 - event/backup retention;
 - единый full `.tgz` backup и safe restore до открытия SQLite;
 - SQLite-only backup API ранних версий отключён;
+- committed `package-lock.json` и воспроизводимая установка через `npm ci`;
+- production dependency security gate;
 - mock publisher/scheduler E2E;
 - authenticated HTTP CRUD E2E;
 - content-plan round-trip CI;
@@ -63,6 +65,24 @@
 - исторические `.sqlite` файлы не удаляются автоматически только из-за обновления, но новые через приложение не создаются;
 - добавлен отдельный `Backup path CI`, который проверяет `410 Gone` для legacy API и успешное создание full bundle.
 
+## Новое в 0.8.0-rc.3
+
+Pre-live dependency audit обнаружил две **high** production vulnerabilities в прямых зависимостях предыдущего RC:
+
+- `@fastify/static` обновлён до `10.1.3`;
+- `sharp` обновлён до `0.35.4`.
+
+После обновления `npm audit --omit=dev` показывает **0 vulnerabilities**.
+
+Дополнительно:
+
+- в репозиторий добавлен `package-lock.json` (`lockfileVersion: 3`);
+- Docker собирается через `npm ci` и использует зафиксированный dependency graph;
+- все acceptance workflows переведены на `npm ci`;
+- добавлен read-only `Dependency security CI`, который выполняет exact lock install и блокирует high/critical production vulnerabilities;
+- правила разработки запрещают удалять lockfile, возвращать acceptance/production к плавающему `npm install` и выполнять dependency fix вслепую через `npm audit fix --force`;
+- Git commit SHA теперь идентифицирует не только исходный код, но и committed dependency graph.
+
 ## Что намеренно не автоматизировано
 
 Publikator не ставит live PASS после mock/E2E и не обращается к GitHub API из production runtime, чтобы самостоятельно объявить релиз готовым.
@@ -78,14 +98,16 @@ Publikator не ставит live PASS после mock/E2E и не обраща�
 3. `Ops hardening CI` — PASS;
 4. `Release gate CI` — PASS;
 5. `Backup path CI` — PASS;
-6. live Telegram — PASS;
-7. live VK — PASS;
-8. live MAX — PASS;
-9. live Instagram — PASS;
-10. нет необработанных `RECOVERY_NEEDED`;
-11. diagnostics не содержит ошибок SQLite/media/public URL;
-12. после последнего live acceptance создан полный `.tgz` backup;
-13. runtime `APP_BUILD_SHA` совпадает с acceptance commit.
+6. `Dependency security CI` — PASS;
+7. production audit не содержит high/critical vulnerabilities;
+8. live Telegram — PASS;
+9. live VK — PASS;
+10. live MAX — PASS;
+11. live Instagram — PASS;
+12. нет необработанных `RECOVERY_NEEDED`;
+13. diagnostics не содержит ошибок SQLite/media/public URL;
+14. после последнего live acceptance создан полный `.tgz` backup;
+15. runtime `APP_BUILD_SHA` совпадает с acceptance commit.
 
 Только после этого версия меняется на `1.0.0` и создаётся стабильный Git tag/release.
 
