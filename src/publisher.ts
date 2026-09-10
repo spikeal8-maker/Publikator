@@ -6,6 +6,7 @@ import { PlatformError, type PublishInput } from './platforms/types.js';
 import { beginPublicationActivity } from './runtime-gate.js';
 
 const RETRY_DELAYS_MS = [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000];
+const CLAIMABLE_TARGET_STATES: TargetState[] = ['PENDING', 'RETRY', 'FAILED'];
 
 type PublishTargetRow = {
   id: string;
@@ -18,6 +19,7 @@ type PublishTargetRow = {
   body: string;
   platform: Platform;
   account_name?: string;
+  account_enabled?: number;
   credentials_encrypted: string;
 };
 
@@ -79,6 +81,14 @@ function recoveryTarget(targetId: string): RecoveryTargetRow {
   return row;
 }
 
+function claimTarget(targetId: string): boolean {
+  const claimed = db.prepare(`UPDATE post_targets
+    SET state='PUBLISHING', attempts=attempts+1, next_attempt_at=NULL, last_error=NULL, updated_at=?
+    WHERE id=? AND enabled=1 AND state IN ('PENDING','RETRY','FAILED')`)
+    .run(nowIso(), targetId);
+  return claimed.changes === 1;
+}
+
 export function ensureTargets(postId: string): void {
   const now = nowIso();
   const post = db.prepare('SELECT created_at FROM posts WHERE id=?').get(postId) as { created_at: string } | undefined;
@@ -138,14 +148,14 @@ export function preflightPost(postId: string): PreflightResult {
 }
 
 async function publishTargetInternal(targetId: string): Promise<void> {
-  const target = db.prepare(`SELECT pt.*, p.title, p.body, p.id AS post_id, a.platform, a.name AS account_name, a.credentials_encrypted
+  const target = db.prepare(`SELECT pt.*, p.title, p.body, p.id AS post_id,
+      a.platform, a.name AS account_name, a.enabled AS account_enabled, a.credentials_encrypted
     FROM post_targets pt
     JOIN posts p ON p.id=pt.post_id
     JOIN social_accounts a ON a.id=pt.account_id
     WHERE pt.id=?`).get(targetId) as PublishTargetRow | undefined;
   if (!target) throw new Error('Цель публикации не найдена');
-  const currentState = target.state as TargetState;
-  if (currentState === 'PUBLISHED' || currentState === 'RECOVERY_NEEDED') return;
+  if (!target.enabled || !target.account_enabled || !CLAIMABLE_TARGET_STATES.includes(target.state)) return;
 
   const media = listMedia(target.post_id);
   if (media.length < 1) throw new Error('Публикация заблокирована: нет изображения');
@@ -157,23 +167,27 @@ async function publishTargetInternal(targetId: string): Promise<void> {
     publisher.validate(input);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    db.prepare("UPDATE post_targets SET state='FAILED', next_attempt_at=NULL, last_error=?, updated_at=? WHERE id=?")
+    const failed = db.prepare(`UPDATE post_targets
+      SET state='FAILED', next_attempt_at=NULL, last_error=?, updated_at=?
+      WHERE id=? AND enabled=1 AND state IN ('PENDING','RETRY','FAILED')`)
       .run(message, nowIso(), targetId);
-    event({ postId: target.post_id, accountId: target.account_id, level: 'error', type: 'publish_validation_failed', message, data: { platform: target.platform } });
+    if (failed.changes === 1) {
+      event({ postId: target.post_id, accountId: target.account_id, level: 'error', type: 'publish_validation_failed', message, data: { platform: target.platform } });
+    }
     return;
   }
 
-  db.prepare("UPDATE post_targets SET state='PUBLISHING', attempts=attempts+1, last_error=NULL, updated_at=? WHERE id=?")
-    .run(nowIso(), targetId);
+  if (!claimTarget(targetId)) return;
   event({ postId: target.post_id, accountId: target.account_id, type: 'publish_started', message: `Публикация начата: ${target.platform}` });
 
   try {
     const result = await publisher.publish(input);
-    db.prepare(`UPDATE post_targets SET state='PUBLISHED', external_id=?, external_url=?, published_at=?, next_attempt_at=NULL, updated_at=? WHERE id=?`)
+    db.prepare(`UPDATE post_targets SET state='PUBLISHED', external_id=?, external_url=?, published_at=?, next_attempt_at=NULL, updated_at=? WHERE id=? AND state='PUBLISHING'`)
       .run(result.externalId, result.externalUrl ?? null, nowIso(), nowIso(), targetId);
     event({ postId: target.post_id, accountId: target.account_id, type: 'publish_succeeded', message: `Опубликовано: ${target.platform}`, data: { externalId: result.externalId, externalUrl: result.externalUrl } });
   } catch (error) {
-    const fresh = db.prepare('SELECT attempts FROM post_targets WHERE id=?').get(targetId) as { attempts: number };
+    const fresh = db.prepare('SELECT attempts,state FROM post_targets WHERE id=?').get(targetId) as { attempts: number; state: TargetState } | undefined;
+    if (!fresh || fresh.state !== 'PUBLISHING') return;
     const message = error instanceof Error ? error.message : String(error);
     let state: TargetState;
     let next: string | null = null;
@@ -192,7 +206,7 @@ async function publishTargetInternal(targetId: string): Promise<void> {
     const storedMessage = state === 'RECOVERY_NEEDED'
       ? `${message} Результат внешнего POST может быть неопределён; автоматический повтор отключён во избежание дубля.`
       : message;
-    db.prepare('UPDATE post_targets SET state=?, next_attempt_at=?, last_error=?, updated_at=? WHERE id=?')
+    db.prepare("UPDATE post_targets SET state=?, next_attempt_at=?, last_error=?, updated_at=? WHERE id=? AND state='PUBLISHING'")
       .run(state, next, storedMessage, nowIso(), targetId);
     event({
       postId: target.post_id,
@@ -235,8 +249,9 @@ export async function retryFailedTarget(targetId: string): Promise<void> {
     }
     throw new Error(`Повтор недоступен для состояния ${target.state}`);
   }
-  db.prepare("UPDATE post_targets SET state='PENDING',next_attempt_at=NULL,last_error=NULL,updated_at=? WHERE id=?")
+  const reset = db.prepare("UPDATE post_targets SET state='PENDING',next_attempt_at=NULL,last_error=NULL,updated_at=? WHERE id=? AND state IN ('FAILED','RETRY')")
     .run(nowIso(), targetId);
+  if (reset.changes !== 1) throw new Error('Цель уже была захвачена другим процессом публикации');
   await publishTarget(targetId);
   refreshPostStatus(target.post_id);
 }
@@ -253,8 +268,10 @@ export function confirmRecoveryPublished(targetId: string, externalId?: string |
   }
   const previousError = target.last_error;
   const now = nowIso();
-  db.prepare(`UPDATE post_targets SET state='PUBLISHED',external_id=?,external_url=?,published_at=?,next_attempt_at=NULL,last_error=NULL,updated_at=? WHERE id=?`)
+  const updated = db.prepare(`UPDATE post_targets SET state='PUBLISHED',external_id=?,external_url=?,published_at=?,next_attempt_at=NULL,last_error=NULL,updated_at=?
+    WHERE id=? AND state='RECOVERY_NEEDED'`)
     .run(cleanExternalId, cleanExternalUrl, now, now, targetId);
+  if (updated.changes !== 1) throw new Error('Состояние recovery уже изменено другим запросом');
   event({
     postId: target.post_id,
     accountId: target.account_id,
@@ -271,8 +288,9 @@ export function confirmRecoveryNotPublished(targetId: string): { postId: string 
   if (target.state !== 'RECOVERY_NEEDED') throw new Error(`Ручное подтверждение недоступно для состояния ${target.state}`);
   const previousError = target.last_error;
   const message = 'Ручная проверка: публикация на внешней площадке не найдена. Обычный ручной повтор снова разрешён.';
-  db.prepare("UPDATE post_targets SET state='FAILED',next_attempt_at=NULL,last_error=?,updated_at=? WHERE id=?")
+  const updated = db.prepare("UPDATE post_targets SET state='FAILED',next_attempt_at=NULL,last_error=?,updated_at=? WHERE id=? AND state='RECOVERY_NEEDED'")
     .run(message, nowIso(), targetId);
+  if (updated.changes !== 1) throw new Error('Состояние recovery уже изменено другим запросом');
   event({
     postId: target.post_id,
     accountId: target.account_id,
@@ -296,7 +314,7 @@ export async function publishPost(postId: string): Promise<void> {
     const preflight = preflightPost(postId);
     if (!preflight.ok) throw new Error(`Публикация не прошла preflight:\n${formatPreflightIssues(preflight.issues)}`);
 
-    db.prepare("UPDATE posts SET status='PUBLISHING', updated_at=? WHERE id=?").run(nowIso(), postId);
+    db.prepare("UPDATE posts SET status='PUBLISHING', updated_at=? WHERE id=? AND status!='PUBLISHED'").run(nowIso(), postId);
     const targets = db.prepare("SELECT pt.id FROM post_targets pt JOIN social_accounts a ON a.id=pt.account_id WHERE pt.post_id=? AND pt.enabled=1 AND a.enabled=1 AND pt.state IN ('PENDING','RETRY','FAILED') ORDER BY pt.rowid").all(postId) as Array<{ id: string }>;
     for (const target of targets) await publishTargetInternal(target.id);
     refreshPostStatus(postId);
