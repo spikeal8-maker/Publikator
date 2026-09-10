@@ -167,21 +167,8 @@ jobs:
             '.status == "DRAFT" and .title == $title and .body == $body and .schedule_mode == "AT" and .scheduled_at == "2027-01-15T09:30:00.000Z" and (.media | length) == 1 and .media[0].id != $sourceMediaId and .media[0].sha256 == $sourceSha and any(.targets[]; .account_id == $accountId and .platform == "telegram" and .enabled == 1 and .override_text == $override)' \
             /tmp/publikator-content-plan-imported.json
 
-          PROJECT_SLUG="$PROJECT_SLUG" node --input-type=module <<'NODE'
-          import fs from 'node:fs/promises';
-          import { serializeContentPlanCsv } from './dist/content-plan.js';
-          const row = {
-            project: process.env.PROJECT_SLUG,
-            title: 'Invalid AT row',
-            body: 'This row must fail dry-run',
-            schedule_mode: 'AT',
-            scheduled_at: '',
-            targets: '[]',
-            platform_overrides: '[]',
-            media_references: '[]'
-          };
-          await fs.writeFile('/tmp/publikator-content-plan-invalid.csv', serializeContentPlanCsv([row]), 'utf8');
-          NODE
+          printf 'project;title;body;schedule_mode;scheduled_at;targets;platform_overrides;media_references\r\n%s;Invalid AT row;This row must fail dry-run;AT;;[];[];[]\r\n' \
+            "$PROJECT_SLUG" > /tmp/publikator-content-plan-invalid.csv
 
           curl -fsS -b /tmp/publikator-content-plan-cookies.txt \
             -F 'file=@/tmp/publikator-content-plan-invalid.csv;type=text/csv' \
