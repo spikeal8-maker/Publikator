@@ -15,6 +15,7 @@ const { registerTargetOverrideRoutes } = await import('./http/target-overrides.j
 const { registerMediaOrderRoutes } = await import('./http/media-order.js');
 const { registerBackupBundleRoutes } = await import('./http/backup-bundles.js');
 const { registerContentPlanRoutes } = await import('./http/content-plan.js');
+const { registerDiagnosticsRoutes } = await import('./http/diagnostics.js');
 const { schedulerTick } = await import('./scheduler.js');
 
 migrate();
@@ -30,6 +31,7 @@ await registerTargetOverrideRoutes(app);
 await registerMediaOrderRoutes(app);
 await registerBackupBundleRoutes(app);
 await registerContentPlanRoutes(app);
+await registerDiagnosticsRoutes(app);
 
 app.setNotFoundHandler((request, reply) => {
   if (request.url.startsWith('/api/') || request.url.startsWith('/public-media/')) return reply.code(404).send({ error: 'Not found' });
