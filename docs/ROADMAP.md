@@ -13,9 +13,7 @@
 5. Базовый CI smoke-flow и Docker healthcheck.
 6. Backend-контракт отдельного текста для каждой целевой площадки.
 
-## V0.4 — редактор публикации
-
-Функциональный объём V0.4 закрыт:
+## V0.4 — редактор публикации — закрыто
 
 1. UI редактирования и сброса `override_text` для каждого аккаунта.
 2. Live preview Telegram / VK / MAX / Instagram с реальным изображением поста.
@@ -25,9 +23,7 @@
 6. `PUBLISHING` / `PARTIAL` / `PUBLISHED` визуально блокируются от редактирования так же, как на backend.
 7. CI проверяет синтаксис UI-модуля и API-flow сохранения platform override.
 
-## V0.5 — media pipeline
-
-Функциональный объём V0.5 закрыт:
+## V0.5 — media pipeline — закрыто
 
 1. Instagram: один JPEG или carousel из 2–10 JPEG через child containers → `CAROUSEL` parent → `media_publish`.
 2. Platform-specific preflight обязателен до `READY` и повторно выполняется перед ручной/автоматической публикацией.
@@ -41,9 +37,9 @@
 
 Точный набор дополнительных aspect-ratio ограничений каждой платформы следует добавлять только после проверки по актуальной официальной документации/реальному API, без догадок и «универсальных» жёстких чисел.
 
-## V0.6 — переносимость и данные
+## V0.6 — переносимость и данные — закрыто
 
-### V0.6A — backup / restore — закрыто
+### V0.6A — backup / restore
 
 1. Полный `.tgz` bundle: согласованный SQLite snapshot + media + versioned manifest.
 2. SHA-256 SQLite и каждого media, `PRAGMA integrity_check`, обязательные таблицы и schema compatibility.
@@ -56,7 +52,7 @@
 9. API create/list/download/restore/upload и Web UI с обязательным ручным подтверждением `RESTORE`.
 10. CI проверяет полный цикл `backup → mutation → restore → Docker restart → rollback state/media`.
 
-### V0.6B — контент-план — закрыто
+### V0.6B — контент-план
 
 1. CSV export всех проектов или одного проекта; UTF-8 BOM, `;`, корректные quoted/multiline cells.
 2. CSV import распознаёт `;`, `,` и tab и использует тот же versioned parser/validator, что XLSX.
@@ -72,13 +68,27 @@
 12. Regression CI проверяет настоящий CSV/XLSX round-trip с `;`, кавычками, multiline body/override, расписанием, target и media SHA, а также негативную строку `AT` без даты.
 13. Google Sheets остаётся только возможным необязательным import/export connector после V1 и не является runtime-зависимостью.
 
-## V0.7 — эксплуатация и test hardening — следующий этап
+## V0.7 — эксплуатация и test hardening — закрыто
 
-1. Полные CRUD/scheduler/publisher E2E-тесты на временной SQLite и mock-adapters.
-2. Экран диагностики: версия приложения, состояние БД, scheduler, media storage, PUBLIC_BASE_URL.
-3. Более удобная ручная обработка `RECOVERY_NEEDED`.
-4. Retention журнала событий и backup policy.
-5. Live integration checklist для Telegram/VK/MAX/Instagram перед выпуском стабильного V1.
+1. Реальный authenticated HTTP CRUD E2E использует тот же `buildApp()`/Fastify router stack и временную SQLite; внешняя публикация заменяется mock publisher только при `NODE_ENV=test`.
+2. Отдельный publisher/scheduler E2E проверяет success, неопределённый внешний POST, запрет опасного retry, обе recovery-развязки и `AT` scheduler.
+3. `RECOVERY_NEEDED` больше нельзя перевести обычным retry обратно в `PENDING`; оператор обязан вручную выбрать `Публикация найдена` или `Публикации точно нет`.
+4. Обе recovery-развязки журналируются; подтверждение найденной публикации не вызывает новый внешний POST.
+5. Экран `Диагностика`: версия/Node/uptime, SQLite `quick_check`/WAL/schema/counts, scheduler state, media SQLite↔disk, storage, PUBLIC_BASE_URL, accounts, backups, maintenance и recovery count.
+6. Scheduler хранит last start/completion/duration/error/skip и статистику последнего tick.
+7. Retention выполняется тем же scheduler: события по умолчанию 180 дней, `.tgz` bundles — 30 последних; `0` отключает соответствующую политику.
+8. Старая история активного `RECOVERY_NEEDED` защищена от event retention; самый свежий `pre-restore` bundle дополнительно защищён от backup pruning.
+9. Retention покрыт E2E: старые события/backup удаляются, recovery-history и защищённый pre-restore сохраняются.
+10. Создан обязательный `docs/LIVE_INTEGRATION_CHECKLIST.md` для Telegram/VK/MAX/Instagram, recovery и backup/restore acceptance перед стабильным V1.
+11. Архитектура осталась модульным монолитом: новый cron, worker, Redis, RabbitMQ или второй runtime не добавлялись.
+
+## V0.8 — release candidate / стабильный V1 — следующий этап
+
+1. Выполнить live integration checklist на реальных тестовых аккаунтах всех заявленных площадок.
+2. Зафиксировать результат acceptance по каждой площадке и release commit SHA.
+3. Исправлять только подтверждённые live/API несовместимости без расширения архитектуры.
+4. Подготовить upgrade/release notes для перехода с 0.6.x/0.7.0.
+5. После зелёного automated CI + live acceptance создать стабильный V1 tag/release.
 
 ## После стабильного V1
 
