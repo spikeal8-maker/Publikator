@@ -4,6 +4,7 @@ import cookie from '@fastify/cookie';
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import { config } from './config.js';
+import { registerBrowserSecurity } from './http/security.js';
 import { registerMaintenanceGuard } from './http/maintenance.js';
 import { registerLegacyBackupBlocker } from './http/legacy-backups.js';
 import { registerRoutes } from './http/routes.js';
@@ -15,7 +16,12 @@ import { registerDiagnosticsRoutes } from './http/diagnostics.js';
 import { registerReleaseGateRoutes } from './http/release-gate.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
-  const app = Fastify({ logger: true, bodyLimit: 2 * 1024 * 1024 });
+  const app = Fastify({
+    logger: true,
+    bodyLimit: 2 * 1024 * 1024,
+    trustProxy: config.trustProxy
+  });
+  await registerBrowserSecurity(app);
   await app.register(cookie);
   await app.register(multipart);
   await app.register(fastifyStatic, { root: config.publicDir, prefix: '/' });
