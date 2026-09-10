@@ -1,6 +1,9 @@
 services:
   publikator:
-    build: .
+    build:
+      context: .
+      args:
+        BUILD_SHA: "${BUILD_SHA:-unknown}"
     container_name: publikator
     restart: unless-stopped
     ports:
@@ -18,7 +21,6 @@ services:
       QUEUE_SLOT_GRACE_MINUTES: "${QUEUE_SLOT_GRACE_MINUTES:-60}"
       EVENT_RETENTION_DAYS: "${EVENT_RETENTION_DAYS:-180}"
       BACKUP_RETENTION_COUNT: "${BACKUP_RETENTION_COUNT:-30}"
-      APP_BUILD_SHA: "${APP_BUILD_SHA:-}"
       RELEASE_TARGET_VERSION: "${RELEASE_TARGET_VERSION:-1.0.0}"
     volumes:
       - ./data:/app/data
