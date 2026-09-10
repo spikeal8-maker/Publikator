@@ -46,6 +46,10 @@ API version
 
 Проверка вызывает `photos.getWallUploadServer` для указанной группы, то есть заранее проверяет именно способность токена начать реальную загрузку изображения на стену сообщества. Публикация выполняется через `photos.getWallUploadServer → upload → photos.saveWallPhoto → wall.post`. Для защиты от дублей в `wall.post` передаётся `guid = post.id`. На текущем API для загрузки фото может потребоваться пользовательский токен; неподходящий community token способен вернуть ошибку 27.
 
+VK adapter разделяет подготовительную и публичную фазы. `photos.getWallUploadServer`, upload бинарного JPEG и `photos.saveWallPhoto` ещё не создают запись стены. Поэтому network timeout/5xx на этих шагах не переводят target в `RECOVERY_NEEDED`: временный сбой можно безопасно повторить, а missing local media/неожиданный ответ завершает target как обычную известную ошибку. Даже если повтор `photos.saveWallPhoto` оставит лишний photo object, он не создаёт дублированную запись стены.
+
+Только `wall.post` является публичной фазой. Явная VK API error остаётся известным ответом с собственной retryability; transport/5xx после начала `wall.post` либо успешный HTTP-ответ без `post_id` считаются неопределённым публичным исходом и требуют recovery. VK API/upload запросы имеют ограниченный timeout 30 секунд, чтобы зависший внешний запрос не удерживал scheduler бесконечно.
+
 ## Instagram
 
 Поля:
