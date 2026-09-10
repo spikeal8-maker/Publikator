@@ -1,6 +1,6 @@
-# Обновление Publikator 0.6.x / 0.7.0 → 0.8.0-rc.2 → V1
+# Обновление Publikator 0.6.x / 0.7.0 → 0.8.0-rc.3 → V1
 
-Publikator 0.8.0-rc.2 сохраняет архитектуру одного production-контейнера и локального `data/`, поднимает SQLite schema с **1 до 2** для хранения live release acceptance и оставляет только один рабочий формат резервной копии — полный `.tgz` bundle.
+Publikator 0.8.0-rc.3 сохраняет архитектуру одного production-контейнера и локального `data/`, поднимает SQLite schema с **1 до 2**, оставляет один рабочий формат резервной копии — полный `.tgz` bundle — и фиксирует npm dependency graph через committed `package-lock.json`.
 
 ## Перед обновлением
 
@@ -10,7 +10,7 @@ Publikator 0.8.0-rc.2 сохраняет архитектуру одного pro
 4. Запишите текущую версию/commit и убедитесь, что раздел «Диагностика» не показывает ошибок SQLite/media.
 5. Не удаляйте существующий каталог `data/`.
 
-Старые `.sqlite`-файлы из ранних версий можно оставить в `data/backups`, но после RC2 приложение больше не создаёт SQLite-only backup через `/api/backups`.
+Старые `.sqlite`-файлы из ранних версий можно оставить в `data/backups`, но приложение больше не создаёт SQLite-only backup через `/api/backups`.
 
 ## Обновление
 
@@ -31,11 +31,22 @@ EVENT_RETENTION_DAYS=180
 BACKUP_RETENTION_COUNT=30
 ```
 
+Проверьте, что committed dependency graph согласован:
+
+```bash
+npm ci --ignore-scripts --no-audit --no-fund
+npm audit --omit=dev --audit-level=high
+```
+
+Production audit перед release не должен содержать high/critical vulnerabilities.
+
 Затем пересоберите **тот же единственный контейнер**:
 
 ```bash
 docker compose up -d --build
 ```
+
+Dockerfile использует `npm ci`, поэтому build обязан совпадать с `package-lock.json`. Если `package.json` и lockfile расходятся, сборка должна падать, а не тихо разрешать новый набор зависимостей.
 
 При старте Publikator:
 
@@ -60,11 +71,13 @@ docker compose up -d --build
 
 Затем откройте **Release gate**. После обновления все четыре площадки должны быть `Не проверено` до реального live acceptance.
 
-## APP_BUILD_SHA
+## APP_BUILD_SHA и зависимости
 
 `APP_BUILD_SHA` — не секрет. Это полный Git commit SHA исходников, из которых собран текущий контейнер. Release gate использует его, чтобы не принять результаты тестов другого build.
 
-Значение должно состоять ровно из 40 hex-символов и совпадать с выводом `git rev-parse HEAD` непосредственно перед сборкой контейнера.
+Начиная с RC3, тот же commit содержит `package-lock.json`, поэтому SHA также фиксирует точный dependency graph. Не перегенерируйте lockfile после live acceptance без нового commit и повторного полного acceptance.
+
+Значение `APP_BUILD_SHA` должно состоять ровно из 40 hex-символов и совпадать с выводом `git rev-parse HEAD` непосредственно перед сборкой контейнера.
 
 ## Live acceptance перед V1
 
@@ -87,6 +100,8 @@ Release gate остаётся заблокированным, если:
 - scheduler хранит последнюю ошибку;
 - нет корректного HTTPS `PUBLIC_BASE_URL`;
 - после последней live-проверки не создан новый полный `.tgz` backup.
+
+Перед стабильным тегом дополнительно должны быть зелёными `CI`, `Content plan CI`, `Ops hardening CI`, `Release gate CI`, `Backup path CI` и `Dependency security CI` на том же commit.
 
 После четырёх PASS создайте **ещё один полный backup bundle**. Только backup, созданный после последнего acceptance, закрывает release gate.
 
