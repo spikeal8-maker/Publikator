@@ -110,18 +110,26 @@ jobs:
           BACKUP_RETENTION_COUNT: 0
         run: node scripts/v08-release-gate-e2e.mjs
 
-      - name: Production Docker and full restore
-        run: bash scripts/core-docker-restore-e2e.sh
+      - name: Build image with immutable tested revision
+        run: docker build --pull=false --build-arg BUILD_SHA="${GITHUB_SHA}" -t publikator-release-identity .
 
-      - name: Verify production runtime identity
+      - name: Verify baked image revision and non-root runtime
         shell: bash
         run: |
           set -euo pipefail
-          test "$(docker run --rm --entrypoint node publikator-acceptance --version)" = 'v22.23.2'
-          RUNTIME_UID="$(docker run --rm --entrypoint node publikator-acceptance -e 'process.stdout.write(String(process.getuid?.() ?? -1))')"
+          test "$(docker run --rm --entrypoint node publikator-release-identity --version)" = 'v22.23.2'
+          BAKED_SHA="$(docker run --rm --entrypoint node publikator-release-identity -e 'process.stdout.write(process.env.IMAGE_BUILD_SHA || "")')"
+          test "$BAKED_SHA" = "$GITHUB_SHA"
+          LABEL_SHA="$(docker image inspect publikator-release-identity --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')"
+          test "$LABEL_SHA" = "$GITHUB_SHA"
+          RUNTIME_UID="$(docker run --rm --entrypoint node publikator-release-identity -e 'process.stdout.write(String(process.getuid?.() ?? -1))')"
           test "$RUNTIME_UID" != '0'
           test "$RUNTIME_UID" != '-1'
+          echo "Baked revision: $BAKED_SHA"
           echo "Runtime uid: $RUNTIME_UID"
+
+      - name: Production Docker and full restore
+        run: bash scripts/core-docker-restore-e2e.sh
 
       - name: Acceptance passed
         run: echo 'Publikator acceptance passed'
