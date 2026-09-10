@@ -1,0 +1,27 @@
+name: Browser security CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  browser-security:
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      ADMIN_PASSWORD: ci-browser-security-password
+      APP_MASTER_KEY: ci-browser-security-master-key-value-longer-than-thirty-two-characters
+      PUBLIC_BASE_URL: https://publisher.example.test
+      EVENT_RETENTION_DAYS: 0
+      BACKUP_RETENTION_COUNT: 0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm run build
+      - name: Browser origin and security headers E2E
+        run: node scripts/v084-browser-security-e2e.mjs
