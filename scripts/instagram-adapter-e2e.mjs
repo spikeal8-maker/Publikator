@@ -131,7 +131,7 @@ async function expectPlatformError(promise, expected) {
   mockFetch(steps);
   await expectPlatformError(
     instagramPublisher.publish(input(['https://publisher.example.test/public-media/a.jpg'])),
-    { retryable: false, outcomeUnknown: false, message: /status_code=ERROR/ }
+    { retryable: false, outcomeUnknown: false, message: /container-error: ERROR.*Media fetch failed/ }
   );
 }
 
