@@ -18,6 +18,35 @@ function zonedParts(timeZone: string): { weekday: number; hhmm: string; date: st
 }
 
 let running = false;
+let lastStartedAt: string | null = null;
+let lastCompletedAt: string | null = null;
+let lastDurationMs: number | null = null;
+let lastError: string | null = null;
+let lastSkippedAt: string | null = null;
+let lastSkippedReason: 'already-running' | 'maintenance' | null = null;
+let lastWork = { duePosts: 0, queuePosts: 0, retries: 0 };
+
+export function schedulerStatus(): {
+  running: boolean;
+  lastStartedAt: string | null;
+  lastCompletedAt: string | null;
+  lastDurationMs: number | null;
+  lastError: string | null;
+  lastSkippedAt: string | null;
+  lastSkippedReason: 'already-running' | 'maintenance' | null;
+  lastWork: { duePosts: number; queuePosts: number; retries: number };
+} {
+  return {
+    running,
+    lastStartedAt,
+    lastCompletedAt,
+    lastDurationMs,
+    lastError,
+    lastSkippedAt,
+    lastSkippedReason,
+    lastWork: { ...lastWork }
+  };
+}
 
 async function safePublishPost(postId: string, source: string): Promise<void> {
   try {
@@ -29,14 +58,31 @@ async function safePublishPost(postId: string, source: string): Promise<void> {
 }
 
 export async function schedulerTick(): Promise<void> {
-  if (running || maintenanceState().active) return;
+  if (running) {
+    lastSkippedAt = nowIso();
+    lastSkippedReason = 'already-running';
+    return;
+  }
+  if (maintenanceState().active) {
+    lastSkippedAt = nowIso();
+    lastSkippedReason = 'maintenance';
+    return;
+  }
+
   running = true;
+  lastStartedAt = nowIso();
+  lastError = null;
+  lastSkippedReason = null;
+  const started = Date.now();
+  const work = { duePosts: 0, queuePosts: 0, retries: 0 };
+
   try {
     if (maintenanceState().active) return;
     const due = db.prepare("SELECT id FROM posts WHERE status='READY' AND schedule_mode='AT' AND scheduled_at IS NOT NULL AND scheduled_at<=? ORDER BY scheduled_at LIMIT 10")
       .all(nowIso()) as Array<{ id: string }>;
     for (const post of due) {
       if (maintenanceState().active) break;
+      work.duePosts += 1;
       await safePublishPost(post.id, 'AT');
     }
 
@@ -51,6 +97,7 @@ export async function schedulerTick(): Promise<void> {
       const post = db.prepare("SELECT id FROM posts WHERE project_id=? AND status='READY' AND schedule_mode='QUEUE' ORDER BY created_at LIMIT 1")
         .get(slot.project_id) as { id: string } | undefined;
       if (post) {
+        work.queuePosts += 1;
         event({ postId: post.id, type: 'queue_slot_fired', message: `Сработал слот ${slot.time_hhmm} ${slot.timezone}` });
         await safePublishPost(post.id, 'QUEUE');
       }
@@ -62,6 +109,7 @@ export async function schedulerTick(): Promise<void> {
     for (const target of retries) {
       if (maintenanceState().active) break;
       try {
+        work.retries += 1;
         await publishTarget(target.id);
         refreshPostStatus(target.post_id);
       } catch (error) {
@@ -69,7 +117,13 @@ export async function schedulerTick(): Promise<void> {
         event({ postId: target.post_id, level: 'error', type: 'scheduler_retry_blocked', message, data: { targetId: target.id } });
       }
     }
+  } catch (error) {
+    lastError = error instanceof Error ? error.message : String(error);
+    throw error;
   } finally {
+    lastWork = work;
+    lastCompletedAt = nowIso();
+    lastDurationMs = Date.now() - started;
     running = false;
   }
 }
