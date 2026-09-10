@@ -1,0 +1,45 @@
+name: Dependency baseline
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lock-and-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Generate npm lockfile
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - name: Verify lockfile resolves
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Capture production dependency audit
+        shell: bash
+        run: |
+          set +e
+          npm audit --omit=dev --json > npm-audit.json
+          AUDIT_EXIT=$?
+          set -e
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const report = JSON.parse(fs.readFileSync('npm-audit.json', 'utf8'));
+          const vulnerabilities = report.metadata?.vulnerabilities || {};
+          console.log('npm audit production summary:', JSON.stringify(vulnerabilities));
+          for (const [name, item] of Object.entries(report.vulnerabilities || {})) {
+            console.log(JSON.stringify({ name, severity: item.severity, isDirect: item.isDirect, via: item.via, range: item.range, fixAvailable: item.fixAvailable }));
+          }
+          NODE
+          echo "npm audit exit code: ${AUDIT_EXIT}"
+      - name: Lockfile hash
+        run: sha256sum package-lock.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dependency-baseline
+          path: |
+            package-lock.json
+            npm-audit.json
+          if-no-files-found: error
+          retention-days: 7
