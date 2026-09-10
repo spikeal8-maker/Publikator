@@ -1,103 +1,242 @@
-# Подключение площадок
+# Platform adapters
 
-Подключения создаются в Web UI. Пользователю не требуется вводить JSON вручную: форма показывает только поля выбранной площадки. Перед сохранением можно выполнить безопасную проверку — она не создаёт публикацию.
+Каждый adapter реализует единый контракт `SocialPublisher`, но самостоятельно отвечает за ограничения, API phases и классификацию ошибок своей площадки.
 
-Перед переводом поста в `READY` Publikator выполняет локальный preflight для каждого выбранного активного аккаунта. Проверяется тот же `PublishInput`, который затем получит реальный adapter: credentials, итоговый текст, число и формат изображений, а для площадок, которые скачивают изображения с Publikator, также наличие публичного HTTPS `PUBLIC_BASE_URL`. Если хотя бы одна выбранная площадка не проходит preflight, пост остаётся `DRAFT`.
+Перед `READY` и непосредственно перед publish используется один и тот же `PublishInput`. Поэтому UI approval и runtime не должны иметь разные platform rules.
+
+## Общая модель ошибок
+
+Не все сетевые операции равны.
+
+```text
+local/preparation phase
+    │
+    ├── ошибка известна → FAILED или RETRY
+    └── не могла создать публичный пост → НЕ RECOVERY_NEEDED
+
+public POST phase
+    │
+    ├── явная API ошибка → FAILED/RETRY по семантике API
+    └── transport/timeout/5xx с неопределённым исходом → RECOVERY_NEEDED
+```
+
+`RECOVERY_NEEDED` означает, что повтор всего target потенциально создаст дубль либо повторит уже частично выполненную публикацию. Generic auto-retry запрещён.
+
+Перед вызовом любого adapter target дополнительно защищён atomic SQLite claim в `publisher.ts`.
 
 ## Telegram
 
-Поля:
+Credentials:
 
 ```text
-Bot token
-Канал / chat_id
+botToken
+chatId
 ```
 
-Проверка подключения выполняет `getMe → getChat → getChatMember`, убеждается, что бот видит канал и имеет статус администратора/создателя с правом публикации. Поддерживается одно изображение и альбом до 10 изображений.
-
-Текст до 1024 символов передаётся caption изображения/первого элемента media group. Текст длиной 1025–4096 символов публикуется безопасно в два шага: сначала media без caption, затем отдельный `sendMessage`. Текст больше 4096 символов блокируется ещё на preflight до любого внешнего POST, поэтому не может возникнуть сценарий «изображение уже опубликовано, а заведомо слишком длинный текст потерян». Для длинного общего поста используйте отдельный `override_text` Telegram.
-
-## MAX
-
-Поля:
+Connection test:
 
 ```text
-Access token
-Channel / chat ID
+getMe → getChat → getChatMember
 ```
 
-Используется Bot API `platform-api2.max.ru`. Проверка подключения выполняет `GET /me` и `GET /chats/{chatId}/members/me`, затем требует владельца канала либо администратора с permission `write`.
+Бот должен видеть назначение и иметь право публикации.
 
-Изображения при публикации передаются как публичные HTTPS URL, поэтому `PUBLIC_BASE_URL` должен быть доступен серверам MAX. Publikator нормализует загруженные изображения в JPEG и ограничивает исходное/нормализованное изображение 50 МБ и размерностью 7680×7680. В одном сообщении MAX используется не более 12 изображений.
+### Media
 
-Текст MAX ограничен 4000 Unicode-символами. Publikator считает символы через Unicode code points, поэтому emoji не считаются как два UTF-16 code units. Текст больше 4000 блокируется на preflight до внешнего POST. Для каждого media требуется ровно один публичный URL; URL должен корректно разбираться как HTTPS, иметь hostname и не содержать встроенные username/password.
+- минимум 1 изображение;
+- максимум 10;
+- single image → `sendPhoto`;
+- несколько → `sendMediaGroup`;
+- local JPEG bytes читаются **до** соответствующего внешнего POST.
 
-`POST /messages` сразу является публичной фазой. Запрос имеет timeout 30 секунд. Явный HTTP-ответ, например 429, остаётся известной ошибкой и может быть классифицирован для retry. Transport failure, timeout, HTTP 5xx после начала POST либо успешный ответ без идентификатора сообщения считаются неопределённым публичным исходом и переводят target в `RECOVERY_NEEDED`, чтобы автоматический повтор не создал дубль.
+Missing local file является известной локальной ошибкой (`outcomeUnknown=false`).
 
-Официальная документация MAX:
+### Text
 
-- https://dev.max.ru/docs-api
-- https://dev.max.ru/docs-api/methods/POST/uploads
-- https://dev.max.ru/docs-api/methods/POST/messages
+Publikator считает Unicode code points:
+
+```text
+0–1024      → caption
+1025–4096   → media без caption + отдельный sendMessage
+>4096       → preflight block до внешнего POST
+```
+
+### Network / recovery
+
+Все publication requests имеют timeout 30 секунд.
+
+- explicit `429` → известная retryable ошибка;
+- transport/timeout/5xx после начала `sendPhoto`/`sendMediaGroup` → unknown public outcome;
+- success-like response без `message_id` → recovery;
+- если media уже подтверждено, но follow-up `sendMessage` не подтверждён, target получает `RECOVERY_NEEDED`, а ошибка содержит `message_id` уже опубликованного media.
+
+Официальная документация: https://core.telegram.org/bots/api
 
 ## VK
 
-Поля:
+Credentials:
 
 ```text
-Access token
-Group ID
-API version
+accessToken
+groupId
+apiVersion
 ```
 
-Проверка вызывает `photos.getWallUploadServer` для указанной группы, то есть заранее проверяет именно способность токена начать реальную загрузку изображения на стену сообщества. Публикация выполняется через `photos.getWallUploadServer → upload → photos.saveWallPhoto → wall.post`. Для защиты от дублей в `wall.post` передаётся `guid = post.id`. На текущем API для загрузки фото может потребоваться пользовательский токен; неподходящий community token способен вернуть ошибку 27.
+Connection test проверяет возможность получить `photos.getWallUploadServer` для указанной группы.
 
-VK adapter разделяет подготовительную и публичную фазы. `photos.getWallUploadServer`, upload бинарного JPEG и `photos.saveWallPhoto` ещё не создают запись стены. Поэтому network timeout/5xx на этих шагах не переводят target в `RECOVERY_NEEDED`: временный сбой можно безопасно повторить, а missing local media/неожиданный ответ завершает target как обычную известную ошибку. Даже если повтор `photos.saveWallPhoto` оставит лишний photo object, он не создаёт дублированную запись стены.
+### Publication phases
 
-Только `wall.post` является публичной фазой. Явная VK API error остаётся известным ответом с собственной retryability; transport/5xx после начала `wall.post` либо успешный HTTP-ответ без `post_id` считаются неопределённым публичным исходом и требуют recovery. VK API/upload запросы имеют ограниченный timeout 30 секунд, чтобы зависший внешний запрос не удерживал scheduler бесконечно.
+```text
+photos.getWallUploadServer   preparation
+binary upload                preparation
+photos.saveWallPhoto         preparation
+wall.post                    PUBLIC
+```
+
+Первые три шага ещё не создают запись стены. Их timeout/5xx не должны давать ложный recovery; временные сбои можно безопасно повторить.
+
+`wall.post` вызывается с:
+
+```text
+guid = post.id
+```
+
+чтобы использовать platform idempotency там, где VK её поддерживает.
+
+VK API/upload timeout: 30 секунд.
+
+- явная VK API error остаётся известной ошибкой;
+- transport/5xx после начала `wall.post` → unknown public outcome;
+- success-like ответ `wall.post` без `post_id` → recovery.
+
+Актуальные права/token type необходимо повторно проверять на live API перед каждым стабильным release.
+
+## MAX
+
+Credentials:
+
+```text
+accessToken
+chatId
+```
+
+Connection test:
+
+```text
+GET /me
+GET /chats/{chatId}/members/me
+```
+
+Требуется owner либо admin с permission `write`.
+
+### Media / text
+
+- минимум 1 media;
+- максимум 12;
+- текст максимум 4000 Unicode code points;
+- каждому media соответствует один `publicMediaUrl`;
+- URL обязан быть корректным HTTPS URL с hostname и без embedded credentials.
+
+MAX получает изображения напрямую из Publikator, поэтому `PUBLIC_BASE_URL` должен быть доступен из интернета по HTTPS.
+
+### Public phase
+
+`POST /messages` сразу является публичной операцией и имеет timeout 30 секунд.
+
+- explicit 429 → известная retryable ошибка;
+- transport/timeout/5xx после начала POST → `RECOVERY_NEEDED`;
+- success-like response без external message id → recovery.
+
+Официальная документация:
+
+- https://dev.max.ru/docs-api
+- https://dev.max.ru/docs-api/methods/POST/messages
 
 ## Instagram
 
-Поля:
+Credentials:
 
 ```text
-Access token
-Instagram User ID
-Graph API version
+accessToken
+igUserId
+graphVersion
 ```
 
-Версия Graph API задаётся явно и не зашита в приложение, поскольку Meta выводит версии из эксплуатации по расписанию. Текущее подключение Publikator использует Instagram API with Facebook Login и проверяет `id,username` выбранного профессионального Instagram-аккаунта.
+Connection test получает `id,username` professional Instagram account.
 
-Поддерживаются:
+`graphVersion` хранится явно, а не hardcoded навсегда.
 
-- одиночная публикация JPEG: создание media container → ожидание `status_code=FINISHED` → `media_publish`;
-- карусель из 2–10 JPEG: отдельный child container для каждого изображения с `is_carousel_item=true` → ожидание `FINISHED` каждого child → parent container `media_type=CAROUSEL` → ожидание `FINISHED` parent → `media_publish` parent container.
+### Single image
 
-Publikator проверяет container через `GET /{container-id}?fields=status_code,status`. `IN_PROGRESS` ожидается; `FINISHED` разрешает следующий шаг; `ERROR` и `EXPIRED` останавливают публикацию; неожиданный `PUBLISHED` до текущего `media_publish` переводится в ручной recovery, потому состояние внешнего объекта уже нельзя считать однозначным.
+```text
+create media container
+        ↓
+wait status_code=FINISHED
+        ↓
+media_publish
+```
 
-Классификация ошибок фазовая. Сбой при создании/проверке container **до** `media_publish` не может создать публичный пост, поэтому не переводит target в `RECOVERY_NEEDED`: временный транспортный/5xx сбой может безопасно уйти в retry, а явный `ERROR/EXPIRED` — в `FAILED`. После начала `media_publish` неопределённый транспортный/5xx исход остаётся `RECOVERY_NEEDED`, чтобы не создать дубль повторным publish.
+### Carousel
 
-Meta скачивает изображения с URL Publikator, поэтому `PUBLIC_BASE_URL` должен быть публичным HTTPS URL. Порядок изображений хранится явно в `media.sort_order`; для Instagram он особенно важен, поскольку карусель строится в переданном порядке, а первый кадр определяет визуальную основу кадрирования остальных изображений.
+```text
+create child #1 → wait FINISHED
+create child #2 → wait FINISHED
+...
+create CAROUSEL parent
+        ↓
+wait FINISHED
+        ↓
+media_publish(parent)
+```
 
-Актуальная официальная коллекция Meta:
+Поддерживается 2–10 JPEG.
+
+### Container status
+
+```text
+IN_PROGRESS → wait
+FINISHED    → следующий шаг
+ERROR       → known preparation failure
+EXPIRED     → known preparation failure
+PUBLISHED до текущего media_publish → manual recovery
+```
+
+Create/status container ещё не создаёт текущий публичный пост, поэтому transport/5xx на preparation phase могут быть безопасно повторены.
+
+Только неопределённый исход после начала `media_publish` переводит target в `RECOVERY_NEEDED`.
+
+Meta скачивает изображения с `PUBLIC_BASE_URL`, поэтому media URL должен быть публичным HTTPS.
+
+Официальная Meta/Postman collection:
 
 - https://www.postman.com/meta/instagram/documentation/6yqw8pt/instagram-api
 - https://www.postman.com/meta/instagram/overview
 
-## Общий media pipeline
+## Media pipeline до adapter
 
-Каждое загруженное изображение:
+Все загруженные изображения проходят общий pipeline:
 
-1. декодируется через Sharp;
-2. учитывает EXIF orientation;
-3. приводится к обычному JPEG без прозрачности;
-4. получает SHA-256 нормализованных байтов;
-5. не добавляется второй раз в тот же пост, если такой SHA-256 уже существует;
-6. получает стабильный `sort_order`;
-7. хранится локально в `data/media`.
+1. decode Sharp;
+2. EXIF orientation;
+3. JPEG normalization;
+4. width/height/size;
+5. SHA-256;
+6. duplicate detection внутри post;
+7. stable `sort_order`;
+8. local storage в `data/media`.
 
-Удаление изображения уплотняет порядок. Через API и Web UI изображения можно переставлять до начала публикации. После состояния `PUBLISHING`, `PARTIAL` или `PUBLISHED` порядок, как и сам контент, неизменяем.
+После `PUBLISHING` / `PARTIAL` / `PUBLISHED` media order и content замораживаются.
 
-## Повторы и неопределённый результат
+## Добавление новой площадки после V1
 
-Автоматический retry выполняется только для ошибок, которые можно классифицировать как временные. `RECOVERY_NEEDED` используется только там, где внешний публичный POST уже мог реально состояться и повтор способен создать дубль. Подготовительные операции, которые физически не создают публичную публикацию, должны классифицироваться отдельно и не отправлять пользователя в ручной recovery без причины.
+Новый adapter должен:
+
+- реализовать `SocialPublisher`;
+- иметь local preflight;
+- явно разделить preparation и public phases;
+- не обходить atomic claim;
+- определить timeout;
+- определить retryable known errors;
+- определить unknown public outcome;
+- иметь focused regression script, добавленный **в существующий** `Publikator CI / Acceptance`, а не новый самостоятельный workflow;
+- иметь live acceptance checklist перед включением в stable release.
