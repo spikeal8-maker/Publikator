@@ -97,6 +97,15 @@ RC2 (`0.8.0-rc.2`):
 15. В эксплуатации остаётся один backup-формат: `.tgz` = SQLite + media + manifest; старые `.sqlite` файлы могут храниться только как исторические артефакты.
 16. Добавлен отдельный `Backup path CI`, который проверяет недоступность legacy API и успешный full-bundle flow.
 
+RC3 (`0.8.0-rc.3`):
+
+17. Pre-live audit выявил две high production vulnerabilities в direct dependencies; `@fastify/static` обновлён до `10.1.3`, `sharp` — до `0.35.4`.
+18. После обновления production `npm audit --omit=dev` показывает 0 vulnerabilities.
+19. В репозиторий добавлен `package-lock.json` lockfileVersion 3; dependency graph стал частью release identity.
+20. Docker и все acceptance CI устанавливают зависимости через `npm ci`; `npm install` больше не используется для production/acceptance сборки.
+21. Добавлен read-only `Dependency security CI`: exact lock install + блокировка high/critical production vulnerabilities.
+22. Правила для coding agents запрещают удаление lockfile, плавающую production install и dependency fixes через `npm audit fix --force` без анализа.
+
 ### V0.8B — live acceptance — блокирует стабильный V1
 
 1. Выбрать финальный RC commit и собрать именно его с заданным `APP_BUILD_SHA`.
@@ -104,8 +113,9 @@ RC2 (`0.8.0-rc.2`):
 3. Зафиксировать четыре `LIVE PASS` в Release gate на одном commit SHA.
 4. Убедиться, что нет `RECOVERY_NEEDED` и diagnostics не содержит ошибок.
 5. После последнего live acceptance создать новый полный `.tgz` backup release-state.
-6. Получить PASS всех automated CI, включая `Backup path CI`, на том же release commit.
-7. Только после пунктов 1–6 изменить version на `1.0.0` и создать стабильный Git tag/release `v1.0.0`.
+6. Получить PASS всех automated CI, включая `Backup path CI` и `Dependency security CI`, на том же release commit.
+7. Убедиться, что production dependency audit не содержит high/critical vulnerabilities.
+8. Только после пунктов 1–7 изменить version на `1.0.0` и создать стабильный Git tag/release `v1.0.0`.
 
 Ни один mock/E2E тест не имеет права автоматически записывать реальный live PASS в production data.
 
