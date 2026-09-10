@@ -73,7 +73,9 @@
 
 ## V0.8 — release candidate / стабильный V1 — в работе
 
-### V0.8A — release tooling — реализовано в 0.8.0-rc.1
+### V0.8A — release tooling — реализовано
+
+RC1 (`0.8.0-rc.1`):
 
 1. SQLite schema поднята до `2`; добавлена таблица `release_acceptance`.
 2. При запуске более старого бинарника на более новой SQLite schema выполнение блокируется вместо silent downgrade `user_version`.
@@ -82,11 +84,18 @@
 5. `PASS` требует явного подтверждения `LIVE PASS`, полного 40-char SHA и имени реального тестового аккаунта/канала.
 6. Четыре PASS должны относиться к одному commit SHA.
 7. `APP_BUILD_SHA` связывает запущенный контейнер с acceptance commit; несовпадение блокирует выпуск.
-8. Gate также блокируется при diagnostics errors, `RECOVERY_NEEDED`, scheduler last error, отсутствии HTTPS `PUBLIC_BASE_URL` или полного backup после последнего acceptance.
-9. Release evidence находится в основной SQLite и автоматически входит в full backup/restore.
-10. Исправлен `docker-compose.yml`: `EVENT_RETENTION_DAYS` и `BACKUP_RETENTION_COUNT` теперь действительно передаются из `.env` в container runtime.
+8. Gate также блокируется при diagnostics errors, `RECOVERY_NEEDED`, scheduler last error, некорректном HTTPS `PUBLIC_BASE_URL` или отсутствии полного backup после последнего acceptance.
+9. Release evidence находится в основной SQLite и автоматически входит в full backup/restore; schema-v2 backup обязан содержать `release_acceptance`.
+10. Исправлен `docker-compose.yml`: `EVENT_RETENTION_DAYS` и `BACKUP_RETENTION_COUNT` действительно передаются из `.env` в container runtime.
 11. Добавлены `docs/UPGRADE_TO_V1.md` и `docs/RELEASE_NOTES_V1.md`.
 12. Добавлен отдельный Release gate E2E/CI; общий migration/restore CI переведён на schema v2.
+
+RC2 (`0.8.0-rc.2`):
+
+13. Legacy `GET/POST /api/backups`, создававшие SQLite-only копии, отключены с `410 Gone`.
+14. Раздел «Резервные копии» сразу открывает canonical full-bundle UI без промежуточного legacy API.
+15. В эксплуатации остаётся один backup-формат: `.tgz` = SQLite + media + manifest; старые `.sqlite` файлы могут храниться только как исторические артефакты.
+16. Добавлен отдельный `Backup path CI`, который проверяет недоступность legacy API и успешный full-bundle flow.
 
 ### V0.8B — live acceptance — блокирует стабильный V1
 
@@ -95,7 +104,7 @@
 3. Зафиксировать четыре `LIVE PASS` в Release gate на одном commit SHA.
 4. Убедиться, что нет `RECOVERY_NEEDED` и diagnostics не содержит ошибок.
 5. После последнего live acceptance создать новый полный `.tgz` backup release-state.
-6. Получить PASS всех automated CI на том же release commit.
+6. Получить PASS всех automated CI, включая `Backup path CI`, на том же release commit.
 7. Только после пунктов 1–6 изменить version на `1.0.0` и создать стабильный Git tag/release `v1.0.0`.
 
 Ни один mock/E2E тест не имеет права автоматически записывать реальный live PASS в production data.

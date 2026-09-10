@@ -1,0 +1,29 @@
+name: Backup path CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backup-path:
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      ADMIN_PASSWORD: ci-backup-password
+      APP_MASTER_KEY: ci-backup-master-key-value-longer-than-thirty-two-characters
+      PUBLIC_BASE_URL: https://publisher.example.test
+      EVENT_RETENTION_DAYS: 0
+      BACKUP_RETENTION_COUNT: 0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm run build
+      - run: node --check public/backups-v06.js
+      - run: node --check public/backups-v081.js
+      - name: Canonical full-backup API E2E
+        run: node scripts/v081-backup-path-e2e.mjs

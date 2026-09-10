@@ -4,7 +4,7 @@
 
 Publikator специально построен как **модульный монолит**: один репозиторий, один Docker-контейнер, один интерфейс, одна SQLite-база и встроенный scheduler. n8n, Redis, RabbitMQ и отдельный worker не нужны.
 
-Текущая версия: **0.8.0-rc.1** — release candidate. Стабильный `v1.0.0` намеренно не создаётся до реального live acceptance всех четырёх заявленных площадок.
+Текущая версия: **0.8.0-rc.2** — release candidate. Стабильный `v1.0.0` намеренно не создаётся до реального live acceptance всех четырёх заявленных площадок.
 
 ## Что уже реализовано
 
@@ -37,13 +37,14 @@ Publikator специально построен как **модульный м�
 - автоматический retention журнала и backup bundles без отдельного cron/worker;
 - CSV/XLSX экспорт контент-плана;
 - CSV/XLSX импорт с обязательным dry-run, построчной валидацией и SHA-256 привязкой apply к проверенному файлу;
-- полные `.tgz` backup bundles: SQLite + media + manifest;
+- единый backup-контур: только полные `.tgz` bundles с SQLite + media + manifest;
+- legacy `/api/backups` для SQLite-only копий отключён, чтобы не существовало двух разных систем резервного копирования;
 - безопасный restore через staging, pre-restore backup и перезапуск до открытия SQLite;
 - экран **Диагностика**: SQLite, scheduler, media reconciliation, disk space, PUBLIC_BASE_URL, backups, retention и recovery;
 - экран **Release gate** с persistent live evidence по четырём площадкам;
 - SQLite schema v2 с блокировкой запуска на более новой неизвестной схеме;
 - Docker HEALTHCHECK;
-- CI для компиляции, frontend, миграций, Docker/runtime/restore, content-plan, operations и release gate;
+- CI для компиляции, frontend, миграций, Docker/runtime/restore, content-plan, operations, backup path и release gate;
 - Docker deployment.
 
 ## Быстрый запуск
@@ -85,7 +86,7 @@ data/
 
 ## Release gate перед V1
 
-`0.8.0-rc.1` добавляет встроенный release gate. Он не подменяет реальный тест соцсетей mock-результатами.
+Встроенный release gate не подменяет реальный тест соцсетей mock-результатами.
 
 Перед live acceptance получите идентификатор реально запущенного release build:
 
@@ -109,7 +110,7 @@ Gate остаётся заблокированным, пока одноврем�
 - diagnostics не содержит ошибок;
 - нет `RECOVERY_NEEDED`;
 - scheduler не хранит последнюю ошибку;
-- `PUBLIC_BASE_URL` является HTTPS;
+- `PUBLIC_BASE_URL` является корректным HTTPS URL;
 - после последней live-проверки создан новый полный `.tgz` backup.
 
 Даже после зелёного runtime/live gate стабильный тег создаётся только после зелёного automated CI на том же commit.
@@ -155,7 +156,7 @@ BACKUP_RETENTION_COUNT=30
 
 `BACKUP_RETENTION_COUNT=0` отключает автоочистку `.tgz` backup bundles. При включённой политике сохраняются N самых свежих bundle; дополнительно сохраняется самый свежий `pre-restore` bundle, даже если он оказался за пределами N.
 
-Начиная с `0.8.0-rc.1`, `docker-compose.yml` явно передаёт обе retention-переменные в контейнер; пользовательские значения из `.env` больше не теряются.
+`docker-compose.yml` явно передаёт обе retention-переменные в контейнер; пользовательские значения из `.env` не теряются.
 
 ## Контент-план CSV/XLSX
 
@@ -169,7 +170,7 @@ BACKUP_RETENTION_COUNT=30
 
 ## Полные резервные копии
 
-Backup bundle имеет вид:
+Рабочий backup-формат в Publikator только один:
 
 ```text
 publikator-2026-09-09T20-00-00-000Z-manual.tgz
@@ -180,9 +181,11 @@ publikator-2026-09-09T20-00-00-000Z-manual.tgz
 
 Перед созданием snapshot приложение кратко входит во встроенный maintenance mode: новые изменения и scheduler не пересекаются с копированием, а уже активную публикацию backup прервать не может.
 
-Перед восстановлением проверяются формат/версия bundle, fingerprint `APP_MASTER_KEY`, SHA-256 SQLite/media, `PRAGMA integrity_check`, обязательные таблицы и безопасность tar entries.
+Перед восстановлением проверяются формат/версия bundle, fingerprint `APP_MASTER_KEY`, SHA-256 SQLite/media, `PRAGMA integrity_check`, обязательные таблицы и безопасность tar entries. Для schema v2 backup обязательно содержит таблицу `release_acceptance`.
 
 После успешной проверки Publikator сначала создаёт полный `pre-restore` backup текущего состояния, затем помещает восстановление в `.restore-pending`, делает graceful restart и применяет его **до открытия runtime SQLite**. Если файловая замена не завершается, startup-код пытается вернуть прежние SQLite/WAL/SHM/media из локального rollback.
+
+Старые `.sqlite`-файлы, созданные ранними версиями, можно оставить в `data/backups` как исторические артефакты. API создания SQLite-only копий отключён; новые резервные копии создаются только через `/api/backup-bundles` и соответствующий Web UI.
 
 Подробно: [`docs/BACKUP_RESTORE.md`](docs/BACKUP_RESTORE.md).
 

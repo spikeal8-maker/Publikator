@@ -1,6 +1,6 @@
 # Publikator V1 — release candidate notes
 
-Текущий pre-release: **0.8.0-rc.1**.
+Текущий pre-release: **0.8.0-rc.2**.
 
 Стабильный тег `v1.0.0` не должен создаваться до завершения реального live acceptance Telegram, VK, MAX и Instagram на одном release commit.
 
@@ -32,10 +32,12 @@
 - encrypted social credentials;
 - diagnostics UI;
 - event/backup retention;
-- полный `.tgz` backup и safe restore до открытия SQLite;
+- единый full `.tgz` backup и safe restore до открытия SQLite;
+- SQLite-only backup API ранних версий отключён;
 - mock publisher/scheduler E2E;
 - authenticated HTTP CRUD E2E;
 - content-plan round-trip CI;
+- canonical backup-path E2E;
 - production Docker/restore CI.
 
 ## Новое в 0.8.0-rc.1
@@ -50,8 +52,16 @@
 - release gate учитывает diagnostics, `RECOVERY_NEEDED`, scheduler last error, HTTPS `PUBLIC_BASE_URL` и полный backup после последнего acceptance;
 - release evidence автоматически попадает в тот же backup/restore;
 - старый бинарник больше не должен принимать SQLite с более новой schema;
-- `docker-compose.yml` теперь реально передаёт пользовательские `EVENT_RETENTION_DAYS` и `BACKUP_RETENTION_COUNT` в контейнер;
+- `docker-compose.yml` реально передаёт пользовательские `EVENT_RETENTION_DAYS` и `BACKUP_RETENTION_COUNT` в контейнер;
 - добавлен отдельный Release gate CI.
+
+## Новое в 0.8.0-rc.2
+
+- отключены legacy `GET /api/backups` и `POST /api/backups`, создававшие SQLite-only копии;
+- раздел «Резервные копии» сразу открывает canonical full-bundle UI и не делает промежуточный legacy-запрос;
+- рабочий backup-формат теперь однозначен: только `.tgz` с SQLite, media и manifest;
+- исторические `.sqlite` файлы не удаляются автоматически только из-за обновления, но новые через приложение не создаются;
+- добавлен отдельный `Backup path CI`, который проверяет `410 Gone` для legacy API и успешное создание full bundle.
 
 ## Что намеренно не автоматизировано
 
@@ -67,14 +77,15 @@ Publikator не ставит live PASS после mock/E2E и не обраща�
 2. `Content plan CI` — PASS;
 3. `Ops hardening CI` — PASS;
 4. `Release gate CI` — PASS;
-5. live Telegram — PASS;
-6. live VK — PASS;
-7. live MAX — PASS;
-8. live Instagram — PASS;
-9. нет необработанных `RECOVERY_NEEDED`;
-10. diagnostics не содержит ошибок SQLite/media/public URL;
-11. после последнего live acceptance создан полный `.tgz` backup;
-12. runtime `APP_BUILD_SHA` совпадает с acceptance commit.
+5. `Backup path CI` — PASS;
+6. live Telegram — PASS;
+7. live VK — PASS;
+8. live MAX — PASS;
+9. live Instagram — PASS;
+10. нет необработанных `RECOVERY_NEEDED`;
+11. diagnostics не содержит ошибок SQLite/media/public URL;
+12. после последнего live acceptance создан полный `.tgz` backup;
+13. runtime `APP_BUILD_SHA` совпадает с acceptance commit.
 
 Только после этого версия меняется на `1.0.0` и создаётся стабильный Git tag/release.
 

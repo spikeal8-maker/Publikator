@@ -90,7 +90,7 @@ async function renderBackupV06() {
       </div>
     </div>
 
-    <div class="small muted backup-legacy-note">Старые одиночные <code>.sqlite</code>-копии остаются в каталоге backups для совместимости, но новый интерфейс использует только полные bundle с media и manifest.</div>
+    <div class="small muted backup-legacy-note">Старые одиночные <code>.sqlite</code>-файлы могут оставаться в каталоге backups после прежних версий, но API их создания отключён. Рабочий формат резервной копии — только полный <code>.tgz</code> bundle с SQLite, media и manifest.</div>
   </section>`;
 
   document.querySelector('#make-backup')?.addEventListener('click', async () => {
@@ -174,6 +174,8 @@ async function showRestartState(result) {
   }
   setBackupStatus('Контейнер пока не вернулся после восстановления. Проверьте Docker logs; исходные данные защищены pre-restore backup.', 'error');
 }
+
+window.PublikatorRenderFullBackups = renderBackupV06;
 
 function tryEnhanceBackupPage() {
   const legacyButton = document.querySelector('#make-backup');
