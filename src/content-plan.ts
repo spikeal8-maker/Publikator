@@ -290,7 +290,7 @@ async function parseXlsx(buffer: Buffer): Promise<ParsedContentPlanRow[]> {
     const sheet = workbook.openWorksheet(sheetName);
     const matrix: string[][] = [];
     for await (const row of sheet.iterRows()) {
-      matrix.push(row.map((cell) => cellValueToString(cell.value)));
+      matrix.push(row.map((cell: { value: unknown }) => cellValueToString(cell.value)));
       if (matrix.length > MAX_CONTENT_PLAN_ROWS + 1) throw new Error(`Контент-план содержит больше ${MAX_CONTENT_PLAN_ROWS} строк`);
     }
     return rowsFromMatrix(matrix);
