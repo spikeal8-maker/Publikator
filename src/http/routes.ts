@@ -1,4 +1,3 @@
-import fs from 'node:fs/promises';
 import type { FastifyInstance } from 'fastify';
 import { config } from '../config.js';
 import { createSessionToken, decryptJson, encryptJson, securePasswordEqual, verifySessionToken } from '../crypto.js';
@@ -302,8 +301,21 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (!db.prepare('SELECT 1 FROM projects WHERE id=?').get(projectId)) return reply.code(400).send({ error: 'Проект не найден' });
     if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6 || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) return reply.code(400).send({ error: 'Неверные weekday/time' });
     try { new Intl.DateTimeFormat('en', { timeZone: timezone }).format(new Date()); } catch { return reply.code(400).send({ error: 'Неверная timezone' }); }
+
+    const duplicate = db.prepare(`SELECT id FROM schedule_slots
+      WHERE project_id=? AND weekday=? AND time_hhmm=? AND timezone=?`).get(projectId, weekday, time, timezone);
+    if (duplicate) return reply.code(409).send({ error: 'Такой слот расписания уже существует' });
+
     const slotId = id('slot');
-    db.prepare('INSERT INTO schedule_slots (id,project_id,weekday,time_hhmm,timezone,enabled,created_at) VALUES (?,?,?,?,?,1,?)').run(slotId, projectId, weekday, time, timezone, nowIso());
+    try {
+      db.prepare('INSERT INTO schedule_slots (id,project_id,weekday,time_hhmm,timezone,enabled,created_at) VALUES (?,?,?,?,?,1,?)')
+        .run(slotId, projectId, weekday, time, timezone, nowIso());
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('uq_schedule_slots_project_weekday_time_timezone')) {
+        return reply.code(409).send({ error: 'Такой слот расписания уже существует' });
+      }
+      throw error;
+    }
     return reply.code(201).send(db.prepare('SELECT * FROM schedule_slots WHERE id=?').get(slotId));
   });
 
@@ -318,18 +330,5 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const query = request.query as { limit?: string };
     const limit = Math.min(200, Math.max(1, Number(query.limit || 100)));
     return db.prepare('SELECT e.*, p.title AS post_title, a.platform, a.name AS account_name FROM publication_events e LEFT JOIN posts p ON p.id=e.post_id LEFT JOIN social_accounts a ON a.id=e.account_id ORDER BY e.created_at DESC LIMIT ?').all(limit);
-  });
-
-  app.post('/api/backups', async () => {
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const destination = `${config.backupDir}/publikator-${stamp}.sqlite`;
-    await db.backup(destination);
-    event({ type: 'backup_created', message: `Создана резервная копия ${destination}` });
-    return { ok: true, file: destination.split('/').pop() };
-  });
-
-  app.get('/api/backups', async () => {
-    const files = await fs.readdir(config.backupDir).catch(() => [] as string[]);
-    return files.filter((name) => name.endsWith('.sqlite')).sort().reverse();
   });
 }
