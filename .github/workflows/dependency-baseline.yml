@@ -1,14 +1,15 @@
-name: Dependency baseline
+name: Dependency security CI
 
 on:
+  push:
+    branches: [main]
   pull_request:
-  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  lock-and-audit:
+  locked-dependencies:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,25 +18,33 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Generate npm lockfile
-        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
-      - name: Verify lockfile resolves
+      - name: Install exact locked dependency graph
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Enforce clean production dependency audit
         run: npm audit --omit=dev --audit-level=high
       - name: Lockfile hash
         run: sha256sum package-lock.json
-      - name: Commit generated lockfile on reproducibility branch
+      - name: One-time migrate existing CI workflows to npm ci
         if: github.event_name == 'pull_request' && github.head_ref == 'feature/v083-reproducible-builds'
         shell: bash
         run: |
           set -euo pipefail
-          if [ -z "$(git status --porcelain -- package-lock.json)" ]; then
-            echo 'package-lock.json already matches package.json'
+          files=(
+            .github/workflows/ci.yml
+            .github/workflows/content-plan-ci.yml
+            .github/workflows/ops-ci.yml
+            .github/workflows/release-gate-ci.yml
+            .github/workflows/backup-path-ci.yml
+          )
+          for file in "${files[@]}"; do
+            sed -i 's/npm install --no-audit --no-fund/npm ci --no-audit --no-fund/g' "$file"
+          done
+          if git diff --quiet -- "${files[@]}"; then
+            echo 'All existing CI workflows already use npm ci'
             exit 0
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add package-lock.json
-          git commit -m 'chore(rc): lock npm dependency graph'
+          git add "${files[@]}"
+          git commit -m 'ci(rc): use locked dependencies in all workflows'
           git push origin HEAD:${GITHUB_HEAD_REF}
