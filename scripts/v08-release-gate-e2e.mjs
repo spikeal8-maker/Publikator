@@ -20,7 +20,7 @@ assert.match(releaseSha || '', /^[a-f0-9]{40}$/);
 assert.ok(adminPassword);
 
 migrate();
-assert.equal(Number(db.pragma('user_version', { simple: true })), 3);
+assert.equal(Number(db.pragma('user_version', { simple: true })), 4);
 assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='release_acceptance'").get());
 
 const app = await buildApp();
@@ -88,7 +88,7 @@ try {
   await extractBackupArchive(path.join(config.backupDir, firstBundle.name), extractDir);
   const snapshot = new Database(path.join(extractDir, 'publikator.sqlite'), { readonly: true, fileMustExist: true });
   try {
-    assert.equal(Number(snapshot.pragma('user_version', { simple: true })), 3);
+    assert.equal(Number(snapshot.pragma('user_version', { simple: true })), 4);
     const evidenceCount = Number(snapshot.prepare("SELECT COUNT(*) AS count FROM release_acceptance WHERE target_version='1.0.0' AND status='PASS'").get().count);
     assert.equal(evidenceCount, 4);
   } finally {
@@ -131,7 +131,7 @@ try {
   });
   gate = await collectReleaseGate();
   assert.equal(gate.releaseReady, false);
-  assert.equal(gate.blockers.some((item) => item.includes('разных commit SHA')), true);
+  assert.equal(gate.blockers.some((item) => item.includes('СЂР°Р·РЅС‹С… commit SHA')), true);
 
   const reset = setReleaseAcceptance({ platform: 'vk', status: 'NOT_TESTED' });
   assert.equal(reset.status, 'NOT_TESTED');
