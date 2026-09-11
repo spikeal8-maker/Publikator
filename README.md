@@ -59,6 +59,9 @@ Web UI / REST API
 - SQLite schema v3;
 - один GitHub Actions pipeline: **`Publikator CI / Acceptance`**.
 
+## Для coding agents
+
+Перед любым изменением кода агент начинает с [AGENTS.md](AGENTS.md). Этот файл задаёт экономный порядок чтения контекста, правило **один checkpoint = одна ветка = один PR**, порядок тестов и обязательный короткий handoff для следующего агента. Нормативное vNext-ТЗ: [docs/VNEXT_TECHNICAL_SPEC.md](docs/VNEXT_TECHNICAL_SPEC.md).
 ## Установка из GitHub
 
 Для обычного пользователя рекомендуемый путь — использовать системный launcher. **Docker сам проект не устанавливает:** Docker Desktop/Engine и Git являются предварительными требованиями. Launcher проверяет их, а затем полностью создаёт runtime Publikator.

@@ -2,6 +2,8 @@
 
 ## 0. Главный контракт
 
+Операционный порядок работы coding agent, включая экономию контекста и размер PR, задаёт корневой [AGENTS.md](../AGENTS.md). Его нужно прочитать первым.
+
 Перед любым vNext feature PR разработчик/agent обязан прочитать:
 
 1. [`VNEXT_TECHNICAL_SPEC.md`](VNEXT_TECHNICAL_SPEC.md)
