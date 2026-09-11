@@ -4,7 +4,7 @@ Self-hosted система автопубликации контента в **Te
 
 Publikator намеренно построен как **модульный монолит**: один репозиторий, один production Docker-контейнер, один Web UI, одна SQLite/WAL база, локальное media storage и встроенный scheduler. n8n, Redis, RabbitMQ, Kafka, отдельный worker и отдельная runtime-БД не требуются.
 
-Текущая версия: **1.0.0-rc.3**. Стабильный `v1.0.0` выпускается только после реального live acceptance всех четырёх площадок на одном release build.
+Текущая версия: **1.0.0-rc.4**. Стабильный `v1.0.0` выпускается только после реального live acceptance всех четырёх площадок на одном release build.
 
 ## Основной контур
 
@@ -59,31 +59,72 @@ Web UI / REST API
 - SQLite schema v3;
 - один GitHub Actions pipeline: **`Publikator CI / Acceptance`**.
 
-## Быстрый запуск
+## Установка из GitHub
 
-Рекомендуемый Docker-запуск теперь одинаков по смыслу на Windows и Linux и использует Docker named volume по умолчанию.
+Для обычного пользователя рекомендуемый путь — использовать системный launcher. **Docker сам проект не устанавливает:** Docker Desktop/Engine и Git являются предварительными требованиями. Launcher проверяет их, а затем полностью создаёт runtime Publikator.
 
-**Windows (Docker Desktop):**
+### Windows 10/11 + Docker Desktop
+
+Скопируйте весь блок в PowerShell:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\deploy-windows.ps1 -PublicBaseUrl "https://publisher.example.ru"
+git clone https://github.com/spikeal8-maker/Publikator.git
+cd Publikator
+git checkout v1.0.0-rc.4
+powershell -ExecutionPolicy Bypass -File .\scripts\deploy-windows.ps1
 ```
 
-**Linux (Docker Engine + Compose v2):**
+Windows launcher:
+
+1. ищет `docker.exe` в `PATH`;
+2. если его там нет — проверяет стандартную папку Docker Desktop;
+3. проверяет `docker compose` v2;
+4. если Docker Desktop установлен, но Engine ещё не запущен — запускает Docker Desktop и ждёт Engine;
+5. требует режим **Linux containers**;
+6. проверяет Git и точный commit SHA;
+7. на первой установке проверяет свободен ли порт `8080`;
+8. создаёт `.env` со случайными `ADMIN_PASSWORD` и `APP_MASTER_KEY`;
+9. создаёт Docker named volume, собирает image и запускает контейнер;
+10. ждёт состояния Docker `healthy` и выводит локальный URL.
+
+Если Docker Desktop отсутствует, launcher **не устанавливает Docker автоматически** и завершится с понятной ошибкой. Docker — системная зависимость.
+
+### Linux x86_64 + Docker Engine
+
+Скопируйте весь блок в shell:
 
 ```bash
-bash scripts/deploy-linux.sh "https://publisher.example.ru"
+git clone https://github.com/spikeal8-maker/Publikator.git
+cd Publikator
+git checkout v1.0.0-rc.4
+bash scripts/deploy-linux.sh
 ```
 
-На первом запуске скрипт создаёт `.env` со случайными `ADMIN_PASSWORD` и `APP_MASTER_KEY`, затем собирает image с текущим Git SHA и ждёт состояния `healthy`. Существующие секреты и настройки в `.env` сохраняются; launcher обновляет только `BUILD_SHA` до текущего Git commit перед пересборкой image.
+Linux launcher проверяет `docker`, Compose v2, доступность Docker daemon, права текущего пользователя на Docker, режим Linux containers и Git checkout. Затем выполняет полный build/start/health flow.
 
-Подробно: [`docs/DEPLOY_DOCKER.md`](docs/DEPLOY_DOCKER.md).
+### Что получится после запуска
+
+По умолчанию Publikator доступен только на этом компьютере:
+
+```text
+http://127.0.0.1:8080
+```
+
+Runtime-данные находятся в Docker named volume `publikator-data`, поэтому обычный `docker compose down` их не удаляет. Существующие секреты и deployment-настройки в `.env` при обновлении сохраняются; launcher обновляет только `BUILD_SHA` до текущего Git commit.
+
+Для публичного сервера рекомендуется оставить Publikator на `127.0.0.1:8080` и публиковать его наружу через nginx/Caddy/другой HTTPS reverse proxy.
+
+Полная инструкция, обновление, смена порта, сеть и backup: [`docs/DEPLOY_DOCKER.md`](docs/DEPLOY_DOCKER.md).
+
+### Ручной режим
+
+Если нужен ручной запуск без launcher:
 
 ```bash
 cp .env.example .env
 ```
 
-Обязательно задайте:
+Обязательно замените:
 
 ```env
 PUBLIC_BASE_URL=https://publisher.example.ru
@@ -266,6 +307,7 @@ Telegram / VK / MAX / Instagram adapters
 CSV/XLSX content-plan
 backup API / release gate
 pinned Docker base + baked revision + non-root runtime
+cross-platform Docker Compose fresh install / persistence
 production Docker backup → mutation → restore → restart
 ```
 
@@ -273,7 +315,7 @@ production Docker backup → mutation → restore → restart
 
 ## Release gate и stable V1
 
-`1.0.0-rc.1` — кандидат, а не стабильный V1. Перед `v1.0.0` требуется:
+`1.0.0-rc.4` — кандидат, а не стабильный V1. Перед `v1.0.0` требуется:
 
 1. собрать финальный commit с `BUILD_SHA=$(git rev-parse HEAD)`;
 2. выполнить [`docs/LIVE_INTEGRATION_CHECKLIST.md`](docs/LIVE_INTEGRATION_CHECKLIST.md) для Telegram, VK, MAX и Instagram;
@@ -293,4 +335,5 @@ Publikator остаётся одним production-приложением. Доб
 - [`docs/DEVELOPMENT_RULES.md`](docs/DEVELOPMENT_RULES.md)
 - [`docs/ROADMAP.md`](docs/ROADMAP.md)
 - [`docs/SCHEDULER.md`](docs/SCHEDULER.md)
+- [`docs/DEPLOY_DOCKER.md`](docs/DEPLOY_DOCKER.md)
 - [`docs/LIVE_INTEGRATION_CHECKLIST.md`](docs/LIVE_INTEGRATION_CHECKLIST.md)
