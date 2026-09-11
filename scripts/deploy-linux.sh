@@ -5,11 +5,11 @@ PUBLIC_URL="${1:-http://127.0.0.1:8080}"
 
 command -v docker >/dev/null || { echo 'Docker is required'; exit 1; }
 docker compose version >/dev/null
+BUILD_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
 
 if [ ! -f .env ]; then
   ADMIN_SECRET="$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
   MASTER_SECRET="$(od -An -N48 -tx1 /dev/urandom | tr -d ' \n')"
-  BUILD_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
   cat > .env <<EOF
 PUBLIC_BASE_URL=${PUBLIC_URL}
 PUBLIKATOR_BIND=127.0.0.1
@@ -29,7 +29,15 @@ EOF
   chmod 600 .env || true
   echo 'Created .env with random ADMIN_PASSWORD and APP_MASTER_KEY.'
 else
-  echo 'Using existing .env; it was not modified.'
+  echo 'Using existing .env; secrets and deployment settings are preserved.'
+  if [[ "$BUILD_SHA" =~ ^[a-f0-9]{40}$ ]]; then
+    if grep -q '^BUILD_SHA=' .env; then
+      sed -i "s/^BUILD_SHA=.*/BUILD_SHA=${BUILD_SHA}/" .env
+    else
+      printf '\nBUILD_SHA=%s\n' "$BUILD_SHA" >> .env
+    fi
+    echo "Updated BUILD_SHA=${BUILD_SHA}"
+  fi
 fi
 
 docker compose --env-file .env config >/dev/null
