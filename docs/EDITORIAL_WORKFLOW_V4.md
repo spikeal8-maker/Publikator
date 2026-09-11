@@ -1,5 +1,8 @@
 # Editorial Workflow v4
 
+> Normative vNext decisions are defined in [`VNEXT_TECHNICAL_SPEC.md`](VNEXT_TECHNICAL_SPEC.md). If this document conflicts with the master specification, the master specification wins.
+
+
 ## Цель
 
 Сделать Publikator не только местом, куда попадает контент и где он визуально отображается, но и полноценной редакционной системой: создавать, сохранять как черновик, редактировать, согласовывать, переносить по календарю, выбирать площадки, применять шаблоны, импортировать обновления из таблиц и безопасно удалять будущие публикации.
@@ -36,12 +39,13 @@ TRASHED
 ```text
 DRAFT
 READY
-QUEUED
 PUBLISHING
 PARTIAL
 PUBLISHED
 FAILED
 ```
+
+`QUEUE` is a schedule mode, not a vNext publication state. Legacy DB value `QUEUED` must not be emitted by new code.
 
 `editorial_stage` отвечает на вопрос «готов ли материал редакционно».
 

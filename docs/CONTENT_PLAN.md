@@ -1,31 +1,59 @@
 # Контент-план Publikator
 
-Контент-план предназначен для массовой подготовки публикаций в CSV/XLSX без превращения таблицы во вторую runtime-базу данных.
+## Статус документа
 
-## Основной контракт
+Этот документ фиксирует **текущий V1 contract schema 1** и правила совместимости с будущим vNext contract.
+
+Нормативное vNext ТЗ:
+
+[`VNEXT_TECHNICAL_SPEC.md`](VNEXT_TECHNICAL_SPEC.md)
+
+Важно:
+
+```text
+schema 1 = текущий V1 contract
+schema 2 = planning draft, НЕ выпускать как публичный contract
+schema 3 = первый публичный vNext contract
+```
+
+Существующие V1 endpoints нельзя скрытно менять на schema 3.
+
+---
+
+# 1. V1 schema 1
+
+Контент-план предназначен для массовой подготовки публикаций в CSV/XLSX без превращения таблицы во вторую runtime-базу.
 
 Одна строка файла = одна новая публикация Publikator.
 
-Версия схемы: `1`.
+Версия схемы:
 
-Обязательные колонки:
+```text
+1
+```
+
+Обязательные колонки V1:
 
 | Колонка | Формат | Назначение |
 |---|---|---|
-| `project` | string | `slug` уже существующего проекта |
-| `title` | string | заголовок публикации |
-| `body` | string | базовый текст публикации |
-| `schedule_mode` | `MANUAL` / `AT` / `QUEUE` | режим публикации |
-| `scheduled_at` | ISO-8601 datetime или пусто | обязательно только для `AT`; для `MANUAL`/`QUEUE` должно быть пустым |
-| `targets` | JSON array | выбранные аккаунты публикации |
-| `platform_overrides` | JSON array | отдельные тексты конкретных аккаунтов |
-| `media_references` | JSON array | ссылки на уже существующие media Publikator |
+| `project` | string | slug существующего проекта |
+| `title` | string | внутренний заголовок |
+| `body` | string | базовый plain text |
+| `schedule_mode` | `MANUAL / AT / QUEUE` | режим публикации |
+| `scheduled_at` | ISO-8601 или пусто | только для AT |
+| `targets` | JSON array | выбранные accounts |
+| `platform_overrides` | JSON array | account-specific plain text |
+| `media_references` | JSON array | существующие media Publikator |
 
-Порядок колонок при импорте может отличаться. Пропущенные, неизвестные и повторяющиеся колонки блокируют импорт.
+V1 import не читает произвольные local paths и не встраивает binary media в spreadsheet.
 
-## Targets
+---
 
-Ячейка `targets` содержит JSON-массив:
+# 2. V1 Targets
+
+`targets` содержит JSON array.
+
+Пример:
 
 ```json
 [
@@ -41,17 +69,29 @@
 ]
 ```
 
-`platform` принимает только `telegram`, `vk`, `max`, `instagram`.
+Разрешённые platforms V1:
 
-Для максимально устойчивого round-trip экспорт сохраняет `accountId`, `platform` и `name`. При импорте сначала используется точный `accountId`; если он отсутствует или больше не существует, допускается поиск по уникальной паре `platform + name`.
+```text
+telegram
+vk
+max
+instagram
+```
 
-Если несколько аккаунтов имеют одинаковые `platform + name`, импорт без `accountId` блокируется как неоднозначный.
+Resolution:
 
-Отключённый аккаунт нельзя выбрать как target.
+1. точный `accountId`;
+2. fallback на уникальную пару `platform + name`.
 
-## Platform overrides
+Неоднозначный fallback блокирует import.
 
-Ячейка `platform_overrides` содержит JSON-массив:
+Disabled account нельзя выбрать как active target.
+
+---
+
+# 3. V1 Platform overrides
+
+Пример:
 
 ```json
 [
@@ -64,15 +104,15 @@
 ]
 ```
 
-Override относится к конкретному аккаунту, а не только к типу площадки. Поэтому Publikator корректно поддерживает несколько Telegram/VK/MAX/Instagram аккаунтов одновременно.
+V1 override = plain text.
 
-Override для невыбранного target разрешён: текст будет сохранён, но target останется выключенным. Dry-run показывает предупреждение.
+vNext rich-text overrides реализуются только в schema 3.
 
-Максимальная длина override — 20 000 символов.
+---
 
-## Media references
+# 4. V1 Media references
 
-Ячейка `media_references` содержит JSON-массив в порядке показа изображений:
+Пример:
 
 ```json
 [
@@ -84,76 +124,85 @@ Override для невыбранного target разрешён: текст б�
 ]
 ```
 
-Контент-план **не встраивает бинарные изображения** в CSV/XLSX и не читает произвольные локальные пути компьютера. `relativePath` должен указывать на media, уже зарегистрированную в текущей SQLite и существующую в `data/media`.
+Schema 1 media reference должен указывать на media, уже зарегистрированный в текущей SQLite и существующий в canonical `data/media`.
 
-Перед импортом Publikator проверяет:
+V1 importer проверяет:
 
-- наличие записи media в SQLite;
-- наличие файла на диске;
-- размер файла;
-- SHA-256 из SQLite;
-- SHA-256 из таблицы, если он указан.
+- DB record;
+- файл;
+- размер;
+- SHA-256;
+- optional SHA из таблицы.
 
-При apply исходный нормализованный media-файл копируется в каталог нового поста с новым `media.id`. Порядок списка становится `sort_order` новой публикации.
+При apply media копируется в новый post и получает новый media id.
 
-Для переноса данных между серверами используйте полный backup bundle Publikator. CSV/XLSX предназначен для управления контент-планом, а не для замены backup/restore.
+---
 
-## CSV
+# 5. CSV/XLSX V1
 
-Экспорт Publikator:
+CSV:
 
 - UTF-8;
-- BOM для корректного открытия в Excel;
-- разделитель `;`;
-- стандартное экранирование двойными кавычками;
-- переносы строк внутри `body` и JSON корректно заключаются в кавычки.
+- BOM для Excel;
+- `;` по умолчанию;
+- importer также распознаёт `,` и tab;
+- корректное quote escaping;
+- multiline body поддерживается.
 
-Импорт автоматически распознаёт `;`, `,` и tab.
+V1 limits:
 
-Лимиты:
+```text
+до 10 000 data rows
+до 20 MB file
+```
 
-- до 10 000 строк данных;
-- до 20 МБ на файл.
+XLSX:
 
-## XLSX
+- читается Node.js приложением;
+- используется первый лист;
+- LibreOffice/Excel/Python runtime dependency не требуется.
 
-XLSX читается и создаётся непосредственно Node.js приложением. LibreOffice, Microsoft Excel, Google Sheets, Python и отдельный converter-сервис в runtime не нужны.
+---
 
-Используется первый лист книги. Заголовок должен содержать полный набор колонок схемы.
+# 6. V1 Preview / Apply
 
-## Dry-run
+Preview endpoint:
 
-`POST /api/content-plan/import/preview` только разбирает и проверяет файл. Записи в SQLite и media storage не создаются.
+```text
+POST /api/content-plan/import/preview
+```
 
-Ответ содержит:
+Preview:
 
-- `fileSha256`;
-- общую статистику;
-- `canApply`;
-- результат каждой строки;
-- ошибки и предупреждения;
-- нормализованные project/schedule/targets/media для корректных строк.
+- ничего не записывает;
+- возвращает file SHA-256;
+- row results;
+- errors/warnings;
+- normalized project/schedule/targets/media;
+- `canApply`.
 
-Apply-кнопка UI активируется только при `canApply=true`.
+Apply endpoint:
 
-## Apply
+```text
+POST /api/content-plan/import/apply
+```
 
-`POST /api/content-plan/import/apply` требует одновременно:
+Требует:
 
 ```text
 x-publikator-content-plan: IMPORT
-x-content-plan-sha256: <SHA-256 из последнего preview>
+x-content-plan-sha256: <preview sha>
 ```
 
-Сервер повторно читает файл и сравнивает его SHA-256. Изменённый после preview файл блокируется.
+Apply повторно проверяет файл и SHA.
 
-Затем текущий запрос получает эксклюзивный maintenance gate, файл проверяется **ещё раз** уже внутри защищённого окна, и только после этого начинается запись.
+Все импортированные posts V1 создаются как `DRAFT`.
 
-Все импортированные публикации создаются как `DRAFT`. Контент-план не может автоматически поставить публикацию в `READY` и тем более отправить её во внешние соцсети.
+Content-plan import никогда автоматически не публикует наружу.
 
-Если ошибка возникает во время копирования/записи, все уже созданные этим импортом публикации удаляются вместе с их новыми media-каталогами.
+---
 
-## Export API
+# 7. V1 Export API
 
 Все проекты:
 
@@ -169,10 +218,173 @@ GET /api/content-plan/export.csv?projectId=<project-id>
 GET /api/content-plan/export.xlsx?projectId=<project-id>
 ```
 
-Схема для UI/интеграций:
+Schema:
 
 ```text
 GET /api/content-plan/schema
 ```
 
-Google Sheets может быть добавлен в будущем только как необязательный import/export connector. Он не является runtime-зависимостью Publikator.
+Эти endpoints сохраняют V1 semantics на compatibility period.
+
+---
+
+# 8. vNext schema 3
+
+Schema 3 является новым контрактом и реализуется отдельно от V1 namespace.
+
+Рекомендуемые endpoints:
+
+```text
+GET  /api/content-plan/v3/schema
+GET  /api/content-plan/v3/template.csv
+GET  /api/content-plan/v3/template.xlsx
+POST /api/content-plan/v3/import/preview
+POST /api/content-plan/v3/import/apply
+GET  /api/content-plan/v3/export.csv
+GET  /api/content-plan/v3/export.xlsx
+```
+
+Mandatory columns schema 3:
+
+| Поле | Назначение |
+|---|---|
+| `schema_version` | всегда `3` |
+| `external_id` | стабильный ID source row/content |
+| `action` | `UPSERT / ARCHIVE / TRASH_REQUEST` |
+| `project` | project slug |
+| `template_key` | optional template |
+| `internal_title` | внутреннее название |
+| `body` | portable rich text |
+| `publication_kind` | FEED/SHORT/STORY |
+| `content_format` | TEXT_ONLY/IMAGE/CAROUSEL/VIDEO/VERTICAL_VIDEO/STORY_SEQUENCE |
+| `schedule_mode` | MANUAL/AT/QUEUE |
+| `scheduled_at` | date/time for AT |
+| `timezone` | IANA timezone |
+| `targets` | account aliases/IDs |
+| `telegram_body` | optional rendition text |
+| `vk_body` | optional rendition text |
+| `max_body` | optional rendition text |
+| `instagram_body` | optional rendition text |
+| `media` | filenames/keys/URLs |
+| `tags` | internal tags |
+| `source_note` | internal source note |
+| `source_revision` | source revision/version |
+
+Schema 3 plain spreadsheet syntax является neutral portable markup, не Telegram/MAX markup.
+
+---
+
+# 9. Schema 3 source identity
+
+Repeated import MUST быть idempotent через:
+
+```text
+source_id + external_id
+```
+
+Importer хранит SourceBinding.
+
+Повторный import одной source row:
+
+- не создаёт второй post;
+- классифицируется как UPDATE/UNCHANGED/CONFLICT;
+- автоматически UPDATE только если local content после предыдущего import не менялся.
+
+---
+
+# 10. Schema 3 delete semantics
+
+Отсутствие строки в следующей таблице ничего не удаляет.
+
+Удаление/архивация требует явного `action`:
+
+```text
+ARCHIVE
+TRASH_REQUEST
+```
+
+Hard delete через spreadsheet запрещён.
+
+---
+
+# 11. Schema 3 media
+
+Основной contract:
+
+```text
+filename / media key / supported cloud reference / allowed HTTPS URL
+```
+
+ZIP bundle naming:
+
+```text
+<external_id>__01.jpg
+<external_id>__02.mp4
+```
+
+Embedded XLSX/Google Sheets images — optional advanced ingest, не базовый contract.
+
+Найденный внешний asset после import становится local canonical MediaAsset.
+
+---
+
+# 12. Google Sheets
+
+Google Sheets template schema 3 SHOULD иметь sheets:
+
+```text
+Posts
+Lists
+Instructions
+Examples
+```
+
+Sheets является connector/editor, не runtime DB.
+
+Preview classifications:
+
+```text
+NEW
+UPDATE
+UNCHANGED
+CONFLICT
+ARCHIVE_REQUEST
+TRASH_REQUEST
+ERROR
+```
+
+Удаление row не удаляет post.
+
+---
+
+# 13. Migration / compatibility rules
+
+Во время vNext development:
+
+- V1 schema 1 import/export regression сохраняется;
+- schema 3 имеет отдельные tests/endpoints;
+- schema 2 наружу не публикуется;
+- existing V1 users не обязаны немедленно мигрировать spreadsheets;
+- stable removal/deprecation V1 API требует отдельного release note и migration path.
+
+---
+
+# 14. Security
+
+Schema 3 importer обязан выполнять требования `VNEXT_TECHNICAL_SPEC.md`, включая:
+
+- ZIP traversal/bomb protections;
+- MIME verification;
+- SSRF protections для remote media;
+- portable rich-text validation;
+- spreadsheet formula injection protection на export;
+- batch/upload limits;
+- preview-before-apply.
+
+---
+
+# 15. Source of truth
+
+Ни schema 1, ни schema 3 spreadsheet не являются backup или runtime source of truth.
+
+Для disaster recovery используется canonical full `.tgz` backup Publikator.

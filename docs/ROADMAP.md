@@ -1,324 +1,589 @@
 # Roadmap Publikator
 
-## Текущий статус
+## Статус
 
-**Версия:** `1.0.0-rc.4`
+Текущая V1 release candidate:
 
-**Архитектура:** один production Docker-контейнер, Fastify, SQLite/WAL, local media storage, embedded scheduler, Telegram/VK/MAX/Instagram adapters.
+```text
+v1.0.0-rc.4
+```
 
-Стабильный `v1.0.0` блокируется реальным live acceptance и финальным release gate. Следующий product-development разделён на три связанных слоя: **Content Pipeline v2 → Content Experience v3 → Editorial Workflow v4**.
+Release lane:
 
-## Завершённые этапы
+```text
+release/1.0
+```
 
-### Foundation — DONE
+vNext development lane:
+
+```text
+main
+```
+
+Главный нормативный документ vNext:
+
+[`VNEXT_TECHNICAL_SPEC.md`](VNEXT_TECHNICAL_SPEC.md)
+
+Этот roadmap определяет порядок реализации, но не переопределяет domain/security invariants ТЗ.
+
+---
+
+# 1. Что уже готово в publication core
+
+## Foundation
 
 - Web UI + REST API;
-- проекты, посты и подключаемые social accounts;
+- projects/posts/social accounts;
 - SQLite/WAL;
 - AES-256-GCM credentials;
 - local media storage;
 - Docker deployment;
-- Telegram / VK / MAX / Instagram adapters.
+- Telegram/VK/MAX/Instagram adapters.
 
-### Publication model — DONE
+## Publication safety
 
-- отдельный target state на каждый аккаунт;
-- platform-specific `override_text`;
-- обязательное media перед `READY`;
-- preflight использует тот же `PublishInput`, что реальный publisher;
+- per-target states;
+- platform-specific text override V1;
 - manual / AT / QUEUE;
-- retry только для известных временных ошибок;
-- `RECOVERY_NEEDED` для небезопасного автоматического повтора;
-- ручные recovery-развязки с audit trail;
-- immutable content после partial/published.
+- atomic target claim;
+- `RECOVERY_NEEDED`;
+- scheduler grace-window;
+- retry known failures only;
+- recovery audit trail.
 
-### Media — DONE
+## Media V1
 
-- EXIF orientation;
-- JPEG normalization;
-- width/height/size/SHA-256;
-- duplicate media detection;
-- `sort_order`;
-- Telegram groups до 10;
-- MAX до 12;
-- Instagram carousel 2–10;
-- UI reorder/preview.
+- image decode/orientation/normalization;
+- metadata/SHA;
+- duplicate detection;
+- media order;
+- platform image limits;
+- current preview.
 
-### Portability — DONE
+## Portability / operations
 
-- единый `.tgz` backup: SQLite + media + manifest;
-- SQLite/media SHA-256;
-- tar safety validation;
-- `APP_MASTER_KEY` fingerprint;
-- pre-restore backup;
-- staged restart-before-open restore;
-- filesystem rollback;
-- canonical backup API/UI;
-- CSV/XLSX content-plan export/import с dry-run и SHA-bound apply.
-
-### Operations — DONE
-
+- full `.tgz` backup/restore;
+- content-plan schema 1 import/export;
 - diagnostics;
-- scheduler status;
-- event/backup retention;
-- recovery UI;
 - release gate;
-- persistent live acceptance evidence;
-- package-lock + `npm ci`;
-- pinned Node/Docker base;
-- production dependency audit.
+- event/backup retention;
+- immutable baked build SHA;
+- single Acceptance CI.
 
-## V1 stabilization — DONE по коду, acceptance pending
+---
 
-### STAB-001 — Atomic publication claim — DONE
+# 2. V1 release track
 
-Перед внешним POST target захватывается атомарным SQLite compare-and-set. Два конкурентных `publishPost`/`publishTarget` не могут выполнить два внешних POST одного target. Retry и recovery transitions также используют условные state transitions.
+`release/1.0` frozen from RC4.
 
-Acceptance: dedicated concurrency E2E с удерживаемым mock publisher и требованием `externalPublishCalls === 1`.
+До stable V1:
 
-### STAB-002 — Scheduler slot uniqueness — DONE
+1. public HTTPS deployment;
+2. live Telegram acceptance;
+3. live VK acceptance;
+4. live MAX acceptance;
+5. live Instagram acceptance;
+6. concurrency/scheduler smoke;
+7. controlled recovery acceptance;
+8. post-live backup/restore;
+9. branch/ruleset protection;
+10. stable `v1.0.0`.
 
-SQLite schema: **v3**.
+vNext feature code не попадает в release branch.
 
-- UNIQUE `(project_id, weekday, time_hhmm, timezone)`;
-- API duplicate → `409`;
-- migration v2→v3 схлопывает исторические дубли;
-- сохраняется наиболее поздний `last_fired_on`;
-- queue grace-window остаётся действующим.
+---
 
-### STAB-003 — Browser / proxy security — DONE
+# 3. vNext product layers
 
-- same-origin guard для browser mutation API;
-- CSP / nosniff / frame deny / no-referrer / permissions / COOP;
-- API `Cache-Control: no-store`;
-- HSTS при HTTPS;
-- `/public-media/*` остаётся cross-origin для внешних платформ;
-- `TRUST_PROXY` — только explicit trusted proxy list;
-- wildcard proxy trust запрещён;
-- login throttling проверен за trusted proxy.
+## Layer A — Content Pipeline
 
-### STAB-004 — Adapter phase safety — DONE
+Вопрос:
 
-**Telegram**
-- local media read до public POST;
-- timeout 30s;
-- >4096 Unicode chars block на preflight;
-- missing file = known failure;
-- transport/5xx public POST = recovery;
-- partial media+follow-up-text error сохраняет media message id.
+> Как content попадает в Publikator?
 
-**VK**
-- upload preparation отделён от `wall.post`;
-- unknown outcome возможен только на public phase;
-- timeout 30s.
+Подробности:
 
-**MAX**
-- 4000 Unicode chars;
-- 12 media;
-- strict HTTPS media URL validation;
-- timeout 30s;
-- unknown public POST → recovery.
-
-**Instagram**
-- child/parent container readiness до `media_publish`;
-- `IN_PROGRESS/FINISHED/ERROR/EXPIRED` обработаны;
-- preparation failure не создаёт ложный recovery;
-- unknown `media_publish` → recovery.
-
-### STAB-005 — Build identity — DONE
-
-Release SHA передаётся как `BUILD_SHA` при `docker build` и зашивается в image:
-
-```text
-IMAGE_BUILD_SHA
-org.opencontainers.image.revision
-```
-
-Production Release gate использует baked revision. Runtime `APP_BUILD_SHA` не является источником release identity.
-
-### STAB-006 — CI simplification — DONE
-
-В `.github/workflows` остаётся один файл:
-
-```text
-publikator-ci.yml
-```
-
-Один job `Acceptance` проверяет весь продукт последовательно. Большие test scenarios находятся в `scripts/`, а не спрятаны в YAML.
-
-### STAB-007 — Repository hygiene — DONE
-
-- старый PR #10 закрыт как superseded;
-- старый PR #15 закрыт после fresh-port security logic;
-- legacy SQLite-only backup route implementation удалена;
-- legacy endpoint blocker `410` оставлен для явной совместимости.
-
-## V1 live acceptance — RELEASE BLOCKER
-
-Работать только с текущим release candidate `v1.0.0-rc.4` и его точным SHA.
-
-1. Получить точный SHA: `git rev-parse HEAD`.
-2. Проверить Release gate: встроенный build SHA должен совпадать с проверяемым commit.
-3. Создать pre-acceptance full backup.
-4. Выполнить `docs/LIVE_INTEGRATION_CHECKLIST.md` на реальных Telegram, VK, MAX и Instagram.
-5. Записать четыре `LIVE PASS` на одном SHA.
-6. Разобрать все `RECOVERY_NEEDED`.
-7. Убедиться, что diagnostics не содержит ошибок.
-8. После последнего PASS создать новый full backup.
-9. Проверить restore release-state bundle на отдельной тестовой установке с тем же `APP_MASTER_KEY`.
-10. Получить `Publikator CI / Acceptance = PASS` на том же commit.
-11. Только после этого выпускать `v1.0.0`.
-
-# Product Development после publication core
-
-## Layer 1 — Content Pipeline v2
-
-Отвечает на вопрос: **как контент попадает в Publikator?**
-
-Полное ТЗ: [`CONTENT_PIPELINE_V2.md`](CONTENT_PIPELINE_V2.md).
+[`CONTENT_PIPELINE_V2.md`](CONTENT_PIPELINE_V2.md)
 
 Issue: #26.
 
-```text
-CP2-001 Calendar / Content UX foundation
-CP2-002 CSV/XLSX Template v2
-CP2-003 ZIP Content Bundle
-CP2-004 Integration API v1
-CP2-005 Google Sheets connector
-CP2-006 Google Drive / Яндекс Диск media
-CP2-007 AI Content Profile / producer
-CP2-008 embedded images / optional autopilot
-```
+Темы:
 
-Ключевой принцип: **Publikator — единственный source of truth.** Google Sheets, файлы, cloud drives и AI-агенты после импорта не участвуют в runtime публикации.
+- source identity;
+- bulk CSV/XLSX;
+- ZIP bundle;
+- Integration API;
+- Google Sheets;
+- Google Drive;
+- Яндекс Диск;
+- AI producer.
 
-Целевой acceptance: 100 постов + 150 media assets, preview, отсутствие дублей при повторном импорте и дальнейшая публикация без обращения к исходной таблице/облаку.
+## Layer B — Content Experience
 
-## Layer 2 — Content Experience v3
+Вопрос:
 
-Отвечает на вопрос: **что это за контент и как человек его видит?**
+> Что это за content и как человек его видит?
 
-Полное ТЗ: [`CONTENT_EXPERIENCE_V3.md`](CONTENT_EXPERIENCE_V3.md).
+Подробности:
+
+[`CONTENT_EXPERIENCE_V3.md`](CONTENT_EXPERIENCE_V3.md)
 
 Issue: #28.
 
-```text
-CX3-001 Visual Calendar
-CX3-002 Content Library
-CX3-003 Rich Media data model
-CX3-004 Media Viewer / Player
-CX3-005 Platform capability/preflight
-CX3-006 Platform Preview v2
-CX3-007 Dashboard + contrast/design tokens
-CX3-008 Video / Story publication adapters
-```
+Темы:
 
-Обязательные форматы:
+- visual calendar;
+- Content Inspector;
+- content library;
+- video/player;
+- Shorts/Stories;
+- platform preview;
+- capability matrix;
+- contrast/design system.
 
-```text
-Feed image
-Carousel
-Video
-Short/Reel-like vertical video
-Story image
-Story video
-Story sequence
-```
+## Layer C — Editorial Workflow
 
-Главный пользовательский экран — визуальный календарь Month/Week/Day/Agenda с thumbnail/poster, Content Inspector и platform-aware preview.
+Вопрос:
 
-## Layer 3 — Editorial Workflow v4
+> Как content редактировать, согласовывать, шаблонизировать, переносить и удалять?
 
-Отвечает на вопрос: **как человек редактирует, согласовывает, переносит, шаблонизирует и удаляет будущий контент?**
+Подробности:
 
-Полное ТЗ: [`EDITORIAL_WORKFLOW_V4.md`](EDITORIAL_WORKFLOW_V4.md).
+[`EDITORIAL_WORKFLOW_V4.md`](EDITORIAL_WORKFLOW_V4.md)
 
 Issue: #30.
 
-```text
-EW4-001 Safe edit/delete lifecycle
-EW4-002 Revision history
-EW4-003 Canonical rich text editor
-EW4-004 Platform rich-text compilers
-EW4-005 Targets/defaults/platform options
-EW4-006 Templates/snippets
-EW4-007 Calendar editing
-EW4-008 XLSX/Google Sheets Template v3
-EW4-009 Integration API editorial contract
-EW4-010 Editorial acceptance
-```
+Темы:
 
-Обязательные правила:
+- editorial lifecycle;
+- Trash/Restore;
+- revisions;
+- rich text;
+- platform compilers;
+- defaults/targets;
+- templates;
+- calendar editing;
+- Sheets conflict semantics.
 
-- future delete по умолчанию = Trash, не hard delete;
-- удаление строки из Google Sheets не удаляет публикацию;
-- изменение будущего READY-post инвалидирует старый preflight;
-- canonical rich text не хранится как raw Telegram/MAX markup;
-- project defaults не меняют уже созданный content;
-- platform downgrade/unsupported feature показывается до READY;
-- published historical content не переписывается молча.
+---
 
-## Рекомендуемый порядок foundation-разработки
+# 4. CONTENT-M0 — обязательный gate
 
-Не обязательно ждать полного завершения одного слоя, чтобы начать следующий. Правильная последовательность foundation:
+До больших feature PR выполнить convergence foundation.
+
+Это не «ещё один дизайн-этап», а фиксация тех contracts, без которых агенты будут реализовывать несовместимые модели.
+
+## M0-001 — Canonical Domain Model
+
+Зафиксировать/реализовать ownership сущностей:
 
 ```text
-1. CP2 external_id / ingestion metadata / media bundle
-2. CX3 visual calendar shell / Content Inspector
-3. EW4 editorial lifecycle / Trash / revisions
-4. EW4 canonical rich text + platform compilers
-5. CP2 Integration API + Template v3
-6. CX3 video/story player + rich media model
-7. EW4 templates/default targets/calendar editing
-8. Google Sheets/Drive/Yandex connectors
-9. AI producer/content profiles
-10. platform-specific Stories/Shorts live adapters
+Project
+Post
+ContentRevision
+MediaAsset
+ContentMedia
+SocialAccount
+PostTarget
+TargetRendition
+PublicationUnit
+Template/Snippet
+IngestionSource
+SourceBinding
+ImportBatch
+IntegrationApiKey
 ```
 
-## Целевой пользовательский workflow
+Acceptance:
+
+- domain ADR/schema plan accepted;
+- нет дублирующих альтернативных сущностей в разных модулях.
+
+## M0-002 — State + Concurrency Contract
+
+Зафиксировать:
 
 ```text
-Manual / XLSX / Sheets / API / AI
-                ↓
-             Inbox
-                ↓
-        Draft / Template
-                ↓
-      Edit rich content/media
-                ↓
-       Select target accounts
-                ↓
-      Platform-aware preview
-                ↓
-        Review / Approve
-                ↓
-              READY
-                ↓
-      Visual Calendar / Queue
-                ↓
-             Publish
-                ↓
-        Journal / Results
+editorial stage
+publication status
+content_version
+ready_revision_id
+optimistic concurrency
+immutable publication snapshot
 ```
 
-Пользователь должен в любой момент открыть будущую публикацию и без знания API понять:
+Decision:
+
+```text
+QUEUE = schedule_mode
+new vNext code does not emit status=QUEUED
+```
+
+Acceptance:
+
+- два concurrent edit не теряют update;
+- edit vs publish не публикует stale mutable content;
+- READY invalidates after meaningful edit.
+
+## M0-003 — Import Contract Versioning
+
+Decision:
+
+```text
+schema 1 = V1
+schema 2 = never public
+schema 3 = vNext
+```
+
+Acceptance:
+
+- legacy schema 1 tests still pass;
+- versioned v3 namespace/spec defined;
+- external/source identity idempotency defined.
+
+## M0-004 — Ingestion Security
+
+Зафиксировать и тестировать:
+
+- ZIP safety;
+- SSRF;
+- upload/download/bundle limits;
+- API key storage/scopes/rate-limit;
+- connector secret encryption;
+- rich-text XSS protections;
+- spreadsheet formula injection.
+
+## M0-005 — Time / Rendition / Sequence semantics
+
+Зафиксировать:
+
+- UTC instant + IANA timezone;
+- DST behavior;
+- QUEUE↔AT conversion;
+- TargetRendition inheritance;
+- PublicationUnit recovery for Stories sequence.
+
+## M0-006 — Release / Migration Strategy
+
+Готово организационно:
+
+```text
+release/1.0 from v1.0.0-rc.4
+main for vNext
+```
+
+Дополнительно определить schema milestone migrations и forward-port process.
+
+---
+
+# 5. Schema milestones после M0
+
+Не делать giant migration.
+
+## M1 — Identity / versioning / editorial foundation
+
+Добавить:
+
+- ingestion/source identity;
+- `editorial_stage`;
+- `content_version`;
+- content revisions;
+- safe Trash/Restore;
+- optimistic concurrency.
+
+Этот этап должен работать на текущих image posts без нового calendar/video.
+
+## M2 — Rich text / rendition / templates
+
+Добавить:
+
+- canonical rich text AST;
+- plain fallback;
+- TargetRendition;
+- target options;
+- project defaults;
+- templates/snippets;
+- Telegram/VK/MAX/Instagram compiler foundation.
+
+## M3 — Rich media
+
+Добавить:
+
+- `publication_kind`;
+- `content_format`;
+- video metadata;
+- MP4/H.264/AAC validation;
+- poster generation;
+- PublicationUnit;
+- story sequence canonical model.
+
+## M4 — Integrations
+
+Добавить:
+
+- IntegrationApiKey;
+- IngestionSource;
+- SourceBinding;
+- ImportBatch;
+- connectors.
+
+---
+
+# 6. Recommended feature order
+
+После M0:
+
+```text
+1. M1 identity/versioning/revisions + Trash
+2. Visual Calendar shell + Content Inspector on existing image posts
+3. M2 canonical rich text + target compilers
+4. Content Plan schema 3 + downloadable template
+5. ZIP Content Bundle
+6. Integration API v1
+7. Project defaults/templates/target options
+8. M3 TargetRendition/rich media foundation
+9. Video player + poster/metadata
+10. Story/Short model + PublicationUnit recovery
+11. Google Sheets connector
+12. Google Drive connector
+13. Яндекс Диск connector
+14. AI producer/content profile
+15. platform-specific video/story/short adapters
+```
+
+Причина порядка:
+
+- сначала canonical state/concurrency;
+- затем usable visual shell;
+- затем import/API;
+- затем expensive rich media/platform expansion.
+
+---
+
+# 7. Visual Calendar contract
+
+Calendar ownership находится в Content Experience, не Pipeline.
+
+Pipeline лишь поставляет canonical data.
+
+Calendar MUST поддерживать:
+
+```text
+Month
+Week
+Day
+Agenda
+```
+
+Card:
+
+- thumbnail/poster;
+- title/project;
+- time or QUEUE marker;
+- targets;
+- editorial/publication state;
+- source;
+- warnings.
+
+Click -> Inspector.
+
+Drag AT -> new AT instant.
+
+Drag QUEUE into exact time -> explicit confirmation QUEUE→AT.
+
+---
+
+# 8. Content Plan contract
+
+Current V1:
+
+```text
+CONTENT_PLAN.md schema 1
+```
+
+vNext:
+
+```text
+schema 3
+/api/content-plan/v3/...
+```
+
+Schema 2 не реализовывать как public contract.
+
+Bulk acceptance:
+
+- 100 posts;
+- 150+ media assets;
+- preview;
+- idempotent apply;
+- repeated import no duplicates;
+- conflicts detected, not overwritten.
+
+---
+
+# 9. Rich media contract
+
+Initial video scope intentionally narrow:
+
+```text
+MP4
+H.264
+AAC or no audio
+```
+
+Unsupported input -> clear validation error.
+
+No transcoding farm.
+
+Story sequence uses per-public-operation PublicationUnit states.
+
+Platform Stories/Shorts adapters are last, not first.
+
+---
+
+# 10. Integration / AI contract
+
+Integration API default:
+
+```text
+create/read/update DRAFT
+upload media
+schedule request
+approval request
+```
+
+Direct publish permission absent by default.
+
+AI is a producer:
+
+```text
+sources
+→ generate text/media
+→ Integration API
+→ DRAFT
+→ review
+→ READY
+```
+
+No direct AI→social network bypass.
+
+---
+
+# 11. Acceptance gates by category
+
+## Domain
+
+- migration from previous schema;
+- optimistic concurrency;
+- immutable revision publish.
+
+## Ingestion
+
+- duplicate prevention;
+- conflict detection;
+- ZIP traversal/bomb tests;
+- SSRF tests.
+
+## Editorial
+
+- edit READY invalidates preflight;
+- Trash removes from scheduler/calendar active set;
+- Restore requires new preflight;
+- revision restore works for unpublished content.
+
+## Rich text
+
+- canonical AST validation;
+- platform downgrade warnings;
+- no raw HTML XSS.
+
+## Calendar
+
+- 500 entries / 60 days;
+- timezone/DST;
+- no duplicate scheduling logic.
+
+## Rich media
+
+- video metadata/poster;
+- processing limits;
+- story sequence partial/recovery semantics.
+
+## Operations
+
+- diagnostics;
+- backup/restore;
+- Docker identity;
+- one Acceptance workflow.
+
+---
+
+# 12. Definition of Done
+
+Этап не считается DONE, пока нет одновременно:
+
+1. backend model/API;
+2. migration;
+3. UI using same contract;
+4. security/recovery handling;
+5. audit/diagnostics;
+6. backup/restore proof;
+7. focused automated regression;
+8. full `Publikator CI / Acceptance = PASS`;
+9. updated documentation.
+
+---
+
+# 13. Не делать раньше времени
+
+Отложено до отдельной необходимости/ADR:
+
+- complex multi-user RBAC;
+- per-platform different publish time одного post;
+- arbitrary external post delete automation;
+- distributed workers;
+- transcoding farm;
+- Google Sheets as database;
+- unrestricted autopilot direct publish;
+- analytics, если platform API не даёт устойчивый contract.
+
+---
+
+# 14. Целевой пользовательский поток
+
+```text
+Manual / XLSX / ZIP / Sheets / API / AI
+                  ↓
+                Inbox
+                  ↓
+            Draft / Template
+                  ↓
+       Edit text + image/video
+                  ↓
+        Select target accounts
+                  ↓
+       Platform-aware preview
+                  ↓
+          Review / Approve
+                  ↓
+                READY
+                  ↓
+        Calendar / Queue / Now
+                  ↓
+              Publish
+                  ↓
+        Journal / Recovery
+```
+
+Пользователь в любой момент должен понимать:
 
 1. что выйдет;
-2. где выйдет;
-3. когда выйдет;
-4. как будет выглядеть;
-5. что можно изменить;
-6. кто/что последним изменило запись;
-7. как перенести, продублировать, архивировать или удалить её.
-
-## После этих трёх слоёв
-
-- analytics там, где API площадки даёт стабильные данные;
-- расширенные project policies/autopilot;
-- дополнительные cloud/content connectors по фактической необходимости;
-- roles/permissions/editorial assignment при реальной необходимости;
-- формализация migration-файлов при дальнейшем росте SQLite schema.
-
-## Архитектурный запрет
-
-Нельзя добавлять n8n, Redis, RabbitMQ, Kafka, отдельный worker-container, отдельную runtime-БД или новый обязательный инфраструктурный сервис без ADR с доказанной необходимостью.
+2. где;
+3. когда;
+4. в каком формате;
+5. какая версия одобрена;
+6. можно ли её изменить;
+7. кто/что изменил её последним;
+8. как перенести/дублировать/архивировать/удалить будущую публикацию;
+9. что уже реально опубликовано;
+10. где требуется recovery.

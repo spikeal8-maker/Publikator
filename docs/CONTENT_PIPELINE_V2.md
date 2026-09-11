@@ -1,5 +1,8 @@
 # Content Pipeline v2
 
+> Normative vNext decisions are defined in [`VNEXT_TECHNICAL_SPEC.md`](VNEXT_TECHNICAL_SPEC.md). If this document conflicts with the master specification, the master specification wins.
+
+
 ## Цель
 
 Сделать Publikator не только движком публикации, но и единым рабочим местом, куда контент поступает вручную, массовым импортом, из Google Sheets, из облачных папок и через API от ботов/AI.
@@ -55,7 +58,7 @@ imported_at
 - кнопку `Клонировать`;
 - bulk actions для нескольких DRAFT/READY.
 
-## 3. Шаблон CSV/XLSX v2
+## 3. CSV/XLSX schema 3 template
 
 Пользователь должен иметь кнопку `Скачать шаблон`.
 
@@ -360,11 +363,11 @@ Preview ориентировочный по UI, но publish input должен 
 - нормальный calendar/list UI;
 - технический QUEUE scheduler отделён от пользовательского календаря.
 
-### CP2-002 — Template v2
+### CP2-002 ? Content Plan schema 3
 
 - downloadable CSV;
 - downloadable XLSX;
-- schema v2;
+- public schema 3;
 - `external_id`;
 - media filename/key references;
 - preview/apply;
@@ -436,7 +439,7 @@ Preview ориентировочный по UI, но publish input должен 
 
 ```text
 CP2-001 Calendar/UX
-CP2-002 Template v2
+CP2-002 Content Plan schema 3
 CP2-003 ZIP Bundle
 CP2-004 Integration API
 CP2-005 Google Sheets

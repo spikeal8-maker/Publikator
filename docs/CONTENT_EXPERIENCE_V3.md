@@ -1,5 +1,8 @@
 # Content Experience v3
 
+> Normative vNext decisions are defined in [`VNEXT_TECHNICAL_SPEC.md`](VNEXT_TECHNICAL_SPEC.md). If this document conflicts with the master specification, the master specification wins.
+
+
 ## Цель
 
 Сделать Publikator визуальным контентным центром, в котором оператор не просто видит строки постов, а заранее понимает **что именно будет опубликовано, где, когда и как это будет выглядеть**.
