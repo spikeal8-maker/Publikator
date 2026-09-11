@@ -4,7 +4,7 @@ Self-hosted система автопубликации контента в **Te
 
 Publikator намеренно построен как **модульный монолит**: один репозиторий, один production Docker-контейнер, один Web UI, одна SQLite/WAL база, локальное media storage и встроенный scheduler. n8n, Redis, RabbitMQ, Kafka, отдельный worker и отдельная runtime-БД не требуются.
 
-Текущая версия: **1.0.0-rc.1**. Стабильный `v1.0.0` выпускается только после реального live acceptance всех четырёх площадок на одном release build.
+Текущая версия: **1.0.0-rc.2**. Стабильный `v1.0.0` выпускается только после реального live acceptance всех четырёх площадок на одном release build.
 
 ## Основной контур
 
@@ -60,6 +60,24 @@ Web UI / REST API
 - один GitHub Actions pipeline: **`Publikator CI / Acceptance`**.
 
 ## Быстрый запуск
+
+Рекомендуемый Docker-запуск теперь одинаков по смыслу на Windows и Linux и использует Docker named volume по умолчанию.
+
+**Windows (Docker Desktop):**
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\deploy-windows.ps1 -PublicBaseUrl "https://publisher.example.ru"
+```
+
+**Linux (Docker Engine + Compose v2):**
+
+```bash
+bash scripts/deploy-linux.sh "https://publisher.example.ru"
+```
+
+На первом запуске скрипт создаёт `.env` со случайными `ADMIN_PASSWORD` и `APP_MASTER_KEY`, затем собирает image с текущим Git SHA и ждёт состояния `healthy`. Существующий `.env` никогда не перезаписывается.
+
+Подробно: [`docs/DEPLOY_DOCKER.md`](docs/DEPLOY_DOCKER.md).
 
 ```bash
 cp .env.example .env
