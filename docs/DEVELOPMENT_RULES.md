@@ -1,31 +1,124 @@
-# Правила разработки для людей и coding agents
+# Правила разработки Publikator для людей и coding agents
 
-## Главная цель
+## 0. Главный контракт
 
-Сохранять Publikator простым, диагностируемым, воспроизводимым и дешёвым в сопровождении. Production runtime — один модульный монолит, а не набор связанных сервисов.
+Перед любым vNext feature PR разработчик/agent обязан прочитать:
 
-## Запрещено без ADR
+1. [`VNEXT_TECHNICAL_SPEC.md`](VNEXT_TECHNICAL_SPEC.md)
+2. [`ARCHITECTURE.md`](ARCHITECTURE.md)
+3. соответствующий продуктовый документ Pipeline / Experience / Editorial.
+
+При противоречии главным является `VNEXT_TECHNICAL_SPEC.md`.
+
+Coding agent не имеет права «додумать архитектуру», если нормативное ТЗ задаёт решение.
+
+---
+
+# 1. Цель разработки
+
+Publikator должен оставаться:
+
+- простым;
+- диагностируемым;
+- воспроизводимым;
+- безопасным;
+- дешёвым в сопровождении;
+- удобным для небольших последовательных PR.
+
+Production runtime — один modular monolith, а не набор сервисов.
+
+---
+
+# 2. Release discipline
+
+```text
+release/1.0 = frozen V1 line from v1.0.0-rc.4
+main        = vNext development
+```
+
+vNext features не вливать в `release/1.0`.
+
+Release fix, сделанный в `release/1.0`, при необходимости forward-port в `main`.
+
+Stable `v1.0.0` выпускается из release line после live acceptance, не из случайного текущего `main`.
+
+---
+
+# 3. Запрещено без ADR
 
 - добавлять n8n;
-- добавлять второй backend/worker-контейнер;
-- добавлять Redis, RabbitMQ, Kafka, Celery и подобную инфраструктуру;
-- добавлять вторую runtime-БД;
-- переносить credentials в frontend, таблицы, GitHub или незашифрованные поля SQLite;
-- обходить invariant «нет изображения — нет READY/публикации»;
+- добавлять второй backend/worker container;
+- Redis/RabbitMQ/Kafka/Celery;
+- вторую runtime DB;
+- отдельный scheduler service;
+- отдельный media transcoding service;
+- переносить credentials/API tokens в frontend;
+- хранить secrets открытым текстом;
+- обходить atomic publication claim;
 - автоматически повторять `RECOVERY_NEEDED`;
-- смешивать platform API с общим scheduler/UI;
-- удалять `package-lock.json`;
-- использовать `npm install` вместо `npm ci` в production/acceptance;
-- применять `npm audit fix --force` без анализа;
-- возвращать несколько независимых push/PR GitHub Actions workflows вместо одного `Publikator CI / Acceptance`;
-- включать `trustProxy=true`, `TRUST_PROXY=*` или иное безусловное доверие forwarded headers;
-- передавать release SHA как свободно изменяемую production runtime identity вместо baked Docker revision.
+- возвращать несколько постоянных CI workflows вместо одного Acceptance;
+- `TRUST_PROXY=*` / unconditional forwarded-header trust;
+- massive refactor «заодно» с feature milestone;
+- менять domain invariant без обновления нормативного ТЗ/ADR.
 
-## Критический publication invariant
+---
 
-**Ни один внешний публичный POST нельзя выполнять до успешного atomic claim target.**
+# 4. Media invariant: V1 vs vNext
 
-Допустимый переход:
+## V1 release line
+
+Текущий RC4 image publisher блокирует READY/publish без изображения. В `release/1.0` это правило сохраняется.
+
+## vNext
+
+Нельзя переносить это правило как вечный product invariant.
+
+vNext поддерживает разные content formats.
+
+Обязательный invariant:
+
+> READY разрешён только если resolved rendition всех выбранных targets проходит capability/preflight.
+
+TEXT_ONLY/VIDEO/STORY могут существовать только после соответствующей capability реализации и tests.
+
+---
+
+# 5. Publication snapshot invariant
+
+Главное правило vNext:
+
+> Publisher никогда не публикует mutable working content.
+
+READY создаёт/фиксирует immutable `ContentRevision`.
+
+`ready_revision_id` и `content_version` должны совпадать с revision, прошедшей preflight.
+
+Начало publication проверяет это атомарно.
+
+PublishInput строится из:
+
+```text
+immutable revision
++ target rendition snapshot
++ immutable media order
++ target options snapshot
+```
+
+Запрещён паттерн:
+
+```text
+read current mutable post
+→ потом claim
+→ external POST из старого read
+```
+
+---
+
+# 6. Target atomic claim invariant
+
+Ни один внешний публичный POST нельзя выполнять до успешного conditional claim.
+
+Существующий принцип сохраняется:
 
 ```sql
 UPDATE post_targets
@@ -35,97 +128,405 @@ WHERE id=?
   AND state IN ('PENDING','RETRY','FAILED');
 ```
 
-Только `changes === 1` даёт право вызвать внешний API.
+vNext claim дополнительно обязан быть согласован с `ready_revision_id/content_version`.
 
-Запрещено:
+Конкретная SQL-реализация может быть transaction/EXISTS/CAS, но два конкурентных запуска одного target не могут сделать два external POST.
 
-```text
-SELECT state
-→ обычный UPDATE PUBLISHING
-→ external POST
-```
+Dedicated concurrency regression обязателен.
 
-потому что два конкурентных запроса могут оба пройти такой check.
+---
 
-Любое изменение publisher/retry/scheduler обязано сохранять regression `scripts/publication-concurrency-e2e.mjs`: два конкурентных запуска одного target → **ровно один** вызов external publisher и `attempts === 1`.
+# 7. Optimistic editorial concurrency
 
-## Recovery invariant
+Любое изменение editable content должно проверять `expectedContentVersion` / ETag.
 
-`RECOVERY_NEEDED` означает: повтор всего target может создать дубль или усугубить уже частично выполненную публикацию.
-
-- generic retry не сбрасывает `RECOVERY_NEEDED`;
-- `confirm-published` и `confirm-not-published` используют conditional state transition;
-- ручное подтверждение найденной публикации не вызывает новый external POST;
-- platform adapter обязан различать preparation/local phase и public phase.
-
-Если операция физически не могла создать публичный пост, она не должна без причины становиться `outcomeUnknown=true`.
-
-## Scheduler invariant
-
-- одинаковые slots `(project_id, weekday, time_hhmm, timezone)` запрещены на уровне SQLite UNIQUE, а не только UI/API;
-- миграция обязана безопасно обрабатывать старые дубли;
-- `QUEUE_SLOT_GRACE_MINUTES` не должен приводить к stale публикации после закрытия occurrence;
-- scheduler не обходит atomic publication claim.
-
-## Browser security invariant
-
-Browser mutation `POST/PUT/PATCH/DELETE /api/*` с заголовком `Origin` разрешается только для точного same-origin.
-
-`/public-media/*` намеренно доступен cross-origin, потому MAX/Instagram должны получать изображения извне. Это исключение нельзя распространять на API или интерфейс.
-
-За reverse proxy реальный IP клиента учитывается только через explicit `TRUST_PROXY` list. Wildcard trust запрещён.
-
-## Зависимости и release identity
-
-- `package.json` и `package-lock.json` меняются вместе;
-- direct dependency update проходит `npm audit --omit=dev --audit-level=high`;
-- high/critical production vulnerability блокирует release;
-- Docker base остаётся pinned по digest;
-- release build получает SHA через `BUILD_SHA` во время `docker build`;
-- Docker сохраняет SHA как `IMAGE_BUILD_SHA` и `org.opencontainers.image.revision`;
-- production Release gate сравнивает live acceptance с baked revision;
-- изменение Docker base/digest требует отдельного security review и полного acceptance.
-
-## Границы модулей
-
-- `src/platforms/*` — только детали внешних API и их phase/error semantics;
-- `src/publisher.ts` — publication orchestration, atomic claim, retry/recovery policy;
-- `src/scheduler.ts` — определение due work, не альтернативный publisher;
-- `src/http/*` — HTTP validation/security/application calls;
-- `src/db.ts` — schema/migrations/base DB primitives;
-- `src/media.ts` — нормализация и local media storage;
-- `src/backups.ts` / `src/backup-format.ts` — canonical full backup/restore;
-- `scripts/*-e2e.*` — regression scenarios, вызываемые единым CI.
-
-## CI
-
-В `.github/workflows` должен оставаться один постоянный workflow:
+Если другой browser/API/Sheets sync уже изменил post:
 
 ```text
-publikator-ci.yml
+409 CONFLICT
 ```
 
-Большие тесты хранятся в `scripts/`, а не как сотни строк shell внутри YAML.
+Нельзя применять last-write-wins молча.
 
-Перед merge обязателен:
+Это относится к:
+
+- editor save;
+- calendar drag;
+- bulk actions;
+- API update;
+- Google Sheets sync;
+- target changes;
+- media reorder.
+
+---
+
+# 8. Preflight invalidation
+
+Следующие изменения инвалидируют READY/preflight:
+
+- canonical body/rich text;
+- platform override/rendition;
+- media add/remove/order;
+- target selection;
+- publication kind/format;
+- schedule relevant fields;
+- platform options.
+
+Обязательное поведение:
+
+```text
+content_version++
+ready_revision_id = null
+publication status -> DRAFT
+new preflight required
+```
+
+Нельзя сохранять READY после значимого изменения ради удобства UI.
+
+---
+
+# 9. Recovery invariant
+
+`RECOVERY_NEEDED` означает: внешний результат неизвестен и повтор может создать дубль.
+
+- generic retry запрещён;
+- confirm-published не вызывает external POST;
+- confirm-not-published требует ручной достоверной проверки;
+- preparation и public phase различаются;
+- unknown outcome только после операции, которая реально могла создать public artifact.
+
+Для sequence форматов recovery ведётся на уровне `PublicationUnit`, а не слепым retry всей sequence.
+
+---
+
+# 10. Scheduler invariant
+
+Scheduler:
+
+- только определяет due work;
+- не является альтернативным publisher;
+- не обходит revision/preflight/claim;
+- уважает maintenance gate;
+- использует durable SQLite state.
+
+QUEUE:
+
+```text
+status=READY
+schedule_mode=QUEUE
+```
+
+Новый код не устанавливает `status=QUEUED`.
+
+Schedule slots сохраняют UNIQUE `(project_id, weekday, time_hhmm, timezone)`.
+
+---
+
+# 11. Timezone rules
+
+Новый AT content хранит:
+
+```text
+scheduled_at_utc
+schedule_timezone (IANA)
+```
+
+Нельзя хранить ambiguous «локальную строку» без timezone.
+
+DST nonexistent time блокируется.
+
+DST ambiguous time требует явного выбора offset/occurrence.
+
+Calendar не вводит собственную независимую временную модель.
+
+---
+
+# 12. DB / migrations
+
+Текущая V1 schema = 3.
+
+Нельзя делать один giant vNext migration.
+
+Schema растёт milestones:
+
+```text
+M1 identity/versioning/revisions
+M2 rich text/renditions/templates
+M3 rich media/publication units
+M4 integrations/connectors
+```
+
+Каждый transition:
+
+- deterministic;
+- tested from exact previous schema;
+- сохраняет старые posts/events/targets;
+- выставляет `PRAGMA user_version` только после успешной migration;
+- newer DB blocks older binary;
+- имеет backup/migrate/restore regression.
+
+Нельзя удалять/пересоздавать historical publication data ради упрощения migration.
+
+---
+
+# 13. Ingestion security
+
+## ZIP
+
+До extraction/apply обязательны:
+
+- path traversal rejection;
+- absolute path rejection;
+- symlink/device rejection;
+- file count limit;
+- compressed/expanded size limits;
+- compression ratio limit;
+- MIME sniffing;
+- filename normalization;
+- temp cleanup.
+
+## Remote URL
+
+Connector не является unrestricted proxy.
+
+Обязательно:
+
+- HTTPS by default;
+- DNS/IP validation;
+- block localhost/private/link-local/metadata/reserved ranges;
+- validate every redirect;
+- limit redirects;
+- stream size limit;
+- timeout;
+- MIME verification.
+
+Нельзя разрешать `file://`, arbitrary internal URL или cloud metadata endpoint.
+
+---
+
+# 14. Rich text security
+
+Canonical text = validated AST allowlist.
+
+Запрещено сохранять и напрямую рендерить arbitrary HTML.
+
+Links проходят protocol/URL validation.
+
+Preview renderer escape-ит output.
+
+Platform compilers сами экранируют platform markup.
+
+CSV/XLSX export защищается от formula injection.
+
+---
+
+# 15. Integration API keys
+
+External agent key:
+
+- random >=256-bit;
+- показывается полностью один раз;
+- в DB хранится hash, не plaintext;
+- имеет prefix/display name/scopes;
+- revoke/rotate;
+- rate limit;
+- audit.
+
+External API default permission — DRAFT creation, не direct publish.
+
+---
+
+# 16. Connector credentials
+
+Google/Yandex OAuth tokens и подобные reusable secrets:
+
+- encrypt AES-256-GCM;
+- APP_MASTER_KEY;
+- minimum scopes;
+- не логировать;
+- не отдавать назад в UI;
+- revoke/reconnect workflow.
+
+---
+
+# 17. Platform capability ownership
+
+Platform rules принадлежат adapter layer.
+
+UI получает capability/schema от backend.
+
+Нельзя хардкодить independent duplicate limits в frontend.
+
+Новую platform capability включать только после:
+
+1. актуальной official API verification;
+2. adapter regression;
+3. preflight test;
+4. live acceptance для stable capability.
+
+---
+
+# 18. Video scope discipline
+
+Первый video milestone:
+
+```text
+MP4 / H.264 / AAC-or-none
+ffprobe metadata
+ffmpeg poster
+```
+
+Другие codecs/container reject с понятной ошибкой.
+
+Не добавлять transcoding farm или автоматический arbitrary conversion без ADR.
+
+ffmpeg/ffprobe работают в том же production container.
+
+Обязательны upload/temp/processing limits и cleanup.
+
+---
+
+# 19. Google Sheets sync
+
+Google Sheets не master DB.
+
+Удаление row не удаляет post.
+
+Для mutation требуется явный `action`.
+
+UPDATE автоматически допускается только если local content не изменился после последнего import.
+
+Иначе `CONFLICT` и ручной выбор.
+
+Нельзя делать source-wins silent overwrite.
+
+---
+
+# 20. Content Plan compatibility
+
+`CONTENT_PLAN.md` schema 1 = V1 contract.
+
+vNext public import contract начинается сразу с schema 3.
+
+Публичную schema 2 не выпускать.
+
+Новые endpoints versioned `/api/content-plan/v3/...`.
+
+Старые endpoints не менять скрытно.
+
+---
+
+# 21. Backup / restore invariant
+
+Любая новая сущность должна переживать canonical full backup/restore.
+
+Нельзя считать feature DONE, если после restore потерялись:
+
+- revisions;
+- templates;
+- renditions;
+- source bindings;
+- integration key hashes;
+- publication units;
+- connector encrypted state.
+
+Temporary processing files в backup не входят.
+
+---
+
+# 22. Coding-agent экономичность
+
+Каждая задача должна быть минимальным завершённым vertical slice.
+
+Agent обязан:
+
+1. сначала читать relevant spec/issue;
+2. назвать изменяемые модули;
+3. не переписывать соседние подсистемы без необходимости;
+4. не добавлять новую инфраструктуру «на будущее»;
+5. переиспользовать существующий publisher/media/backup/runtime gate;
+6. писать focused regression до/вместе с implementation;
+7. обновлять документацию только там, где меняется контракт.
+
+Запрещены PR вида «рефакторинг всего проекта перед маленькой функцией».
+
+Предпочитать additive migration и узкий PR большому rewrite.
+
+---
+
+# 23. Module ownership
+
+- `src/platforms/*` — API/capability/error semantics платформ;
+- `src/publisher.ts` — orchestration/claim/retry/recovery;
+- `src/scheduler.ts` — due selection;
+- `src/http/*` — HTTP auth/validation/application entrypoints;
+- `src/db.ts` + migrations — persistence primitives;
+- `src/media.ts` — existing image pipeline;
+- `src/content/*` — vNext content/revisions/renditions;
+- `src/editorial/*` — lifecycle/templates;
+- `src/ingestion/*` — bulk/source import;
+- `src/integrations/*` — API keys/connectors;
+- `src/backups*` — canonical backup/restore.
+
+Platform API calls не должны появляться в calendar/importer/editor code.
+
+---
+
+# 24. CI
+
+Один workflow:
+
+```text
+.github/workflows/publikator-ci.yml
+Publikator CI / Acceptance
+```
+
+Большие scenarios — `scripts/*-e2e.*`.
+
+Новые milestones расширяют существующий Acceptance.
+
+Минимальные vNext regressions по мере появления функций:
+
+- content-version concurrency;
+- immutable publication revision;
+- preflight invalidation;
+- schema migration;
+- ZIP security;
+- SSRF;
+- rich text sanitization/compilers;
+- import idempotency/conflict;
+- timezone/DST;
+- story publication-unit recovery;
+- backup/restore.
+
+---
+
+# 25. Definition of Done
+
+Feature считается DONE только если:
+
+- backend contract реализован;
+- UI не имеет отдельной противоречащей бизнес-логики;
+- migration есть и протестирована;
+- concurrency path безопасен;
+- security path закрыт;
+- audit/diagnostics дают расследовать ошибку;
+- backup/restore сохраняет state;
+- focused regression в Acceptance;
+- docs/spec синхронизированы.
+
+`UI выглядит работающим` не является Definition of Done.
+
+---
+
+# 26. Merge discipline
+
+Перед merge любого feature PR:
 
 ```text
 Publikator CI / Acceptance = PASS
 ```
 
-Он должен включать как минимум:
+Не merge-ить одновременно несколько PR, меняющих одну и ту же schema/state machine без последовательной rebasing/validation.
 
-- exact `npm ci`;
-- strict TypeScript + build;
-- frontend syntax;
-- production dependency audit;
-- schema/migration tests;
-- HTTP + security tests;
-- concurrency test;
-- four platform adapter tests;
-- content-plan test;
-- backup/release-gate tests;
-- production Docker build identity;
-- full backup/restore restart smoke.
-
-Новый отдельный workflow для очередной функции **не добавлять**: добавляйте новый именованный step/script в существующий acceptance.
+Domain invariant меняется только отдельным ADR/spec update, а не скрытым code patch.
