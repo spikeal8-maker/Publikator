@@ -225,6 +225,8 @@ Acceptance:
 - edit vs publish не публикует stale mutable content;
 - READY invalidates after meaningful edit.
 
+Implementation scope: schema `4` is the state/versioning slice only. Ingestion/source identity stays in M0-003 instead of being mixed into this checkpoint.
+
 ## M0-003 — Import Contract Versioning
 
 Decision:

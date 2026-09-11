@@ -2,12 +2,14 @@ import type { FastifyInstance } from 'fastify';
 import { config } from '../config.js';
 import { createSessionToken, decryptJson, encryptJson, securePasswordEqual, verifySessionToken } from '../crypto.js';
 import { db, event, id, nowIso, type Platform } from '../db.js';
-import { deleteMedia, listMedia, saveImage } from '../media.js';
+import { deleteMediaVersioned, listMedia, saveImageVersioned } from '../media.js';
+import { commitContentEdit, markReadyRevision, snapshotContentRevision } from '../content-versioning.js';
+import { contentMutationError, expectedContentVersion } from './content-version.js';
 import {
   confirmRecoveryNotPublished,
   confirmRecoveryPublished,
   ensureTargets,
-  preflightPost,
+  preflightRevision,
   publishPost,
   retryFailedTarget,
   setTargetSelection
@@ -191,10 +193,19 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const title = body.title === undefined ? current.title : String(body.title).trim();
     const text = body.body === undefined ? current.body : String(body.body).trim();
     const mode = body.scheduleMode === undefined ? current.schedule_mode : String(body.scheduleMode);
+    if (!title || !text) return reply.code(400).send({ error: 'Заголовок и текст обязательны' });
     if (!['MANUAL','AT','QUEUE'].includes(mode)) return reply.code(400).send({ error: 'Неверный scheduleMode' });
     const scheduledAt = mode === 'AT' ? (body.scheduledAt ? new Date(body.scheduledAt).toISOString() : current.scheduled_at) : null;
-    db.prepare("UPDATE posts SET title=?,body=?,schedule_mode=?,scheduled_at=?,status='DRAFT',updated_at=? WHERE id=?").run(title, text, mode, scheduledAt, nowIso(), params.id);
-    return { ok: true };
+    try {
+      const version = expectedContentVersion(request, body);
+      const committed = commitContentEdit(params.id, version, () => {
+        db.prepare('UPDATE posts SET title=?,body=?,schedule_mode=?,scheduled_at=?,updated_at=? WHERE id=?')
+          .run(title, text, mode, scheduledAt, nowIso(), params.id);
+      });
+      return { ok: true, contentVersion: committed.contentVersion, post: postView(db.prepare('SELECT * FROM posts WHERE id=?').get(params.id)) };
+    } catch (error) {
+      return contentMutationError(reply, error);
+    }
   });
 
   app.put('/api/posts/:id/targets', async (request, reply) => {
@@ -204,9 +215,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (IMMUTABLE_POST_STATUSES.has(post.status)) return reply.code(409).send({ error: 'Нельзя менять площадки после начала публикации' });
     const body = bodyObject(request.body);
     if (!Array.isArray(body.accountIds) || body.accountIds.some((value: unknown) => typeof value !== 'string')) return reply.code(400).send({ error: 'accountIds должен быть массивом строк' });
-    setTargetSelection(params.id, body.accountIds as string[]);
-    db.prepare("UPDATE posts SET status='DRAFT',updated_at=? WHERE id=?").run(nowIso(), params.id);
-    return { ok: true, targets: (postView(db.prepare('SELECT * FROM posts WHERE id=?').get(params.id)) as any).targets };
+    try {
+      const version = expectedContentVersion(request, body);
+      const committed = commitContentEdit(params.id, version, () => setTargetSelection(params.id, body.accountIds as string[]));
+      return { ok: true, contentVersion: committed.contentVersion, targets: (postView(db.prepare('SELECT * FROM posts WHERE id=?').get(params.id)) as any).targets };
+    } catch (error) {
+      return contentMutationError(reply, error);
+    }
   });
 
   app.post('/api/posts/:id/media', async (request, reply) => {
@@ -219,11 +234,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (!part.mimetype.startsWith('image/')) return reply.code(400).send({ error: 'Допускаются только изображения' });
     const buffer = await part.toBuffer();
     try {
-      const saved = await saveImage(params.id, part.filename, buffer);
-      db.prepare("UPDATE posts SET status='DRAFT',updated_at=? WHERE id=?").run(nowIso(), params.id);
-      return reply.code(201).send(saved);
+      const version = expectedContentVersion(request);
+      const saved = await saveImageVersioned(params.id, part.filename, buffer, version);
+      return reply.code(201).send({ ...saved.media, contentVersion: saved.contentVersion });
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return contentMutationError(reply, error);
     }
   });
   app.delete('/api/media/:id', async (request, reply) => {
@@ -231,9 +246,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const row = db.prepare('SELECT m.post_id,p.status FROM media m JOIN posts p ON p.id=m.post_id WHERE m.id=?').get(params.id) as { post_id: string; status: string } | undefined;
     if (!row) return reply.code(404).send({ error: 'Медиа не найдено' });
     if (IMMUTABLE_POST_STATUSES.has(row.status)) return reply.code(409).send({ error: 'Нельзя менять медиа после начала публикации' });
-    await deleteMedia(params.id);
-    db.prepare("UPDATE posts SET status='DRAFT',updated_at=? WHERE id=?").run(nowIso(), row.post_id);
-    return { ok: true };
+    try {
+      const version = expectedContentVersion(request);
+      const deleted = await deleteMediaVersioned(params.id, version);
+      return { ok: true, contentVersion: deleted.contentVersion };
+    } catch (error) {
+      return contentMutationError(reply, error);
+    }
   });
 
   app.post('/api/posts/:id/ready', async (request, reply) => {
@@ -247,16 +266,23 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const accountCount = db.prepare("SELECT COUNT(*) AS count FROM post_targets pt JOIN social_accounts a ON a.id=pt.account_id WHERE pt.post_id=? AND pt.enabled=1 AND a.enabled=1").get(params.id) as { count: number };
     if (accountCount.count < 1) return reply.code(409).send({ error: 'Не выбрана ни одна активная соцсеть' });
 
-    const preflight = preflightPost(params.id);
-    if (!preflight.ok) {
-      const details = preflight.issues.map((issue) => `${issue.platform} / ${issue.accountName}: ${issue.message}`).join('\n');
-      event({ postId: params.id, level: 'warning', type: 'post_preflight_failed', message: 'Пост не прошёл проверку перед READY', data: { issues: preflight.issues } });
-      return reply.code(409).send({ error: `Пост не готов к публикации:\n${details}`, issues: preflight.issues });
+    try {
+      let body: Record<string, any> = {};
+      if (request.body !== undefined && request.body !== null) body = bodyObject(request.body);
+      const version = expectedContentVersion(request, body);
+      const revision = snapshotContentRevision(params.id, version, 'manual-ready');
+      const preflight = preflightRevision(revision.id);
+      if (!preflight.ok) {
+        const details = preflight.issues.map((issue) => `${issue.platform} / ${issue.accountName}: ${issue.message}`).join('\n');
+        event({ postId: params.id, level: 'warning', type: 'post_preflight_failed', message: 'Пост не прошёл проверку перед READY', data: { revisionId: revision.id, issues: preflight.issues } });
+        return reply.code(409).send({ error: `Пост не готов к публикации:\n${details}`, issues: preflight.issues });
+      }
+      markReadyRevision(params.id, version, revision.id);
+      event({ postId: params.id, type: 'post_ready', message: 'Пост готов к публикации', data: { revisionId: revision.id, contentVersion: version } });
+      return { ok: true, contentVersion: version, revisionId: revision.id };
+    } catch (error) {
+      return contentMutationError(reply, error);
     }
-
-    db.prepare("UPDATE posts SET status='READY',updated_at=? WHERE id=?").run(nowIso(), params.id);
-    event({ postId: params.id, type: 'post_ready', message: 'Пост готов к публикации' });
-    return { ok: true };
   });
   app.post('/api/posts/:id/publish-now', async (request, reply) => {
     const params = request.params as { id: string };

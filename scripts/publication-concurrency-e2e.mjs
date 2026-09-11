@@ -16,6 +16,7 @@ const { db, migrate, id, nowIso } = await import('../dist/db.js');
 const { encryptJson } = await import('../dist/crypto.js');
 const { saveImage } = await import('../dist/media.js');
 const { ensureTargets, setTargetSelection, publishPost, publishTarget } = await import('../dist/publisher.js');
+const { snapshotContentRevision, markReadyRevision } = await import('../dist/content-versioning.js');
 const { setPublisherForTests } = await import('../dist/platforms/index.js');
 
 migrate();
@@ -79,6 +80,8 @@ async function createReadyPost(title) {
   ensureTargets(postId);
   setTargetSelection(postId, [accountId]);
   await saveImage(postId, 'image.jpg', image);
+  const revision = snapshotContentRevision(postId, 1, 'publication-concurrency-test');
+  markReadyRevision(postId, 1, revision.id);
   return postId;
 }
 
@@ -122,6 +125,7 @@ try {
   {
     const postId = await createReadyPost('Concurrent publishTarget');
     const targetId = targetFor(postId).id;
+    db.prepare("UPDATE posts SET status='PUBLISHING' WHERE id=?").run(postId);
     const before = publishCalls;
     const gate = controlledGate();
 

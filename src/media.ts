@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import sharp from 'sharp';
 import { config } from './config.js';
 import { db, id, nowIso } from './db.js';
+import { assertContentVersion, commitContentEdit } from './content-versioning.js';
 
 const MAX_IMAGE_BYTES = 50 * 1024 * 1024;
 const MAX_IMAGE_DIMENSION = 7680;
@@ -22,12 +23,15 @@ export type MediaRow = {
   sort_order: number;
 };
 
-export async function saveImage(postId: string, originalName: string, input: Buffer): Promise<MediaRow> {
-  if (input.byteLength > MAX_IMAGE_BYTES) throw new Error('Изображение больше 50 МБ');
+type PreparedImage = {
+  data: Buffer;
+  width: number;
+  height: number;
+  sha256: string;
+};
 
-  let normalized: Buffer;
-  let width: number | null = null;
-  let height: number | null = null;
+async function prepareImage(input: Buffer): Promise<PreparedImage> {
+  if (input.byteLength > MAX_IMAGE_BYTES) throw new Error('Изображение больше 50 МБ');
   try {
     const source = sharp(input, { failOn: 'error' }).rotate();
     const sourceMetadata = await source.metadata();
@@ -35,49 +39,89 @@ export async function saveImage(postId: string, originalName: string, input: Buf
     if (sourceMetadata.width > MAX_IMAGE_DIMENSION || sourceMetadata.height > MAX_IMAGE_DIMENSION) {
       throw new Error(`Изображение превышает ${MAX_IMAGE_DIMENSION}×${MAX_IMAGE_DIMENSION}`);
     }
-    const result = await source
-      .flatten({ background: '#ffffff' })
-      .jpeg({ quality: 92, mozjpeg: true })
+    const result = await source.flatten({ background: '#ffffff' }).jpeg({ quality: 92, mozjpeg: true })
       .toBuffer({ resolveWithObject: true });
-    normalized = result.data;
-    width = result.info.width;
-    height = result.info.height;
+    if (result.data.byteLength > MAX_IMAGE_BYTES) throw new Error('Нормализованное изображение больше 50 МБ');
+    if (!result.info.width || !result.info.height || result.info.width > MAX_IMAGE_DIMENSION || result.info.height > MAX_IMAGE_DIMENSION) {
+      throw new Error(`Изображение превышает ${MAX_IMAGE_DIMENSION}×${MAX_IMAGE_DIMENSION}`);
+    }
+    return {
+      data: result.data,
+      width: result.info.width,
+      height: result.info.height,
+      sha256: crypto.createHash('sha256').update(result.data).digest('hex')
+    };
   } catch (error) {
-    if (error instanceof Error && (error.message.includes('превышает') || error.message.includes('корректным изображением'))) throw error;
+    if (error instanceof Error && (error.message.includes('превышает') || error.message.includes('корректным изображением') || error.message.includes('50 МБ'))) throw error;
     throw new Error(`Не удалось обработать изображение: ${error instanceof Error ? error.message : String(error)}`);
   }
+}
 
-  if (normalized.byteLength > MAX_IMAGE_BYTES) throw new Error('Нормализованное изображение больше 50 МБ');
-  if (!width || !height || width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION) {
-    throw new Error(`Изображение превышает ${MAX_IMAGE_DIMENSION}×${MAX_IMAGE_DIMENSION}`);
-  }
-
-  const sha256 = crypto.createHash('sha256').update(normalized).digest('hex');
-  const duplicate = db.prepare('SELECT * FROM media WHERE post_id=? AND sha256=? ORDER BY sort_order,created_at LIMIT 1')
+function duplicateMedia(postId: string, sha256: string): MediaRow | undefined {
+  return db.prepare('SELECT * FROM media WHERE post_id=? AND sha256=? ORDER BY sort_order,created_at LIMIT 1')
     .get(postId, sha256) as MediaRow | undefined;
-  if (duplicate) return duplicate;
+}
 
-  const mediaId = id('med');
+function insertPreparedImage(postId: string, originalName: string, prepared: PreparedImage, mediaId: string): MediaRow {
+  const duplicate = duplicateMedia(postId, prepared.sha256);
+  if (duplicate) return duplicate;
+  const relativePath = path.posix.join(postId, `${mediaId}.jpg`);
+  const nextOrder = (db.prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM media WHERE post_id=?')
+    .get(postId) as { next_order: number }).next_order;
+  const createdAt = nowIso();
+  db.prepare(`INSERT INTO media
+    (id,post_id,original_name,relative_path,mime_type,size_bytes,width,height,sha256,created_at,sort_order)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(mediaId, postId, originalName, relativePath, 'image/jpeg', prepared.data.byteLength, prepared.width, prepared.height, prepared.sha256, createdAt, nextOrder);
+  return db.prepare('SELECT * FROM media WHERE id=?').get(mediaId) as MediaRow;
+}
+
+async function writePreparedFile(postId: string, mediaId: string, prepared: PreparedImage): Promise<string> {
   const postDir = path.join(config.mediaDir, postId);
   await fs.mkdir(postDir, { recursive: true });
   const relativePath = path.posix.join(postId, `${mediaId}.jpg`);
   const absolutePath = path.join(config.mediaDir, relativePath);
-  const nextOrder = (db.prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM media WHERE post_id=?')
-    .get(postId) as { next_order: number }).next_order;
-  const createdAt = nowIso();
+  await fs.writeFile(absolutePath, prepared.data);
+  return absolutePath;
+}
 
-  await fs.writeFile(absolutePath, normalized);
+export async function saveImage(postId: string, originalName: string, input: Buffer): Promise<MediaRow> {
+  const prepared = await prepareImage(input);
+  const duplicate = duplicateMedia(postId, prepared.sha256);
+  if (duplicate) return duplicate;
+  const mediaId = id('med');
+  const absolutePath = await writePreparedFile(postId, mediaId, prepared);
   try {
-    db.prepare(`INSERT INTO media
-      (id,post_id,original_name,relative_path,mime_type,size_bytes,width,height,sha256,created_at,sort_order)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
-      .run(mediaId, postId, originalName, relativePath, 'image/jpeg', normalized.byteLength, width, height, sha256, createdAt, nextOrder);
+    const saved = db.transaction(() => insertPreparedImage(postId, originalName, prepared, mediaId))();
+    if (saved.id !== mediaId) await fs.unlink(absolutePath).catch(() => undefined);
+    return saved;
   } catch (error) {
     await fs.unlink(absolutePath).catch(() => undefined);
     throw error;
   }
+}
 
-  return db.prepare('SELECT * FROM media WHERE id=?').get(mediaId) as MediaRow;
+export async function saveImageVersioned(
+  postId: string, originalName: string, input: Buffer, expectedContentVersion: number
+): Promise<{ media: MediaRow; contentVersion: number }> {
+  assertContentVersion(postId, expectedContentVersion);
+  const prepared = await prepareImage(input);
+  const duplicate = duplicateMedia(postId, prepared.sha256);
+  if (duplicate) {
+    assertContentVersion(postId, expectedContentVersion);
+    return { media: duplicate, contentVersion: expectedContentVersion };
+  }
+  const mediaId = id('med');
+  const absolutePath = await writePreparedFile(postId, mediaId, prepared);
+  try {
+    const committed = commitContentEdit(postId, expectedContentVersion, () =>
+      insertPreparedImage(postId, originalName, prepared, mediaId));
+    if (committed.value.id !== mediaId) await fs.unlink(absolutePath).catch(() => undefined);
+    return { media: committed.value, contentVersion: committed.contentVersion };
+  } catch (error) {
+    await fs.unlink(absolutePath).catch(() => undefined);
+    throw error;
+  }
 }
 
 export function listMedia(postId: string): MediaRow[] {
@@ -106,6 +150,20 @@ export function mediaAbsolutePath(media: MediaRow): string {
 export function mediaPublicUrl(media: MediaRow): string {
   if (!config.publicBaseUrl) throw new Error('PUBLIC_BASE_URL не настроен');
   return `${config.publicBaseUrl}/public-media/${media.relative_path.split('/').map(encodeURIComponent).join('/')}`;
+}
+
+export async function deleteMediaVersioned(mediaId: string, expectedContentVersion: number): Promise<{ postId: string; contentVersion: number }> {
+  const media = db.prepare('SELECT * FROM media WHERE id=?').get(mediaId) as MediaRow | undefined;
+  if (!media) throw new Error('Медиа не найдено');
+  const committed = commitContentEdit(media.post_id, expectedContentVersion, () => {
+    db.prepare('DELETE FROM media WHERE id=?').run(mediaId);
+    const rest = listMedia(media.post_id);
+    const update = db.prepare('UPDATE media SET sort_order=? WHERE id=?');
+    rest.forEach((row, index) => update.run(index, row.id));
+    return media;
+  });
+  await fs.unlink(mediaAbsolutePath(media)).catch(() => undefined);
+  return { postId: media.post_id, contentVersion: committed.contentVersion };
 }
 
 export async function deleteMedia(mediaId: string): Promise<void> {

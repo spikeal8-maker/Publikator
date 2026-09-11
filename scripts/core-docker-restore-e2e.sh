@@ -47,6 +47,10 @@ login() {
 
 wait_for_health
 login
+post_version() {
+  curl -fsS -b "$COOKIE_FILE" "http://127.0.0.1:${PORT}/api/posts/$1" | jq -er '.content_version'
+}
+
 PROJECT_ID="$(curl -fsS -b "$COOKIE_FILE" "http://127.0.0.1:${PORT}/api/projects" | jq -er '.[0].id')"
 
 OLD_POST_ID="$(curl -fsS -b "$COOKIE_FILE" \
@@ -69,8 +73,9 @@ POST_ID="$(curl -fsS -b "$COOKIE_FILE" \
   "http://127.0.0.1:${PORT}/api/posts" | jq -er '.id')"
 TARGET_ID="$(curl -fsS -b "$COOKIE_FILE" "http://127.0.0.1:${PORT}/api/posts/${POST_ID}" | jq -er '.targets[] | select(.platform == "telegram") | .id')"
 
+POST_VERSION="$(post_version "$POST_ID")"
 curl -fsS -b "$COOKIE_FILE" -X PATCH \
-  -H 'content-type: application/json' \
+  -H 'content-type: application/json' -H "x-content-version: $POST_VERSION" \
   -d '{"text":"Telegram CI override"}' \
   "http://127.0.0.1:${PORT}/api/posts/${POST_ID}/targets/${TARGET_ID}/text" | \
   jq -e '.ok == true and .target.overrideText == "Telegram CI override"' >/dev/null
@@ -82,17 +87,22 @@ await sharp({create:{width:32,height:16,channels:3,background:{r:0,g:0,b:0}}}).p
 await sharp({create:{width:24,height:24,channels:3,background:{r:255,g:200,b:0}}}).png().toFile('/tmp/publikator-yellow.png');
 NODE
 
-MEDIA_1="$(curl -fsS -b "$COOKIE_FILE" -F 'file=@/tmp/publikator-white.png;type=image/png' "http://127.0.0.1:${PORT}/api/posts/${POST_ID}/media" | jq -er '.id')"
-MEDIA_2="$(curl -fsS -b "$COOKIE_FILE" -F 'file=@/tmp/publikator-black.png;type=image/png' "http://127.0.0.1:${PORT}/api/posts/${POST_ID}/media" | jq -er '.id')"
-DUPLICATE_ID="$(curl -fsS -b "$COOKIE_FILE" -F 'file=@/tmp/publikator-white.png;type=image/png' "http://127.0.0.1:${PORT}/api/posts/${POST_ID}/media" | jq -er '.id')"
+POST_VERSION="$(post_version "$POST_ID")"
+MEDIA_1="$(curl -fsS -b "$COOKIE_FILE" -H "x-content-version: $POST_VERSION" -F 'file=@/tmp/publikator-white.png;type=image/png' "http://127.0.0.1:${PORT}/api/posts/${POST_ID}/media" | jq -er '.id')"
+POST_VERSION="$(post_version "$POST_ID")"
+MEDIA_2="$(curl -fsS -b "$COOKIE_FILE" -H "x-content-version: $POST_VERSION" -F 'file=@/tmp/publikator-black.png;type=image/png' "http://127.0.0.1:${PORT}/api/posts/${POST_ID}/media" | jq -er '.id')"
+POST_VERSION="$(post_version "$POST_ID")"
+DUPLICATE_ID="$(curl -fsS -b "$COOKIE_FILE" -H "x-content-version: $POST_VERSION" -F 'file=@/tmp/publikator-white.png;type=image/png' "http://127.0.0.1:${PORT}/api/posts/${POST_ID}/media" | jq -er '.id')"
 test "$DUPLICATE_ID" = "$MEDIA_1"
 
-curl -fsS -b "$COOKIE_FILE" -X PUT -H 'content-type: application/json' \
+POST_VERSION="$(post_version "$POST_ID")"
+curl -fsS -b "$COOKIE_FILE" -X PUT -H 'content-type: application/json' -H "x-content-version: $POST_VERSION" \
   --data-binary "$(jq -nc --arg a "$MEDIA_2" --arg b "$MEDIA_1" '{mediaIds:[$a,$b]}')" \
   "http://127.0.0.1:${PORT}/api/posts/${POST_ID}/media-order" | \
   jq -e --arg first "$MEDIA_2" '.ok == true and .media[0].id == $first' >/dev/null
 
-curl -fsS -b "$COOKIE_FILE" -X POST "http://127.0.0.1:${PORT}/api/posts/${POST_ID}/ready" | jq -e '.ok == true' >/dev/null
+POST_VERSION="$(post_version "$POST_ID")"
+curl -fsS -b "$COOKIE_FILE" -X POST -H 'content-type: application/json' -H "x-content-version: $POST_VERSION" -d '{}' "http://127.0.0.1:${PORT}/api/posts/${POST_ID}/ready" | jq -e '.ok == true' >/dev/null
 
 BUNDLE_NAME="$(curl -fsS -b "$COOKIE_FILE" -H 'content-type: application/json' -d '{"label":"acceptance"}' \
   "http://127.0.0.1:${PORT}/api/backup-bundles" | jq -er 'select(.sizeBytes > 0) | .name')"
@@ -100,7 +110,7 @@ curl -fsS -b "$COOKIE_FILE" "http://127.0.0.1:${PORT}/api/backup-bundles/${BUNDL
 test -s /tmp/publikator-full.tgz
 mkdir -p /tmp/publikator-bundle-check
 tar -xzf /tmp/publikator-full.tgz -C /tmp/publikator-bundle-check
-jq -e '.format == "publikator-backup" and .formatVersion == 1 and .schemaVersion == 3 and .counts.media == 2 and (.mediaFiles | length) == 2' \
+jq -e '.format == "publikator-backup" and .formatVersion == 1 and .schemaVersion == 4 and .counts.media == 2 and (.mediaFiles | length) == 2' \
   /tmp/publikator-bundle-check/manifest.json >/dev/null
 ! grep -F "$MASTER_KEY" /tmp/publikator-bundle-check/manifest.json
 
@@ -120,7 +130,8 @@ EXTRA_PROJECT_ID="$(curl -fsS -b "$COOKIE_FILE" -H 'content-type: application/js
 EXTRA_POST_ID="$(curl -fsS -b "$COOKIE_FILE" -H 'content-type: application/json' \
   --data-binary "$(jq -nc --arg projectId "$EXTRA_PROJECT_ID" '{projectId:$projectId,title:"Must disappear after restore",body:"Created after backup",scheduleMode:"MANUAL"}')" \
   "http://127.0.0.1:${PORT}/api/posts" | jq -er '.id')"
-EXTRA_MEDIA_PATH="$(curl -fsS -b "$COOKIE_FILE" -F 'file=@/tmp/publikator-yellow.png;type=image/png' \
+EXTRA_VERSION="$(post_version "$EXTRA_POST_ID")"
+EXTRA_MEDIA_PATH="$(curl -fsS -b "$COOKIE_FILE" -H "x-content-version: $EXTRA_VERSION" -F 'file=@/tmp/publikator-yellow.png;type=image/png' \
   "http://127.0.0.1:${PORT}/api/posts/${EXTRA_POST_ID}/media" | jq -er '.relative_path')"
 curl -fsS "http://127.0.0.1:${PORT}/public-media/${EXTRA_MEDIA_PATH}" -o /dev/null
 
@@ -156,7 +167,7 @@ EXTRA_MEDIA_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:
 test "$EXTRA_MEDIA_STATUS" = "404"
 
 curl -fsS -b "$COOKIE_FILE" "http://127.0.0.1:${PORT}/api/posts/${POST_ID}" | \
-  jq -e --arg first "$MEDIA_2" '.status == "READY" and (.media | length) == 2 and .media[0].id == $first and any(.targets[]; .platform == "telegram" and .enabled == 1 and .override_text == "Telegram CI override")' >/dev/null
+  jq -e --arg first "$MEDIA_2" '.status == "READY" and .content_version >= 1 and (.ready_revision_id != null) and (.media | length) == 2 and .media[0].id == $first and any(.targets[]; .platform == "telegram" and .enabled == 1 and .override_text == "Telegram CI override")' >/dev/null
 curl -fsS -b "$COOKIE_FILE" "http://127.0.0.1:${PORT}/api/backup-bundles" | jq -e 'any(.[]; .name | contains("pre-restore"))' >/dev/null
 
-echo '{"ok":true,"productionDocker":true,"fullBackupRestore":true,"schemaVersion":3}'
+echo '{"ok":true,"productionDocker":true,"fullBackupRestore":true,"schemaVersion":4}'

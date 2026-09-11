@@ -79,6 +79,20 @@ lightweight provenance on current post/import path
 `IngestionSource`, normalized `SourceBinding`, `ImportBatch` tables and `IntegrationApiKey` persistence are canonical entities, but their normalized M4 persistence must not be implemented inside M1 unless a later accepted ADR explicitly moves them.
 
 This keeps schema evolution additive and avoids one giant Pipeline/Experience/Editorial migration.
+
+### M0-002 implementation slice
+
+M0-002 implements the state/versioning portion of M1 as SQLite schema `4`:
+
+- `editorial_stage`;
+- `content_version`;
+- `ready_revision_id`;
+- immutable `content_revisions` snapshots;
+- optimistic mutation concurrency;
+- revision-bound publication claim.
+
+Lightweight ingestion provenance remains deliberately deferred to M0-003, where source identity/idempotency semantics are defined. This is a sequencing decision, not a second domain model.
+
 ## Legacy V1 image-post mapping
 
 Migration from current schema 3 is deterministic.

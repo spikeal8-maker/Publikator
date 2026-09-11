@@ -30,6 +30,7 @@ const { setPublisherForTests } = await import('../dist/platforms/index.js');
 const { schedulerTick, schedulerStatus } = await import('../dist/scheduler.js');
 const { retentionStatus } = await import('../dist/retention.js');
 const { collectDiagnostics } = await import('../dist/diagnostics.js');
+const { snapshotContentRevision, markReadyRevision } = await import('../dist/content-versioning.js');
 
 migrate();
 
@@ -95,6 +96,10 @@ async function createPost({ title, body = 'Mock body', scheduleMode = 'MANUAL', 
   ensureTargets(postId);
   setTargetSelection(postId, [accountId]);
   await saveImage(postId, `${title.replace(/[^a-z0-9]+/gi, '-').toLowerCase() || 'image'}.png`, image);
+  if (status === 'READY') {
+    const revision = snapshotContentRevision(postId, 1, 'v07-mock-test');
+    markReadyRevision(postId, 1, revision.id);
+  }
   return postId;
 }
 

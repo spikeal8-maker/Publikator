@@ -17,6 +17,7 @@ db.pragma('busy_timeout = 5000');
 
 export type Platform = 'telegram' | 'vk' | 'max' | 'instagram';
 export type PostStatus = 'DRAFT' | 'READY' | 'QUEUED' | 'PUBLISHING' | 'PARTIAL' | 'PUBLISHED' | 'FAILED';
+export type EditorialStage = 'IDEA' | 'DRAFT' | 'IN_REVIEW' | 'APPROVED' | 'ARCHIVED' | 'TRASHED';
 export type TargetState = 'PENDING' | 'PUBLISHING' | 'PUBLISHED' | 'RETRY' | 'FAILED' | 'RECOVERY_NEEDED';
 
 export function nowIso(): string {
@@ -83,6 +84,74 @@ function migrateUniqueScheduleSlots(): void {
   })();
 }
 
+
+function migrateContentVersioning(): void {
+  const columns = new Set((db.prepare('PRAGMA table_info(posts)').all() as Array<{ name: string }>).map((column) => column.name));
+  if (!columns.has('editorial_stage')) {
+    db.exec("ALTER TABLE posts ADD COLUMN editorial_stage TEXT NOT NULL DEFAULT 'DRAFT' CHECK(editorial_stage IN ('IDEA','DRAFT','IN_REVIEW','APPROVED','ARCHIVED','TRASHED'))");
+  }
+  if (!columns.has('content_version')) {
+    db.exec('ALTER TABLE posts ADD COLUMN content_version INTEGER NOT NULL DEFAULT 1 CHECK(content_version >= 1)');
+  }
+  if (!columns.has('ready_revision_id')) {
+    db.exec('ALTER TABLE posts ADD COLUMN ready_revision_id TEXT');
+  }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS content_revisions (
+      id TEXT PRIMARY KEY,
+      post_id TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+      content_version INTEGER NOT NULL CHECK(content_version >= 1),
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      schedule_mode TEXT NOT NULL CHECK(schedule_mode IN ('MANUAL','AT','QUEUE')),
+      scheduled_at TEXT,
+      targets_json TEXT NOT NULL,
+      media_json TEXT NOT NULL,
+      actor_source TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(post_id, content_version)
+    )
+  `);
+
+  db.prepare("UPDATE posts SET status='READY' WHERE status='QUEUED' AND schedule_mode='QUEUE'").run();
+  db.prepare(`UPDATE posts SET editorial_stage=CASE
+      WHEN status IN ('READY','PUBLISHED') THEN 'APPROVED'
+      ELSE 'DRAFT' END,
+      content_version=CASE WHEN content_version < 1 THEN 1 ELSE content_version END`).run();
+
+  const snapshotPosts = db.prepare(`SELECT id,title,body,schedule_mode,scheduled_at,content_version
+    FROM posts WHERE status IN ('READY','PUBLISHED','PARTIAL','PUBLISHING') AND ready_revision_id IS NULL ORDER BY created_at,id`).all() as Array<{
+      id: string; title: string; body: string; schedule_mode: string; scheduled_at: string | null; content_version: number;
+    }>;
+  const targets = db.prepare(`SELECT id AS targetId,account_id AS accountId,enabled,override_text AS overrideText
+    FROM post_targets WHERE post_id=? ORDER BY rowid`);
+  const media = db.prepare('SELECT * FROM media WHERE post_id=? ORDER BY sort_order,created_at');
+  const insertRevision = db.prepare(`INSERT OR IGNORE INTO content_revisions
+    (id,post_id,content_version,title,body,schedule_mode,scheduled_at,targets_json,media_json,actor_source,created_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)`);
+  const setReadyRevision = db.prepare('UPDATE posts SET ready_revision_id=? WHERE id=? AND ready_revision_id IS NULL');
+
+  db.transaction(() => {
+    for (const post of snapshotPosts) {
+      const revisionId = id('rev');
+      const targetSnapshot = (targets.all(post.id) as Array<{ targetId: string; accountId: string; enabled: number; overrideText: string | null }>).map((target) => ({
+        targetId: target.targetId,
+        accountId: target.accountId,
+        enabled: Boolean(target.enabled),
+        overrideText: target.overrideText
+      }));
+      const mediaSnapshot = media.all(post.id);
+      insertRevision.run(
+        revisionId, post.id, post.content_version, post.title, post.body, post.schedule_mode, post.scheduled_at,
+        JSON.stringify(targetSnapshot), JSON.stringify(mediaSnapshot), 'migration-v3-v4', nowIso()
+      );
+      const stored = db.prepare('SELECT id FROM content_revisions WHERE post_id=? AND content_version=?')
+        .get(post.id, post.content_version) as { id: string };
+      setReadyRevision.run(stored.id, post.id);
+    }
+  })();
+}
 export function migrate(): void {
   const currentSchemaVersion = Number(db.pragma('user_version', { simple: true }) ?? 0);
   if (currentSchemaVersion > DATABASE_SCHEMA_VERSION) {
@@ -113,10 +182,28 @@ export function migrate(): void {
       title TEXT NOT NULL,
       body TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'DRAFT' CHECK(status IN ('DRAFT','READY','QUEUED','PUBLISHING','PARTIAL','PUBLISHED','FAILED')),
+      editorial_stage TEXT NOT NULL DEFAULT 'DRAFT' CHECK(editorial_stage IN ('IDEA','DRAFT','IN_REVIEW','APPROVED','ARCHIVED','TRASHED')),
       schedule_mode TEXT NOT NULL DEFAULT 'MANUAL' CHECK(schedule_mode IN ('MANUAL','AT','QUEUE')),
       scheduled_at TEXT,
+      content_version INTEGER NOT NULL DEFAULT 1 CHECK(content_version >= 1),
+      ready_revision_id TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS content_revisions (
+      id TEXT PRIMARY KEY,
+      post_id TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+      content_version INTEGER NOT NULL CHECK(content_version >= 1),
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      schedule_mode TEXT NOT NULL CHECK(schedule_mode IN ('MANUAL','AT','QUEUE')),
+      scheduled_at TEXT,
+      targets_json TEXT NOT NULL,
+      media_json TEXT NOT NULL,
+      actor_source TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(post_id, content_version)
     );
 
     CREATE TABLE IF NOT EXISTS media (
@@ -188,11 +275,13 @@ export function migrate(): void {
 
   migrateMediaOrder();
   migrateUniqueScheduleSlots();
+  if (currentSchemaVersion < 4) migrateContentVersioning();
 
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_posts_status_schedule ON posts(status, schedule_mode, scheduled_at);
     CREATE INDEX IF NOT EXISTS idx_targets_state_retry ON post_targets(state, next_attempt_at);
     CREATE INDEX IF NOT EXISTS idx_media_post ON media(post_id);
+    CREATE INDEX IF NOT EXISTS idx_content_revisions_post_version ON content_revisions(post_id, content_version);
     CREATE INDEX IF NOT EXISTS idx_media_post_order ON media(post_id, sort_order, created_at);
     CREATE INDEX IF NOT EXISTS idx_events_created ON publication_events(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_release_acceptance_version ON release_acceptance(target_version, platform);

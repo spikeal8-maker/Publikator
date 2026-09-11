@@ -1,5 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { db, nowIso } from '../db.js';
+import { commitContentEdit } from '../content-versioning.js';
+import { contentMutationError, expectedContentVersion } from './content-version.js';
 
 const IMMUTABLE_POST_STATUSES = new Set(['PUBLISHING', 'PUBLISHED', 'PARTIAL']);
 const MAX_OVERRIDE_LENGTH = 20_000;
@@ -48,16 +50,21 @@ export async function registerTargetOverrideRoutes(app: FastifyInstance): Promis
     const overrideText = normalized.length > 0 ? normalized : null;
     const now = nowIso();
 
-    const transaction = db.transaction(() => {
-      db.prepare('UPDATE post_targets SET override_text=?, updated_at=? WHERE id=?')
-        .run(overrideText, now, params.targetId);
-      db.prepare("UPDATE posts SET status='DRAFT', updated_at=? WHERE id=?")
-        .run(now, params.postId);
-    });
-    transaction();
+    let nextVersion: number;
+    try {
+      const version = expectedContentVersion(request, body);
+      const committed = commitContentEdit(params.postId, version, () => {
+        db.prepare('UPDATE post_targets SET override_text=?, updated_at=? WHERE id=?')
+          .run(overrideText, now, params.targetId);
+      });
+      nextVersion = committed.contentVersion;
+    } catch (error) {
+      return contentMutationError(reply, error);
+    }
 
     return {
       ok: true,
+      contentVersion: nextVersion,
       target: {
         id: row.id,
         accountId: row.account_id,

@@ -59,6 +59,12 @@ jobs:
       - name: Content domain M1 contract
         run: node scripts/content-domain-m1-e2e.mjs
 
+      - name: Schema v4 content versioning migration
+        run: node scripts/schema-v4-content-versioning-e2e.mjs
+
+      - name: Editorial state and immutable revision concurrency
+        run: node scripts/state-concurrency-m1-e2e.mjs
+
       - name: Publisher recovery and operations
         run: node scripts/v07-mock-e2e.mjs
 
@@ -146,7 +152,7 @@ jobs:
             if [ -n "$HEALTH" ]; then break; fi
             sleep 1
           done
-          jq -e --arg sha "$GITHUB_SHA" '.ok == true and .buildSha == $sha and .schemaVersion == 3' <<<"$HEALTH"
+          jq -e --arg sha "$GITHUB_SHA" '.ok == true and .buildSha == $sha and .schemaVersion == 4' <<<"$HEALTH"
 
       - name: Linux documented deployment launcher
         run: bash scripts/deploy-linux-e2e.sh

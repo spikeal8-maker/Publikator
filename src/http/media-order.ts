@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify';
-import { db, event, nowIso } from '../db.js';
+import { db, event } from '../db.js';
 import { reorderMedia } from '../media.js';
+import { commitContentEdit } from '../content-versioning.js';
+import { contentMutationError, expectedContentVersion } from './content-version.js';
 
 const IMMUTABLE_POST_STATUSES = new Set(['PUBLISHING', 'PARTIAL', 'PUBLISHED']);
 
@@ -29,12 +31,12 @@ export async function registerMediaOrderRoutes(app: FastifyInstance): Promise<vo
     }
 
     try {
-      const media = reorderMedia(params.postId, body.mediaIds as string[]);
-      db.prepare("UPDATE posts SET status='DRAFT',updated_at=? WHERE id=?").run(nowIso(), params.postId);
-      event({ postId: params.postId, type: 'media_reordered', message: 'Порядок изображений изменён', data: { mediaIds: body.mediaIds } });
-      return { ok: true, media };
+      const version = expectedContentVersion(request, body);
+      const committed = commitContentEdit(params.postId, version, () => reorderMedia(params.postId, body.mediaIds as string[]));
+      event({ postId: params.postId, type: 'media_reordered', message: 'Порядок изображений изменён', data: { mediaIds: body.mediaIds, contentVersion: committed.contentVersion } });
+      return { ok: true, contentVersion: committed.contentVersion, media: committed.value };
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return contentMutationError(reply, error);
     }
   });
 }

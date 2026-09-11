@@ -52,16 +52,19 @@ async function json(route, options = {}, expectedStatus = 200) {
   return payload;
 }
 
+async function postMutation(postId, route, options = {}, expectedStatus = 200) {
+  const current = await json(`/api/posts/${postId}`);
+  const headers = { ...(options.headers || {}), 'x-content-version': String(current.content_version) };
+  return json(route, { ...options, headers }, expectedStatus);
+}
+
 async function uploadImage(postId, name = 'http-e2e.png') {
   const bytes = await sharp({
     create: { width: 40, height: 30, channels: 3, background: { r: 120, g: 60, b: 200 } }
   }).png().toBuffer();
   const form = new FormData();
   form.set('file', new Blob([bytes], { type: 'image/png' }), name);
-  const response = await request(`/api/posts/${postId}/media`, { method: 'POST', body: form });
-  const payload = await response.json().catch(() => ({}));
-  assert.equal(response.status, 201, `media upload: ${JSON.stringify(payload)}`);
-  return payload;
+  return postMutation(postId, `/api/posts/${postId}/media`, { method: 'POST', body: form }, 201);
 }
 
 try {
@@ -105,7 +108,7 @@ try {
   }, 201);
   assert.equal(post.status, 'DRAFT');
 
-  await json(`/api/posts/${post.id}`, {
+  await postMutation(post.id, `/api/posts/${post.id}`, {
     method: 'PATCH',
     body: JSON.stringify({ title: 'HTTP edited', body: 'Edited body' })
   });
@@ -115,11 +118,11 @@ try {
 
   const media = await uploadImage(post.id);
   assert.ok(media.id);
-  await json(`/api/posts/${post.id}/targets`, {
+  await postMutation(post.id, `/api/posts/${post.id}/targets`, {
     method: 'PUT',
     body: JSON.stringify({ accountIds: [account.id] })
   });
-  await json(`/api/posts/${post.id}/ready`, { method: 'POST' });
+  await postMutation(post.id, `/api/posts/${post.id}/ready`, { method: 'POST' });
   mode = 'success';
   const beforePublish = calls;
   const published = await json(`/api/posts/${post.id}/publish-now`, { method: 'POST' });
@@ -127,7 +130,7 @@ try {
   assert.equal(published.post.status, 'PUBLISHED');
   assert.ok(published.post.targets.some((target) => target.account_id === account.id && target.state === 'PUBLISHED'));
 
-  const immutablePatch = await json(`/api/posts/${post.id}`, {
+  const immutablePatch = await postMutation(post.id, `/api/posts/${post.id}`, {
     method: 'PATCH',
     body: JSON.stringify({ title: 'Must fail' })
   }, 409);
@@ -143,11 +146,11 @@ try {
     })
   }, 201);
   await uploadImage(recoveryPost.id, 'recovery.png');
-  await json(`/api/posts/${recoveryPost.id}/targets`, {
+  await postMutation(recoveryPost.id, `/api/posts/${recoveryPost.id}/targets`, {
     method: 'PUT',
     body: JSON.stringify({ accountIds: [account.id] })
   });
-  await json(`/api/posts/${recoveryPost.id}/ready`, { method: 'POST' });
+  await postMutation(recoveryPost.id, `/api/posts/${recoveryPost.id}/ready`, { method: 'POST' });
   mode = 'unknown';
   const beforeUnknown = calls;
   const recoveryPublish = await json(`/api/posts/${recoveryPost.id}/publish-now`, { method: 'POST' });
@@ -181,11 +184,11 @@ try {
     })
   }, 201);
   await uploadImage(manualRecoveryPost.id, 'manual-recovery.png');
-  await json(`/api/posts/${manualRecoveryPost.id}/targets`, {
+  await postMutation(manualRecoveryPost.id, `/api/posts/${manualRecoveryPost.id}/targets`, {
     method: 'PUT',
     body: JSON.stringify({ accountIds: [account.id] })
   });
-  await json(`/api/posts/${manualRecoveryPost.id}/ready`, { method: 'POST' });
+  await postMutation(manualRecoveryPost.id, `/api/posts/${manualRecoveryPost.id}/ready`, { method: 'POST' });
   mode = 'unknown';
   const manualRecoveryPublish = await json(`/api/posts/${manualRecoveryPost.id}/publish-now`, { method: 'POST' });
   const manualRecoveryTarget = manualRecoveryPublish.post.targets.find((target) => target.account_id === account.id);
@@ -214,7 +217,7 @@ try {
     })
   }, 201);
   const removableMedia = await uploadImage(removablePost.id, 'remove-me.png');
-  await json(`/api/media/${removableMedia.id}`, { method: 'DELETE' });
+  await postMutation(removablePost.id, `/api/media/${removableMedia.id}`, { method: 'DELETE' });
   const removableAfter = await json(`/api/posts/${removablePost.id}`);
   assert.equal(removableAfter.media.length, 0);
 

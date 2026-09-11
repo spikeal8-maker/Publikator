@@ -1081,7 +1081,18 @@ Restore MUST:
 
 # 23. Migration strategy from schema 3
 
-Текущая schema version: `3`.
+Release line `release/1.0` / `v1.0.0-rc.4` остаётся на schema `3`.
+
+vNext `main` после M0-002 использует schema `4` как первый узкий M1 state/versioning slice:
+
+```text
+posts.editorial_stage
+posts.content_version
+posts.ready_revision_id
+content_revisions
+```
+
+Остальные M1 ingestion/provenance поля относятся к M0-003 и не должны затягиваться в M0-002.
 
 vNext schema изменения MUST выполняться additive/migratable этапами.
 
