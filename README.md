@@ -337,3 +337,33 @@ Publikator остаётся одним production-приложением. Доб
 - [`docs/SCHEDULER.md`](docs/SCHEDULER.md)
 - [`docs/DEPLOY_DOCKER.md`](docs/DEPLOY_DOCKER.md)
 - [`docs/LIVE_INTEGRATION_CHECKLIST.md`](docs/LIVE_INTEGRATION_CHECKLIST.md)
+
+
+## vNext development contract
+
+Authoritative technical specification for further product development: [`docs/VNEXT_TECHNICAL_SPEC.md`](docs/VNEXT_TECHNICAL_SPEC.md).
+
+Supporting product specifications:
+
+- [`docs/CONTENT_PIPELINE_V2.md`](docs/CONTENT_PIPELINE_V2.md)
+- [`docs/CONTENT_EXPERIENCE_V3.md`](docs/CONTENT_EXPERIENCE_V3.md)
+- [`docs/EDITORIAL_WORKFLOW_V4.md`](docs/EDITORIAL_WORKFLOW_V4.md)
+
+Release V1 is maintained separately in `release/1.0`; vNext development continues in `main`.
+
+
+### Show the generated administrator password
+
+Windows PowerShell:
+
+```powershell
+Get-Content .env | Select-String "^ADMIN_PASSWORD="
+```
+
+Linux:
+
+```bash
+grep '^ADMIN_PASSWORD=' .env
+```
+
+Do not publish `.env`; keep `APP_MASTER_KEY` separately and securely.
