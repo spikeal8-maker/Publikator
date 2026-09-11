@@ -59,6 +59,12 @@ jobs:
       - name: Content domain M1 contract
         run: node scripts/content-domain-m1-e2e.mjs
 
+      - name: Schema v4 content versioning migration
+        run: node scripts/schema-v4-content-versioning-e2e.mjs
+
+      - name: Editorial state and immutable revision concurrency
+        run: node scripts/state-concurrency-m1-e2e.mjs
+
       - name: Publisher recovery and operations
         run: node scripts/v07-mock-e2e.mjs
 

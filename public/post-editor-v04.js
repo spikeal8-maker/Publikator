@@ -168,6 +168,17 @@ function enhanceScheduleField(form, post) {
   sync();
 }
 
+function editorContentVersion(form) {
+  const value = Number(form.dataset.contentVersion);
+  if (!Number.isInteger(value) || value < 1) throw new Error('Версия поста не загружена');
+  return value;
+}
+
+function updateEditorContentVersion(form, value, post) {
+  form.dataset.contentVersion = String(value);
+  if (post) post.content_version = value;
+}
+
 function enhanceMediaOrdering(form, post, rerenderAll) {
   const mediaList = form.querySelector('.media-list');
   if (!mediaList || !post.media?.length) return;
@@ -198,9 +209,10 @@ function enhanceMediaOrdering(form, post, rerenderAll) {
         [ids[currentIndex], ids[nextIndex]] = [ids[nextIndex], ids[currentIndex]];
         const result = await requestJson(`/api/posts/${encodeURIComponent(post.id)}/media-order`, {
           method: 'PUT',
-          body: JSON.stringify({ mediaIds: ids })
+          body: JSON.stringify({ mediaIds: ids, expectedContentVersion: editorContentVersion(form) })
         });
         post.media = result.media;
+        updateEditorContentVersion(form, result.contentVersion, post);
         post.media.forEach((item) => {
           const itemNode = nodeMap.get(item.id);
           if (itemNode) mediaList.append(itemNode);
@@ -278,9 +290,10 @@ async function enhancePostEditor(form, postId) {
         const text = textarea.value.trim() ? textarea.value : null;
         const result = await requestJson(`/api/posts/${encodeURIComponent(post.id)}/targets/${encodeURIComponent(target.id)}/text`, {
           method: 'PATCH',
-          body: JSON.stringify({ text })
+          body: JSON.stringify({ text, expectedContentVersion: editorContentVersion(form) })
         });
         target.override_text = result.target.overrideText;
+        updateEditorContentVersion(form, result.contentVersion, post);
         textarea.value = result.target.overrideText || '';
         renderTargetCard(card, target, post, form);
         setSaveState(card, result.target.overrideText ? 'Отдельный текст сохранён.' : 'Используется базовый текст.', 'success');
@@ -294,9 +307,10 @@ async function enhancePostEditor(form, postId) {
         setSaveState(card, 'Сброс варианта…');
         const result = await requestJson(`/api/posts/${encodeURIComponent(post.id)}/targets/${encodeURIComponent(target.id)}/text`, {
           method: 'PATCH',
-          body: JSON.stringify({ text: null })
+          body: JSON.stringify({ text: null, expectedContentVersion: editorContentVersion(form) })
         });
         target.override_text = null;
+        updateEditorContentVersion(form, result.contentVersion, post);
         textarea.value = '';
         renderTargetCard(card, target, post, form);
         setSaveState(card, 'Используется базовый текст.', 'success');

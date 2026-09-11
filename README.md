@@ -56,7 +56,7 @@ Web UI / REST API
 - AES-256-GCM для credentials;
 - same-origin guard для browser mutations и security headers;
 - явная конфигурация доверенного reverse proxy;
-- SQLite schema v3;
+- release `v1.0.0-rc.4`: SQLite schema v3; `main` vNext после M0-002: schema v4;
 - один GitHub Actions pipeline: **`Publikator CI / Acceptance`**.
 
 ## Для coding agents
@@ -250,7 +250,7 @@ data/
   backups/
 ```
 
-SQLite работает в WAL mode. Текущая schema version: **3**.
+SQLite работает в WAL mode. Release `v1.0.0-rc.4` использует schema **3**; ветка `main` vNext после M0-002 использует schema **4**.
 
 ## Backup / restore
 

@@ -16,6 +16,7 @@ process.env.BACKUP_RETENTION_COUNT = '0';
 const { db, migrate, id } = await import('../dist/db.js');
 const { encryptJson } = await import('../dist/crypto.js');
 const { ensureTargets, setTargetSelection } = await import('../dist/publisher.js');
+const { snapshotContentRevision, markReadyRevision } = await import('../dist/content-versioning.js');
 const { setPublisherForTests } = await import('../dist/platforms/index.js');
 const { telegramPublisher } = await import('../dist/platforms/telegram.js');
 const { schedulerTick } = await import('../dist/scheduler.js');
@@ -77,6 +78,8 @@ function createPost(projectId, { mode = 'QUEUE', scheduledAt = null, createdAt =
       'a'.repeat(64),
       createdAt
     );
+  const revision = snapshotContentRevision(postId, 1, 'runtime-reliability-test');
+  markReadyRevision(postId, 1, revision.id);
   return postId;
 }
 

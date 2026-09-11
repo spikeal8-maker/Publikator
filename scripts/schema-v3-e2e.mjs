@@ -47,7 +47,7 @@ const { buildApp } = await import('../dist/app.js');
 migrate();
 
 try {
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 3);
+  assert.equal(Number(db.pragma('user_version', { simple: true })), 4);
 
   const slots = db.prepare(`SELECT id,last_fired_on FROM schedule_slots
     WHERE project_id='legacy-project' AND weekday=1 AND time_hhmm='18:00' AND timezone='Europe/Moscow'`).all();
@@ -97,7 +97,7 @@ try {
     await app.close();
   }
 
-  console.log(JSON.stringify({ ok: true, schemaVersion: 3, duplicateSlotsCollapsed: true, duplicateApiStatus: 409 }, null, 2));
+  console.log(JSON.stringify({ ok: true, schemaVersion: 4, duplicateSlotsCollapsed: true, duplicateApiStatus: 409 }, null, 2));
 } finally {
   db.close();
   await fs.rm(dataDir, { recursive: true, force: true });

@@ -1,9 +1,10 @@
 import { decryptJson } from './crypto.js';
 import { db, event, nowIso, type Platform, type TargetState } from './db.js';
-import { listMedia, mediaPublicUrl } from './media.js';
+import { mediaPublicUrl } from './media.js';
 import { getPublisher } from './platforms/index.js';
 import { PlatformError, type PublishInput } from './platforms/types.js';
 import { beginPublicationActivity } from './runtime-gate.js';
+import { getContentRevision, revisionMedia, revisionTargets, type ContentRevisionRow } from './content-versioning.js';
 
 const RETRY_DELAYS_MS = [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000];
 const CLAIMABLE_TARGET_STATES: TargetState[] = ['PENDING', 'RETRY', 'FAILED'];
@@ -13,10 +14,7 @@ type PublishTargetRow = {
   post_id: string;
   account_id: string;
   enabled: number;
-  override_text: string | null;
   state: TargetState;
-  title: string;
-  body: string;
   platform: Platform;
   account_name?: string;
   account_enabled?: number;
@@ -53,20 +51,6 @@ function retryTime(attempts: number): string | null {
   return attempts <= RETRY_DELAYS_MS.length && delay ? new Date(Date.now() + delay).toISOString() : null;
 }
 
-function buildPublishInput(target: PublishTargetRow): PublishInput {
-  const media = listMedia(target.post_id);
-  const publicMediaUrls = (target.platform === 'max' || target.platform === 'instagram') ? media.map(mediaPublicUrl) : [];
-  const credentials = decryptJson<Record<string, unknown>>(target.credentials_encrypted);
-  return {
-    postId: target.post_id,
-    title: target.title,
-    text: target.override_text ?? target.body,
-    media,
-    credentials,
-    publicMediaUrls
-  };
-}
-
 function formatPreflightIssues(issues: PreflightIssue[]): string {
   return issues.map((issue) => `${issue.platform} / ${issue.accountName}: ${issue.message}`).join('\n');
 }
@@ -81,11 +65,20 @@ function recoveryTarget(targetId: string): RecoveryTargetRow {
   return row;
 }
 
-function claimTarget(targetId: string): boolean {
+function claimTarget(targetId: string, revisionId: string): boolean {
   const claimed = db.prepare(`UPDATE post_targets
     SET state='PUBLISHING', attempts=attempts+1, next_attempt_at=NULL, last_error=NULL, updated_at=?
-    WHERE id=? AND enabled=1 AND state IN ('PENDING','RETRY','FAILED')`)
-    .run(nowIso(), targetId);
+    WHERE id=? AND enabled=1 AND state IN ('PENDING','RETRY','FAILED')
+      AND EXISTS (
+        SELECT 1 FROM posts p
+        JOIN content_revisions cr ON cr.id=p.ready_revision_id
+        WHERE p.id=post_targets.post_id
+          AND cr.id=?
+          AND cr.content_version=p.content_version
+          AND p.editorial_stage='APPROVED'
+          AND p.status IN ('PUBLISHING','PARTIAL','FAILED')
+      )`)
+    .run(nowIso(), targetId, revisionId);
   return claimed.changes === 1;
 }
 
@@ -119,21 +112,46 @@ export function setTargetSelection(postId: string, accountIds: string[]): void {
   tx();
 }
 
-export function preflightPost(postId: string): PreflightResult {
-  ensureTargets(postId);
-  const targets = db.prepare(`SELECT pt.id,pt.post_id,pt.account_id,pt.enabled,pt.override_text,pt.state,
-      p.title,p.body,a.platform,a.name AS account_name,a.credentials_encrypted
+function revisionTargetRow(targetId: string): PublishTargetRow | undefined {
+  return db.prepare(`SELECT pt.*, p.id AS post_id,
+      a.platform, a.name AS account_name, a.enabled AS account_enabled, a.credentials_encrypted
     FROM post_targets pt
     JOIN posts p ON p.id=pt.post_id
     JOIN social_accounts a ON a.id=pt.account_id
-    WHERE pt.post_id=? AND pt.enabled=1 AND a.enabled=1
-    ORDER BY a.platform,a.name`).all(postId) as PublishTargetRow[];
+    WHERE pt.id=?`).get(targetId) as PublishTargetRow | undefined;
+}
 
+function buildRevisionPublishInput(target: PublishTargetRow, revision: ContentRevisionRow): PublishInput {
+  const targetSnapshot = revisionTargets(revision).find((item) => item.targetId === target.id && item.accountId === target.account_id && item.enabled);
+  if (!targetSnapshot) throw new Error('Цель не входит в immutable READY revision');
+  const media = revisionMedia(revision);
+  const publicMediaUrls = (target.platform === 'max' || target.platform === 'instagram') ? media.map(mediaPublicUrl) : [];
+  const credentials = decryptJson<Record<string, unknown>>(target.credentials_encrypted);
+  return {
+    postId: target.post_id,
+    title: revision.title,
+    text: targetSnapshot.overrideText ?? revision.body,
+    media,
+    credentials,
+    publicMediaUrls
+  };
+}
+
+export function preflightRevision(revisionId: string): PreflightResult {
+  const revision = getContentRevision(revisionId);
   const issues: PreflightIssue[] = [];
-  for (const target of targets) {
+  for (const snapshot of revisionTargets(revision).filter((target) => target.enabled)) {
+    const target = revisionTargetRow(snapshot.targetId);
+    if (!target || target.account_id !== snapshot.accountId) {
+      issues.push({ targetId: snapshot.targetId, accountId: snapshot.accountId, platform: 'telegram', accountName: snapshot.accountId, message: 'Цель READY revision больше не существует' });
+      continue;
+    }
+    if (!target.account_enabled) {
+      issues.push({ targetId: target.id, accountId: target.account_id, platform: target.platform, accountName: target.account_name || target.platform, message: 'Аккаунт отключён' });
+      continue;
+    }
     try {
-      const input = buildPublishInput(target);
-      getPublisher(target.platform).validate(input);
+      getPublisher(target.platform).validate(buildRevisionPublishInput(target, revision));
     } catch (error) {
       issues.push({
         targetId: target.id,
@@ -147,23 +165,22 @@ export function preflightPost(postId: string): PreflightResult {
   return { ok: issues.length === 0, issues };
 }
 
-async function publishTargetInternal(targetId: string): Promise<void> {
-  const target = db.prepare(`SELECT pt.*, p.title, p.body, p.id AS post_id,
-      a.platform, a.name AS account_name, a.enabled AS account_enabled, a.credentials_encrypted
-    FROM post_targets pt
-    JOIN posts p ON p.id=pt.post_id
-    JOIN social_accounts a ON a.id=pt.account_id
-    WHERE pt.id=?`).get(targetId) as PublishTargetRow | undefined;
+async function publishTargetInternal(targetId: string, forcedRevisionId?: string): Promise<void> {
+  const target = revisionTargetRow(targetId);
   if (!target) throw new Error('Цель публикации не найдена');
   if (!target.enabled || !target.account_enabled || !CLAIMABLE_TARGET_STATES.includes(target.state)) return;
 
-  const media = listMedia(target.post_id);
+  const post = db.prepare('SELECT ready_revision_id FROM posts WHERE id=?').get(target.post_id) as { ready_revision_id: string | null } | undefined;
+  const revisionId = forcedRevisionId ?? post?.ready_revision_id ?? null;
+  if (!revisionId) throw new Error('Публикация заблокирована: отсутствует immutable READY revision');
+  const revision = getContentRevision(revisionId);
+  const media = revisionMedia(revision);
   if (media.length < 1) throw new Error('Публикация заблокирована: нет изображения');
   const publisher = getPublisher(target.platform);
   let input: PublishInput;
 
   try {
-    input = buildPublishInput(target);
+    input = buildRevisionPublishInput(target, revision);
     publisher.validate(input);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -172,12 +189,12 @@ async function publishTargetInternal(targetId: string): Promise<void> {
       WHERE id=? AND enabled=1 AND state IN ('PENDING','RETRY','FAILED')`)
       .run(message, nowIso(), targetId);
     if (failed.changes === 1) {
-      event({ postId: target.post_id, accountId: target.account_id, level: 'error', type: 'publish_validation_failed', message, data: { platform: target.platform } });
+      event({ postId: target.post_id, accountId: target.account_id, level: 'error', type: 'publish_validation_failed', message, data: { platform: target.platform, revisionId } });
     }
     return;
   }
 
-  if (!claimTarget(targetId)) return;
+  if (!claimTarget(targetId, revisionId)) return;
   event({ postId: target.post_id, accountId: target.account_id, type: 'publish_started', message: `Публикация начата: ${target.platform}` });
 
   try {
@@ -306,17 +323,30 @@ export function confirmRecoveryNotPublished(targetId: string): { postId: string 
 export async function publishPost(postId: string): Promise<void> {
   const releasePublication = beginPublicationActivity();
   try {
-    const mediaCount = db.prepare('SELECT COUNT(*) AS count FROM media WHERE post_id=?').get(postId) as { count: number };
-    if (mediaCount.count < 1) throw new Error('Публикация без изображения запрещена');
-    ensureTargets(postId);
-    const targetCount = db.prepare("SELECT COUNT(*) AS count FROM post_targets pt JOIN social_accounts a ON a.id=pt.account_id WHERE pt.post_id=? AND pt.enabled=1 AND a.enabled=1").get(postId) as { count: number };
-    if (targetCount.count < 1) throw new Error('Не выбрана ни одна активная площадка для публикации');
-    const preflight = preflightPost(postId);
+    const post = db.prepare('SELECT status,editorial_stage,content_version,ready_revision_id FROM posts WHERE id=?')
+      .get(postId) as { status: string; editorial_stage: string; content_version: number; ready_revision_id: string | null } | undefined;
+    if (!post) throw new Error('Пост не найден');
+    if (post.status === 'PUBLISHING') return;
+    if (post.status !== 'READY' || post.editorial_stage !== 'APPROVED' || !post.ready_revision_id) {
+      throw new Error('Публикация разрешена только для READY-поста с immutable revision');
+    }
+
+    const revision = getContentRevision(post.ready_revision_id);
+    if (revision.post_id !== postId || revision.content_version !== post.content_version) {
+      throw new Error('READY revision не соответствует текущей версии поста');
+    }
+    if (revisionMedia(revision).length < 1) throw new Error('Публикация без изображения запрещена');
+    const preflight = preflightRevision(revision.id);
     if (!preflight.ok) throw new Error(`Публикация не прошла preflight:\n${formatPreflightIssues(preflight.issues)}`);
 
-    db.prepare("UPDATE posts SET status='PUBLISHING', updated_at=? WHERE id=? AND status!='PUBLISHED'").run(nowIso(), postId);
-    const targets = db.prepare("SELECT pt.id FROM post_targets pt JOIN social_accounts a ON a.id=pt.account_id WHERE pt.post_id=? AND pt.enabled=1 AND a.enabled=1 AND pt.state IN ('PENDING','RETRY','FAILED') ORDER BY pt.rowid").all(postId) as Array<{ id: string }>;
-    for (const target of targets) await publishTargetInternal(target.id);
+    const claimed = db.prepare(`UPDATE posts SET status='PUBLISHING',updated_at=?
+      WHERE id=? AND status='READY' AND editorial_stage='APPROVED' AND content_version=? AND ready_revision_id=?
+        AND EXISTS (SELECT 1 FROM content_revisions cr WHERE cr.id=? AND cr.post_id=posts.id AND cr.content_version=posts.content_version)`)
+      .run(nowIso(), postId, revision.content_version, revision.id, revision.id);
+    if (claimed.changes !== 1) return;
+
+    const targets = revisionTargets(revision).filter((target) => target.enabled);
+    for (const target of targets) await publishTargetInternal(target.targetId, revision.id);
     refreshPostStatus(postId);
   } finally {
     releasePublication();
