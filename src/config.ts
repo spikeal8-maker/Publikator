@@ -1,8 +1,20 @@
 import path from 'node:path';
 
+const FORBIDDEN_SECRETS = new Set([
+  'change-this-password',
+  'change-this-to-a-long-random-secret-at-least-32-characters'
+]);
+
 function required(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`Required environment variable ${name} is missing`);
+  return value;
+}
+
+function deploymentSecret(name: string, minLength: number): string {
+  const value = required(name);
+  if (FORBIDDEN_SECRETS.has(value)) throw new Error(`${name} still contains the public example placeholder`);
+  if (value.length < minLength) throw new Error(`${name} must be at least ${minLength} characters long`);
   return value;
 }
 
@@ -52,8 +64,8 @@ function trustedProxyList(name: string): false | string[] {
 
 const dataDir = process.env.DATA_DIR?.trim() || path.resolve('data');
 const publicBaseUrl = process.env.PUBLIC_BASE_URL?.trim().replace(/\/$/, '') || '';
-const masterKey = required('APP_MASTER_KEY');
-if (masterKey.length < 32) throw new Error('APP_MASTER_KEY must be at least 32 characters long');
+const adminPassword = deploymentSecret('ADMIN_PASSWORD', 12);
+const masterKey = deploymentSecret('APP_MASTER_KEY', 32);
 
 const imageBuildSha = bakedCommitSha('IMAGE_BUILD_SHA');
 const nonProductionBuildSha = optionalCommitSha('APP_BUILD_SHA');
@@ -70,7 +82,7 @@ export const config = {
   publicDir: path.resolve('public'),
   publicBaseUrl,
   trustProxy: trustedProxyList('TRUST_PROXY'),
-  adminPassword: required('ADMIN_PASSWORD'),
+  adminPassword,
   masterKey,
   sessionTtlMs: Number(process.env.SESSION_TTL_HOURS || 24) * 60 * 60 * 1000,
   schedulerIntervalMs: Math.max(5000, Number(process.env.SCHEDULER_INTERVAL_MS || 15000)),
