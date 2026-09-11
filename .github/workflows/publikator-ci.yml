@@ -145,6 +145,9 @@ jobs:
           done
           jq -e --arg sha "$GITHUB_SHA" '.ok == true and .buildSha == $sha and .schemaVersion == 3' <<<"$HEALTH"
 
+      - name: Cross-platform Compose fresh install
+        run: bash scripts/compose-fresh-install-e2e.sh
+
       - name: Production Docker and full restore
         run: bash scripts/core-docker-restore-e2e.sh
 
