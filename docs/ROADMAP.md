@@ -6,7 +6,7 @@
 
 **Архитектура:** один production Docker-контейнер, Fastify, SQLite/WAL, local media storage, embedded scheduler, Telegram/VK/MAX/Instagram adapters.
 
-Стабильный `v1.0.0` блокируется реальным live acceptance и финальным release gate. Product-development после стабилизации ядра начинается с **Content Pipeline v2**.
+Стабильный `v1.0.0` блокируется реальным live acceptance и финальным release gate. Следующий product-development разделён на три связанных слоя: **Content Pipeline v2 → Content Experience v3 → Editorial Workflow v4**.
 
 ## Завершённые этапы
 
@@ -169,16 +169,18 @@ publikator-ci.yml
 10. Получить `Publikator CI / Acceptance = PASS` на том же commit.
 11. Только после этого выпускать `v1.0.0`.
 
-## Content Pipeline v2 — NEXT PRODUCT LANE
+# Product Development после publication core
 
-Главная следующая продуктовая задача — не ещё один адаптер соцсети, а полный жизненный цикл контента: массовый импорт, media resolution, API для ботов/AI, календарь и внешние коннекторы.
+## Layer 1 — Content Pipeline v2
+
+Отвечает на вопрос: **как контент попадает в Publikator?**
 
 Полное ТЗ: [`CONTENT_PIPELINE_V2.md`](CONTENT_PIPELINE_V2.md).
 
-Последовательность:
+Issue: #26.
 
 ```text
-CP2-001 Calendar / Content UX
+CP2-001 Calendar / Content UX foundation
 CP2-002 CSV/XLSX Template v2
 CP2-003 ZIP Content Bundle
 CP2-004 Integration API v1
@@ -188,15 +190,133 @@ CP2-007 AI Content Profile / producer
 CP2-008 embedded images / optional autopilot
 ```
 
-Критический архитектурный принцип: **Publikator — единственный source of truth.** Google Sheets, файлы, облачные диски и AI-агенты после импорта не участвуют в runtime публикации.
+Ключевой принцип: **Publikator — единственный source of truth.** Google Sheets, файлы, cloud drives и AI-агенты после импорта не участвуют в runtime публикации.
 
-Целевой acceptance: импорт партии 100 постов + 150 изображений, корректный preview, отсутствие дублей при повторном импорте, отображение в календаре и дальнейшая публикация без обращения к исходной таблице/облаку.
+Целевой acceptance: 100 постов + 150 media assets, preview, отсутствие дублей при повторном импорте и дальнейшая публикация без обращения к исходной таблице/облаку.
 
-## После Content Pipeline v2
+## Layer 2 — Content Experience v3
+
+Отвечает на вопрос: **что это за контент и как человек его видит?**
+
+Полное ТЗ: [`CONTENT_EXPERIENCE_V3.md`](CONTENT_EXPERIENCE_V3.md).
+
+Issue: #28.
+
+```text
+CX3-001 Visual Calendar
+CX3-002 Content Library
+CX3-003 Rich Media data model
+CX3-004 Media Viewer / Player
+CX3-005 Platform capability/preflight
+CX3-006 Platform Preview v2
+CX3-007 Dashboard + contrast/design tokens
+CX3-008 Video / Story publication adapters
+```
+
+Обязательные форматы:
+
+```text
+Feed image
+Carousel
+Video
+Short/Reel-like vertical video
+Story image
+Story video
+Story sequence
+```
+
+Главный пользовательский экран — визуальный календарь Month/Week/Day/Agenda с thumbnail/poster, Content Inspector и platform-aware preview.
+
+## Layer 3 — Editorial Workflow v4
+
+Отвечает на вопрос: **как человек редактирует, согласовывает, переносит, шаблонизирует и удаляет будущий контент?**
+
+Полное ТЗ: [`EDITORIAL_WORKFLOW_V4.md`](EDITORIAL_WORKFLOW_V4.md).
+
+Issue: #30.
+
+```text
+EW4-001 Safe edit/delete lifecycle
+EW4-002 Revision history
+EW4-003 Canonical rich text editor
+EW4-004 Platform rich-text compilers
+EW4-005 Targets/defaults/platform options
+EW4-006 Templates/snippets
+EW4-007 Calendar editing
+EW4-008 XLSX/Google Sheets Template v3
+EW4-009 Integration API editorial contract
+EW4-010 Editorial acceptance
+```
+
+Обязательные правила:
+
+- future delete по умолчанию = Trash, не hard delete;
+- удаление строки из Google Sheets не удаляет публикацию;
+- изменение будущего READY-post инвалидирует старый preflight;
+- canonical rich text не хранится как raw Telegram/MAX markup;
+- project defaults не меняют уже созданный content;
+- platform downgrade/unsupported feature показывается до READY;
+- published historical content не переписывается молча.
+
+## Рекомендуемый порядок foundation-разработки
+
+Не обязательно ждать полного завершения одного слоя, чтобы начать следующий. Правильная последовательность foundation:
+
+```text
+1. CP2 external_id / ingestion metadata / media bundle
+2. CX3 visual calendar shell / Content Inspector
+3. EW4 editorial lifecycle / Trash / revisions
+4. EW4 canonical rich text + platform compilers
+5. CP2 Integration API + Template v3
+6. CX3 video/story player + rich media model
+7. EW4 templates/default targets/calendar editing
+8. Google Sheets/Drive/Yandex connectors
+9. AI producer/content profiles
+10. platform-specific Stories/Shorts live adapters
+```
+
+## Целевой пользовательский workflow
+
+```text
+Manual / XLSX / Sheets / API / AI
+                ↓
+             Inbox
+                ↓
+        Draft / Template
+                ↓
+      Edit rich content/media
+                ↓
+       Select target accounts
+                ↓
+      Platform-aware preview
+                ↓
+        Review / Approve
+                ↓
+              READY
+                ↓
+      Visual Calendar / Queue
+                ↓
+             Publish
+                ↓
+        Journal / Results
+```
+
+Пользователь должен в любой момент открыть будущую публикацию и без знания API понять:
+
+1. что выйдет;
+2. где выйдет;
+3. когда выйдет;
+4. как будет выглядеть;
+5. что можно изменить;
+6. кто/что последним изменило запись;
+7. как перенести, продублировать, архивировать или удалить её.
+
+## После этих трёх слоёв
 
 - analytics там, где API площадки даёт стабильные данные;
 - расширенные project policies/autopilot;
 - дополнительные cloud/content connectors по фактической необходимости;
+- roles/permissions/editorial assignment при реальной необходимости;
 - формализация migration-файлов при дальнейшем росте SQLite schema.
 
 ## Архитектурный запрет
