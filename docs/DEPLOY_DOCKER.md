@@ -40,7 +40,7 @@ bash scripts/deploy-linux.sh "https://publisher.example.ru"
 
 On the first run each script creates `.env` with random `ADMIN_PASSWORD` and `APP_MASTER_KEY`, embeds the current Git SHA into the Docker image, builds the container and waits for Docker health to become `healthy`.
 
-The generated `.env` is never overwritten by the scripts. Back it up securely. `APP_MASTER_KEY` is required to decrypt social credentials after restore and is intentionally not included in backup bundles.
+On later runs the scripts preserve existing secrets and deployment settings and update only `BUILD_SHA` to the current Git commit. Back `.env` up securely. `APP_MASTER_KEY` is required to decrypt social credentials after restore and is intentionally not included in backup bundles.
 
 ## Default networking
 
@@ -106,7 +106,7 @@ Also verify Docker reports `healthy`.
 1. Create/download a full `.tgz` backup from Publikator.
 2. Keep the existing `.env` and Docker named volume.
 3. Check out the new release tag/commit.
-4. Update `BUILD_SHA` in `.env` to the exact `git rev-parse HEAD` if it is not already updated by the deployment script.
+4. Run the launcher: it refreshes only `BUILD_SHA` to the exact `git rev-parse HEAD` while preserving the existing secrets/settings.
 5. Run the same Windows/Linux deployment script again.
 6. Verify `/api/health`, Diagnostics and Release gate.
 
