@@ -2,11 +2,11 @@
 
 ## Текущий статус
 
-**Версия:** `1.0.0-rc.1`
+**Версия:** `1.0.0-rc.4`
 
 **Архитектура:** один production Docker-контейнер, Fastify, SQLite/WAL, local media storage, embedded scheduler, Telegram/VK/MAX/Instagram adapters.
 
-Стабильный `v1.0.0` блокируется только реальным live acceptance и финальным release gate. Новые продуктовые функции до этого момента не добавляются.
+Стабильный `v1.0.0` блокируется реальным live acceptance и финальным release gate. Product-development после стабилизации ядра начинается с **Content Pipeline v2**.
 
 ## Завершённые этапы
 
@@ -153,44 +153,50 @@ publikator-ci.yml
 - legacy SQLite-only backup route implementation удалена;
 - legacy endpoint blocker `410` оставлен для явной совместимости.
 
-## V1 live acceptance — NEXT / RELEASE BLOCKER
+## V1 live acceptance — RELEASE BLOCKER
 
-Работать только с финальным commit `1.0.0-rc.1`.
+Работать только с текущим release candidate `v1.0.0-rc.4` и его точным SHA.
 
-1. Получить точный SHA:
+1. Получить точный SHA: `git rev-parse HEAD`.
+2. Проверить Release gate: встроенный build SHA должен совпадать с проверяемым commit.
+3. Создать pre-acceptance full backup.
+4. Выполнить `docs/LIVE_INTEGRATION_CHECKLIST.md` на реальных Telegram, VK, MAX и Instagram.
+5. Записать четыре `LIVE PASS` на одном SHA.
+6. Разобрать все `RECOVERY_NEEDED`.
+7. Убедиться, что diagnostics не содержит ошибок.
+8. После последнего PASS создать новый full backup.
+9. Проверить restore release-state bundle на отдельной тестовой установке с тем же `APP_MASTER_KEY`.
+10. Получить `Publikator CI / Acceptance = PASS` на том же commit.
+11. Только после этого выпускать `v1.0.0`.
 
-```bash
-git rev-parse HEAD
+## Content Pipeline v2 — NEXT PRODUCT LANE
+
+Главная следующая продуктовая задача — не ещё один адаптер соцсети, а полный жизненный цикл контента: массовый импорт, media resolution, API для ботов/AI, календарь и внешние коннекторы.
+
+Полное ТЗ: [`CONTENT_PIPELINE_V2.md`](CONTENT_PIPELINE_V2.md).
+
+Последовательность:
+
+```text
+CP2-001 Calendar / Content UX
+CP2-002 CSV/XLSX Template v2
+CP2-003 ZIP Content Bundle
+CP2-004 Integration API v1
+CP2-005 Google Sheets connector
+CP2-006 Google Drive / Яндекс Диск media
+CP2-007 AI Content Profile / producer
+CP2-008 embedded images / optional autopilot
 ```
 
-2. Собрать release image:
+Критический архитектурный принцип: **Publikator — единственный source of truth.** Google Sheets, файлы, облачные диски и AI-агенты после импорта не участвуют в runtime публикации.
 
-```bash
-export BUILD_SHA="$(git rev-parse HEAD)"
-docker compose build --no-cache
-docker compose up -d
-```
+Целевой acceptance: импорт партии 100 постов + 150 изображений, корректный preview, отсутствие дублей при повторном импорте, отображение в календаре и дальнейшая публикация без обращения к исходной таблице/облаку.
 
-3. Проверить Release gate: встроенный build SHA должен совпадать с проверяемым commit.
-4. Создать pre-acceptance full backup.
-5. Выполнить `docs/LIVE_INTEGRATION_CHECKLIST.md` на реальных Telegram, VK, MAX и Instagram.
-6. Записать четыре `LIVE PASS` на одном SHA.
-7. Разобрать все `RECOVERY_NEEDED`.
-8. Убедиться, что diagnostics не содержит ошибок.
-9. После последнего PASS создать новый full backup.
-10. Проверить restore release-state bundle на отдельной тестовой установке с тем же `APP_MASTER_KEY`.
-11. Получить `Publikator CI / Acceptance = PASS` на том же commit.
-12. Только после этого выпускать `v1.0.0`.
-
-## После V1
-
-Приоритеты рассматриваются только после стабильного релиза:
+## После Content Pipeline v2
 
 - analytics там, где API площадки даёт стабильные данные;
-- интеграция ASSA Lab / IZO через внутренний Publikator HTTP API;
-- генерация черновиков/изображений через внешние AI API;
-- Google Sheets как **необязательный** import/export connector;
-- улучшение UX календаря/контент-плана;
+- расширенные project policies/autopilot;
+- дополнительные cloud/content connectors по фактической необходимости;
 - формализация migration-файлов при дальнейшем росте SQLite schema.
 
 ## Архитектурный запрет
