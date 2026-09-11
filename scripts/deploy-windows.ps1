@@ -7,11 +7,12 @@ $ErrorActionPreference = 'Stop'
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { throw 'Docker Desktop / docker.exe is required' }
 docker compose version | Out-Null
 
+$buildSha = ''
+try { $buildSha = (git rev-parse HEAD).Trim() } catch { }
+
 if (-not (Test-Path '.env')) {
   $admin = ([guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N'))
   $master = ([guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N'))
-  $buildSha = ''
-  try { $buildSha = (git rev-parse HEAD).Trim() } catch { }
   @(
     "PUBLIC_BASE_URL=$PublicBaseUrl",
     'PUBLIKATOR_BIND=127.0.0.1',
@@ -30,7 +31,20 @@ if (-not (Test-Path '.env')) {
   ) | Set-Content -Encoding ascii '.env'
   Write-Host 'Created .env with random ADMIN_PASSWORD and APP_MASTER_KEY.'
 } else {
-  Write-Host 'Using existing .env; it was not modified.'
+  Write-Host 'Using existing .env; secrets and deployment settings are preserved.'
+  if ($buildSha -match '^[a-f0-9]{40}$') {
+    $lines = @(Get-Content '.env')
+    $found = $false
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+      if ($lines[$i] -match '^BUILD_SHA=') {
+        $lines[$i] = "BUILD_SHA=$buildSha"
+        $found = $true
+      }
+    }
+    if (-not $found) { $lines += "BUILD_SHA=$buildSha" }
+    $lines | Set-Content -Encoding ascii '.env'
+    Write-Host "Updated BUILD_SHA=$buildSha"
+  }
 }
 
 docker compose --env-file .env config | Out-Null
