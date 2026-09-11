@@ -128,6 +128,23 @@ jobs:
           echo "Baked revision: $BAKED_SHA"
           echo "Runtime uid: $RUNTIME_UID"
 
+      - name: Health exposes baked build identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker rm -f publikator-health-identity >/dev/null 2>&1 || true
+          trap 'docker rm -f publikator-health-identity >/dev/null 2>&1 || true' EXIT
+          docker run -d --name publikator-health-identity -p 18082:8080 \
+            -e ADMIN_PASSWORD="$PUBLIKATOR_TEST_ADMIN_PASSWORD" \
+            -e APP_MASTER_KEY="$PUBLIKATOR_TEST_MASTER_KEY" \
+            publikator-release-identity >/dev/null
+          for _ in $(seq 1 40); do
+            HEALTH="$(curl -fsS http://127.0.0.1:18082/api/health 2>/dev/null || true)"
+            if [ -n "$HEALTH" ]; then break; fi
+            sleep 1
+          done
+          jq -e --arg sha "$GITHUB_SHA" '.ok == true and .buildSha == $sha and .schemaVersion == 3' <<<"$HEALTH"
+
       - name: Production Docker and full restore
         run: bash scripts/core-docker-restore-e2e.sh
 

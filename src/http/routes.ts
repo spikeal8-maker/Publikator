@@ -36,7 +36,13 @@ function postView(row: any): any {
 }
 
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
-  app.get('/api/health', async () => ({ ok: true, service: 'publikator', time: nowIso() }));
+  app.get('/api/health', async () => ({
+    ok: true,
+    service: 'publikator',
+    buildSha: config.appBuildSha || null,
+    schemaVersion: Number(db.pragma('user_version', { simple: true }) ?? 0),
+    time: nowIso()
+  }));
 
   app.post('/api/auth/login', async (request, reply) => {
     const key = request.ip;
