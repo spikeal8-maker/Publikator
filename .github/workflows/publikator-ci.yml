@@ -152,7 +152,7 @@ jobs:
             if [ -n "$HEALTH" ]; then break; fi
             sleep 1
           done
-          jq -e --arg sha "$GITHUB_SHA" '.ok == true and .buildSha == $sha and .schemaVersion == 3' <<<"$HEALTH"
+          jq -e --arg sha "$GITHUB_SHA" '.ok == true and .buildSha == $sha and .schemaVersion == 4' <<<"$HEALTH"
 
       - name: Linux documented deployment launcher
         run: bash scripts/deploy-linux-e2e.sh
