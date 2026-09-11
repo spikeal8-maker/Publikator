@@ -56,6 +56,9 @@ jobs:
       - name: Schema v3 and unique schedule migration
         run: node scripts/schema-v3-e2e.mjs
 
+      - name: Content domain M1 contract
+        run: node scripts/content-domain-m1-e2e.mjs
+
       - name: Publisher recovery and operations
         run: node scripts/v07-mock-e2e.mjs
 

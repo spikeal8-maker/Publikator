@@ -94,6 +94,8 @@ Google Sheets, Google Drive, Яндекс Диск и AI являются **conn
 
 vNext MUST развиваться вокруг следующих сущностей.
 
+Accepted ownership/schema-boundary ADR for M0-001: [ADR_CONTENT_DOMAIN_M1.md](ADR_CONTENT_DOMAIN_M1.md).
+
 ## 3.1 Project
 
 Содержит:
