@@ -4,13 +4,67 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { throw 'Docker Desktop / docker.exe is required' }
-docker compose version | Out-Null
+function Get-DockerCli {
+  $command = Get-Command docker -ErrorAction SilentlyContinue
+  if ($command) { return $command.Source }
 
-$buildSha = ''
-try { $buildSha = (git rev-parse HEAD).Trim() } catch { }
+  $candidate = Join-Path $env:ProgramFiles 'Docker\Docker\resources\bin\docker.exe'
+  if (Test-Path $candidate) {
+    $env:Path = "$(Split-Path $candidate);$env:Path"
+    return $candidate
+  }
+
+  throw 'Docker Desktop is required. docker.exe was not found in PATH or the standard Docker Desktop installation folder.'
+}
+
+function Get-DockerEngineOs {
+  try {
+    $output = & docker info --format '{{.OSType}}' 2>$null
+    if ($LASTEXITCODE -ne 0) { return '' }
+    return (($output | Select-Object -First 1) -as [string]).Trim()
+  } catch {
+    return ''
+  }
+}
+
+$dockerCli = Get-DockerCli
+Write-Host "Docker CLI found: $dockerCli"
+
+& docker compose version | Out-Host
+if ($LASTEXITCODE -ne 0) { throw 'Docker Compose v2 (docker compose) is required.' }
+
+$engineOs = Get-DockerEngineOs
+if (-not $engineOs) {
+  $desktopExe = Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe'
+  if (Test-Path $desktopExe) {
+    Write-Host 'Docker Desktop is installed but the engine is not ready. Starting Docker Desktop...'
+    Start-Process -FilePath $desktopExe | Out-Null
+    for ($i = 0; $i -lt 120; $i++) {
+      Start-Sleep -Seconds 1
+      $engineOs = Get-DockerEngineOs
+      if ($engineOs) { break }
+    }
+  }
+}
+
+if (-not $engineOs) {
+  throw 'Docker CLI is installed, but Docker Engine is not available. Start Docker Desktop and wait until it reports that the engine is running.'
+}
+if ($engineOs -ne 'linux') {
+  throw "Docker is running in '$engineOs' containers mode. Publikator requires Docker Desktop Linux containers mode."
+}
+Write-Host 'Docker Engine is ready in Linux containers mode.'
+
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) { throw 'Git is required to embed the exact release commit SHA.' }
+$buildSha = (git rev-parse HEAD).Trim()
+if ($buildSha -notmatch '^[a-f0-9]{40}$') { throw 'Current folder is not a valid Git checkout with a 40-character commit SHA.' }
 
 if (-not (Test-Path '.env')) {
+  $listener = Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue
+  if ($listener) {
+    throw 'TCP port 8080 is already in use. Create .env from .env.example and choose another PUBLIKATOR_PORT before the first launch.'
+  }
+
   $admin = ([guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N'))
   $master = ([guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N'))
   @(
@@ -32,19 +86,17 @@ if (-not (Test-Path '.env')) {
   Write-Host 'Created .env with random ADMIN_PASSWORD and APP_MASTER_KEY.'
 } else {
   Write-Host 'Using existing .env; secrets and deployment settings are preserved.'
-  if ($buildSha -match '^[a-f0-9]{40}$') {
-    $lines = @(Get-Content '.env')
-    $found = $false
-    for ($i = 0; $i -lt $lines.Count; $i++) {
-      if ($lines[$i] -match '^BUILD_SHA=') {
-        $lines[$i] = "BUILD_SHA=$buildSha"
-        $found = $true
-      }
+  $lines = @(Get-Content '.env')
+  $found = $false
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    if ($lines[$i] -match '^BUILD_SHA=') {
+      $lines[$i] = "BUILD_SHA=$buildSha"
+      $found = $true
     }
-    if (-not $found) { $lines += "BUILD_SHA=$buildSha" }
-    $lines | Set-Content -Encoding ascii '.env'
-    Write-Host "Updated BUILD_SHA=$buildSha"
   }
+  if (-not $found) { $lines += "BUILD_SHA=$buildSha" }
+  $lines | Set-Content -Encoding ascii '.env'
+  Write-Host "Updated BUILD_SHA=$buildSha"
 }
 
 docker compose --env-file .env config | Out-Null
@@ -62,6 +114,11 @@ if ($status -ne 'healthy') {
   throw "Publikator did not become healthy: $status"
 }
 
+$port = '8080'
+$portLine = Get-Content '.env' | Where-Object { $_ -match '^PUBLIKATOR_PORT=' } | Select-Object -First 1
+if ($portLine) { $port = ($portLine -split '=', 2)[1].Trim() }
+
 Write-Host 'Publikator is healthy.'
-Write-Host 'Local UI: http://127.0.0.1:8080'
+Write-Host "Local UI: http://127.0.0.1:$port"
+Write-Host "Build SHA: $buildSha"
 Write-Host 'Credentials are stored only in .env. Keep APP_MASTER_KEY safe.'
