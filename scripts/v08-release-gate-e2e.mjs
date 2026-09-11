@@ -131,7 +131,7 @@ try {
   });
   gate = await collectReleaseGate();
   assert.equal(gate.releaseReady, false);
-  assert.equal(gate.blockers.some((item) => item.includes('СЂР°Р·РЅС‹С… commit SHA')), true);
+  assert.equal(gate.blockers.some((item) => item.includes('разных commit SHA')), true);
 
   const reset = setReleaseAcceptance({ platform: 'vk', status: 'NOT_TESTED' });
   assert.equal(reset.status, 'NOT_TESTED');
