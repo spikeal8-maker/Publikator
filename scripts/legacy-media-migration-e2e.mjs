@@ -43,9 +43,9 @@ try {
     { id: 'old-1', sort_order: 0 },
     { id: 'old-2', sort_order: 1 }
   ]);
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 4);
+  assert.equal(Number(db.pragma('user_version', { simple: true })), 5);
   assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='release_acceptance'").get());
-  console.log(JSON.stringify({ ok: true, legacyMediaOrderMigrated: true, schemaVersion: 4 }, null, 2));
+  console.log(JSON.stringify({ ok: true, legacyMediaOrderMigrated: true, schemaVersion: 5 }, null, 2));
 } finally {
   db.close();
   await fs.rm(dataDir, { recursive: true, force: true });

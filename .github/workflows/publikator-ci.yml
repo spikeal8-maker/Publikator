@@ -62,6 +62,9 @@ jobs:
       - name: Schema v4 content versioning migration
         run: node scripts/schema-v4-content-versioning-e2e.mjs
 
+      - name: Schema v5 ingestion provenance migration
+        run: node scripts/schema-v5-ingestion-provenance-e2e.mjs
+
       - name: Editorial state and immutable revision concurrency
         run: node scripts/state-concurrency-m1-e2e.mjs
 
@@ -96,6 +99,12 @@ jobs:
 
       - name: Content plan CSV/XLSX roundtrip
         run: node scripts/content-plan-e2e.mjs
+
+      - name: Content plan v3 idempotency and conflict contract
+        run: node scripts/content-plan-v3-e2e.mjs
+
+      - name: Schema v5 provenance backup and restore
+        run: node scripts/backup-v5-provenance-e2e.mjs
 
       - name: Canonical backup API
         env:
@@ -152,7 +161,7 @@ jobs:
             if [ -n "$HEALTH" ]; then break; fi
             sleep 1
           done
-          jq -e --arg sha "$GITHUB_SHA" '.ok == true and .buildSha == $sha and .schemaVersion == 4' <<<"$HEALTH"
+          jq -e --arg sha "$GITHUB_SHA" '.ok == true and .buildSha == $sha and .schemaVersion == 5' <<<"$HEALTH"
 
       - name: Linux documented deployment launcher
         run: bash scripts/deploy-linux-e2e.sh
