@@ -47,7 +47,7 @@ function insertAccount(id, name) {
 }
 
 try {
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 5);
+  assert.equal(Number(db.pragma('user_version', { simple: true })), 6);
   const postColumns = db.prepare('PRAGMA table_info(posts)').all().map((row) => row.name);
   for (const name of ['source_type','source_ref','source_revision','source_payload_hash','source_batch_id','imported_at','imported_content_version']) {
     assert.ok(postColumns.includes(name), name);
@@ -168,7 +168,7 @@ try {
   console.log(JSON.stringify({
     ok: true,
     checkpoint: 'M0-003',
-    schemaVersion: 5,
+    schemaVersion: 6,
     idempotent: true,
     sourcePayloadHash: true,
     sourceRevisionReuseRejected: true,

@@ -170,6 +170,8 @@ export async function validateBackupDirectory(directory: string): Promise<Backup
     const tables = new Set((snapshot.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>).map((row) => row.name));
     const requiredTables = ['projects', 'social_accounts', 'posts', 'media', 'post_targets', 'schedule_slots', 'publication_events'];
     if (Number(manifest.schemaVersion) >= 2) requiredTables.push('release_acceptance');
+    if (Number(manifest.schemaVersion) >= 4) requiredTables.push('content_revisions');
+    if (Number(manifest.schemaVersion) >= 6) requiredTables.push('integration_api_keys', 'ingestion_connectors');
     for (const required of requiredTables) {
       if (!tables.has(required)) throw new Error(`SQLite backup не содержит таблицу ${required}`);
     }

@@ -39,7 +39,7 @@ legacy.close();
 const { db, migrate } = await import('../dist/db.js');
 migrate();
 try {
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 5);
+  assert.equal(Number(db.pragma('user_version', { simple: true })), 6);
   const columns = db.prepare('PRAGMA table_info(posts)').all().map((row) => row.name);
   for (const name of ['source_type','source_ref','source_revision','source_payload_hash','source_batch_id','imported_at','imported_content_version']) {
     assert.ok(columns.includes(name), name);
@@ -57,7 +57,7 @@ try {
     source_batch_id: 'batch1', imported_at: '2026-01-02T00:00:00.000Z', imported_content_version: 7,
     editorial_stage: 'IN_REVIEW', content_version: 7
   });
-  console.log(JSON.stringify({ ok: true, from: 4, to: 5, provenanceColumns: true, statePreserved: true, rerunSafe: true }, null, 2));
+  console.log(JSON.stringify({ ok: true, from: 4, to: 6, provenanceColumns: true, statePreserved: true, rerunSafe: true }, null, 2));
 } finally {
   db.close();
   await fs.rm(dataDir, { recursive: true, force: true });
