@@ -38,7 +38,7 @@ wait_healthy() {
 
 wait_healthy
 HEALTH="$(curl -fsS http://127.0.0.1:18084/api/health)"
-jq -e '.ok == true and .schemaVersion == 4' <<<"$HEALTH"
+jq -e '.ok == true and .schemaVersion == 5' <<<"$HEALTH"
 
 MOUNT="$(docker inspect publikator --format '{{range .Mounts}}{{if eq .Destination "/app/data"}}{{.Type}}:{{.Name}}{{end}}{{end}}')"
 [[ "$MOUNT" == volume:* ]]

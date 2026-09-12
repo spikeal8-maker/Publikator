@@ -232,17 +232,23 @@ GET /api/content-plan/schema
 
 Schema 3 является новым контрактом и реализуется отдельно от V1 namespace.
 
-Рекомендуемые endpoints:
+Целевой namespace schema 3:
+
+```text
+/api/content-plan/v3/...
+```
+
+M0-003 foundation реализует:
 
 ```text
 GET  /api/content-plan/v3/schema
-GET  /api/content-plan/v3/template.csv
 GET  /api/content-plan/v3/template.xlsx
 POST /api/content-plan/v3/import/preview
 POST /api/content-plan/v3/import/apply
-GET  /api/content-plan/v3/export.csv
 GET  /api/content-plan/v3/export.xlsx
 ```
+
+CSV template/export, media resolver, rich text, video/Stories и расширенные поля добавляются следующими checkpoint'ами без изменения major schema version. Текущий M0-003 foundation намеренно ограничен `FEED`, `IMAGE` и UTC scheduling. `CAROUSEL` включается только после появления его persistence/media contract.
 
 Mandatory columns schema 3:
 
@@ -282,13 +288,15 @@ Repeated import MUST быть idempotent через:
 source_id + external_id
 ```
 
-Importer хранит SourceBinding.
+M0-003 хранит lightweight binding в `posts`; нормализованный `SourceBinding` остаётся следующим schema milestone. Дополнительно хранится `source_payload_hash` нормализованного meaningful payload.
 
 Повторный import одной source row:
 
 - не создаёт второй post;
-- классифицируется как UPDATE/UNCHANGED/CONFLICT;
-- автоматически UPDATE только если local content после предыдущего import не менялся.
+- одинаковый payload hash -> `UNCHANGED` даже при новом source revision token;
+- та же `source_revision` с другим payload -> `ERROR`;
+- изменённый payload -> `UPDATE` только если local content после предыдущего import не менялся;
+- local divergence + changed source payload -> `CONFLICT`.
 
 ---
 

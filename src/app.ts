@@ -12,6 +12,7 @@ import { registerTargetOverrideRoutes } from './http/target-overrides.js';
 import { registerMediaOrderRoutes } from './http/media-order.js';
 import { registerBackupBundleRoutes } from './http/backup-bundles.js';
 import { registerContentPlanRoutes } from './http/content-plan.js';
+import { registerContentPlanV3Routes } from './http/content-plan-v3.js';
 import { registerDiagnosticsRoutes } from './http/diagnostics.js';
 import { registerReleaseGateRoutes } from './http/release-gate.js';
 
@@ -33,6 +34,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await registerMediaOrderRoutes(app);
   await registerBackupBundleRoutes(app);
   await registerContentPlanRoutes(app);
+  await registerContentPlanV3Routes(app);
   await registerDiagnosticsRoutes(app);
   await registerReleaseGateRoutes(app);
 

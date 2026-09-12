@@ -110,7 +110,7 @@ curl -fsS -b "$COOKIE_FILE" "http://127.0.0.1:${PORT}/api/backup-bundles/${BUNDL
 test -s /tmp/publikator-full.tgz
 mkdir -p /tmp/publikator-bundle-check
 tar -xzf /tmp/publikator-full.tgz -C /tmp/publikator-bundle-check
-jq -e '.format == "publikator-backup" and .formatVersion == 1 and .schemaVersion == 4 and .counts.media == 2 and (.mediaFiles | length) == 2' \
+jq -e '.format == "publikator-backup" and .formatVersion == 1 and .schemaVersion == 5 and .counts.media == 2 and (.mediaFiles | length) == 2' \
   /tmp/publikator-bundle-check/manifest.json >/dev/null
 ! grep -F "$MASTER_KEY" /tmp/publikator-bundle-check/manifest.json
 
@@ -170,4 +170,4 @@ curl -fsS -b "$COOKIE_FILE" "http://127.0.0.1:${PORT}/api/posts/${POST_ID}" | \
   jq -e --arg first "$MEDIA_2" '.status == "READY" and .content_version >= 1 and (.ready_revision_id != null) and (.media | length) == 2 and .media[0].id == $first and any(.targets[]; .platform == "telegram" and .enabled == 1 and .override_text == "Telegram CI override")' >/dev/null
 curl -fsS -b "$COOKIE_FILE" "http://127.0.0.1:${PORT}/api/backup-bundles" | jq -e 'any(.[]; .name | contains("pre-restore"))' >/dev/null
 
-echo '{"ok":true,"productionDocker":true,"fullBackupRestore":true,"schemaVersion":4}'
+echo '{"ok":true,"productionDocker":true,"fullBackupRestore":true,"schemaVersion":5}'

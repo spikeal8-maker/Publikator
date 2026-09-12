@@ -152,6 +152,23 @@ function migrateContentVersioning(): void {
     }
   })();
 }
+
+function migrateIngestionProvenance(): void {
+  const columns = new Set((db.prepare('PRAGMA table_info(posts)').all() as Array<{ name: string }>).map((column) => column.name));
+  const additions = [
+    ['source_type', 'TEXT'],
+    ['source_ref', 'TEXT'],
+    ['source_revision', 'TEXT'],
+    ['source_payload_hash', 'TEXT'],
+    ['source_batch_id', 'TEXT'],
+    ['imported_at', 'TEXT'],
+    ['imported_content_version', 'INTEGER']
+  ] as const;
+  for (const [name, type] of additions) {
+    if (!columns.has(name)) db.exec(`ALTER TABLE posts ADD COLUMN ${name} ${type}`);
+  }
+}
+
 export function migrate(): void {
   const currentSchemaVersion = Number(db.pragma('user_version', { simple: true }) ?? 0);
   if (currentSchemaVersion > DATABASE_SCHEMA_VERSION) {
@@ -187,6 +204,13 @@ export function migrate(): void {
       scheduled_at TEXT,
       content_version INTEGER NOT NULL DEFAULT 1 CHECK(content_version >= 1),
       ready_revision_id TEXT,
+      source_type TEXT,
+      source_ref TEXT,
+      source_revision TEXT,
+      source_payload_hash TEXT,
+      source_batch_id TEXT,
+      imported_at TEXT,
+      imported_content_version INTEGER,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -276,9 +300,12 @@ export function migrate(): void {
   migrateMediaOrder();
   migrateUniqueScheduleSlots();
   if (currentSchemaVersion < 4) migrateContentVersioning();
+  if (currentSchemaVersion < 5) migrateIngestionProvenance();
 
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_posts_status_schedule ON posts(status, schedule_mode, scheduled_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_posts_source_identity ON posts(source_type, source_ref)
+      WHERE source_type IS NOT NULL AND source_ref IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_targets_state_retry ON post_targets(state, next_attempt_at);
     CREATE INDEX IF NOT EXISTS idx_media_post ON media(post_id);
     CREATE INDEX IF NOT EXISTS idx_content_revisions_post_version ON content_revisions(post_id, content_version);

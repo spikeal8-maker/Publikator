@@ -44,9 +44,9 @@ legacy.close();
 const { db, migrate } = await import('../dist/db.js');
 migrate();
 try {
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 4);
+  assert.equal(Number(db.pragma('user_version', { simple: true })), 5);
   const columns = db.prepare('PRAGMA table_info(posts)').all().map((row) => row.name);
-  for (const name of ['editorial_stage','content_version','ready_revision_id']) assert.ok(columns.includes(name), name);
+  for (const name of ['editorial_stage','content_version','ready_revision_id','source_type','source_ref','source_revision','source_payload_hash','source_batch_id','imported_at','imported_content_version']) assert.ok(columns.includes(name), name);
   assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='content_revisions'").get());
   const ready = db.prepare('SELECT status,editorial_stage,content_version,ready_revision_id FROM posts WHERE id=?').get('ready');
   assert.equal(ready.status, 'READY');
@@ -82,12 +82,12 @@ try {
   assert.equal(partial.editorial_stage, 'DRAFT');
   assert.ok(partial.ready_revision_id, 'partial publication history must keep an immutable content snapshot');
 
-  // Re-running migrate on schema 4 must not rewrite editorial state.
+  // Re-running migrate on current schema must not rewrite editorial state.
   db.prepare("UPDATE posts SET editorial_stage='IN_REVIEW' WHERE id='draft'").run();
   migrate();
   assert.equal(db.prepare("SELECT editorial_stage FROM posts WHERE id='draft'").get().editorial_stage, 'IN_REVIEW');
 
-  console.log(JSON.stringify({ ok: true, from: 3, to: 4, readyRevisionBackfill: true, historicalSnapshotBackfill: true, queuedNormalized: true, rerunSafe: true }, null, 2));
+  console.log(JSON.stringify({ ok: true, from: 3, to: 5, readyRevisionBackfill: true, provenanceColumns: true, historicalSnapshotBackfill: true, queuedNormalized: true, rerunSafe: true }, null, 2));
 } finally {
   db.close();
   await fs.rm(dataDir, { recursive: true, force: true });
