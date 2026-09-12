@@ -8,6 +8,7 @@ import { db, event, id, nowIso, type Platform } from './db.js';
 import { ensureTargets, setTargetSelection } from './publisher.js';
 import { safeMediaRelativePath, sha256File } from './backup-format.js';
 import type { MediaRow } from './media.js';
+import { spreadsheetSafeText } from './ingestion-security.js';
 
 export const CONTENT_PLAN_VERSION = 1;
 export const CONTENT_PLAN_COLUMNS = [
@@ -130,7 +131,7 @@ function csvCell(value: string): string {
 export function serializeContentPlanCsv(rows: ContentPlanExportRow[]): string {
   const lines = [
     CONTENT_PLAN_COLUMNS.map(csvCell).join(';'),
-    ...rows.map((row) => CONTENT_PLAN_COLUMNS.map((column) => csvCell(row[column])).join(';'))
+    ...rows.map((row) => CONTENT_PLAN_COLUMNS.map((column) => csvCell(spreadsheetSafeText(row[column]))).join(';'))
   ];
   return `\uFEFF${lines.join('\r\n')}\r\n`;
 }
@@ -605,7 +606,7 @@ export async function createContentPlanXlsx(rows: ContentPlanExportRow[]): Promi
     widths.forEach((width, index) => sheet.setColumnWidth(index + 1, width));
     await sheet.appendRow([...CONTENT_PLAN_COLUMNS]);
     for (const row of rows) {
-      await sheet.appendRow(CONTENT_PLAN_COLUMNS.map((column) => row[column]));
+      await sheet.appendRow(CONTENT_PLAN_COLUMNS.map((column) => spreadsheetSafeText(row[column])));
     }
     await sheet.close();
     await workbook.finalize();

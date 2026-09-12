@@ -169,6 +169,22 @@ function migrateIngestionProvenance(): void {
   }
 }
 
+
+function migrateIngestionSecurity(): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS integration_api_keys (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, prefix TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE,
+      scopes_json TEXT NOT NULL, revoked_at TEXT, created_at TEXT NOT NULL, last_used_at TEXT,
+      rotated_from_id TEXT REFERENCES integration_api_keys(id) ON DELETE SET NULL
+    );
+    CREATE TABLE IF NOT EXISTS ingestion_connectors (
+      id TEXT PRIMARY KEY, type TEXT NOT NULL CHECK(type IN ('google_sheets','google_drive','yandex_disk','generic_https')),
+      name TEXT NOT NULL, config_json TEXT NOT NULL, credentials_encrypted TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
+  `);
+}
+
 export function migrate(): void {
   const currentSchemaVersion = Number(db.pragma('user_version', { simple: true }) ?? 0);
   if (currentSchemaVersion > DATABASE_SCHEMA_VERSION) {
@@ -301,11 +317,14 @@ export function migrate(): void {
   migrateUniqueScheduleSlots();
   if (currentSchemaVersion < 4) migrateContentVersioning();
   if (currentSchemaVersion < 5) migrateIngestionProvenance();
+  if (currentSchemaVersion < 6) migrateIngestionSecurity();
 
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_posts_status_schedule ON posts(status, schedule_mode, scheduled_at);
     CREATE UNIQUE INDEX IF NOT EXISTS uq_posts_source_identity ON posts(source_type, source_ref)
       WHERE source_type IS NOT NULL AND source_ref IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_integration_api_keys_active ON integration_api_keys(revoked_at, prefix);
+    CREATE INDEX IF NOT EXISTS idx_ingestion_connectors_type ON ingestion_connectors(type, enabled);
     CREATE INDEX IF NOT EXISTS idx_targets_state_retry ON post_targets(state, next_attempt_at);
     CREATE INDEX IF NOT EXISTS idx_media_post ON media(post_id);
     CREATE INDEX IF NOT EXISTS idx_content_revisions_post_version ON content_revisions(post_id, content_version);

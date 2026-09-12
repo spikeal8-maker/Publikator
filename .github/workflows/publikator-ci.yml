@@ -65,6 +65,12 @@ jobs:
       - name: Schema v5 ingestion provenance migration
         run: node scripts/schema-v5-ingestion-provenance-e2e.mjs
 
+      - name: Schema v6 ingestion security migration
+        run: node scripts/schema-v6-ingestion-security-e2e.mjs
+
+      - name: M0-004 ingestion security guards
+        run: node scripts/m004-e2e.mjs
+
       - name: Editorial state and immutable revision concurrency
         run: node scripts/state-concurrency-m1-e2e.mjs
 
@@ -105,6 +111,9 @@ jobs:
 
       - name: Schema v5 provenance backup and restore
         run: node scripts/backup-v5-provenance-e2e.mjs
+
+      - name: Schema v6 security state backup and restore
+        run: node scripts/backup-v6-e2e.mjs
 
       - name: Canonical backup API
         env:
@@ -161,7 +170,7 @@ jobs:
             if [ -n "$HEALTH" ]; then break; fi
             sleep 1
           done
-          jq -e --arg sha "$GITHUB_SHA" '.ok == true and .buildSha == $sha and .schemaVersion == 5' <<<"$HEALTH"
+          jq -e --arg sha "$GITHUB_SHA" '.ok == true and .buildSha == $sha and .schemaVersion == 6' <<<"$HEALTH"
 
       - name: Linux documented deployment launcher
         run: bash scripts/deploy-linux-e2e.sh

@@ -65,6 +65,18 @@ Stable `v1.0.0` выпускается из release line после live accepta
 
 ---
 
+# 3.1 Ingestion security foundation
+
+После M0-004 новые ingestion features MUST переиспользовать `src/ingestion-security.ts` и `src/integration-security.ts`.
+
+Обязательные guards: archive/path/ratio limits, SSRF + pinned destination + redirect revalidation, MIME sniffing, hashed/scoped/revocable API keys, encrypted connector credentials, rich-text allowlist и spreadsheet formula protection.
+
+Нельзя добавлять параллельный ZIP/URL/API-key/connector security path без отдельного ADR.
+
+Connector public config не содержит secrets; credentials проходят только через encrypted storage.
+
+---
+
 # 4. Media invariant: V1 vs vNext
 
 ## V1 release line

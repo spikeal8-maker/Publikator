@@ -19,7 +19,7 @@ const { setPublisherForTests } = await import('../dist/platforms/index.js');
 const { buildApp } = await import('../dist/app.js');
 
 migrate();
-assert.equal(Number(db.pragma('user_version', { simple: true })), 5);
+assert.equal(Number(db.pragma('user_version', { simple: true })), 6);
 
 let publishCalls = 0;
 let publishedTexts = [];
@@ -148,7 +148,7 @@ try {
   console.log(JSON.stringify({
     ok: true,
     checkpoint: 'M0-002',
-    schemaVersion: 5,
+    schemaVersion: 6,
     staleEditConflict: true,
     readyInvalidation: true,
     immutableSnapshotPublish: true,

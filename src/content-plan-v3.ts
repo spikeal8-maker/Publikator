@@ -7,6 +7,7 @@ import { config } from './config.js';
 import { db, event, id, nowIso, type Platform } from './db.js';
 import { commitContentEdit } from './content-versioning.js';
 import { ensureTargets, setTargetSelection } from './publisher.js';
+import { spreadsheetSafeText } from './ingestion-security.js';
 
 export const CONTENT_PLAN_V3_VERSION = 3;
 export const CONTENT_PLAN_V3_COLUMNS = [
@@ -503,7 +504,7 @@ export async function createContentPlanV3Template(): Promise<Buffer> {
     const widths = [14,24,16,20,20,34,70,18,20,18,28,20,48,60,60,60,60,52,30,40,24];
     CONTENT_PLAN_V3_COLUMNS.forEach((_column, index) => sheet.setColumnWidth(index + 1, widths[index] ?? 24));
     await sheet.appendRow([...CONTENT_PLAN_V3_COLUMNS]);
-    await sheet.appendRow(['3','example-001','UPSERT','main','','Example','Text','FEED','IMAGE','MANUAL','','UTC','[]','','','','','','','','rev-1']);
+    await sheet.appendRow(['3','example-001','UPSERT','main','','Example','Text','FEED','IMAGE','MANUAL','','UTC','[]','','','','','','','','rev-1'].map(spreadsheetSafeText));
     await sheet.close();
     await workbook.finalize();
     return await fs.readFile(temp);
@@ -539,12 +540,13 @@ export async function exportContentPlanV3(sourceIdRaw: string): Promise<Buffer> 
         const values = targets.filter((target) => target.enabled && target.platform === platform && target.override_text).map((target) => target.override_text!);
         return values.length && values.every((value) => value === values[0]) ? values[0]! : '';
       };
-      await sheet.appendRow([
+      const exportRow = [
         '3', externalId, 'UPSERT', String(post.project_slug), '', String(post.title), String(post.body),
         'FEED', 'IMAGE', String(post.schedule_mode), post.scheduled_at ? String(post.scheduled_at) : '', 'UTC',
         JSON.stringify(selected), platformBody('telegram'), platformBody('vk'), platformBody('max'), platformBody('instagram'),
         '', '', '', String(post.source_revision ?? '')
-      ]);
+      ];
+      await sheet.appendRow(exportRow.map(spreadsheetSafeText));
     }
 
     await sheet.close();

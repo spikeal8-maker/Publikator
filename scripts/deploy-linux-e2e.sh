@@ -37,7 +37,7 @@ MASTER_KEY="$(grep '^APP_MASTER_KEY=' .env | tail -n1 | cut -d= -f2-)"
 [ "${#MASTER_KEY}" -ge 32 ]
 
 HEALTH="$(curl -fsS http://127.0.0.1:8080/api/health)"
-jq -e --arg sha "$EXPECTED_SHA" '.ok == true and .buildSha == $sha and .schemaVersion == 5' <<<"$HEALTH" >/dev/null
+jq -e --arg sha "$EXPECTED_SHA" '.ok == true and .buildSha == $sha and .schemaVersion == 6' <<<"$HEALTH" >/dev/null
 
 MOUNT="$(docker inspect publikator --format '{{range .Mounts}}{{if eq .Destination "/app/data"}}{{.Type}}:{{.Name}}{{end}}{{end}}')"
 [[ "$MOUNT" == volume:* ]]
