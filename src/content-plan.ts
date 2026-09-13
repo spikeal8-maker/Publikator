@@ -7,7 +7,7 @@ import { config } from './config.js';
 import { db, event, id, nowIso, type Platform } from './db.js';
 import { ensureTargets, setTargetSelection } from './publisher.js';
 import { safeMediaRelativePath, sha256File } from './backup-format.js';
-import type { MediaRow } from './media.js';
+import { syncImageContentFormat, type MediaRow } from './media.js';
 import { spreadsheetSafeText } from './ingestion-security.js';
 
 export const CONTENT_PLAN_VERSION = 1;
@@ -662,9 +662,10 @@ export async function applyValidatedContentPlan(validation: ContentPlanValidatio
       createdPostIds.push(postId);
       const now = nowIso();
       db.prepare(`INSERT INTO posts
-        (id,project_id,title,body,status,schedule_mode,scheduled_at,created_at,updated_at)
-        VALUES (?,?,?,?, 'DRAFT',?,?,?,?)`)
-        .run(postId, row.projectId, row.title, row.body, row.scheduleMode, row.scheduledAt, now, now);
+        (id,project_id,title,body,status,schedule_mode,scheduled_at,scheduled_at_utc,schedule_timezone,created_at,updated_at)
+        VALUES (?,?,?,?, 'DRAFT',?,?,?,?,?,?)`)
+        .run(postId, row.projectId, row.title, row.body, row.scheduleMode, row.scheduledAt, row.scheduledAt,
+          row.scheduleMode === 'AT' ? 'UTC' : null, now, now);
 
       ensureTargets(postId);
       setTargetSelection(postId, row.targets.map((target) => target.accountId));
@@ -676,6 +677,7 @@ export async function applyValidatedContentPlan(validation: ContentPlanValidatio
       for (let index = 0; index < row.media.length; index += 1) {
         await cloneMedia(postId, row.media[index]!, index);
       }
+      syncImageContentFormat(postId);
     }
 
     event({

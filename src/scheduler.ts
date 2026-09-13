@@ -148,7 +148,7 @@ export async function schedulerTick(at: Date = new Date()): Promise<void> {
   try {
     await runRetentionIfDue();
     if (maintenanceState().active) return;
-    const due = db.prepare("SELECT id FROM posts WHERE status='READY' AND schedule_mode='AT' AND scheduled_at IS NOT NULL AND scheduled_at<=? ORDER BY scheduled_at LIMIT 10")
+    const due = db.prepare("SELECT id FROM posts WHERE status='READY' AND schedule_mode='AT' AND scheduled_at_utc IS NOT NULL AND scheduled_at_utc<=? ORDER BY scheduled_at_utc LIMIT 10")
       .all(schedulerNow) as Array<{ id: string }>;
     for (const post of due) {
       if (maintenanceState().active) break;

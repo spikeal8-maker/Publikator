@@ -110,7 +110,7 @@ curl -fsS -b "$COOKIE_FILE" "http://127.0.0.1:${PORT}/api/backup-bundles/${BUNDL
 test -s /tmp/publikator-full.tgz
 mkdir -p /tmp/publikator-bundle-check
 tar -xzf /tmp/publikator-full.tgz -C /tmp/publikator-bundle-check
-jq -e '.format == "publikator-backup" and .formatVersion == 1 and .schemaVersion == 6 and .counts.media == 2 and (.mediaFiles | length) == 2' \
+jq -e '.format == "publikator-backup" and .formatVersion == 1 and .schemaVersion == 7 and .counts.media == 2 and (.mediaFiles | length) == 2' \
   /tmp/publikator-bundle-check/manifest.json >/dev/null
 ! grep -F "$MASTER_KEY" /tmp/publikator-bundle-check/manifest.json
 

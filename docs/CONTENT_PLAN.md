@@ -248,7 +248,7 @@ POST /api/content-plan/v3/import/apply
 GET  /api/content-plan/v3/export.xlsx
 ```
 
-CSV template/export, media resolver, rich text, video/Stories и расширенные поля добавляются следующими checkpoint'ами без изменения major schema version. Текущий M0-003 foundation намеренно ограничен `FEED`, `IMAGE` и UTC scheduling. `CAROUSEL` включается только после появления его persistence/media contract.
+CSV template/export, media resolver, rich text, video/Stories и расширенные поля добавляются следующими checkpoint'ами без изменения major schema version. M0-003 foundation изначально был ограничен `FEED`, `IMAGE` и UTC scheduling; M0-005 снимает только timezone-ограничение: AT поддерживает IANA timezone и DST-safe local time, а ambiguous local time требует RFC3339 с явным offset. `CAROUSEL` включается через canonical media/content-format contract.
 
 Mandatory columns schema 3:
 

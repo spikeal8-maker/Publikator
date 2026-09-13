@@ -7,11 +7,21 @@ export class ContentConflictError extends Error {}
 export class ContentImmutableError extends Error {}
 export class ContentNotFoundError extends Error {}
 
+export type RevisionTargetRenditionSnapshot = {
+  textRichJson: string | null;
+  textPlain: string | null;
+  publicationKind: string | null;
+  contentFormat: string | null;
+  mediaPlanJson: string | null;
+  optionsJson: string | null;
+};
+
 export type RevisionTargetSnapshot = {
   targetId: string;
   accountId: string;
   enabled: boolean;
   overrideText: string | null;
+  rendition: RevisionTargetRenditionSnapshot | null;
 };
 
 export type ContentRevisionRow = {
@@ -22,6 +32,10 @@ export type ContentRevisionRow = {
   body: string;
   schedule_mode: 'MANUAL' | 'AT' | 'QUEUE';
   scheduled_at: string | null;
+  scheduled_at_utc: string | null;
+  schedule_timezone: string | null;
+  publication_kind: 'FEED' | 'SHORT' | 'STORY';
+  content_format: string;
   targets_json: string;
   media_json: string;
   actor_source: string;
@@ -37,11 +51,15 @@ type VersionedPostRow = {
   body: string;
   schedule_mode: 'MANUAL' | 'AT' | 'QUEUE';
   scheduled_at: string | null;
+  scheduled_at_utc: string | null;
+  schedule_timezone: string | null;
+  publication_kind: 'FEED' | 'SHORT' | 'STORY';
+  content_format: string;
 };
 
 function getPost(postId: string): VersionedPostRow {
   const row = db.prepare(`SELECT id,status,editorial_stage,content_version,ready_revision_id,
-      title,body,schedule_mode,scheduled_at FROM posts WHERE id=?`).get(postId) as VersionedPostRow | undefined;
+      title,body,schedule_mode,scheduled_at,scheduled_at_utc,schedule_timezone,publication_kind,content_format FROM posts WHERE id=?`).get(postId) as VersionedPostRow | undefined;
   if (!row) throw new ContentNotFoundError('Пост не найден');
   return row;
 }
@@ -109,20 +127,26 @@ export function snapshotContentRevision(
     throw new ContentConflictError(`Версия поста изменилась: ожидалась ${expectedContentVersion}, текущая ${post.content_version}`);
   }
 
-  const targets = db.prepare(`SELECT id AS targetId, account_id AS accountId, enabled,
-      override_text AS overrideText
-    FROM post_targets WHERE post_id=? ORDER BY rowid`).all(postId) as Array<{
-      targetId: string;
-      accountId: string;
-      enabled: number;
-      overrideText: string | null;
+  const targets = db.prepare(`SELECT pt.id AS targetId, pt.account_id AS accountId, pt.enabled,
+      pt.override_text AS overrideText, tr.text_rich_json AS renditionTextRichJson, tr.text_plain AS renditionTextPlain,
+      tr.publication_kind AS renditionPublicationKind, tr.content_format AS renditionContentFormat,
+      tr.media_plan_json AS renditionMediaPlanJson, tr.options_json AS renditionOptionsJson
+    FROM post_targets pt LEFT JOIN target_renditions tr ON tr.target_id=pt.id
+    WHERE pt.post_id=? ORDER BY pt.rowid`).all(postId) as Array<{
+      targetId: string; accountId: string; enabled: number; overrideText: string | null;
+      renditionTextRichJson: string | null; renditionTextPlain: string | null; renditionPublicationKind: string | null;
+      renditionContentFormat: string | null; renditionMediaPlanJson: string | null; renditionOptionsJson: string | null;
     }>;
-  const targetSnapshot: RevisionTargetSnapshot[] = targets.map((target) => ({
-    targetId: target.targetId,
-    accountId: target.accountId,
-    enabled: Boolean(target.enabled),
-    overrideText: target.overrideText
-  }));
+  const targetSnapshot: RevisionTargetSnapshot[] = targets.map((target) => {
+    const hasRendition = [target.renditionTextRichJson, target.renditionTextPlain, target.renditionPublicationKind,
+      target.renditionContentFormat, target.renditionMediaPlanJson, target.renditionOptionsJson].some((value) => value !== null);
+    return {
+      targetId: target.targetId, accountId: target.accountId, enabled: Boolean(target.enabled), overrideText: target.overrideText,
+      rendition: hasRendition ? { textRichJson: target.renditionTextRichJson, textPlain: target.renditionTextPlain,
+        publicationKind: target.renditionPublicationKind, contentFormat: target.renditionContentFormat,
+        mediaPlanJson: target.renditionMediaPlanJson, optionsJson: target.renditionOptionsJson } : null
+    };
+  });
   const media = db.prepare('SELECT * FROM media WHERE post_id=? ORDER BY sort_order,created_at').all(postId) as MediaRow[];
   const targetsJson = JSON.stringify(targetSnapshot);
   const mediaJson = JSON.stringify(media);
@@ -134,6 +158,10 @@ export function snapshotContentRevision(
       && existing.body === post.body
       && existing.schedule_mode === post.schedule_mode
       && existing.scheduled_at === post.scheduled_at
+      && existing.scheduled_at_utc === post.scheduled_at_utc
+      && existing.schedule_timezone === post.schedule_timezone
+      && existing.publication_kind === post.publication_kind
+      && existing.content_format === post.content_format
       && existing.targets_json === targetsJson
       && existing.media_json === mediaJson;
     if (!matches) {
@@ -144,8 +172,8 @@ export function snapshotContentRevision(
 
   const revisionId = id('rev');
   db.prepare(`INSERT INTO content_revisions
-    (id,post_id,content_version,title,body,schedule_mode,scheduled_at,targets_json,media_json,actor_source,created_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+    (id,post_id,content_version,title,body,schedule_mode,scheduled_at,scheduled_at_utc,schedule_timezone,publication_kind,content_format,targets_json,media_json,actor_source,created_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     .run(
       revisionId,
       postId,
@@ -154,6 +182,10 @@ export function snapshotContentRevision(
       post.body,
       post.schedule_mode,
       post.scheduled_at,
+      post.scheduled_at_utc,
+      post.schedule_timezone,
+      post.publication_kind,
+      post.content_format,
       targetsJson,
       mediaJson,
       actorSource,

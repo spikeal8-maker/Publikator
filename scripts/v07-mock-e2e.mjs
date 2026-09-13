@@ -90,9 +90,10 @@ async function createPost({ title, body = 'Mock body', scheduleMode = 'MANUAL', 
   const postId = id('post');
   const now = nowIso();
   db.prepare(`INSERT INTO posts
-    (id,project_id,title,body,status,schedule_mode,scheduled_at,created_at,updated_at)
-    VALUES (?,?,?,?,?,?,?,?,?)`)
-    .run(postId, project.id, title, body, status, scheduleMode, scheduledAt, now, now);
+    (id,project_id,title,body,status,schedule_mode,scheduled_at,scheduled_at_utc,schedule_timezone,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(postId, project.id, title, body, status, scheduleMode, scheduledAt,
+      scheduleMode === 'AT' ? scheduledAt : null, scheduleMode === 'AT' ? 'UTC' : null, now, now);
   ensureTargets(postId);
   setTargetSelection(postId, [accountId]);
   await saveImage(postId, `${title.replace(/[^a-z0-9]+/gi, '-').toLowerCase() || 'image'}.png`, image);

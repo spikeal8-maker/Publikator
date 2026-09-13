@@ -18,7 +18,7 @@ db.pragma('busy_timeout = 5000');
 export type Platform = 'telegram' | 'vk' | 'max' | 'instagram';
 export type PostStatus = 'DRAFT' | 'READY' | 'QUEUED' | 'PUBLISHING' | 'PARTIAL' | 'PUBLISHED' | 'FAILED';
 export type EditorialStage = 'IDEA' | 'DRAFT' | 'IN_REVIEW' | 'APPROVED' | 'ARCHIVED' | 'TRASHED';
-export type TargetState = 'PENDING' | 'PUBLISHING' | 'PUBLISHED' | 'RETRY' | 'FAILED' | 'RECOVERY_NEEDED';
+export type TargetState = 'PENDING' | 'PUBLISHING' | 'PARTIAL' | 'PUBLISHED' | 'RETRY' | 'FAILED' | 'RECOVERY_NEEDED';
 
 export function nowIso(): string {
   return new Date().toISOString();
@@ -185,6 +185,65 @@ function migrateIngestionSecurity(): void {
   `);
 }
 
+function migrateTimeRenditionSequence(): void {
+  const postColumns = new Set((db.prepare('PRAGMA table_info(posts)').all() as Array<{ name: string }>).map((row) => row.name));
+  for (const [name, type] of [
+    ['scheduled_at_utc', 'TEXT'], ['schedule_timezone', 'TEXT'],
+    ['publication_kind', "TEXT NOT NULL DEFAULT 'FEED' CHECK(publication_kind IN ('FEED','SHORT','STORY'))"], ['content_format', "TEXT NOT NULL DEFAULT 'IMAGE' CHECK(content_format IN ('TEXT_ONLY','IMAGE','CAROUSEL','VIDEO','VERTICAL_VIDEO','STORY_SEQUENCE'))"]
+  ] as const) if (!postColumns.has(name)) db.exec(`ALTER TABLE posts ADD COLUMN ${name} ${type}`);
+  const revisionColumns = new Set((db.prepare('PRAGMA table_info(content_revisions)').all() as Array<{ name: string }>).map((row) => row.name));
+  for (const [name, type] of [
+    ['scheduled_at_utc', 'TEXT'], ['schedule_timezone', 'TEXT'],
+    ['publication_kind', "TEXT NOT NULL DEFAULT 'FEED' CHECK(publication_kind IN ('FEED','SHORT','STORY'))"], ['content_format', "TEXT NOT NULL DEFAULT 'IMAGE' CHECK(content_format IN ('TEXT_ONLY','IMAGE','CAROUSEL','VIDEO','VERTICAL_VIDEO','STORY_SEQUENCE'))"]
+  ] as const) if (!revisionColumns.has(name)) db.exec(`ALTER TABLE content_revisions ADD COLUMN ${name} ${type}`);
+
+  db.prepare("UPDATE posts SET scheduled_at_utc=scheduled_at,schedule_timezone='UTC' WHERE schedule_mode='AT' AND scheduled_at IS NOT NULL AND scheduled_at_utc IS NULL").run();
+  db.prepare("UPDATE content_revisions SET scheduled_at_utc=scheduled_at,schedule_timezone='UTC' WHERE schedule_mode='AT' AND scheduled_at IS NOT NULL AND scheduled_at_utc IS NULL").run();
+  db.prepare("UPDATE posts SET publication_kind='FEED',content_format=CASE WHEN (SELECT COUNT(*) FROM media WHERE media.post_id=posts.id)>1 THEN 'CAROUSEL' ELSE 'IMAGE' END").run();
+  const revisions = db.prepare('SELECT id,media_json FROM content_revisions').all() as Array<{ id: string; media_json: string }>;
+  const updateRevisionFormat = db.prepare("UPDATE content_revisions SET publication_kind='FEED',content_format=? WHERE id=?");
+  for (const revision of revisions) {
+    let count = 0;
+    try { const media = JSON.parse(revision.media_json); count = Array.isArray(media) ? media.length : 0; } catch { count = 0; }
+    updateRevisionFormat.run(count > 1 ? 'CAROUSEL' : 'IMAGE', revision.id);
+  }
+  const revisionTargets = db.prepare('SELECT id,targets_json FROM content_revisions').all() as Array<{ id: string; targets_json: string }>;
+  const updateRevisionTargets = db.prepare('UPDATE content_revisions SET targets_json=? WHERE id=?');
+  for (const revision of revisionTargets) {
+    try {
+      const targets = JSON.parse(revision.targets_json);
+      if (!Array.isArray(targets)) continue;
+      const normalized = targets.map((target) => target && typeof target === 'object' && !Array.isArray(target)
+        ? { ...target, rendition: Object.prototype.hasOwnProperty.call(target, 'rendition') ? target.rendition : null } : target);
+      updateRevisionTargets.run(JSON.stringify(normalized), revision.id);
+    } catch { /* historical corrupt snapshot remains visible to existing invariant checks */ }
+  }
+
+  const targetSql = String((db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='post_targets'").get() as { sql?: string } | undefined)?.sql ?? '');
+  if (!targetSql.includes("'PARTIAL'")) {
+    db.exec(`ALTER TABLE post_targets RENAME TO post_targets_v6;
+      CREATE TABLE post_targets (
+        id TEXT PRIMARY KEY, post_id TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+        account_id TEXT NOT NULL REFERENCES social_accounts(id) ON DELETE RESTRICT, enabled INTEGER NOT NULL DEFAULT 1,
+        override_text TEXT, state TEXT NOT NULL DEFAULT 'PENDING' CHECK(state IN ('PENDING','PUBLISHING','PARTIAL','PUBLISHED','RETRY','FAILED','RECOVERY_NEEDED')),
+        attempts INTEGER NOT NULL DEFAULT 0, next_attempt_at TEXT, external_id TEXT, external_url TEXT,
+        last_error TEXT, published_at TEXT, updated_at TEXT NOT NULL, UNIQUE(post_id, account_id));
+      INSERT INTO post_targets SELECT * FROM post_targets_v6; DROP TABLE post_targets_v6;`);
+  }
+  db.exec(`CREATE TABLE IF NOT EXISTS target_renditions (
+      target_id TEXT PRIMARY KEY REFERENCES post_targets(id) ON DELETE CASCADE,
+      text_rich_json TEXT, text_plain TEXT, publication_kind TEXT CHECK(publication_kind IN ('FEED','SHORT','STORY')),
+      content_format TEXT CHECK(content_format IN ('TEXT_ONLY','IMAGE','CAROUSEL','VIDEO','VERTICAL_VIDEO','STORY_SEQUENCE')),
+      media_plan_json TEXT, options_json TEXT, updated_at TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS publication_units (
+      id TEXT PRIMARY KEY, target_id TEXT NOT NULL REFERENCES post_targets(id) ON DELETE CASCADE,
+      revision_id TEXT NOT NULL REFERENCES content_revisions(id) ON DELETE RESTRICT,
+      unit_index INTEGER NOT NULL CHECK(unit_index >= 0), unit_type TEXT NOT NULL CHECK(unit_type IN ('POST','MEDIA_GROUP','STORY')),
+      state TEXT NOT NULL DEFAULT 'PENDING' CHECK(state IN ('PENDING','PUBLISHING','PUBLISHED','RETRY','FAILED','RECOVERY_NEEDED')),
+      attempts INTEGER NOT NULL DEFAULT 0, external_id TEXT, external_url TEXT, last_error TEXT,
+      published_at TEXT, updated_at TEXT NOT NULL, UNIQUE(target_id, revision_id, unit_index));`);
+}
+
 export function migrate(): void {
   const currentSchemaVersion = Number(db.pragma('user_version', { simple: true }) ?? 0);
   if (currentSchemaVersion > DATABASE_SCHEMA_VERSION) {
@@ -266,7 +325,7 @@ export function migrate(): void {
       account_id TEXT NOT NULL REFERENCES social_accounts(id) ON DELETE RESTRICT,
       enabled INTEGER NOT NULL DEFAULT 1,
       override_text TEXT,
-      state TEXT NOT NULL DEFAULT 'PENDING' CHECK(state IN ('PENDING','PUBLISHING','PUBLISHED','RETRY','FAILED','RECOVERY_NEEDED')),
+      state TEXT NOT NULL DEFAULT 'PENDING' CHECK(state IN ('PENDING','PUBLISHING','PARTIAL','PUBLISHED','RETRY','FAILED','RECOVERY_NEEDED')),
       attempts INTEGER NOT NULL DEFAULT 0,
       next_attempt_at TEXT,
       external_id TEXT,
@@ -318,9 +377,11 @@ export function migrate(): void {
   if (currentSchemaVersion < 4) migrateContentVersioning();
   if (currentSchemaVersion < 5) migrateIngestionProvenance();
   if (currentSchemaVersion < 6) migrateIngestionSecurity();
+  if (currentSchemaVersion < 7) migrateTimeRenditionSequence();
 
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_posts_status_schedule ON posts(status, schedule_mode, scheduled_at);
+    CREATE INDEX IF NOT EXISTS idx_posts_status_schedule_utc ON posts(status, schedule_mode, scheduled_at_utc);
     CREATE UNIQUE INDEX IF NOT EXISTS uq_posts_source_identity ON posts(source_type, source_ref)
       WHERE source_type IS NOT NULL AND source_ref IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_integration_api_keys_active ON integration_api_keys(revoked_at, prefix);
@@ -328,6 +389,7 @@ export function migrate(): void {
     CREATE INDEX IF NOT EXISTS idx_targets_state_retry ON post_targets(state, next_attempt_at);
     CREATE INDEX IF NOT EXISTS idx_media_post ON media(post_id);
     CREATE INDEX IF NOT EXISTS idx_content_revisions_post_version ON content_revisions(post_id, content_version);
+    CREATE INDEX IF NOT EXISTS idx_publication_units_target_state ON publication_units(target_id, state, unit_index);
     CREATE INDEX IF NOT EXISTS idx_media_post_order ON media(post_id, sort_order, created_at);
     CREATE INDEX IF NOT EXISTS idx_events_created ON publication_events(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_release_acceptance_version ON release_acceptance(target_version, platform);
@@ -343,6 +405,8 @@ export function migrate(): void {
 
   db.prepare("UPDATE post_targets SET state='RECOVERY_NEEDED', last_error=COALESCE(last_error, 'Приложение было остановлено во время публикации. Требуется ручная проверка.'), updated_at=? WHERE state='PUBLISHING'")
     .run(nowIso());
+  db.prepare("UPDATE publication_units SET state='RECOVERY_NEEDED',last_error=COALESCE(last_error,'Application stopped during external publication; manual verification required.'),updated_at=? WHERE state='PUBLISHING'").run(nowIso());
+  db.prepare("UPDATE post_targets SET state='RECOVERY_NEEDED',updated_at=? WHERE id IN (SELECT DISTINCT target_id FROM publication_units WHERE state='RECOVERY_NEEDED')").run(nowIso());
   db.pragma(`user_version = ${DATABASE_SCHEMA_VERSION}`);
 }
 

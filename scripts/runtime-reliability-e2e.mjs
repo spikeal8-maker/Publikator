@@ -58,9 +58,10 @@ function createProject(name) {
 function createPost(projectId, { mode = 'QUEUE', scheduledAt = null, createdAt = '2026-09-07T09:00:00.000Z' } = {}) {
   const postId = id('post');
   db.prepare(`INSERT INTO posts
-    (id,project_id,title,body,status,schedule_mode,scheduled_at,created_at,updated_at)
-    VALUES (?,?,?,?,?,?,?,?,?)`)
-    .run(postId, projectId, `Post ${postId}`, 'Runtime reliability body', 'READY', mode, scheduledAt, createdAt, createdAt);
+    (id,project_id,title,body,status,schedule_mode,scheduled_at,scheduled_at_utc,schedule_timezone,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(postId, projectId, `Post ${postId}`, 'Runtime reliability body', 'READY', mode, scheduledAt,
+      mode === 'AT' ? scheduledAt : null, mode === 'AT' ? 'UTC' : null, createdAt, createdAt);
   ensureTargets(postId);
   setTargetSelection(postId, [accountId]);
   db.prepare(`INSERT INTO media

@@ -77,6 +77,18 @@ Connector public config не содержит secrets; credentials проход�
 
 ---
 
+# 3.2 Time / rendition / sequence foundation
+
+После M0-005 все AT mutations используют `scheduled_at_utc + schedule_timezone`; scheduler читает только UTC instant.
+Nonexistent DST local time запрещён, ambiguous local time требует явного offset/choice.
+QUEUE -> AT нельзя выполнять неявно: backend требует explicit confirmation.
+
+Target-specific content хранится как delta в `TargetRendition`; отсутствие override означает inheritance из immutable canonical revision.
+Multi-operation публикация обязана использовать `PublicationUnit`. Нельзя retry всей Story Sequence, сбрасывать уже PUBLISHED units или автоматически повторять RECOVERY_NEEDED.
+Новый calendar/story/short code, обходящий эти primitives, требует отдельного ADR.
+
+---
+
 # 4. Media invariant: V1 vs vNext
 
 ## V1 release line

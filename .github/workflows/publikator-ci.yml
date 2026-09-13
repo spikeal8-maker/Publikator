@@ -71,6 +71,12 @@ jobs:
       - name: M0-004 ingestion security guards
         run: node scripts/m004-e2e.mjs
 
+      - name: Schema v7 time rendition sequence migration
+        run: node scripts/schema-v7-time-rendition-sequence-e2e.mjs
+
+      - name: M0-005 time rendition sequence semantics
+        run: node scripts/m005-e2e.mjs
+
       - name: Editorial state and immutable revision concurrency
         run: node scripts/state-concurrency-m1-e2e.mjs
 
@@ -114,6 +120,9 @@ jobs:
 
       - name: Schema v6 security state backup and restore
         run: node scripts/backup-v6-e2e.mjs
+
+      - name: Schema v7 time rendition sequence backup and restore
+        run: node scripts/backup-v7-e2e.mjs
 
       - name: Canonical backup API
         env:
@@ -170,7 +179,7 @@ jobs:
             if [ -n "$HEALTH" ]; then break; fi
             sleep 1
           done
-          jq -e --arg sha "$GITHUB_SHA" '.ok == true and .buildSha == $sha and .schemaVersion == 6' <<<"$HEALTH"
+          jq -e --arg sha "$GITHUB_SHA" '.ok == true and .buildSha == $sha and .schemaVersion == 7' <<<"$HEALTH"
 
       - name: Linux documented deployment launcher
         run: bash scripts/deploy-linux-e2e.sh
