@@ -172,6 +172,7 @@ export async function validateBackupDirectory(directory: string): Promise<Backup
     if (Number(manifest.schemaVersion) >= 2) requiredTables.push('release_acceptance');
     if (Number(manifest.schemaVersion) >= 4) requiredTables.push('content_revisions');
     if (Number(manifest.schemaVersion) >= 6) requiredTables.push('integration_api_keys', 'ingestion_connectors');
+    if (Number(manifest.schemaVersion) >= 7) requiredTables.push('target_renditions', 'publication_units');
     for (const required of requiredTables) {
       if (!tables.has(required)) throw new Error(`SQLite backup не содержит таблицу ${required}`);
     }

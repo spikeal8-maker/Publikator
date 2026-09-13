@@ -62,6 +62,14 @@ function duplicateMedia(postId: string, sha256: string): MediaRow | undefined {
     .get(postId, sha256) as MediaRow | undefined;
 }
 
+export function syncImageContentFormat(postId: string): 'IMAGE' | 'CAROUSEL' {
+  const count = Number((db.prepare('SELECT COUNT(*) AS count FROM media WHERE post_id=?').get(postId) as { count: number }).count);
+  const format = count > 1 ? 'CAROUSEL' : 'IMAGE';
+  db.prepare("UPDATE posts SET content_format=? WHERE id=? AND publication_kind='FEED' AND content_format IN ('TEXT_ONLY','IMAGE','CAROUSEL')")
+    .run(format, postId);
+  return format;
+}
+
 function insertPreparedImage(postId: string, originalName: string, prepared: PreparedImage, mediaId: string): MediaRow {
   const duplicate = duplicateMedia(postId, prepared.sha256);
   if (duplicate) return duplicate;
@@ -73,6 +81,7 @@ function insertPreparedImage(postId: string, originalName: string, prepared: Pre
     (id,post_id,original_name,relative_path,mime_type,size_bytes,width,height,sha256,created_at,sort_order)
     VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
     .run(mediaId, postId, originalName, relativePath, 'image/jpeg', prepared.data.byteLength, prepared.width, prepared.height, prepared.sha256, createdAt, nextOrder);
+  syncImageContentFormat(postId);
   return db.prepare('SELECT * FROM media WHERE id=?').get(mediaId) as MediaRow;
 }
 
@@ -160,6 +169,7 @@ export async function deleteMediaVersioned(mediaId: string, expectedContentVersi
     const rest = listMedia(media.post_id);
     const update = db.prepare('UPDATE media SET sort_order=? WHERE id=?');
     rest.forEach((row, index) => update.run(index, row.id));
+    syncImageContentFormat(media.post_id);
     return media;
   });
   await fs.unlink(mediaAbsolutePath(media)).catch(() => undefined);
@@ -176,5 +186,6 @@ export async function deleteMedia(mediaId: string): Promise<void> {
   const update = db.prepare('UPDATE media SET sort_order=? WHERE id=?');
   db.transaction(() => {
     rest.forEach((row, index) => update.run(index, row.id));
+    syncImageContentFormat(media.post_id);
   })();
 }

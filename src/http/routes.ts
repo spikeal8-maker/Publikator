@@ -15,6 +15,23 @@ import {
   setTargetSelection
 } from '../publisher.js';
 import { testConnection } from '../platforms/connection-test.js';
+import { resolveExactSchedule, resolveScheduleInput } from '../schedule-time.js';
+
+type ScheduleMutation = { scheduledAt: string | null; scheduledAtUtc: string | null; scheduleTimezone: string | null };
+
+function scheduleMutation(mode: string, body: Record<string, any>, current?: any): ScheduleMutation {
+  if (mode !== 'AT') return { scheduledAt: null, scheduledAtUtc: null, scheduleTimezone: null };
+  const hasTimeInput = Boolean(body.scheduledAt || body.scheduledAtLocal);
+  if (hasTimeInput) {
+    const resolved = resolveScheduleInput({ scheduledAt: body.scheduledAt, scheduledAtLocal: body.scheduledAtLocal,
+      scheduleTimezone: body.scheduleTimezone, ambiguousOffset: body.ambiguousOffset });
+    return { scheduledAt: resolved.scheduledAtUtc, scheduledAtUtc: resolved.scheduledAtUtc, scheduleTimezone: resolved.scheduleTimezone };
+  }
+  const currentUtc = current?.scheduled_at_utc ?? current?.scheduled_at;
+  if (!currentUtc) throw new Error('AT schedule requires an exact or local scheduled time');
+  const resolved = resolveExactSchedule(currentUtc, current?.schedule_timezone ?? 'UTC');
+  return { scheduledAt: resolved.scheduledAtUtc, scheduledAtUtc: resolved.scheduledAtUtc, scheduleTimezone: resolved.scheduleTimezone };
+}
 
 const PLATFORMS = new Set<Platform>(['telegram','vk','max','instagram']);
 const loginFailures = new Map<string, { count: number; windowStartedAt: number; blockedUntil: number }>();
@@ -177,10 +194,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (!title || !text) return reply.code(400).send({ error: 'Заголовок и текст обязательны' });
     const postId = id('post');
     const mode = ['MANUAL','AT','QUEUE'].includes(body.scheduleMode) ? body.scheduleMode : 'MANUAL';
-    const scheduledAt = mode === 'AT' && body.scheduledAt ? new Date(body.scheduledAt).toISOString() : null;
+    let schedule: ScheduleMutation;
+    try { schedule = scheduleMutation(mode, body); }
+    catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) }); }
     const now = nowIso();
-    db.prepare('INSERT INTO posts (id,project_id,title,body,status,schedule_mode,scheduled_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)')
-      .run(postId, projectId, title, text, 'DRAFT', mode, scheduledAt, now, now);
+    db.prepare('INSERT INTO posts (id,project_id,title,body,status,schedule_mode,scheduled_at,scheduled_at_utc,schedule_timezone,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+      .run(postId, projectId, title, text, 'DRAFT', mode, schedule.scheduledAt, schedule.scheduledAtUtc, schedule.scheduleTimezone, now, now);
     ensureTargets(postId);
     return reply.code(201).send(postView(db.prepare('SELECT * FROM posts WHERE id=?').get(postId)));
   });
@@ -195,12 +214,17 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const mode = body.scheduleMode === undefined ? current.schedule_mode : String(body.scheduleMode);
     if (!title || !text) return reply.code(400).send({ error: 'Заголовок и текст обязательны' });
     if (!['MANUAL','AT','QUEUE'].includes(mode)) return reply.code(400).send({ error: 'Неверный scheduleMode' });
-    const scheduledAt = mode === 'AT' ? (body.scheduledAt ? new Date(body.scheduledAt).toISOString() : current.scheduled_at) : null;
+    if (current.schedule_mode === 'QUEUE' && mode === 'AT' && body.confirmQueueToAt !== true) {
+      return reply.code(409).send({ error: 'QUEUE_TO_AT_CONFIRMATION_REQUIRED', message: 'Convert QUEUE -> AT requires explicit confirmation' });
+    }
+    let schedule: ScheduleMutation;
+    try { schedule = scheduleMutation(mode, body, current); }
+    catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) }); }
     try {
       const version = expectedContentVersion(request, body);
       const committed = commitContentEdit(params.id, version, () => {
-        db.prepare('UPDATE posts SET title=?,body=?,schedule_mode=?,scheduled_at=?,updated_at=? WHERE id=?')
-          .run(title, text, mode, scheduledAt, nowIso(), params.id);
+        db.prepare('UPDATE posts SET title=?,body=?,schedule_mode=?,scheduled_at=?,scheduled_at_utc=?,schedule_timezone=?,updated_at=? WHERE id=?')
+          .run(title, text, mode, schedule.scheduledAt, schedule.scheduledAtUtc, schedule.scheduleTimezone, nowIso(), params.id);
       });
       return { ok: true, contentVersion: committed.contentVersion, post: postView(db.prepare('SELECT * FROM posts WHERE id=?').get(params.id)) };
     } catch (error) {

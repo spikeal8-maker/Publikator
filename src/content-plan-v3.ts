@@ -8,6 +8,7 @@ import { db, event, id, nowIso, type Platform } from './db.js';
 import { commitContentEdit } from './content-versioning.js';
 import { ensureTargets, setTargetSelection } from './publisher.js';
 import { spreadsheetSafeText } from './ingestion-security.js';
+import { normalizeIanaTimezone, resolveExactSchedule, resolveLocalSchedule } from './schedule-time.js';
 
 export const CONTENT_PLAN_V3_VERSION = 3;
 export const CONTENT_PLAN_V3_COLUMNS = [
@@ -41,6 +42,7 @@ type V3Normalized = {
   body: string;
   scheduleMode: 'MANUAL' | 'AT' | 'QUEUE';
   scheduledAt: string | null;
+  scheduleTimezone: string | null;
   targets: ResolvedAccount[];
   overrides: Array<ResolvedAccount & { text: string }>;
   classification: V3Classification;
@@ -237,18 +239,22 @@ function resolveOverrides(cells: V3Cells, targets: ResolvedAccount[], errors: st
   return overrides;
 }
 
-function parseSchedule(modeRaw: string, atRaw: string, errors: string[]): { mode: 'MANUAL' | 'AT' | 'QUEUE'; at: string | null } | null {
+function parseSchedule(modeRaw: string, atRaw: string, timezoneRaw: string, errors: string[]): { mode: 'MANUAL' | 'AT' | 'QUEUE'; at: string | null; timezone: string | null } | null {
   const mode = modeRaw.trim().toUpperCase();
   if (!['MANUAL', 'AT', 'QUEUE'].includes(mode)) { errors.push('schedule_mode: MANUAL/AT/QUEUE'); return null; }
   if (mode !== 'AT') {
     if (atRaw.trim()) errors.push('scheduled_at must be empty unless schedule_mode=AT');
-    return { mode: mode as 'MANUAL' | 'QUEUE', at: null };
+    if (timezoneRaw.trim()) { try { normalizeIanaTimezone(timezoneRaw); } catch (error) { errors.push(error instanceof Error ? error.message : String(error)); } }
+    return { mode: mode as 'MANUAL' | 'QUEUE', at: null, timezone: null };
   }
-  const date = new Date(atRaw.trim());
-  if (!atRaw.trim() || Number.isNaN(date.getTime())) { errors.push('scheduled_at: valid date required for AT'); return null; }
-  return { mode: 'AT', at: date.toISOString() };
+  const timezone = timezoneRaw.trim() || 'UTC';
+  try {
+    const resolved = /(Z|[+-]\d{2}:\d{2})$/i.test(atRaw.trim())
+      ? resolveExactSchedule(atRaw, timezone)
+      : resolveLocalSchedule(atRaw, timezone);
+    return { mode: 'AT', at: resolved.scheduledAtUtc, timezone: resolved.scheduleTimezone };
+  } catch (error) { errors.push(error instanceof Error ? error.message : String(error)); return null; }
 }
-
 function payloadHash(input: {
   action: V3Action;
   projectId: string | null;
@@ -256,6 +262,7 @@ function payloadHash(input: {
   body: string;
   scheduleMode: 'MANUAL' | 'AT' | 'QUEUE';
   scheduledAt: string | null;
+  scheduleTimezone: string | null;
   targets: ResolvedAccount[];
   overrides: Array<ResolvedAccount & { text: string }>;
 }): string {
@@ -268,7 +275,7 @@ function payloadHash(input: {
     contentFormat: 'IMAGE',
     scheduleMode: input.scheduleMode,
     scheduledAt: input.scheduledAt,
-    timezone: 'UTC',
+    timezone: input.scheduleTimezone,
     targetAccountIds: input.targets.map((target) => target.accountId).sort(),
     overrides: input.overrides.map((override) => ({ accountId: override.accountId, text: override.text })).sort((a, b) => a.accountId.localeCompare(b.accountId))
   };
@@ -305,6 +312,7 @@ export async function validateContentPlanV3(parsed: V3Parsed, sourceIdRaw: strin
     let body = '';
     let scheduleMode: 'MANUAL' | 'AT' | 'QUEUE' = 'MANUAL';
     let scheduledAt: string | null = null;
+    let scheduleTimezone: string | null = null;
     let targets: ResolvedAccount[] = [];
     let overrides: Array<ResolvedAccount & { text: string }> = [];
 
@@ -321,16 +329,13 @@ export async function validateContentPlanV3(parsed: V3Parsed, sourceIdRaw: strin
       if (cells.content_format.trim().toUpperCase() !== 'IMAGE') errors.push('M0-003 foundation supports content_format=IMAGE only');
       if (cells.media.trim()) errors.push('media resolver belongs to a later ingestion/media checkpoint');
       if (cells.tags.trim() || cells.source_note.trim()) errors.push('tags/source_note persistence belongs to a later editorial milestone');
-      const timezone = cells.timezone.trim().toUpperCase();
-      if (timezone && !['UTC', 'ETC/UTC'].includes(timezone)) errors.push('timezone must be UTC until M0-005');
-
-      const schedule = parseSchedule(cells.schedule_mode, cells.scheduled_at, errors);
-      if (schedule) { scheduleMode = schedule.mode; scheduledAt = schedule.at; }
+      const schedule = parseSchedule(cells.schedule_mode, cells.scheduled_at, cells.timezone, errors);
+      if (schedule) { scheduleMode = schedule.mode; scheduledAt = schedule.at; scheduleTimezone = schedule.timezone; }
       targets = parseTargets(cells.targets, accounts, errors);
       overrides = resolveOverrides(cells, targets, errors);
     }
 
-    const hash = payloadHash({ action, projectId, title, body, scheduleMode, scheduledAt, targets, overrides });
+    const hash = payloadHash({ action, projectId, title, body, scheduleMode, scheduledAt, scheduleTimezone, targets, overrides });
     const ref = sourceRef(sourceId, externalId);
     const existing = externalId ? db.prepare(`SELECT id,content_version,imported_content_version,source_revision,source_payload_hash,status
       FROM posts WHERE source_type=? AND source_ref=?`).get(SOURCE_TYPE, ref) as ExistingSourcePost | undefined : undefined;
@@ -380,6 +385,7 @@ export async function validateContentPlanV3(parsed: V3Parsed, sourceIdRaw: strin
       body,
       scheduleMode,
       scheduledAt,
+      scheduleTimezone,
       targets,
       overrides,
       classification,
@@ -450,10 +456,10 @@ export function applyContentPlanV3(validation: V3Validation): { created: number;
         postIds.push(postId);
         created += 1;
         db.prepare(`INSERT INTO posts (
-          id,project_id,title,body,status,editorial_stage,schedule_mode,scheduled_at,content_version,ready_revision_id,
+          id,project_id,title,body,status,editorial_stage,schedule_mode,scheduled_at,scheduled_at_utc,schedule_timezone,content_version,ready_revision_id,
           source_type,source_ref,source_revision,source_payload_hash,source_batch_id,imported_at,imported_content_version,created_at,updated_at
-        ) VALUES (?,?,?,?, 'DRAFT','DRAFT',?,?,1,NULL,?,?,?,?,?,?,1,?,?)`).run(
-          postId, row.projectId, row.title, row.body, row.scheduleMode, row.scheduledAt,
+        ) VALUES (?,?,?,?, 'DRAFT','DRAFT',?,?,?,?,1,NULL,?,?,?,?,?,?,1,?,?)`).run(
+          postId, row.projectId, row.title, row.body, row.scheduleMode, row.scheduledAt, row.scheduledAt, row.scheduleTimezone,
           SOURCE_TYPE, ref, row.sourceRevision, row.payloadHash, batch, now, now, now
         );
         applyOverrides(postId, row.targets, row.overrides);
@@ -466,8 +472,8 @@ export function applyContentPlanV3(validation: V3Validation): { created: number;
       const edit = commitContentEdit(postId, row.importedContentVersion, () => {
         if (row.classification === 'UPDATE') {
           if (!row.projectId) throw new Error('UPDATE row lost projectId after preview');
-          db.prepare('UPDATE posts SET project_id=?,title=?,body=?,schedule_mode=?,scheduled_at=? WHERE id=?')
-            .run(row.projectId, row.title, row.body, row.scheduleMode, row.scheduledAt, postId);
+          db.prepare('UPDATE posts SET project_id=?,title=?,body=?,schedule_mode=?,scheduled_at=?,scheduled_at_utc=?,schedule_timezone=? WHERE id=?')
+            .run(row.projectId, row.title, row.body, row.scheduleMode, row.scheduledAt, row.scheduledAt, row.scheduleTimezone, postId);
         }
       });
 
@@ -542,7 +548,7 @@ export async function exportContentPlanV3(sourceIdRaw: string): Promise<Buffer> 
       };
       const exportRow = [
         '3', externalId, 'UPSERT', String(post.project_slug), '', String(post.title), String(post.body),
-        'FEED', 'IMAGE', String(post.schedule_mode), post.scheduled_at ? String(post.scheduled_at) : '', 'UTC',
+        String(post.publication_kind ?? 'FEED'), String(post.content_format ?? 'IMAGE'), String(post.schedule_mode), post.scheduled_at_utc ? String(post.scheduled_at_utc) : '', String(post.schedule_timezone ?? ''),
         JSON.stringify(selected), platformBody('telegram'), platformBody('vk'), platformBody('max'), platformBody('instagram'),
         '', '', '', String(post.source_revision ?? '')
       ];
