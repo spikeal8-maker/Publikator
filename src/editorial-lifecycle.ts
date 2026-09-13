@@ -75,8 +75,8 @@ export function archivePost(postId: string, expectedContentVersion: number): { c
     }
     if (PUBLISHED_STATUSES.has(post.status)) {
       const updated = db.prepare(`UPDATE posts SET editorial_stage='ARCHIVED',updated_at=?
-        WHERE id=? AND content_version=? AND editorial_stage!='TRASHED' AND status IN ('PARTIAL','PUBLISHED')`)
-        .run(nowIso(), post.id, expectedContentVersion);
+        WHERE id=? AND content_version=? AND editorial_stage=? AND status IN ('PARTIAL','PUBLISHED')`)
+        .run(nowIso(), post.id, expectedContentVersion, post.editorial_stage);
       if (updated.changes !== 1) throw new ContentConflictError('Пост уже изменён другим запросом');
       event({ postId, type: 'post_archived', message: 'Опубликованный пост локально архивирован', data: { status: post.status } });
       return { contentVersion: post.content_version, editorialStage: 'ARCHIVED', status: post.status };
