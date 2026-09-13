@@ -37,7 +37,7 @@ legacy.close();
 const { db, migrate } = await import('../dist/db.js');
 migrate();
 try {
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 7);
+  assert.equal(Number(db.pragma('user_version', { simple: true })), 8);
   for (const table of ['integration_api_keys', 'ingestion_connectors']) {
     assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table), table);
   }
@@ -47,14 +47,15 @@ try {
     editorial_stage: 'IN_REVIEW', content_version: 7, source_type: 'content-plan-v3', source_ref: '["sheet","row"]',
     source_revision: 'rev-7', source_payload_hash: 'a'.repeat(64), source_batch_id: 'batch-7',
     imported_at: '2026-01-02T00:00:00.000Z', imported_content_version: 7
-  });  migrate();
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 7);
+  });
+  migrate();
+  assert.equal(Number(db.pragma('user_version', { simple: true })), 8);
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM integration_api_keys').get().n, 0);
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM ingestion_connectors').get().n, 0);
   console.log(JSON.stringify({
     ok: true,
     from: 5,
-    to: 7,
+    to: 8,
     securityTables: true,
     existingContentPreserved: true,
     rerunSafe: true
