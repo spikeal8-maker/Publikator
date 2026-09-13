@@ -83,6 +83,9 @@ jobs:
       - name: Editorial state and immutable revision concurrency
         run: node scripts/state-concurrency-m1-e2e.mjs
 
+      - name: EW4-001 safe lifecycle and Content Inspector
+        run: node scripts/ew4-001-e2e.mjs
+
       - name: Publisher recovery and operations
         run: node scripts/v07-mock-e2e.mjs
 
