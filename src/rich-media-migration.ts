@@ -108,7 +108,9 @@ export function migrateRichMediaModel(db: SqliteDb): void {
 
     CREATE TRIGGER IF NOT EXISTS trg_media_order_content_media
     AFTER UPDATE OF sort_order ON media
-    BEGIN UPDATE content_media SET sort_order=NEW.sort_order,updated_at=NEW.created_at WHERE media_id=NEW.id; END;
+    BEGIN
+      UPDATE content_media SET sort_order=NEW.sort_order,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE media_id=NEW.id;
+    END;
 
     CREATE TRIGGER IF NOT EXISTS trg_post_format_content_media
     AFTER UPDATE OF publication_kind,content_format ON posts
@@ -117,7 +119,8 @@ export function migrateRichMediaModel(db: SqliteDb): void {
         WHEN NEW.content_format='CAROUSEL' THEN 'carousel_item'
         WHEN NEW.content_format='STORY_SEQUENCE' THEN 'story_item'
         WHEN NEW.content_format IN ('VIDEO','VERTICAL_VIDEO') THEN 'video'
-        ELSE 'primary' END
+        ELSE 'primary' END,
+        updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
       WHERE post_id=NEW.id AND role<>'poster';
     END;
 
@@ -132,6 +135,10 @@ export function migrateRichMediaModel(db: SqliteDb): void {
     WHEN NEW.poster_asset_id IS NOT NULL AND NOT EXISTS (
       SELECT 1 FROM media poster WHERE poster.id=NEW.poster_asset_id AND poster.post_id=NEW.post_id AND poster.mime_type LIKE 'image/%')
     BEGIN SELECT RAISE(ABORT,'poster asset must be an image from the same post'); END;
+
+    CREATE TRIGGER IF NOT EXISTS trg_media_delete_clear_poster
+    AFTER DELETE ON media
+    BEGIN UPDATE media SET poster_asset_id=NULL WHERE poster_asset_id=OLD.id; END;
 
     CREATE TRIGGER IF NOT EXISTS trg_revision_content_media_snapshot
     AFTER INSERT ON content_revisions
