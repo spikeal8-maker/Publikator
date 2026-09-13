@@ -49,7 +49,7 @@ release/1.0
 
 vNext-функции туда не попадают.
 
-Любой V1 fix SHOULD быть forward-ported в `main`, если применим.
+Любой V1 fix проходит нормативную forward-port policy из `docs/RELEASE_MIGRATION_POLICY.md`. Security/data-loss/backup/publication-safety fixes MUST получить disposition в `main`.
 
 ## 1.2 vNext
 
@@ -1098,38 +1098,29 @@ vNext schema изменения MUST выполняться additive/migratable 
 
 Запрещено делать один giant migration одновременно для Pipeline + Experience + Editorial.
 
-Рекомендуемый порядок schema milestones:
+Фактический schema milestone ledger после M0:
 
 ```text
-M1 identity/versioning
-- ingestion metadata
-- editorial_stage
-- content_version
-- revisions
-
-M2 rendition/editor
-- canonical rich text
-- target renditions/options
-- project defaults/templates
-
-M3 rich media
-- publication kind/format
-- video metadata
-- publication units/story sequence
-
-M4 connectors/API
-- API keys
-- connector/source bindings
-- import batches
+3  V1 baseline / release/1.0
+4  M0-002 content versioning + immutable revisions
+5  M0-003 ingestion provenance/source identity
+6  M0-004 ingestion security state
+7  M0-005 UTC/IANA time + TargetRendition + PublicationUnit
 ```
 
-Каждый migration step:
+Source of truth для машинной проверки — `SCHEMA_MILESTONES` в `src/schema.ts`; операционная policy — `docs/RELEASE_MIGRATION_POLICY.md`.
 
-- idempotent on one schema version transition;
-- tested from real previous schema;
-- preserves V1 image posts;
-- blocks downgrade if DB newer than binary;
-- has dedicated regression script in existing CI.
+Каждый новый migration step MUST:
+
+- increment ровно на одну schema version;
+- быть idempotent на переходе `N-1 -> N`;
+- тестироваться из реалистичной предыдущей schema;
+- сохранять все предыдущие domain invariants и historical published content;
+- блокировать downgrade, если DB новее binary;
+- иметь dedicated migration regression;
+- иметь dedicated canonical backup/restore regression;
+- быть зарегистрирован в `SCHEMA_MILESTONES`;
+- запускаться в едином `Publikator CI / Acceptance`.
 
 Legacy image posts migration result:
 
@@ -1299,8 +1290,9 @@ Feature не считается DONE только потому, что UI её �
 
 - `release/1.0` frozen from RC4;
 - `main` vNext;
-- schema milestone order;
-- forward-port release fixes.
+- actual schema ledger registered in `SCHEMA_MILESTONES`;
+- every new migration requires dedicated migrate + canonical backup/restore regressions in Acceptance;
+- V1 forward-port policy is normative in `docs/RELEASE_MIGRATION_POLICY.md`.
 
 После M0 feature-development может идти параллельными небольшими PR, но schema ownership и invariants не меняются без ADR.
 
@@ -1309,19 +1301,18 @@ Feature не считается DONE только потому, что UI её �
 # 29. Рекомендуемый порядок реализации после M0
 
 ```text
-1. identity/versioning/revisions + safe edit/trash
-2. Content Inspector + visual calendar on existing image posts
-3. canonical rich text + target compilers
-4. Template/Content Plan v3 + ZIP bundle
-5. Integration API v1
+1. safe Trash/Restore + Content Inspector on existing image posts
+2. visual calendar on schema-7 UTC/IANA scheduling
+3. canonical rich text + platform compilers using existing TargetRendition
+4. Content Plan v3 UX/template + ZIP bundle using existing ingestion guards
+5. Integration API v1 using existing API-key security foundation
 6. project defaults/templates/target options
-7. TargetRendition model
-8. video metadata/player pipeline
-9. story/short canonical model + PublicationUnit
-10. Google Sheets connector
-11. Google Drive / Яндекс Диск
-12. AI producer/content profile
-13. platform-specific video/story/short live adapters
+7. video metadata/player/poster pipeline
+8. story/short product model using existing PublicationUnit recovery
+9. Google Sheets connector
+10. Google Drive / Яндекс Диск
+11. AI producer/content profile
+12. platform-specific video/story/short live adapters
 ```
 
 Нельзя начинать platform Stories/Shorts adapter до готовности canonical model, capability matrix, player/preview и PublicationUnit recovery.

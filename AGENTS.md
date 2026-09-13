@@ -61,6 +61,7 @@ During implementation:
 - preserve modular-monolith boundaries;
 - preserve V1 regressions unless the migration checkpoint explicitly changes them;
 - use additive/milestone migrations rather than a giant schema rewrite;
+- for any schema change follow `docs/RELEASE_MIGRATION_POLICY.md`: update `SCHEMA_MILESTONES`, add migration regression and canonical backup/restore regression in the same PR;
 - do not bypass atomic publication/recovery/concurrency rules;
 - do not invent platform capabilities not confirmed by the spec/current official API work item.
 

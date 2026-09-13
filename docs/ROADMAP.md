@@ -169,7 +169,7 @@ Issue: #30.
 
 # 4. CONTENT-M0 — обязательный gate
 
-До больших feature PR выполнить convergence foundation.
+Status: **ACCEPTED foundation**. Evidence and checkpoint status are tracked in issue #32.
 
 Это не «ещё один дизайн-этап», а фиксация тех contracts, без которых агенты будут реализовывать несовместимые модели.
 
@@ -278,79 +278,41 @@ main for vNext
 
 ---
 
-# 5. Schema milestones после M0
+# 5. Фактический schema foundation после M0
 
-Не делать giant migration.
+Publikator уже прошёл маленькие additive milestones вместо giant migration:
 
-## M1 — Identity / versioning / editorial foundation
+```text
+3  V1 baseline / release/1.0
+4  content versioning + immutable revisions
+5  ingestion provenance/source identity
+6  ingestion security state
+7  UTC/IANA schedule + TargetRendition + PublicationUnit
+```
 
-Добавить:
-
-- ingestion/source identity;
-- `editorial_stage`;
-- `content_version`;
-- content revisions;
-- safe Trash/Restore;
-- optimistic concurrency.
-
-Этот этап должен работать на текущих image posts без нового calendar/video.
-
-## M2 — Rich text / rendition / templates
-
-Добавить:
-
-- canonical rich text AST;
-- plain fallback;
-- TargetRendition;
-- target options;
-- project defaults;
-- templates/snippets;
-- Telegram/VK/MAX/Instagram compiler foundation.
-
-## M3 — Rich media
-
-Добавить:
-
-- `publication_kind`;
-- `content_format`;
-- video metadata;
-- MP4/H.264/AAC validation;
-- poster generation;
-- PublicationUnit;
-- story sequence canonical model.
-
-## M4 — Integrations
-
-Добавить:
-
-- IntegrationApiKey;
-- IngestionSource;
-- SourceBinding;
-- ImportBatch;
-- connectors.
+Новые feature PR не должны повторно создавать эти primitives. Следующая schema version появляется только при новом coherent data invariant и обязана следовать `docs/RELEASE_MIGRATION_POLICY.md` + `SCHEMA_MILESTONES`.
 
 ---
 
 # 6. Recommended feature order
 
-После M0:
+После принятого M0 foundation:
 
 ```text
-1. M1 identity/versioning/revisions + Trash
-2. Visual Calendar shell + Content Inspector on existing image posts
-3. M2 canonical rich text + target compilers
-4. Content Plan schema 3 + downloadable template
-5. ZIP Content Bundle
-6. Integration API v1
+1. Safe Trash/Restore + Content Inspector on existing image posts
+2. Visual Calendar shell on canonical schema-7 scheduling
+3. Canonical rich text + Telegram/VK/MAX/Instagram compilers using TargetRendition
+4. Content Plan schema-3 UX + downloadable template
+5. ZIP Content Bundle using M0-004 security guards
+6. Integration API v1 using existing hashed/scoped API-key foundation
 7. Project defaults/templates/target options
-8. M3 TargetRendition/rich media foundation
-9. Video player + poster/metadata
-10. Story/Short model + PublicationUnit recovery
-11. Google Sheets connector
-12. Google Drive connector
-13. Яндекс Диск connector
-14. AI producer/content profile
-15. platform-specific video/story/short adapters
+8. Video metadata/player/poster pipeline
+9. Story/Short product model using existing PublicationUnit recovery
+10. Google Sheets connector
+11. Google Drive connector
+12. Яндекс Диск connector
+13. AI producer/content profile
+14. platform-specific video/story/short adapters
 ```
 
 Причина порядка:
