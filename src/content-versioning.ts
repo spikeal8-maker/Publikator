@@ -65,6 +65,9 @@ function getPost(postId: string): VersionedPostRow {
 }
 
 function ensureEditable(row: VersionedPostRow): void {
+  if (row.editorial_stage === 'ARCHIVED' || row.editorial_stage === 'TRASHED') {
+    throw new ContentImmutableError('Сначала восстановите пост из архива или корзины');
+  }
   if (!EDITABLE_POST_STATUSES.has(row.status)) {
     throw new ContentImmutableError('Нельзя редактировать пост после начала публикации');
   }
