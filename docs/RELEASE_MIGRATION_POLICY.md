@@ -33,6 +33,7 @@ Publikator uses monotonic, one-step schema milestones. Current ledger:
 | 5 | M0-003 | ingestion provenance and source identity |
 | 6 | M0-004 | ingestion security state |
 | 7 | M0-005 | UTC/IANA scheduling, rendition and publication units |
+| 8 | CX3-003 | rich-media authoring relation, video metadata and immutable story/media ordering |
 
 A feature PR MUST NOT combine several unrelated future data-model milestones into one schema jump.
 A new schema version must represent one coherent data ownership/invariant change and migrate from the immediately previous version.
