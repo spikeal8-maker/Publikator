@@ -9,6 +9,7 @@ import {
 } from './content-versioning.js';
 
 export type EditorialStage = 'IDEA' | 'DRAFT' | 'IN_REVIEW' | 'APPROVED' | 'ARCHIVED' | 'TRASHED';
+export type LifecycleResult = { contentVersion: number; editorialStage: EditorialStage; status: string };
 
 type LifecyclePost = {
   id: string;
@@ -44,7 +45,7 @@ function futureTransition(
   nextStage: 'ARCHIVED' | 'TRASHED' | 'DRAFT',
   eventType: string,
   message: string
-): { contentVersion: number; editorialStage: EditorialStage; status: string } {
+): LifecycleResult {
   if (!FUTURE_STATUSES.has(post.status)) {
     throw new ContentImmutableError('Операция доступна только для ещё не опубликованного поста');
   }
@@ -64,8 +65,8 @@ function futureTransition(
   return { contentVersion: nextVersion, editorialStage: nextStage, status: 'DRAFT' };
 }
 
-export function archivePost(postId: string, expectedContentVersion: number): { contentVersion: number; editorialStage: EditorialStage; status: string } {
-  return db.transaction(() => {
+export function archivePost(postId: string, expectedContentVersion: number): LifecycleResult {
+  const transaction = db.transaction((): LifecycleResult => {
     const post = lifecyclePost(postId);
     assertVersion(post, expectedContentVersion);
     if (post.status === 'PUBLISHING') throw new ContentImmutableError('Нельзя архивировать пост во время публикации');
@@ -82,11 +83,12 @@ export function archivePost(postId: string, expectedContentVersion: number): { c
       return { contentVersion: post.content_version, editorialStage: 'ARCHIVED', status: post.status };
     }
     return futureTransition(post, expectedContentVersion, 'ARCHIVED', 'post_archived', 'Будущая публикация архивирована');
-  })();
+  });
+  return transaction();
 }
 
-export function trashPost(postId: string, expectedContentVersion: number): { contentVersion: number; editorialStage: EditorialStage; status: string } {
-  return db.transaction(() => {
+export function trashPost(postId: string, expectedContentVersion: number): LifecycleResult {
+  const transaction = db.transaction((): LifecycleResult => {
     const post = lifecyclePost(postId);
     assertVersion(post, expectedContentVersion);
     if (post.editorial_stage === 'TRASHED') {
@@ -96,11 +98,12 @@ export function trashPost(postId: string, expectedContentVersion: number): { con
       throw new ContentImmutableError('Опубликованный/частично опубликованный пост нельзя отправить в корзину; используйте локальный архив');
     }
     return futureTransition(post, expectedContentVersion, 'TRASHED', 'post_trashed', 'Будущая публикация перемещена в корзину');
-  })();
+  });
+  return transaction();
 }
 
-export function restorePost(postId: string, expectedContentVersion: number): { contentVersion: number; editorialStage: EditorialStage; status: string } {
-  return db.transaction(() => {
+export function restorePost(postId: string, expectedContentVersion: number): LifecycleResult {
+  const transaction = db.transaction((): LifecycleResult => {
     const post = lifecyclePost(postId);
     assertVersion(post, expectedContentVersion);
     if (!['ARCHIVED', 'TRASHED'].includes(post.editorial_stage)) {
@@ -117,7 +120,8 @@ export function restorePost(postId: string, expectedContentVersion: number): { c
       return { contentVersion: post.content_version, editorialStage: 'APPROVED', status: post.status };
     }
     return futureTransition(post, expectedContentVersion, 'DRAFT', 'post_restored', 'Публикация восстановлена как черновик');
-  })();
+  });
+  return transaction();
 }
 
 export type EditorialActions = {
