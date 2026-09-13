@@ -33,7 +33,7 @@ insert.run('old-2','post-old','second.jpg','post-old/second.jpg','image/jpeg',10
 insert.run('old-1','post-old','first.jpg','post-old/first.jpg','image/jpeg',10,20,20,'sha1','2026-01-01T00:00:00.000Z');
 legacy.close();
 
-const { db, migrate } = await import('../dist/db.js');
+const { db, migrate, DATABASE_SCHEMA_VERSION } = await import('../dist/db.js');
 try {
   migrate();
   const columns = db.prepare('PRAGMA table_info(media)').all().map((column) => column.name);
@@ -43,9 +43,9 @@ try {
     { id: 'old-1', sort_order: 0 },
     { id: 'old-2', sort_order: 1 }
   ]);
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 7);
+  assert.equal(Number(db.pragma('user_version', { simple: true })), DATABASE_SCHEMA_VERSION);
   assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='release_acceptance'").get());
-  console.log(JSON.stringify({ ok: true, legacyMediaOrderMigrated: true, schemaVersion: 7 }, null, 2));
+  console.log(JSON.stringify({ ok: true, legacyMediaOrderMigrated: true, schemaVersion: DATABASE_SCHEMA_VERSION }, null, 2));
 } finally {
   db.close();
   await fs.rm(dataDir, { recursive: true, force: true });
