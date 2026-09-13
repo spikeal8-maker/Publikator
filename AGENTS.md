@@ -2,6 +2,34 @@
 
 This file is the first entry point for coding agents working in this repository.
 
+## 0. GitHub-first execution mode
+
+For normal Publikator development, **GitHub is the source of truth and the default execution surface**.
+
+Agents MUST use GitHub repository tools for routine work whenever the task can be completed there:
+
+- inspect/search repository files;
+- create branches;
+- edit/create/delete repository files;
+- open/update issues and PRs;
+- review diffs;
+- inspect GitHub Actions;
+- merge only after the required Acceptance passes.
+
+Do **not** use a remote/local user computer as the normal coding workspace for repository edits, patch scripts, Git operations, repository-wide searches, or tests that already run in GitHub CI.
+
+Host/computer access is reserved for acceptance that GitHub cannot reproduce, for example:
+
+- real Windows/Docker Desktop deployment;
+- browser interaction against a locally deployed build;
+- local network/firewall/port behavior;
+- physical-device or machine-specific integration;
+- verifying files/data that exist only on that authorized computer.
+
+Before using a host/computer tool, the checkpoint must identify **why GitHub/CI is insufficient** and what host-specific acceptance is being verified. Host-side experiments are not the source of truth: any repository code change discovered there MUST be implemented again through the GitHub branch/PR before the checkpoint can be DONE.
+
+Avoid hidden local WIP. A change that matters to the product should become visible in the GitHub branch early enough to be reviewable, reproducible and CI-tested.
+
 ## 1. Read order
 
 Do not begin with a repository-wide audit unless the task explicitly asks for one.
