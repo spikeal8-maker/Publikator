@@ -19,7 +19,7 @@ const { setPublisherForTests } = await import('../dist/platforms/index.js');
 const { buildApp } = await import('../dist/app.js');
 
 migrate();
-assert.equal(Number(db.pragma('user_version', { simple: true })), 7);
+assert.equal(Number(db.pragma('user_version', { simple: true })), 8);
 
 let publishCalls = 0;
 let publishedTexts = [];
@@ -69,7 +69,6 @@ async function attachAndReady(post) {
   return api('GET', `/api/posts/${post.id}`);
 }
 try {
-  // Stale editorial writes must fail instead of last-write-wins.
   const stalePost = await createDraft('Stale base', 'Original body');
   assert.equal(stalePost.content_version, 1);
   const firstEdit = await api('PATCH', `/api/posts/${stalePost.id}`, {
@@ -87,7 +86,6 @@ try {
   assert.equal(afterConflict.body, 'Original body');
   assert.equal(afterConflict.content_version, 2);
 
-  // Stale asynchronous media work must not create media or advance the content version.
   const staleMediaPost = await createDraft('Stale media', 'Media body');
   await api('PATCH', `/api/posts/${staleMediaPost.id}`, {
     title: 'Version advanced',
@@ -100,7 +98,6 @@ try {
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM media WHERE post_id=?').get(staleMediaPost.id).count, 0);
   assert.equal(db.prepare('SELECT content_version FROM posts WHERE id=?').get(staleMediaPost.id).content_version, 2);
 
-  // Editing READY content invalidates the approved revision and requires new preflight.
   const readyForEdit = await attachAndReady(await createDraft('Ready edit', 'Ready body'));
   assert.equal(readyForEdit.status, 'READY');
   assert.ok(readyForEdit.ready_revision_id);
@@ -116,7 +113,6 @@ try {
   assert.equal(invalidated.ready_revision_id, null);
   await assert.rejects(() => publishPost(readyForEdit.id), /READY|revision/);
 
-  // Publisher must use the immutable revision, not mutable working columns.
   const snapshotPost = await attachAndReady(await createDraft('Snapshot', 'Immutable snapshot body'));
   db.prepare("UPDATE posts SET body='CORRUPTED LIVE BODY' WHERE id=?").run(snapshotPost.id);
   const beforeSnapshotPublish = publishCalls;
@@ -124,7 +120,6 @@ try {
   assert.equal(publishCalls, beforeSnapshotPublish + 1);
   assert.equal(publishedTexts.at(-1), 'Immutable snapshot body');
 
-  // Once publication claims the approved revision, editing is blocked until outcome is known.
   const racingPost = await attachAndReady(await createDraft('Publish race', 'Race snapshot body'));
   let releaseGate;
   let enteredGate;
@@ -148,7 +143,7 @@ try {
   console.log(JSON.stringify({
     ok: true,
     checkpoint: 'M0-002',
-    schemaVersion: 7,
+    schemaVersion: 8,
     staleEditConflict: true,
     readyInvalidation: true,
     immutableSnapshotPublish: true,
