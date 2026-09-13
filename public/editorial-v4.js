@@ -55,6 +55,7 @@ async function filterLegacyActiveRows() {
     if (!allowed.has(button.dataset.id)) button.closest('tr')?.remove();
   });
   if (!table.querySelector('tbody tr')) table.querySelector('tbody').innerHTML = '<tr><td colspan="6">Публикаций пока нет</td></tr>';
+  table.dataset.editorialRenderedView = 'active';
 }
 
 async function renderInactiveList(viewName) {
@@ -63,6 +64,7 @@ async function renderInactiveList(viewName) {
   const rows = await editorialRequest(EDITORIAL_VIEWS[viewName].api);
   const tbody = table.querySelector('tbody');
   if (tbody) tbody.innerHTML = lifecycleListRows(rows);
+  table.dataset.editorialRenderedView = viewName;
 }
 
 function syncFilterButtons() {
@@ -101,6 +103,7 @@ async function enhanceContentScreen() {
       }));
     }
     syncFilterButtons();
+    if (table.dataset.editorialRenderedView === editorialView) return;
     if (editorialView === 'active') await filterLegacyActiveRows();
     else await renderInactiveList(editorialView);
   } finally {
