@@ -16,6 +16,7 @@ import { registerContentPlanV3Routes } from './http/content-plan-v3.js';
 import { registerDiagnosticsRoutes } from './http/diagnostics.js';
 import { registerReleaseGateRoutes } from './http/release-gate.js';
 import { registerEditorialLifecycleRoutes } from './http/editorial-lifecycle.js';
+import { registerCalendarRoutes } from './http/calendar.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -32,6 +33,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await registerLegacyBackupBlocker(app);
   await registerRoutes(app);
   await registerEditorialLifecycleRoutes(app);
+  await registerCalendarRoutes(app);
   await registerTargetOverrideRoutes(app);
   await registerMediaOrderRoutes(app);
   await registerBackupBundleRoutes(app);
