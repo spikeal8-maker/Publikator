@@ -89,6 +89,14 @@ Multi-operation публикация обязана использовать `Pu
 
 ---
 
+# 3.3 Release and migration policy
+
+`docs/RELEASE_MIGRATION_POLICY.md` is normative for `release/1.0` fixes and every vNext schema change.
+A new schema version MUST be a single coherent milestone, update `SCHEMA_MILESTONES`, and add both a migration regression and canonical backup/restore regression to the existing Acceptance workflow.
+Security/data-loss/backup/publication-safety fixes on `release/1.0` MUST receive an explicit forward-port disposition in `main`.
+
+---
+
 # 4. Media invariant: V1 vs vNext
 
 ## V1 release line
