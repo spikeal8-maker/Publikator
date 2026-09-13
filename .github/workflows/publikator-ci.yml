@@ -89,6 +89,9 @@ jobs:
       - name: CX3-001 visual calendar shell
         run: node scripts/cx3-001-calendar-e2e.mjs
 
+      - name: CX3-002 content library UX
+        run: node scripts/cx3-002-content-library-e2e.mjs
+
       - name: Publisher recovery and operations
         run: node scripts/v07-mock-e2e.mjs
 
