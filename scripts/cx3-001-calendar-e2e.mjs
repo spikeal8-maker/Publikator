@@ -16,6 +16,8 @@ const { buildApp } = await import('../dist/app.js');
 migrate();
 const app = await buildApp();
 await app.ready();
+const unauthenticated = await app.inject({ method: 'GET', url: '/api/calendar?from=2026-10-01T00:00:00.000Z&to=2026-10-02T00:00:00.000Z' });
+assert.equal(unauthenticated.statusCode, 401, unauthenticated.body);
 const login = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { password: process.env.ADMIN_PASSWORD } });
 assert.equal(login.statusCode, 200, login.body);
 const cookie = String(login.headers['set-cookie']).split(';')[0];
@@ -88,13 +90,21 @@ assert.equal(tooWide.statusCode, 400, tooWide.body);
 const backwards = await request('GET', `/api/calendar?from=${encodeURIComponent(end.toISOString())}&to=${encodeURIComponent(start.toISOString())}`);
 assert.equal(backwards.statusCode, 400, backwards.body);
 
+const html = await fs.readFile(path.join(process.cwd(), 'public', 'index.html'), 'utf8');
+const frontend = await fs.readFile(path.join(process.cwd(), 'public', 'calendar-v3.js'), 'utf8');
+for (const required of ['id="calendar-nav"', '/calendar-v3.css', '/calendar-v3.js']) assert.match(html, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+for (const required of ["month:'Месяц'", "week:'Неделя'", "day:'День'", "agenda:'Agenda'", "className='open-post'", 'CALENDAR_DISPLAY_TIMEZONE']) assert.ok(frontend.includes(required), required);
+
 console.log(JSON.stringify({
   ok: true,
   checkpoint: 'CX3-001',
+  authenticatedProjection: true,
   sixtyDayProjection: body.items.length,
   archivedAndTrashExcluded: true,
   manualUnscheduledExcluded: true,
   thumbnailPlatformSourceTimezone: true,
+  monthWeekDayAgendaShell: true,
+  inspectorTrigger: true,
   rangeGuard: true
 }, null, 2));
 
