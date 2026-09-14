@@ -50,6 +50,14 @@ function publicPostError(error: unknown, context: string): PlatformError {
   });
 }
 
+function localPreparationError(error: unknown, context: string): PlatformError {
+  if (error instanceof PlatformError) return error;
+  return new PlatformError(`${context}: ${error instanceof Error ? error.message : String(error)}`, {
+    retryable: false,
+    outcomeUnknown: false
+  });
+}
+
 async function readMediaBytes(mediaPath: string, maxBytes?: number): Promise<Uint8Array<ArrayBuffer>> {
   try {
     const bytes = await fs.readFile(mediaPath);
@@ -200,7 +208,12 @@ async function publishStoryImage(token: string, businessConnectionId: string, me
 }
 
 async function publishStoryVideo(token: string, businessConnectionId: string, media: MediaRow, caption: string): Promise<any> {
-  const rendition = await prepareTelegramStoryVideo(media);
+  let rendition;
+  try {
+    rendition = await prepareTelegramStoryVideo(media);
+  } catch (error) {
+    throw localPreparationError(error, 'Telegram STORY/VIDEO rendition не подготовлен до внешнего POST');
+  }
   try {
     const bytes = await readMediaBytes(rendition.path, rendition.sizeBytes);
     const data = new FormData();
@@ -221,7 +234,7 @@ async function publishStoryVideo(token: string, businessConnectionId: string, me
     }, 'Telegram postStory', TELEGRAM_STORY_REQUEST_TIMEOUT_MS);
     return body.result;
   } finally {
-    await rendition.cleanup();
+    await rendition.cleanup().catch(() => undefined);
   }
 }
 
