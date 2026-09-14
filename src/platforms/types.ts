@@ -1,5 +1,6 @@
 import type { MediaRow } from '../media.js';
 import type { Platform } from '../db.js';
+import type { ContentFormat, PublicationKind } from '../domain/content-domain.js';
 
 export type PublishInput = {
   postId: string;
@@ -8,6 +9,8 @@ export type PublishInput = {
   media: MediaRow[];
   credentials: Record<string, unknown>;
   publicMediaUrls: string[];
+  publicationKind?: PublicationKind;
+  contentFormat?: ContentFormat;
 };
 
 export type PublishResult = {
