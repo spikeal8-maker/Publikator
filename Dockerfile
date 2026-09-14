@@ -16,7 +16,8 @@ WORKDIR /app
 ENV NODE_ENV=production \
     IMAGE_BUILD_SHA=${BUILD_SHA}
 LABEL org.opencontainers.image.revision=${BUILD_SHA}
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates ffmpeg && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates ffmpeg && rm -rf /var/lib/apt/lists/* \
+    && ffmpeg -hide_banner -encoders 2>/dev/null | grep -q 'libx265'
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/package-lock.json ./package-lock.json
 COPY --from=build /app/node_modules ./node_modules
