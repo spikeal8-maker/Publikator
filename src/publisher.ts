@@ -7,6 +7,18 @@ import { getPublisher } from './platforms/index.js';
 import { PlatformError, type PublishInput } from './platforms/types.js';
 import { beginPublicationActivity } from './runtime-gate.js';
 import { getContentRevision, revisionMedia, revisionTargets, type ContentRevisionRow } from './content-versioning.js';
+import {
+  claimNextPublicationUnit,
+  confirmPublicationUnitNotPublished,
+  ensurePublicationUnits,
+  listPublicationUnits,
+  markPublicationUnitFailed,
+  markPublicationUnitPublished,
+  markPublicationUnitRecoveryNeeded,
+  retryFailedPublicationUnit,
+  syncAggregateTargetState,
+  type PublicationUnitRow
+} from './delivery-foundation.js';
 
 const RETRY_DELAYS_MS = [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000];
 const CLAIMABLE_TARGET_STATES: TargetState[] = ['PENDING', 'RETRY', 'FAILED'];
@@ -35,6 +47,13 @@ type RecoveryTargetRow = {
   platform: Platform;
   account_name: string;
   account_enabled: number;
+};
+
+type UnitContext = PublicationUnitRow & {
+  post_id: string;
+  account_id: string;
+  platform: Platform;
+  account_name: string;
 };
 
 export type PreflightIssue = {
@@ -68,6 +87,39 @@ function recoveryTarget(targetId: string): RecoveryTargetRow {
     WHERE pt.id=?`).get(targetId) as RecoveryTargetRow | undefined;
   if (!row) throw new Error('Цель публикации не найдена');
   return row;
+}
+
+function unitContext(unitId: string): UnitContext {
+  const row = db.prepare(`SELECT pu.*,pt.post_id,pt.account_id,a.platform,a.name AS account_name
+    FROM publication_units pu
+    JOIN post_targets pt ON pt.id=pu.target_id
+    JOIN social_accounts a ON a.id=pt.account_id
+    WHERE pu.id=?`).get(unitId) as UnitContext | undefined;
+  if (!row) throw new Error('PublicationUnit не найдена');
+  return row;
+}
+
+function targetHasUnits(targetId: string): boolean {
+  return Boolean(db.prepare('SELECT 1 FROM publication_units WHERE target_id=? LIMIT 1').get(targetId));
+}
+
+function assertTargetLevelRecoveryAllowed(targetId: string): void {
+  if (targetHasUnits(targetId)) {
+    throw new Error('Для multi-unit target запрещён общий retry/recovery. Используйте PublicationUnit recovery.');
+  }
+}
+
+function validExternalUrl(value: string | null | undefined): string | null {
+  const clean = value?.trim() || null;
+  if (!clean) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(clean);
+  } catch {
+    throw new Error('externalUrl должен быть корректным URL');
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('externalUrl должен использовать http или https');
+  return clean;
 }
 
 function claimTarget(targetId: string, revisionId: string): boolean {
@@ -201,6 +253,82 @@ export function preflightRevision(revisionId: string): PreflightResult {
   return { ok: issues.length === 0, issues };
 }
 
+function isStorySequence(input: PublishInput): boolean {
+  return input.publicationKind === 'STORY' && input.contentFormat === 'STORY_SEQUENCE';
+}
+
+async function executeStorySequence(target: PublishTargetRow, revision: ContentRevisionRow, input: PublishInput): Promise<void> {
+  const platformPublisher = getPublisher(target.platform);
+  if (!platformPublisher.publishUnit) throw new Error(`${target.platform}: adapter не реализует PublicationUnit execution`);
+
+  const units = ensurePublicationUnits(target.id, revision.id, input.media.map(() => 'STORY'));
+  if (units.length !== input.media.length) throw new Error('PublicationUnit plan не соответствует immutable media sequence');
+
+  event({
+    postId: target.post_id,
+    accountId: target.account_id,
+    type: 'sequence_publish_started',
+    message: `Sequence publication: ${target.platform}`,
+    data: { revisionId: revision.id, units: units.length }
+  });
+
+  while (true) {
+    const unit = claimNextPublicationUnit(target.id);
+    if (!unit) break;
+    event({
+      postId: target.post_id,
+      accountId: target.account_id,
+      type: 'publication_unit_started',
+      message: `Story ${unit.unit_index + 1} started`,
+      data: { unitId: unit.id, unitIndex: unit.unit_index }
+    });
+
+    try {
+      const result = await platformPublisher.publishUnit(input, unit.unit_index);
+      markPublicationUnitPublished(unit.id, result.externalId, result.externalUrl ?? null);
+      event({
+        postId: target.post_id,
+        accountId: target.account_id,
+        type: 'publication_unit_succeeded',
+        message: `Story ${unit.unit_index + 1} published`,
+        data: { unitId: unit.id, unitIndex: unit.unit_index, externalId: result.externalId }
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (error instanceof PlatformError && !error.outcomeUnknown) {
+        markPublicationUnitFailed(unit.id, message);
+        event({
+          postId: target.post_id,
+          accountId: target.account_id,
+          level: 'error',
+          type: 'publication_unit_failed',
+          message,
+          data: { unitId: unit.id, unitIndex: unit.unit_index, retryable: error.retryable }
+        });
+      } else {
+        const storedMessage = `${message} Результат внешнего POST этой Story может быть неопределён; автоматический повтор отключён.`;
+        markPublicationUnitRecoveryNeeded(unit.id, storedMessage);
+        event({
+          postId: target.post_id,
+          accountId: target.account_id,
+          level: 'error',
+          type: 'publication_unit_recovery_needed',
+          message: storedMessage,
+          data: { unitId: unit.id, unitIndex: unit.unit_index }
+        });
+      }
+      break;
+    }
+  }
+
+  const state = syncAggregateTargetState(target.id);
+  if (state === 'PUBLISHED') {
+    db.prepare(`UPDATE post_targets
+      SET published_at=COALESCE(published_at,?),next_attempt_at=NULL,last_error=NULL,updated_at=?
+      WHERE id=?`).run(nowIso(), nowIso(), target.id);
+  }
+}
+
 async function publishTargetInternal(targetId: string, forcedRevisionId?: string): Promise<void> {
   const target = revisionTargetRow(targetId);
   if (!target) throw new Error('Цель публикации не найдена');
@@ -210,13 +338,13 @@ async function publishTargetInternal(targetId: string, forcedRevisionId?: string
   const revisionId = forcedRevisionId ?? post?.ready_revision_id ?? null;
   if (!revisionId) throw new Error('Публикация заблокирована: отсутствует immutable READY revision');
   const revision = getContentRevision(revisionId);
-  const publisher = getPublisher(target.platform);
+  const platformPublisher = getPublisher(target.platform);
   let input: PublishInput;
 
   try {
     input = buildRevisionPublishInput(target, revision);
     assertPlatformCapability(target.platform, input);
-    publisher.validate(input);
+    platformPublisher.validate(input);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const failed = db.prepare(`UPDATE post_targets
@@ -229,11 +357,16 @@ async function publishTargetInternal(targetId: string, forcedRevisionId?: string
     return;
   }
 
+  if (isStorySequence(input)) {
+    await executeStorySequence(target, revision, input);
+    return;
+  }
+
   if (!claimTarget(targetId, revisionId)) return;
   event({ postId: target.post_id, accountId: target.account_id, type: 'publish_started', message: `Публикация начата: ${target.platform}` });
 
   try {
-    const result = await publisher.publish(input);
+    const result = await platformPublisher.publish(input);
     db.prepare(`UPDATE post_targets SET state='PUBLISHED', external_id=?, external_url=?, published_at=?, next_attempt_at=NULL, updated_at=? WHERE id=? AND state='PUBLISHING'`)
       .run(result.externalId, result.externalUrl ?? null, nowIso(), nowIso(), targetId);
     event({ postId: target.post_id, accountId: target.account_id, type: 'publish_succeeded', message: `Опубликовано: ${target.platform}`, data: { externalId: result.externalId, externalUrl: result.externalUrl } });
@@ -286,13 +419,14 @@ export function refreshPostStatus(postId: string): void {
   const values = states.map((s) => s.state);
   let status = 'PUBLISHING';
   if (values.every((s) => s === 'PUBLISHED')) status = 'PUBLISHED';
-  else if (values.some((s) => s === 'PUBLISHED') && values.some((s) => ['FAILED','RETRY','RECOVERY_NEEDED'].includes(s))) status = 'PARTIAL';
+  else if (values.some((s) => s === 'PARTIAL' || s === 'RECOVERY_NEEDED')) status = 'PARTIAL';
+  else if (values.some((s) => s === 'PUBLISHED') && values.some((s) => s !== 'PUBLISHED')) status = 'PARTIAL';
   else if (values.every((s) => s === 'FAILED')) status = 'FAILED';
-  else if (values.some((s) => s === 'RECOVERY_NEEDED')) status = 'PARTIAL';
   db.prepare('UPDATE posts SET status=?, updated_at=? WHERE id=?').run(status, nowIso(), postId);
 }
 
 export async function retryFailedTarget(targetId: string): Promise<void> {
+  assertTargetLevelRecoveryAllowed(targetId);
   const target = recoveryTarget(targetId);
   if (!target.enabled || !target.account_enabled) throw new Error('Цель или аккаунт отключены');
   if (!['FAILED', 'RETRY'].includes(target.state)) {
@@ -309,15 +443,11 @@ export async function retryFailedTarget(targetId: string): Promise<void> {
 }
 
 export function confirmRecoveryPublished(targetId: string, externalId?: string | null, externalUrl?: string | null): { postId: string } {
+  assertTargetLevelRecoveryAllowed(targetId);
   const target = recoveryTarget(targetId);
   if (target.state !== 'RECOVERY_NEEDED') throw new Error(`Ручное подтверждение недоступно для состояния ${target.state}`);
   const cleanExternalId = externalId?.trim() || null;
-  const cleanExternalUrl = externalUrl?.trim() || null;
-  if (cleanExternalUrl) {
-    let parsed: URL;
-    try { parsed = new URL(cleanExternalUrl); } catch { throw new Error('externalUrl должен быть корректным URL'); }
-    if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('externalUrl должен использовать http или https');
-  }
+  const cleanExternalUrl = validExternalUrl(externalUrl);
   const previousError = target.last_error;
   const now = nowIso();
   const updated = db.prepare(`UPDATE post_targets SET state='PUBLISHED',external_id=?,external_url=?,published_at=?,next_attempt_at=NULL,last_error=NULL,updated_at=?
@@ -336,6 +466,7 @@ export function confirmRecoveryPublished(targetId: string, externalId?: string |
 }
 
 export function confirmRecoveryNotPublished(targetId: string): { postId: string } {
+  assertTargetLevelRecoveryAllowed(targetId);
   const target = recoveryTarget(targetId);
   if (target.state !== 'RECOVERY_NEEDED') throw new Error(`Ручное подтверждение недоступно для состояния ${target.state}`);
   const previousError = target.last_error;
@@ -353,6 +484,89 @@ export function confirmRecoveryNotPublished(targetId: string): { postId: string 
   });
   refreshPostStatus(target.post_id);
   return { postId: target.post_id };
+}
+
+export function retrySequenceUnit(unitId: string): { postId: string; targetId: string } {
+  const unit = unitContext(unitId);
+  retryFailedPublicationUnit(unitId);
+  event({
+    postId: unit.post_id,
+    accountId: unit.account_id,
+    level: 'warning',
+    type: 'publication_unit_retry_allowed',
+    message: `Story ${unit.unit_index + 1} разрешена к повтору`,
+    data: { unitId, unitIndex: unit.unit_index }
+  });
+  refreshPostStatus(unit.post_id);
+  return { postId: unit.post_id, targetId: unit.target_id };
+}
+
+export function confirmSequenceUnitNotPublished(unitId: string): { postId: string; targetId: string } {
+  const unit = unitContext(unitId);
+  confirmPublicationUnitNotPublished(unitId);
+  event({
+    postId: unit.post_id,
+    accountId: unit.account_id,
+    level: 'warning',
+    type: 'publication_unit_recovery_confirmed_absent',
+    message: `Story ${unit.unit_index + 1}: внешняя публикация не найдена`,
+    data: { unitId, unitIndex: unit.unit_index }
+  });
+  refreshPostStatus(unit.post_id);
+  return { postId: unit.post_id, targetId: unit.target_id };
+}
+
+export function confirmSequenceUnitPublished(unitId: string, externalId: string, externalUrl?: string | null): { postId: string; targetId: string } {
+  const unit = unitContext(unitId);
+  if (unit.state !== 'RECOVERY_NEEDED') throw new Error(`PublicationUnit не находится в RECOVERY_NEEDED: ${unit.state}`);
+  const cleanExternalId = externalId.trim();
+  if (!cleanExternalId) throw new Error('externalId обязателен для ручного подтверждения опубликованной Story');
+  const cleanExternalUrl = validExternalUrl(externalUrl);
+  markPublicationUnitPublished(unitId, cleanExternalId, cleanExternalUrl);
+  event({
+    postId: unit.post_id,
+    accountId: unit.account_id,
+    type: 'publication_unit_recovery_confirmed_published',
+    message: `Story ${unit.unit_index + 1}: публикация подтверждена вручную`,
+    data: { unitId, unitIndex: unit.unit_index, externalId: cleanExternalId, externalUrl: cleanExternalUrl }
+  });
+  refreshPostStatus(unit.post_id);
+  return { postId: unit.post_id, targetId: unit.target_id };
+}
+
+export async function continuePublicationSequence(targetId: string): Promise<{ postId: string }> {
+  const releasePublication = beginPublicationActivity();
+  try {
+    const target = revisionTargetRow(targetId);
+    if (!target || !target.enabled || !target.account_enabled) throw new Error('Цель sequence не найдена или отключена');
+
+    const units = listPublicationUnits(targetId);
+    if (!units.length) throw new Error('PublicationUnit plan отсутствует');
+    const revision = getContentRevision(units[0]!.revision_id);
+    if (units.some((unit) => unit.revision_id !== revision.id)) throw new Error('PublicationUnit plan содержит разные revisions');
+
+    const post = db.prepare('SELECT status,editorial_stage,content_version,ready_revision_id FROM posts WHERE id=?')
+      .get(target.post_id) as { status: string; editorial_stage: string; content_version: number; ready_revision_id: string | null } | undefined;
+    if (!post || post.editorial_stage !== 'APPROVED') {
+      throw new Error('Sequence continuation заблокирован: post больше не находится в APPROVED');
+    }
+    if (post.ready_revision_id !== revision.id || post.content_version !== revision.content_version) {
+      throw new Error('Sequence continuation заблокирован: immutable READY revision больше не является текущей');
+    }
+    if (!['PUBLISHING', 'PARTIAL', 'FAILED'].includes(post.status)) {
+      throw new Error(`Sequence continuation недоступен для post status ${post.status}`);
+    }
+
+    const input = buildRevisionPublishInput(target, revision);
+    if (!isStorySequence(input)) throw new Error('Target больше не является STORY_SEQUENCE');
+    assertPlatformCapability(target.platform, input);
+    getPublisher(target.platform).validate(input);
+    await executeStorySequence(target, revision, input);
+    refreshPostStatus(target.post_id);
+    return { postId: target.post_id };
+  } finally {
+    releasePublication();
+  }
 }
 
 export async function publishPost(postId: string): Promise<void> {

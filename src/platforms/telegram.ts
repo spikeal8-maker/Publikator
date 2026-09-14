@@ -29,6 +29,10 @@ function isStoryVideoPublication(input: PublishInput): boolean {
   return input.publicationKind === 'STORY' && input.contentFormat === 'VERTICAL_VIDEO';
 }
 
+function isStorySequencePublication(input: PublishInput): boolean {
+  return input.publicationKind === 'STORY' && input.contentFormat === 'STORY_SEQUENCE';
+}
+
 function isVideoPublication(input: PublishInput): boolean {
   return input.publicationKind !== 'STORY' && input.contentFormat === 'VIDEO';
 }
@@ -150,6 +154,29 @@ function assertStoryVideoSource(input: PublishInput): MediaRow {
   }
   assertStoryCaption(input);
   return media;
+}
+
+function storySlideInput(input: PublishInput, media: MediaRow, text: string): PublishInput {
+  if (media.mime_type === 'image/jpeg') {
+    return { ...input, media: [media], publicationKind: 'STORY', contentFormat: 'IMAGE', text };
+  }
+  if (media.mime_type === 'video/mp4') {
+    return { ...input, media: [media], publicationKind: 'STORY', contentFormat: 'VERTICAL_VIDEO', text };
+  }
+  throw new Error(`Telegram: STORY_SEQUENCE содержит неподдерживаемый MIME ${media.mime_type}`);
+}
+
+function assertStorySequence(input: PublishInput): void {
+  if (!isStorySequencePublication(input)) {
+    throw new Error(`Telegram: STORY_SEQUENCE ожидает STORY/STORY_SEQUENCE, получен ${input.publicationKind || 'FEED'}/${input.contentFormat || 'IMAGE'}`);
+  }
+  if (input.media.length < 1) throw new Error('Telegram: STORY_SEQUENCE требует минимум один media asset');
+  assertStoryCaption(input);
+  for (const media of input.media) {
+    const slide = storySlideInput(input, media, '');
+    if (slide.contentFormat === 'IMAGE') assertStoryImage(slide);
+    else assertStoryVideoSource(slide);
+  }
 }
 
 function assertFeedVideo(input: PublishInput): MediaRow {
@@ -315,6 +342,11 @@ export const telegramPublisher: SocialPublisher = {
       assertStoryVideoSource(input);
       return;
     }
+    if (isStorySequencePublication(input)) {
+      requireString(input.credentials, 'businessConnectionId');
+      assertStorySequence(input);
+      return;
+    }
     requireString(input.credentials, 'chatId');
     if (isVideoPublication(input)) assertFeedVideo(input);
     else assertImagePublication(input);
@@ -323,8 +355,30 @@ export const telegramPublisher: SocialPublisher = {
       throw new Error(`Telegram: текст ${textLength} символов превышает предел ${MESSAGE_LIMIT}. Сократите базовый текст или задайте отдельный текст Telegram.`);
     }
   },
+  async publishUnit(input: PublishInput, unitIndex: number): Promise<PublishResult> {
+    this.validate(input);
+    if (!isStorySequencePublication(input)) {
+      throw new Error('Telegram: unit publishing разрешён только для STORY/STORY_SEQUENCE');
+    }
+    if (!Number.isInteger(unitIndex) || unitIndex < 0 || unitIndex >= input.media.length) {
+      throw new Error(`Telegram: unit index ${unitIndex} вне STORY_SEQUENCE`);
+    }
+
+    const token = requireString(input.credentials, 'botToken');
+    const businessConnectionId = requireString(input.credentials, 'businessConnectionId');
+    const media = input.media[unitIndex]!;
+    const slide = storySlideInput(input, media, unitIndex === 0 ? input.text : '');
+
+    if (slide.contentFormat === 'IMAGE') {
+      return assertStoryResult(await publishStoryImage(token, businessConnectionId, assertStoryImage(slide), slide.text));
+    }
+    return assertStoryResult(await publishStoryVideo(token, businessConnectionId, assertStoryVideoSource(slide), slide.text));
+  },
   async publish(input: PublishInput): Promise<PublishResult> {
     this.validate(input);
+    if (isStorySequencePublication(input)) {
+      throw new Error('Telegram: STORY_SEQUENCE должен выполняться только через PublicationUnit executor');
+    }
     const token = requireString(input.credentials, 'botToken');
 
     if (isStoryImagePublication(input)) {
