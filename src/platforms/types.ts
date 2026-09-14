@@ -23,6 +23,7 @@ export interface SocialPublisher {
   platform: Platform;
   validate(input: PublishInput): void;
   publish(input: PublishInput): Promise<PublishResult>;
+  publishUnit?(input: PublishInput, unitIndex: number): Promise<PublishResult>;
 }
 
 export class PlatformError extends Error {
