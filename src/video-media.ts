@@ -7,6 +7,13 @@ import { config } from './config.js';
 const TOOL_OUTPUT_LIMIT_BYTES = 4 * 1024 * 1024;
 let reservedTempBytes = 0;
 
+export class VideoSizeLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'VideoSizeLimitError';
+  }
+}
+
 export type PreparedVideoUpload = {
   tempVideoPath: string;
   posterData: Buffer;
@@ -99,6 +106,15 @@ function parsePositiveSeconds(value: string | undefined): number | null {
   return parsed > 0 && Number.isFinite(parsed) ? parsed : null;
 }
 
+function multipartLimitError(error: unknown, input: AsyncIterable<unknown>): boolean {
+  if ((input as { truncated?: boolean }).truncated) return true;
+  if (!(error instanceof Error)) return false;
+  return error.name === 'RequestFileTooLargeError'
+    || error.message.includes('request file too large')
+    || error.message.includes('File too large')
+    || error.message.includes('fileSize');
+}
+
 async function probeCanonicalVideo(videoPath: string, originalName: string): Promise<Omit<PreparedVideoUpload, 'tempVideoPath' | 'posterData' | 'sizeBytes' | 'sha256' | 'cleanup'>> {
   if (path.extname(originalName).toLowerCase() !== '.mp4') {
     throw new Error('Video v1 принимает только файлы с расширением .mp4');
@@ -189,19 +205,29 @@ export async function prepareVideoUpload(originalName: string, input: AsyncItera
     const file = await fs.open(tempVideoPath, 'wx');
     let sizeBytes = 0;
     try {
-      for await (const rawChunk of input) {
-        const chunk = chunkBuffer(rawChunk);
-        sizeBytes += chunk.byteLength;
-        if (sizeBytes > config.maxVideoBytes) {
-          throw new Error(`Видео больше допустимого лимита ${config.maxVideoBytes} байт`);
+      try {
+        for await (const rawChunk of input) {
+          const chunk = chunkBuffer(rawChunk);
+          sizeBytes += chunk.byteLength;
+          if (sizeBytes > config.maxVideoBytes) {
+            throw new VideoSizeLimitError(`Видео больше допустимого лимита ${config.maxVideoBytes} байт`);
+          }
+          hash.update(chunk);
+          await file.write(chunk);
         }
-        hash.update(chunk);
-        await file.write(chunk);
+      } catch (error) {
+        if (error instanceof VideoSizeLimitError) throw error;
+        if (multipartLimitError(error, input)) {
+          throw new VideoSizeLimitError(`Видео больше допустимого лимита ${config.maxVideoBytes} байт`);
+        }
+        throw error;
       }
     } finally {
       await file.close();
     }
-    if ((input as { truncated?: boolean }).truncated) throw new Error('Видео превышает multipart file-size limit');
+    if ((input as { truncated?: boolean }).truncated) {
+      throw new VideoSizeLimitError(`Видео больше допустимого лимита ${config.maxVideoBytes} байт`);
+    }
     if (sizeBytes === 0) throw new Error('Видео файл пуст');
 
     const metadata = await probeCanonicalVideo(tempVideoPath, originalName);
