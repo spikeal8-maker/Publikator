@@ -6,6 +6,7 @@ import {
   continuePublicationSequence,
   retrySequenceUnit
 } from '../publisher.js';
+import { beginPublicationActivity } from '../runtime-gate.js';
 
 function bodyObject(body: unknown): Record<string, any> {
   if (body == null) return {};
@@ -36,15 +37,19 @@ export async function registerPublicationUnitRoutes(app: FastifyInstance): Promi
     let body: Record<string, any>;
     try { body = bodyObject(request.body); }
     catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) }); }
-    if (body.externalId != null && typeof body.externalId !== 'string') return reply.code(400).send({ error: 'externalId должен быть строкой или null' });
+    if (typeof body.externalId !== 'string' || !body.externalId.trim()) {
+      return reply.code(400).send({ error: 'externalId обязателен для ручного подтверждения опубликованной Story' });
+    }
     if (body.externalUrl != null && typeof body.externalUrl !== 'string') return reply.code(400).send({ error: 'externalUrl должен быть строкой или null' });
-    try { return { ok: true, ...confirmSequenceUnitPublished(id, body.externalId ?? null, body.externalUrl ?? null) }; }
+    try { return { ok: true, ...confirmSequenceUnitPublished(id, body.externalId.trim(), body.externalUrl ?? null) }; }
     catch (error) { return reply.code(409).send({ error: error instanceof Error ? error.message : String(error) }); }
   });
 
   app.post('/api/targets/:id/sequence/continue', async (request, reply) => {
     const { id } = request.params as { id: string };
+    const releasePublication = beginPublicationActivity();
     try { return { ok: true, ...(await continuePublicationSequence(id)) }; }
     catch (error) { return reply.code(409).send({ error: error instanceof Error ? error.message : String(error) }); }
+    finally { releasePublication(); }
   });
 }
