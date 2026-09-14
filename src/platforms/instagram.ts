@@ -82,6 +82,9 @@ function assertReelVideo(input: PublishInput) {
 }
 
 function assertImagePublication(input: PublishInput): void {
+  if (input.publicationKind && input.publicationKind !== 'FEED') {
+    throw new Error(`Instagram: image publication поддерживается только как FEED, получен ${input.publicationKind}/${input.contentFormat || 'IMAGE'}`);
+  }
   if (input.contentFormat && !['IMAGE', 'CAROUSEL'].includes(input.contentFormat)) {
     throw new Error(`Instagram: текущий adapter не поддерживает ${input.publicationKind || 'FEED'}/${input.contentFormat}`);
   }
