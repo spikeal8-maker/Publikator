@@ -252,7 +252,7 @@ export function capabilityIssues(platform: Platform, input: PublishInput): Capab
 
   for (const rule of capability.durationRules.filter((item) => item.contentFormats.includes(format))) {
     for (const media of input.media.filter((item) => item.mime_type.startsWith('video/'))) {
-      const duration = media.duration_ms;
+      const duration = (media as typeof media & { duration_ms?: number | null }).duration_ms;
       if (duration == null) issues.push({ code: 'VIDEO_DURATION_MISSING', message: `${media.original_name}: duration отсутствует` });
       else {
         if (rule.minMs != null && duration < rule.minMs) issues.push({ code: 'VIDEO_TOO_SHORT', message: `${media.original_name}: video короче ${rule.minMs} ms` });
