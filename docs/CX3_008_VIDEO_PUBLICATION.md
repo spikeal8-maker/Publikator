@@ -155,9 +155,71 @@ Acceptance:
 - test asserts the production capability gate is still disabled;
 - full `Publikator CI / Acceptance` passes.
 
-## CX3-008D — MAX video adapter
+## CX3-008D — MAX FEED/VIDEO adapter
 
-Same rule. Public-media requirements, upload/publication phases and unknown-outcome boundary must be documented from the current API.
+Official API review: current MAX Developer API (`platform-api2.max.ru`), re-checked 2026-09-14.
+
+Confirmed FEED/VIDEO contract:
+
+- MAX video attachments support MP4, MOV, MKV and WEBM; Publikator keeps its canonical MP4/H.264 profile;
+- one video may be up to 250 MB;
+- media messages may contain up to 12 media attachments, but Video v1 keeps exactly one canonical video per publication;
+- unlike MAX images, video cannot be attached from a public URL and must use the upload-token flow;
+- `POST /uploads?type=video` returns an upload URL and a token for the future attachment;
+- the documented video upload host is `https://omub.okcdn.ru`;
+- multipart binary upload uses field `data`;
+- the final `POST /messages` attachment is `{ "type": "video", "payload": { "token": "..." } }`;
+- message text is limited to 4000 characters;
+- MAX can return explicit `attachment.not.ready` while server-side media processing is still in progress; documentation recommends retrying later with increasing delay.
+
+Implementation scope:
+
+- one canonical `video/mp4` asset only;
+- `publicationKind=FEED`, `contentFormat=VIDEO` only;
+- defense-in-depth verification of canonical H.264, AAC-or-none and MP4 metadata when present;
+- both declared media size and actual local file size are bounded at 250 MB before upload;
+- local media is opened through Node `fs.openAsBlob`, so a 250 MB video is file-backed instead of copied into a Node Buffer;
+- phase 1: `POST /uploads?type=video` with bot token only in the MAX Authorization header;
+- phase 2: multipart `data` upload to the signed video upload URL without leaking the bot token to the upload host;
+- phase 3: one public `POST /messages` with the video attachment token;
+- upload URL is restricted to HTTPS host `omub.okcdn.ru` before the application performs the upload;
+- existing image and carousel behavior remains URL-based and unchanged.
+
+Public-media capability rule:
+
+- `requiresPublicHttpsMedia` is now format-aware through `publicHttpsMediaFormats`;
+- MAX `IMAGE` and `CAROUSEL` continue to require public HTTPS URLs;
+- MAX `VIDEO` does not require `PUBLIC_BASE_URL`, because MAX video publication uses an upload token instead;
+- Instagram retains its existing public-HTTPS requirement for all currently modeled formats.
+
+Failure and recovery boundary:
+
+- missing local video, `/uploads` failures and binary-upload failures are preparation failures with `outcomeUnknown=false`;
+- temporary preparation transport/5xx failures are safe to retry and can at worst leave an unused upload token/media object;
+- an upload URL outside the documented HTTPS video host is rejected before the upload request as an SSRF guard;
+- explicit `attachment.not.ready` is a known, retryable rejection and must not enter `RECOVERY_NEEDED`;
+- only timeout/transport/5xx ambiguity after final `POST /messages` starts can have an unknown public result;
+- a success-like message response without a stable message identifier is also treated as unknown and blocks automatic retry.
+
+Capability gate:
+
+- implementation readiness does **not** enable production capability;
+- `PLATFORM_CAPABILITIES.max.supportsVideo` remains `false`;
+- Stories and Shorts remain disabled;
+- `verification.richMediaPendingLiveAcceptance` remains `true`;
+- READY/preflight therefore continues blocking MAX FEED/VIDEO before any external POST;
+- enablement requires live acceptance with a real MAX bot/channel and evidence that one canonical MP4 is uploaded, processed and published exactly once with a stable message id.
+
+Acceptance:
+
+- all existing image/public-URL scenarios remain green;
+- focused adapter test covers upload reservation, file-backed multipart `data`, token attachment and external id;
+- 250 MB, codec, missing-local-file and upload-host SSRF guards execute before the unsafe network phase;
+- `/uploads` and upload-host 5xx failures remain safe-retry/known-outcome;
+- `attachment.not.ready` is classified as known/retryable;
+- final `/messages` 5xx/transport and missing-id cases remain unknown-outcome;
+- test asserts production video capability is still disabled;
+- full `Publikator CI / Acceptance` passes.
 
 ## CX3-008E — Instagram video / Reels adapter
 
