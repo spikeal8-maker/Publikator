@@ -48,6 +48,9 @@ type AccountRow = {
 
 type VideoMediaRow = MediaRow & {
   post_content_format: string;
+  post_status: string;
+  post_editorial_stage: string;
+  post_schedule_mode: string;
   media_role: string | null;
 };
 
@@ -67,9 +70,9 @@ After visually checking that the control video is really visible on the target p
 
 Options:
   --account <social_accounts.id>   Existing enabled Publikator social account
-  --media <media.id>               Existing canonical video uploaded through Publikator
+  --media <media.id>               Canonical video from a MANUAL DRAFT post
   --text <caption>                 Optional control publication text
-  --evidence <path>                Evidence path; default is DATA_DIR/live-acceptance-evidence/<run>.json
+  --evidence <path>                Required only by --confirm-visible; live publish always uses protected DATA_DIR evidence storage
   --note <text>                    Optional note for --confirm-visible
   --publish                        Perform exactly one real external FEED/VIDEO publication
   --confirm-visible                Convert API_CONFIRMED evidence to PASSED after manual visual verification
@@ -77,7 +80,9 @@ Options:
 
 Safety invariants:
 - normal capability preflight remains unchanged and supportsVideo is not modified;
+- source media must belong to a MANUAL post in DRAFT/DRAFT state so scheduler cannot publish it independently;
 - credentials are decrypted only after the explicit publish guard succeeds;
+- same build/account/media cannot be published again while prior live evidence exists;
 - a RECOVERY_NEEDED result is persisted if the public POST outcome is uncertain;
 - credentials, encrypted payloads and signed URL query strings are never written to evidence.`;
 }
@@ -155,7 +160,12 @@ function accountWithCredentials(accountId: string): AccountRow {
 }
 
 function videoMedia(mediaId: string): VideoMediaRow {
-  const row = db.prepare(`SELECT m.*,p.content_format AS post_content_format,cm.role AS media_role
+  const row = db.prepare(`SELECT m.*,
+      p.content_format AS post_content_format,
+      p.status AS post_status,
+      p.editorial_stage AS post_editorial_stage,
+      p.schedule_mode AS post_schedule_mode,
+      cm.role AS media_role
     FROM media m
     JOIN posts p ON p.id=m.post_id
     LEFT JOIN content_media cm ON cm.post_id=m.post_id AND cm.media_id=m.id
@@ -167,6 +177,9 @@ function videoMedia(mediaId: string): VideoMediaRow {
   }
   if (row.media_role && row.media_role !== 'video') {
     throw new Error(`CX3-008F: media ${mediaId} имеет role=${row.media_role}, нужен video`);
+  }
+  if (row.post_status !== 'DRAFT' || row.post_editorial_stage !== 'DRAFT' || row.post_schedule_mode !== 'MANUAL') {
+    throw new Error(`CX3-008F: source post должен быть изолированным MANUAL DRAFT/DRAFT; получено status=${row.post_status}, editorial=${row.post_editorial_stage}, schedule=${row.post_schedule_mode}`);
   }
   return row;
 }
@@ -245,10 +258,12 @@ function publishMediaRow(media: VideoMediaRow, fingerprint: LiveVideoMediaFinger
   };
 }
 
-function evidenceOutputPath(runId: string, explicitPath?: string): string {
-  return explicitPath
-    ? path.resolve(explicitPath)
-    : path.join(config.dataDir, 'live-acceptance-evidence', `${runId}.json`);
+function evidenceDirectory(): string {
+  return path.join(config.dataDir, 'live-acceptance-evidence');
+}
+
+function evidenceOutputPath(runId: string): string {
+  return path.join(evidenceDirectory(), `${runId}.json`);
 }
 
 async function writeEvidence(filePath: string, evidence: LiveVideoAcceptanceEvidence): Promise<void> {
@@ -260,6 +275,38 @@ async function writeEvidence(filePath: string, evidence: LiveVideoAcceptanceEvid
 async function readEvidence(filePath: string): Promise<LiveVideoAcceptanceEvidence> {
   const raw = await fsp.readFile(filePath, 'utf8');
   return validateLiveVideoAcceptanceEvidence(JSON.parse(raw));
+}
+
+async function findBlockingEvidence(params: {
+  buildSha: string;
+  platform: Platform;
+  accountId: string;
+  mediaId: string;
+}): Promise<{ filePath: string; evidence: LiveVideoAcceptanceEvidence } | null> {
+  let names: string[];
+  try {
+    names = await fsp.readdir(evidenceDirectory());
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
+  for (const name of names.filter((value) => value.endsWith('.json')).sort()) {
+    const filePath = path.join(evidenceDirectory(), name);
+    try {
+      const evidence = await readEvidence(filePath);
+      if (
+        evidence.buildSha === params.buildSha &&
+        evidence.platform === params.platform &&
+        evidence.account.id === params.accountId &&
+        evidence.media.mediaId === params.mediaId
+      ) {
+        return { filePath, evidence };
+      }
+    } catch {
+      // Ignore unrelated/corrupt files here; explicit --confirm-visible still validates its selected evidence strictly.
+    }
+  }
+  return null;
 }
 
 function redactFailureMessage(message: string, credentials: Record<string, unknown>, publicVideoUrl: string | null): string {
@@ -339,6 +386,12 @@ async function planOrPublish(args: Args): Promise<void> {
       account: { id: account.id, name: account.name },
       publicationKind: 'FEED',
       contentFormat: 'VIDEO',
+      sourcePost: {
+        id: media.post_id,
+        status: media.post_status,
+        editorialStage: media.post_editorial_stage,
+        scheduleMode: media.post_schedule_mode
+      },
       media: fingerprint,
       buildSha: config.appBuildSha || null,
       publicVideoUrlRequired: account.platform === 'instagram',
@@ -351,11 +404,22 @@ async function planOrPublish(args: Args): Promise<void> {
     return;
   }
 
+  if (args.evidence) throw new Error('CX3-008F: --evidence используется только с --confirm-visible; publish всегда пишет evidence в защищённый DATA_DIR');
   assertLivePublishGuard({
     publish: true,
     confirmation: process.env.PUBLIKATOR_LIVE_ACCEPTANCE_CONFIRM
   });
   const buildSha = assertPublishBuildIdentity();
+  const blocking = await findBlockingEvidence({
+    buildSha,
+    platform: account.platform,
+    accountId: account.id,
+    mediaId: media.id
+  });
+  if (blocking) {
+    throw new Error(`CX3-008F: повторная live публикация для этого build/account/media заблокирована: ${blocking.evidence.status}; evidence=${blocking.filePath}`);
+  }
+
   const accountSecretRow = accountWithCredentials(account.id);
   const credentials = decryptJson<Record<string, unknown>>(accountSecretRow.credentials_encrypted!);
   assertLiveCredentialShape(account.platform, credentials);
@@ -403,7 +467,7 @@ async function planOrPublish(args: Args): Promise<void> {
       externalId: result.externalId,
       externalUrl: result.externalUrl || null
     });
-    const filePath = evidenceOutputPath(runId, args.evidence);
+    const filePath = evidenceOutputPath(runId);
     await writeEvidence(filePath, evidence);
     console.log(JSON.stringify({
       ok: true,
@@ -435,7 +499,7 @@ async function planOrPublish(args: Args): Promise<void> {
       message,
       code: error instanceof PlatformError ? error.code ?? null : null
     });
-    const filePath = evidenceOutputPath(runId, args.evidence);
+    const filePath = evidenceOutputPath(runId);
     await writeEvidence(filePath, recovery);
     throw new Error(`CX3-008F RECOVERY_NEEDED: внешний результат неопределён. НЕ повторяйте публикацию автоматически. Evidence: ${filePath}`);
   }
