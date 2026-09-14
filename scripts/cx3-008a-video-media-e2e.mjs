@@ -162,7 +162,7 @@ try {
 
     const oversizePost = await createPost(project.id, 'Oversize');
     const oversize = await uploadVideo(oversizePost.id, oversizePost.content_version, Buffer.alloc(1024 * 1024 + 1), 413);
-    assert.match(oversize.error, /limit|превыш/i);
+    assert.match(oversize.error, /лимит|превыш/i);
     const oversizeAfter = await json(`/api/posts/${oversizePost.id}`);
     assert.equal(oversizeAfter.media.length, 0);
     assert.equal(oversizeAfter.content_version, oversizePost.content_version);
