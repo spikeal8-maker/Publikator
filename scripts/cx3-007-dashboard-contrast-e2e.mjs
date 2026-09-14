@@ -37,6 +37,15 @@ async function createPost(title, scheduleMode = 'MANUAL', scheduledAt = null) {
   return response.json();
 }
 
+function telegramTarget(postId) {
+  const target = db.prepare(`SELECT pt.id,pt.enabled FROM post_targets pt
+    JOIN social_accounts a ON a.id=pt.account_id
+    WHERE pt.post_id=? AND a.platform='telegram'`).get(postId);
+  assert.ok(target, `telegram target missing for ${postId}`);
+  db.prepare('UPDATE post_targets SET enabled=1,updated_at=? WHERE id=?').run(nowIso(), target.id);
+  return target.id;
+}
+
 const today = await createPost('Today draft', 'AT', '2026-09-14T10:00:00.000Z');
 const week = await createPost('Week ready', 'AT', '2026-09-18T10:00:00.000Z');
 const review = await createPost('Review me');
@@ -44,12 +53,17 @@ const failed = await createPost('Failed post');
 const recovery = await createPost('Recovery target');
 const archived = await createPost('Archived failure', 'AT', '2026-09-14T12:00:00.000Z');
 const trashed = await createPost('Trashed review');
+const todayTarget = telegramTarget(today.id);
+const weekTarget = telegramTarget(week.id);
+const recoveryTarget = telegramTarget(recovery.id);
+assert.ok(todayTarget && weekTarget && recoveryTarget);
 
 db.prepare(`UPDATE posts SET editorial_stage='APPROVED',status='READY' WHERE id=?`).run(week.id);
 db.prepare(`UPDATE posts SET editorial_stage='IN_REVIEW',status='DRAFT' WHERE id=?`).run(review.id);
 db.prepare(`UPDATE posts SET editorial_stage='APPROVED',status='FAILED' WHERE id=?`).run(failed.id);
 db.prepare(`UPDATE posts SET editorial_stage='DRAFT',status='DRAFT' WHERE id=?`).run(recovery.id);
-db.prepare(`UPDATE post_targets SET state='RECOVERY_NEEDED' WHERE post_id=?`).run(recovery.id);
+const recoveryUpdate = db.prepare(`UPDATE post_targets SET state='RECOVERY_NEEDED',updated_at=? WHERE id=?`).run(nowIso(), recoveryTarget);
+assert.equal(recoveryUpdate.changes, 1, 'recovery target state must be applied');
 db.prepare(`UPDATE posts SET editorial_stage='ARCHIVED',status='FAILED' WHERE id=?`).run(archived.id);
 db.prepare(`UPDATE posts SET editorial_stage='TRASHED',status='DRAFT' WHERE id=?`).run(trashed.id);
 
@@ -57,16 +71,16 @@ const url = '/api/editorial-dashboard?todayFrom=2026-09-14T00:00:00.000Z&todayTo
 const response = await request('GET', url);
 assert.equal(response.statusCode, 200, response.body);
 const data = response.json();
-assert.equal(data.metrics.today, 1);
-assert.equal(data.metrics.next7Days, 2);
-assert.equal(data.metrics.needsReview, 3);
-assert.equal(data.metrics.ready, 1);
-assert.equal(data.metrics.problems, 2);
+assert.equal(data.metrics.today, 1, JSON.stringify(data));
+assert.equal(data.metrics.next7Days, 2, JSON.stringify(data));
+assert.equal(data.metrics.needsReview, 3, JSON.stringify(data));
+assert.equal(data.metrics.ready, 1, JSON.stringify(data));
+assert.equal(data.metrics.problems, 2, JSON.stringify(data));
 assert.deepEqual(data.todayItems.map((item) => item.id), [today.id]);
-assert.equal(data.reviewItems.length, 3);
+assert.equal(data.reviewItems.length, 3, JSON.stringify(data.reviewItems));
 assert.ok(data.reviewItems.every((item) => item.review_code));
 assert.deepEqual(new Set(data.problemItems.map((item) => item.id)), new Set([failed.id, recovery.id]));
-assert.ok(data.problemItems.find((item) => item.id === recovery.id).problem_states.includes('RECOVERY_NEEDED'));
+assert.ok(data.problemItems.find((item) => item.id === recovery.id)?.problem_states?.includes('RECOVERY_NEEDED'));
 assert.deepEqual(data.platformDistribution, [{ platform: 'telegram', count: 2 }]);
 assert.ok(!data.todayItems.some((item) => item.id === archived.id));
 
