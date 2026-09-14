@@ -161,6 +161,9 @@ jobs:
           NODE_ENV: test
         run: node scripts/cx3-011a-instagram-short-e2e.mjs
 
+      - name: CX3-011B Instagram Short live acceptance gate contract
+        run: node scripts/cx3-011b-instagram-short-live-acceptance-e2e.mjs
+
       - name: CX3-008F live video acceptance gate contract
         run: node scripts/cx3-008f-live-acceptance-e2e.mjs
 
