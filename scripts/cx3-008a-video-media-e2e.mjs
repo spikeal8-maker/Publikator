@@ -6,6 +6,15 @@ import path from 'node:path';
 const phase = process.argv[2] || 'full';
 if (!['upload', 'rejection', 'full'].includes(phase)) throw new Error(`Unknown CX3-008A phase: ${phase}`);
 
+const shellSource = await fs.readFile(new URL('../public/index.html', import.meta.url), 'utf8');
+const authoringSource = await fs.readFile(new URL('../public/video-authoring-v3.js', import.meta.url), 'utf8');
+assert.match(shellSource, /video-authoring-v3\.css/);
+assert.match(shellSource, /video-authoring-v3\.js/);
+assert.match(authoringSource, /image\/\*,video\/mp4/);
+assert.match(authoringSource, /\/api\/posts\/\$\{encodeURIComponent\(post\.id\)\}\/video/);
+assert.match(authoringSource, /\/api\/posts\/\$\{encodeURIComponent\(post\.id\)\}\/media/);
+const { publicationMediaProjection } = await import('../public/video-authoring-v3.js');
+
 const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'publikator-cx3-008a-'));
 const toolDir = await fs.mkdtemp(path.join(os.tmpdir(), 'publikator-cx3-008a-tools-'));
 const ffprobePath = path.join(toolDir, 'ffprobe-test');
@@ -128,6 +137,12 @@ try {
   assert.ok(storedPoster);
   assert.equal(storedPoster.mime_type, 'image/jpeg');
 
+  const authoringProjection = publicationMediaProjection(stored);
+  assert.equal(authoringProjection.items.length, 1, 'editor must hide generated poster as a standalone asset');
+  assert.equal(authoringProjection.items[0].id, storedVideo.id);
+  assert.equal(authoringProjection.items[0].isVideo, true);
+  assert.equal(authoringProjection.items[0].poster.id, storedPoster.id);
+
   const relation = db.prepare('SELECT media_id,sort_order,role FROM content_media WHERE post_id=? ORDER BY sort_order').all(post.id);
   assert.deepEqual(relation, [
     { media_id: storedVideo.id, sort_order: 0, role: 'video' },
@@ -188,7 +203,7 @@ try {
     assert.deepEqual(await fs.readdir(tempDir), []);
   }
 
-  console.log(JSON.stringify({ ok: true, checkpoint: 'CX3-008A', phase }, null, 2));
+  console.log(JSON.stringify({ ok: true, checkpoint: 'CX3-008A', phase, videoAuthoringUi: true }, null, 2));
 } finally {
   await app.close();
   db.close();
