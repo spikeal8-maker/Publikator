@@ -5,17 +5,26 @@ import type { PublishInput, PublishResult, SocialPublisher } from './types.js';
 import { PlatformError, requireString, responseJson } from './types.js';
 
 const CAPTION_LIMIT = 1024;
+const STORY_CAPTION_LIMIT = 2048;
 const MESSAGE_LIMIT = 4096;
 const TELEGRAM_REQUEST_TIMEOUT_MS = 30_000;
 const TELEGRAM_VIDEO_MAX_BYTES = 50 * 1024 * 1024;
+const TELEGRAM_STORY_PHOTO_MAX_BYTES = 10 * 1024 * 1024;
+const TELEGRAM_STORY_PHOTO_WIDTH = 1080;
+const TELEGRAM_STORY_PHOTO_HEIGHT = 1920;
+const TELEGRAM_STORY_ACTIVE_PERIOD_SECONDS = 24 * 60 * 60;
 const TELEGRAM_MEDIA_GROUP_LIMIT = 10;
 
 function characterCount(value: string): number {
   return Array.from(value).length;
 }
 
+function isStoryImagePublication(input: PublishInput): boolean {
+  return input.publicationKind === 'STORY' && input.contentFormat === 'IMAGE';
+}
+
 function isVideoPublication(input: PublishInput): boolean {
-  return input.contentFormat === 'VIDEO';
+  return input.publicationKind !== 'STORY' && input.contentFormat === 'VIDEO';
 }
 
 function telegramError(body: any): PlatformError {
@@ -79,6 +88,28 @@ async function sendMessage(token: string, chatId: string, text: string): Promise
   return body.result;
 }
 
+function assertStoryImage(input: PublishInput): MediaRow {
+  if (input.publicationKind !== 'STORY' || input.contentFormat !== 'IMAGE') {
+    throw new Error(`Telegram: CX3-010A поддерживает только STORY/IMAGE, получен ${input.publicationKind || 'FEED'}/${input.contentFormat || 'IMAGE'}`);
+  }
+  if (input.media.length !== 1) throw new Error('Telegram: STORY/IMAGE требует ровно один image asset');
+  const media = input.media[0]!;
+  if (media.mime_type !== 'image/jpeg') {
+    throw new Error(`Telegram: STORY/IMAGE требует image/jpeg, получен ${media.mime_type}`);
+  }
+  if (media.width !== TELEGRAM_STORY_PHOTO_WIDTH || media.height !== TELEGRAM_STORY_PHOTO_HEIGHT) {
+    throw new Error(`Telegram: STORY/IMAGE требует ровно ${TELEGRAM_STORY_PHOTO_WIDTH}x${TELEGRAM_STORY_PHOTO_HEIGHT}, получен ${media.width || 0}x${media.height || 0}`);
+  }
+  if (media.size_bytes > TELEGRAM_STORY_PHOTO_MAX_BYTES) {
+    throw new Error(`Telegram: STORY/IMAGE ${media.size_bytes} байт превышает предел 10 MB`);
+  }
+  const textLength = characterCount(input.text);
+  if (textLength > STORY_CAPTION_LIMIT) {
+    throw new Error(`Telegram: STORY caption ${textLength} символов превышает предел ${STORY_CAPTION_LIMIT}`);
+  }
+  return media;
+}
+
 function assertFeedVideo(input: PublishInput): MediaRow {
   if (input.publicationKind && input.publicationKind !== 'FEED') {
     throw new Error(`Telegram: CX3-008B поддерживает только FEED/VIDEO, получен ${input.publicationKind}/${input.contentFormat}`);
@@ -102,6 +133,9 @@ function assertFeedVideo(input: PublishInput): MediaRow {
 }
 
 function assertImagePublication(input: PublishInput): void {
+  if (input.publicationKind && input.publicationKind !== 'FEED') {
+    throw new Error(`Telegram: текущий image adapter поддерживает только FEED, получен ${input.publicationKind}/${input.contentFormat || 'IMAGE'}`);
+  }
   if (input.contentFormat && !['IMAGE', 'CAROUSEL'].includes(input.contentFormat)) {
     throw new Error(`Telegram: текущий adapter не поддерживает ${input.publicationKind || 'FEED'}/${input.contentFormat}`);
   }
@@ -114,6 +148,21 @@ function assertImagePublication(input: PublishInput): void {
       throw new Error(`Telegram: image publication требует image/jpeg, получен ${media.mime_type}`);
     }
   }
+}
+
+async function publishStoryImage(token: string, businessConnectionId: string, media: MediaRow, caption: string): Promise<any> {
+  const bytes = await readMediaBytes(mediaAbsolutePath(media), TELEGRAM_STORY_PHOTO_MAX_BYTES);
+  const data = new FormData();
+  data.set('business_connection_id', businessConnectionId);
+  data.set('content', JSON.stringify({ type: 'photo', photo: 'attach://story' }));
+  data.set('active_period', String(TELEGRAM_STORY_ACTIVE_PERIOD_SECONDS));
+  if (caption) data.set('caption', caption);
+  data.set('story', new Blob([bytes], { type: 'image/jpeg' }), media.original_name.replace(/\.[^.]+$/, '') + '.jpg');
+  const body = await telegramRequest(`https://api.telegram.org/bot${token}/postStory`, {
+    method: 'POST',
+    body: data
+  }, 'Telegram postStory');
+  return body.result;
 }
 
 async function publishVideo(token: string, chatId: string, media: MediaRow, caption: string): Promise<any> {
@@ -173,6 +222,11 @@ export const telegramPublisher: SocialPublisher = {
   platform: 'telegram',
   validate(input) {
     requireString(input.credentials, 'botToken');
+    if (isStoryImagePublication(input)) {
+      requireString(input.credentials, 'businessConnectionId');
+      assertStoryImage(input);
+      return;
+    }
     requireString(input.credentials, 'chatId');
     if (isVideoPublication(input)) assertFeedVideo(input);
     else assertImagePublication(input);
@@ -184,6 +238,19 @@ export const telegramPublisher: SocialPublisher = {
   async publish(input: PublishInput): Promise<PublishResult> {
     this.validate(input);
     const token = requireString(input.credentials, 'botToken');
+
+    if (isStoryImagePublication(input)) {
+      const businessConnectionId = requireString(input.credentials, 'businessConnectionId');
+      const result = await publishStoryImage(token, businessConnectionId, assertStoryImage(input), input.text);
+      if (!Number.isInteger(result?.id) || result.id <= 0) {
+        throw new PlatformError('Telegram: postStory подтвердил запрос, но не вернул story id; автоматический повтор небезопасен', {
+          retryable: false,
+          outcomeUnknown: true
+        });
+      }
+      return { externalId: String(result.id), raw: result };
+    }
+
     const chatId = requireString(input.credentials, 'chatId');
     const textLength = characterCount(input.text);
     const caption = textLength <= CAPTION_LIMIT ? input.text : '';
