@@ -22,6 +22,7 @@ import { registerPlatformCapabilityRoutes } from './http/platform-capabilities.j
 import { registerPlatformPreviewRoutes } from './http/platform-previews.js';
 import { registerEditorialDashboardRoutes } from './http/editorial-dashboard.js';
 import { registerVideoMediaRoutes } from './http/video-media.js';
+import { registerPublicationUnitRoutes } from './http/publication-units.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -46,6 +47,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await registerEditorialDashboardRoutes(app);
   await registerTargetOverrideRoutes(app);
   await registerMediaOrderRoutes(app);
+  await registerPublicationUnitRoutes(app);
   await registerBackupBundleRoutes(app);
   await registerContentPlanRoutes(app);
   await registerContentPlanV3Routes(app);
