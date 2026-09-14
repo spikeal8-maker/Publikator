@@ -151,23 +151,21 @@ export async function saveVideoVersioned(
   }
 
   const preparedVideo = await prepareVideoUpload(originalName, input);
-  const posterPrepared = await prepareImage(preparedVideo.posterData);
-  const videoId = id('med');
-  const posterId = id('med');
-  const postDir = path.join(config.mediaDir, postId);
-  const videoRelativePath = path.posix.join(postId, `${videoId}.mp4`);
-  const posterRelativePath = path.posix.join(postId, `${posterId}.jpg`);
-  const videoAbsolutePath = path.join(config.mediaDir, videoRelativePath);
-  const posterAbsolutePath = path.join(config.mediaDir, posterRelativePath);
-  let videoMoved = false;
-  let posterWritten = false;
-
+  let videoAbsolutePath: string | null = null;
+  let posterAbsolutePath: string | null = null;
   try {
+    const posterPrepared = await prepareImage(preparedVideo.posterData);
+    const videoId = id('med');
+    const posterId = id('med');
+    const postDir = path.join(config.mediaDir, postId);
+    const videoRelativePath = path.posix.join(postId, `${videoId}.mp4`);
+    const posterRelativePath = path.posix.join(postId, `${posterId}.jpg`);
+    videoAbsolutePath = path.join(config.mediaDir, videoRelativePath);
+    posterAbsolutePath = path.join(config.mediaDir, posterRelativePath);
+
     await fs.mkdir(postDir, { recursive: true });
     await fs.rename(preparedVideo.tempVideoPath, videoAbsolutePath);
-    videoMoved = true;
     await fs.writeFile(posterAbsolutePath, posterPrepared.data);
-    posterWritten = true;
 
     const committed = commitContentEdit(postId, expectedContentVersion, () => {
       const createdAt = nowIso();
@@ -222,8 +220,8 @@ export async function saveVideoVersioned(
     });
     return { ...committed.value, contentVersion: committed.contentVersion };
   } catch (error) {
-    if (videoMoved) await fs.unlink(videoAbsolutePath).catch(() => undefined);
-    if (posterWritten) await fs.unlink(posterAbsolutePath).catch(() => undefined);
+    if (videoAbsolutePath) await fs.unlink(videoAbsolutePath).catch(() => undefined);
+    if (posterAbsolutePath) await fs.unlink(posterAbsolutePath).catch(() => undefined);
     throw error;
   } finally {
     await preparedVideo.cleanup();
