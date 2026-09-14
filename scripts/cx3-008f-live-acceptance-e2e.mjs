@@ -156,9 +156,16 @@ assert.match(cliSource, /PUBLIKATOR_LIVE_ACCEPTANCE_CONFIRM/);
 assert.match(cliSource, /PUBLIKATOR_LIVE_VISIBILITY_CONFIRM/);
 assert.match(cliSource, /--publish/);
 assert.match(cliSource, /--confirm-visible/);
-assert.match(cliSource, /source post должен быть изолированным MANUAL DRAFT\/DRAFT/);
+assert.match(cliSource, /target-free MANUAL DRAFT\/DRAFT/);
+assert.match(cliSource, /post_target_count/);
+assert.match(cliSource, /recheckSourcePostQuarantine/);
 assert.match(cliSource, /findBlockingEvidence/);
 assert.match(cliSource, /повторная live публикация.*заблокирована/);
+assert.match(cliSource, /acquireLiveLock/);
+assert.match(cliSource, /fsp\.open\(filePath, 'wx', 0o600\)/);
+assert.match(cliSource, /PUBLIC_PUBLISH_STARTING/);
+assert.match(cliSource, /live lock уже существует/);
+assert.match(cliSource, /lock оставлен/);
 assert.match(cliSource, /--evidence используется только с --confirm-visible/);
 assert.match(cliSource, /publisher\.validate\(input\)/);
 assert.match(cliSource, /testConnection\(account\.platform, credentials\)/);
@@ -169,6 +176,7 @@ assert.match(cliSource, /fsp\.chmod\(filePath, 0o600\)/);
 assert.match(cliSource, /mediaPublicUrl\(media\)/);
 assert.match(cliSource, /SHA-256 файла не совпадает/);
 assert.doesNotMatch(cliSource, /--credentials/);
+assert.doesNotMatch(cliSource, /externalUrl: result\.externalUrl[\s\S]{0,120}lock\.update/);
 
 const dockerfile = await fs.readFile(new URL('../Dockerfile', import.meta.url), 'utf8');
 assert.match(dockerfile, /COPY --from=build \/app\/dist \.\/dist/);
@@ -180,8 +188,10 @@ console.log(JSON.stringify({
   checkpoint: 'CX3-008F',
   capabilityStillClosed: true,
   productionAccountAndMediaIds: true,
+  targetFreeSourcePost: true,
   sourceDraftQuarantine: true,
   duplicateLiveRunBlocked: true,
+  crashSafeConcurrentLock: true,
   explicitPublishGuard: true,
   explicitVisibilityGuard: true,
   apiConfirmedBeforePass: true,
