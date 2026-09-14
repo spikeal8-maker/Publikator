@@ -19,7 +19,10 @@ const { createBackupBundle, resolveBackupBundle, stageRestoreBundle } = await im
 const { applyPendingRestore } = await import('../dist/restore-bootstrap.js');
 
 migrate();
-const projectId = db.prepare('SELECT id FROM projects ORDER BY created_at LIMIT 1').get().id;
+const projectId = id('prj');
+const projectNow = nowIso();
+db.prepare('INSERT INTO projects (id,name,slug,created_at) VALUES (?,?,?,?)')
+  .run(projectId, 'Backup v8 project', 'backup-v8-project', projectNow);
 const postId = id('post');
 const now = nowIso();
 db.prepare(`INSERT INTO posts
