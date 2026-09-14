@@ -1,0 +1,78 @@
+:root {
+  --bg: #f5f7fb;
+  --surface: #ffffff;
+  --surface-muted: #f1f5f9;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --border: #cbd5e1;
+  --accent: #1d4ed8;
+  --accent-contrast: #ffffff;
+  --success: #166534;
+  --success-bg: #dcfce7;
+  --warning: #92400e;
+  --warning-bg: #fef3c7;
+  --danger: #991b1b;
+  --danger-bg: #fee2e2;
+  --info: #1e40af;
+  --info-bg: #dbeafe;
+  --nav-bg: #0b1220;
+  --nav-text: #f8fafc;
+  --nav-muted: #cbd5e1;
+  --focus: #2563eb;
+}
+
+html { color-scheme: light; }
+body, main { background: var(--bg); color: var(--text-primary); }
+aside { background: var(--nav-bg); color: var(--nav-text); }
+.nav { color: var(--nav-muted); }
+.nav:hover, .nav.active { color: var(--nav-text); }
+header, .card, .table, .modal-card, .center-card, input, textarea, select {
+  background: var(--surface);
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+.table th { color: var(--text-secondary); background: var(--surface-muted); }
+.table td { border-bottom-color: var(--border); }
+.muted, .small { color: var(--text-secondary); }
+button.secondary { background: var(--surface); color: var(--text-primary); border-color: var(--border); }
+button.primary, form button { background: var(--text-primary); color: var(--surface); }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+.badge { display: inline-flex; align-items: center; gap: 5px; color: var(--text-primary); background: var(--surface-muted); }
+.badge::before { content: '•'; font-weight: 900; }
+.badge.DRAFT::before { content: '✎'; }
+.badge.READY::before { content: '✓'; }
+.badge.PUBLISHED::before { content: '✓'; }
+.badge.PUBLISHING::before { content: '↗'; }
+.badge.PARTIAL::before { content: '◐'; }
+.badge.FAILED::before, .badge.RECOVERY_NEEDED::before { content: '!'; }
+.badge.RETRY::before { content: '↻'; }
+.badge.PUBLISHED { color: var(--success); background: var(--success-bg); }
+.badge.READY, .badge.RETRY { color: var(--warning); background: var(--warning-bg); }
+.badge.FAILED, .badge.RECOVERY_NEEDED, .badge.PARTIAL { color: var(--danger); background: var(--danger-bg); }
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #080d16;
+    --surface: #111827;
+    --surface-muted: #182235;
+    --text-primary: #f8fafc;
+    --text-secondary: #cbd5e1;
+    --border: #334155;
+    --accent: #60a5fa;
+    --accent-contrast: #08111f;
+    --success: #86efac;
+    --success-bg: #123221;
+    --warning: #fcd34d;
+    --warning-bg: #3b2a08;
+    --danger: #fca5a5;
+    --danger-bg: #3b1418;
+    --info: #93c5fd;
+    --info-bg: #172554;
+    --nav-bg: #050914;
+    --nav-text: #f8fafc;
+    --nav-muted: #cbd5e1;
+    --focus: #93c5fd;
+  }
+  html { color-scheme: dark; }
+}
