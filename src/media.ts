@@ -71,7 +71,7 @@ function duplicateMedia(postId: string, sha256: string): MediaRow | undefined {
 export function syncImageContentFormat(postId: string): 'IMAGE' | 'CAROUSEL' {
   const count = Number((db.prepare('SELECT COUNT(*) AS count FROM media WHERE post_id=?').get(postId) as { count: number }).count);
   const format = count > 1 ? 'CAROUSEL' : 'IMAGE';
-  db.prepare("UPDATE posts SET content_format=? WHERE id=? AND publication_kind='FEED' AND content_format IN ('TEXT_ONLY','IMAGE','CAROUSEL','VIDEO')")
+  db.prepare("UPDATE posts SET content_format=? WHERE id=? AND publication_kind='FEED' AND content_format IN ('TEXT_ONLY','IMAGE','CAROUSEL')")
     .run(format, postId);
   return format;
 }
@@ -270,7 +270,13 @@ function normalizeRemainingMedia(postId: string): void {
   const rest = listMedia(postId);
   const update = db.prepare('UPDATE media SET sort_order=? WHERE id=?');
   rest.forEach((row, index) => update.run(index, row.id));
-  syncImageContentFormat(postId);
+  const hasVideo = rest.some((row) => row.mime_type.startsWith('video/'));
+  if (!hasVideo) {
+    const imageFormat = rest.length > 1 ? 'CAROUSEL' : 'IMAGE';
+    db.prepare("UPDATE posts SET publication_kind='FEED',content_format=? WHERE id=? AND content_format IN ('VIDEO','VERTICAL_VIDEO')")
+      .run(imageFormat, postId);
+    syncImageContentFormat(postId);
+  }
 }
 
 export async function deleteMediaVersioned(mediaId: string, expectedContentVersion: number): Promise<{ postId: string; contentVersion: number }> {
