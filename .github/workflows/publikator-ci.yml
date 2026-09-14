@@ -113,6 +113,9 @@ jobs:
       - name: CX3-007 contrast UI contract
         run: node scripts/cx3-007-contrast-ui-e2e.mjs
 
+      - name: CX3-008A production video media pipeline
+        run: node scripts/cx3-008a-video-media-e2e.mjs
+
       - name: Publisher recovery and operations
         run: node scripts/v07-mock-e2e.mjs
 
@@ -188,11 +191,13 @@ jobs:
       - name: Build image with immutable tested revision
         run: docker build --pull=false --build-arg BUILD_SHA="${GITHUB_SHA}" -t publikator-release-identity .
 
-      - name: Verify baked image revision and non-root runtime
+      - name: Verify baked image revision, video tools and non-root runtime
         shell: bash
         run: |
           set -euo pipefail
           test "$(docker run --rm --entrypoint node publikator-release-identity --version)" = 'v22.23.2'
+          docker run --rm --entrypoint ffmpeg publikator-release-identity -version >/dev/null
+          docker run --rm --entrypoint ffprobe publikator-release-identity -version >/dev/null
           BAKED_SHA="$(docker run --rm --entrypoint node publikator-release-identity -e 'process.stdout.write(process.env.IMAGE_BUILD_SHA || "")')"
           test "$BAKED_SHA" = "$GITHUB_SHA"
           LABEL_SHA="$(docker image inspect publikator-release-identity --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')"

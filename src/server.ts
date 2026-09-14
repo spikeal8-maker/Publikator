@@ -4,10 +4,12 @@ import { applyPendingRestore } from './restore-bootstrap.js';
 const restoreResult = await applyPendingRestore();
 
 const { migrate } = await import('./db.js');
+const { cleanupVideoTemp } = await import('./video-media.js');
 const { buildApp } = await import('./app.js');
 const { schedulerTick } = await import('./scheduler.js');
 
 migrate();
+await cleanupVideoTemp();
 const app = await buildApp();
 
 const interval = setInterval(() => {
