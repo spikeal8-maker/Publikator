@@ -11,7 +11,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "live:video:accept": "npm run build && node scripts/cx3-008f-live-video-acceptance.mjs"
+    "live:video:accept": "node dist/cli/live-video-acceptance.js"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.0",
