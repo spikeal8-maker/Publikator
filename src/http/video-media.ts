@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { config } from '../config.js';
 import { db } from '../db.js';
 import { saveVideoVersioned } from '../media.js';
+import { VideoSizeLimitError } from '../video-media.js';
 import { contentMutationError, expectedContentVersion } from './content-version.js';
 
 const IMMUTABLE_POST_STATUSES = new Set(['PUBLISHING', 'PUBLISHED', 'PARTIAL']);
@@ -36,6 +37,7 @@ export async function registerVideoMediaRoutes(app: FastifyInstance): Promise<vo
         contentVersion: saved.contentVersion
       });
     } catch (error) {
+      if (error instanceof VideoSizeLimitError) return reply.code(413).send({ error: error.message });
       return contentMutationError(reply, error);
     }
   });
