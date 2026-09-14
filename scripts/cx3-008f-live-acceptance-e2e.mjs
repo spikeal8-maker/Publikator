@@ -92,6 +92,10 @@ const cliSource = await fs.readFile(new URL('./cx3-008f-live-video-acceptance.mj
 assert.match(cliSource, /PUBLIKATOR_LIVE_ACCEPTANCE_CONFIRM/);
 assert.match(cliSource, /--publish/);
 assert.match(cliSource, /credentialsRecorded: false/);
+assert.match(cliSource, /signedUrlQueryRecorded: false/);
+assert.match(cliSource, /url\.search = ''/);
+assert.match(cliSource, /url\.hash = ''/);
+assert.match(cliSource, /mode: 0o600/);
 assert.match(cliSource, /publisher\.validate\(input\)/);
 assert.match(cliSource, /testConnection\(platform, credentials\)/);
 assert.match(cliSource, /publisher\.publish\(input\)/);
@@ -104,5 +108,7 @@ console.log(JSON.stringify({
   explicitPublishGuard: true,
   credentialsShapeValidated: true,
   evidenceSecretFreeByConstruction: true,
+  signedUrlQueryRedacted: true,
+  evidenceMode0600: true,
   stagedMediaCleanup: true
 }, null, 2));
