@@ -24,6 +24,13 @@ export type RevisionTargetSnapshot = {
   rendition: RevisionTargetRenditionSnapshot | null;
 };
 
+export type RevisionContentMediaSnapshot = {
+  mediaId: string | null;
+  sortOrder: number;
+  role: string;
+  previewDurationMs: number | null;
+};
+
 export type ContentRevisionRow = {
   id: string;
   post_id: string;
@@ -38,6 +45,7 @@ export type ContentRevisionRow = {
   content_format: string;
   targets_json: string;
   media_json: string;
+  content_media_json?: string;
   actor_source: string;
   created_at: string;
 };
@@ -109,8 +117,26 @@ export function revisionTargets(revision: ContentRevisionRow): RevisionTargetSna
   return JSON.parse(revision.targets_json) as RevisionTargetSnapshot[];
 }
 
+export function revisionContentMedia(revision: ContentRevisionRow): RevisionContentMediaSnapshot[] {
+  if (!revision.content_media_json) return [];
+  try {
+    const parsed = JSON.parse(revision.content_media_json);
+    return Array.isArray(parsed) ? parsed as RevisionContentMediaSnapshot[] : [];
+  } catch {
+    return [];
+  }
+}
+
 export function revisionMedia(revision: ContentRevisionRow): MediaRow[] {
-  return JSON.parse(revision.media_json) as MediaRow[];
+  const media = JSON.parse(revision.media_json) as MediaRow[];
+  const relation = revisionContentMedia(revision);
+  if (!relation.length) return media;
+  const byId = new Map(media.map((item) => [item.id, item]));
+  return relation
+    .filter((item) => item.role !== 'poster' && typeof item.mediaId === 'string')
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map((item) => byId.get(item.mediaId!))
+    .filter((item): item is MediaRow => Boolean(item));
 }
 
 export function getContentRevision(revisionId: string): ContentRevisionRow {
