@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -32,11 +33,12 @@ db.prepare(`INSERT INTO posts
 await fs.mkdir(path.join(config.mediaDir, postId), { recursive: true });
 function insertMedia(mediaId, name, mimeType, width, height, order, bytes) {
   const relativePath = `${postId}/${name}`;
+  const sha256 = createHash('sha256').update(bytes).digest('hex');
   db.prepare(`INSERT INTO media
     (id,post_id,original_name,relative_path,mime_type,size_bytes,width,height,sha256,created_at,sort_order)
     VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
     .run(mediaId, postId, name, relativePath, mimeType, bytes.length, width, height,
-      Buffer.from(bytes).toString('hex').padEnd(64, '0').slice(0, 64), nowIso(), order);
+      sha256, nowIso(), order);
   return fs.writeFile(path.join(config.mediaDir, relativePath), bytes);
 }
 const videoId = id('med');
