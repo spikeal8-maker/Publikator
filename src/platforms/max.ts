@@ -140,18 +140,29 @@ async function reserveVideoUpload(accessToken: string): Promise<{ url: string; t
       signal: AbortSignal.timeout(MAX_REQUEST_TIMEOUT_MS)
     });
     const body = await responseJson(response, 'MAX POST /uploads?type=video');
+    if (!response.ok) {
+      const code = typeof body?.code === 'string' ? body.code : `HTTP_${response.status}`;
+      throw new PlatformError(`MAX POST /uploads?type=video: HTTP ${response.status}: ${body?.message || body?.code || 'ошибка подготовки upload'}`, {
+        retryable: response.status === 408 || response.status === 429 || response.status >= 500,
+        outcomeUnknown: false,
+        status: response.status,
+        code
+      });
+    }
     const url = typeof body?.url === 'string' ? body.url : '';
     const token = typeof body?.token === 'string' && body.token ? body.token : null;
     if (!url) {
       throw new PlatformError(`MAX: POST /uploads не вернул url: ${JSON.stringify(body)}`, {
         retryable: false,
-        outcomeUnknown: false
+        outcomeUnknown: false,
+        status: response.status
       });
     }
     if (!validVideoUploadUrl(url)) {
       throw new PlatformError(`MAX: video upload URL не соответствует разрешённому HTTPS host ${MAX_VIDEO_UPLOAD_HOST}`, {
         retryable: false,
-        outcomeUnknown: false
+        outcomeUnknown: false,
+        status: response.status
       });
     }
     return { url, token };
@@ -170,7 +181,17 @@ async function uploadVideoFile(uploadUrl: string, media: MediaRow, blob: Blob): 
       body: form,
       signal: AbortSignal.timeout(MAX_REQUEST_TIMEOUT_MS)
     });
-    return await responseJson(response, 'MAX upload video');
+    const body = await responseJson(response, 'MAX upload video');
+    if (!response.ok) {
+      const code = typeof body?.code === 'string' ? body.code : `HTTP_${response.status}`;
+      throw new PlatformError(`MAX upload video: HTTP ${response.status}: ${body?.message || body?.code || 'ошибка upload host'}`, {
+        retryable: response.status === 408 || response.status === 429 || response.status >= 500,
+        outcomeUnknown: false,
+        status: response.status,
+        code
+      });
+    }
+    return body;
   } catch (error) {
     throw preparationError(error, 'MAX upload video — подготовительная фаза');
   }
@@ -215,11 +236,33 @@ async function postMessage(
       signal: AbortSignal.timeout(MAX_REQUEST_TIMEOUT_MS)
     });
     const body = await responseJson(response, 'MAX POST /messages');
-    if (body?.code) {
-      const code = String(body.code);
-      const message = `MAX POST /messages: ${code}: ${body.message || 'неизвестная ошибка'}`;
-      if (code === 'attachment.not.ready') throw attachmentNotReadyError(message, response.status);
-      throw new PlatformError(message, { retryable: false, outcomeUnknown: false, status: response.status, code });
+    const code = typeof body?.code === 'string' ? body.code : null;
+    const message = `MAX POST /messages: ${code || `HTTP ${response.status}`}: ${body?.message || body?.code || 'неизвестная ошибка'}`;
+
+    if (code === 'attachment.not.ready') throw attachmentNotReadyError(message, response.status);
+    if (response.status === 429 || code === 'rate.limit') {
+      throw new PlatformError(message, {
+        retryable: true,
+        outcomeUnknown: false,
+        status: response.status,
+        code: code || 'rate.limit'
+      });
+    }
+    if (response.status >= 500) {
+      throw new PlatformError(`MAX POST /messages: HTTP ${response.status}: ${body?.message || body?.code || 'server error'}`, {
+        retryable: false,
+        outcomeUnknown: true,
+        status: response.status,
+        code: code || undefined
+      });
+    }
+    if (!response.ok || code) {
+      throw new PlatformError(message, {
+        retryable: false,
+        outcomeUnknown: false,
+        status: response.status,
+        code: code || undefined
+      });
     }
     return body;
   } catch (error) {
