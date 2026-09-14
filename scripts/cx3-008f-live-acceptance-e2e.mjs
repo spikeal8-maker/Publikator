@@ -33,7 +33,17 @@ assert.doesNotThrow(() => core.assertLivePublishGuard({
   confirmation: core.LIVE_VIDEO_CONFIRMATION
 }));
 
+assert.throws(
+  () => core.assertLiveVisibilityGuard({ confirmVisible: true, confirmation: 'YES' }),
+  /PUBLIKATOR_LIVE_VISIBILITY_CONFIRM/
+);
+assert.doesNotThrow(() => core.assertLiveVisibilityGuard({
+  confirmVisible: true,
+  confirmation: core.LIVE_VIDEO_VISIBILITY_CONFIRMATION
+}));
+
 const media = {
+  mediaId: 'med_live_video',
   originalName: 'acceptance.mp4',
   sizeBytes: 12_345,
   sha256: 'a'.repeat(64),
@@ -46,69 +56,123 @@ const media = {
   container: 'mp4'
 };
 
-const evidence = core.buildLiveVideoAcceptanceEvidence({
+const common = {
   runId: 'telegram-2026-09-14-test',
   platform: 'telegram',
   startedAt: '2026-09-14T15:00:00.000Z',
   completedAt: '2026-09-14T15:00:03.000Z',
   buildSha: 'b'.repeat(40),
+  account: {
+    id: 'acc_live_test',
+    name: 'Publikator Acceptance'
+  },
   connection: {
     identity: '@publikator_test_bot',
     destination: 'Publikator Acceptance'
   },
   media,
+  publicVideoUrl: 'https://publisher.example.test/public-media/clip.mp4?temporary_signature=must-not-survive#fragment'
+};
+
+const apiEvidence = core.buildLiveVideoAcceptanceEvidence({
+  ...common,
   externalId: '12345',
   externalUrl: null
 });
 
-assert.equal(evidence.schemaVersion, 1);
-assert.equal(evidence.checkpoint, 'CX3-008F');
-assert.equal(evidence.status, 'PASSED');
-assert.equal(evidence.publicationKind, 'FEED');
-assert.equal(evidence.contentFormat, 'VIDEO');
-assert.equal(evidence.result.externalId, '12345');
-assert.equal(evidence.transport.publicVideoUrl, null);
-assert.deepEqual(core.validateLiveVideoAcceptanceEvidence(evidence), evidence);
+assert.equal(apiEvidence.schemaVersion, 1);
+assert.equal(apiEvidence.checkpoint, 'CX3-008F');
+assert.equal(apiEvidence.status, 'API_CONFIRMED');
+assert.equal(apiEvidence.publicationKind, 'FEED');
+assert.equal(apiEvidence.contentFormat, 'VIDEO');
+assert.equal(apiEvidence.result.externalId, '12345');
+assert.equal(apiEvidence.transport.publicVideoUrl, 'https://publisher.example.test/public-media/clip.mp4');
+assert.equal(apiEvidence.failure, null);
+assert.deepEqual(apiEvidence.visibility, { confirmedAt: null, note: null });
+assert.deepEqual(core.validateLiveVideoAcceptanceEvidence(apiEvidence), apiEvidence);
+
+const passedEvidence = core.confirmLiveVideoAcceptanceEvidence(apiEvidence, {
+  confirmedAt: '2026-09-14T15:05:00.000Z',
+  note: 'Control Reel visible in target surface'
+});
+assert.equal(passedEvidence.status, 'PASSED');
+assert.equal(passedEvidence.visibility.confirmedAt, '2026-09-14T15:05:00.000Z');
+assert.equal(passedEvidence.visibility.note, 'Control Reel visible in target surface');
+assert.deepEqual(core.validateLiveVideoAcceptanceEvidence(passedEvidence), passedEvidence);
+assert.throws(
+  () => core.confirmLiveVideoAcceptanceEvidence(passedEvidence, { confirmedAt: '2026-09-14T15:06:00.000Z' }),
+  /уже подтверждена/
+);
+
+const recoveryEvidence = core.buildLiveVideoRecoveryEvidence({
+  ...common,
+  message: 'External POST outcome is unknown',
+  code: 500
+});
+assert.equal(recoveryEvidence.status, 'RECOVERY_NEEDED');
+assert.equal(recoveryEvidence.result.externalId, null);
+assert.equal(recoveryEvidence.failure.message, 'External POST outcome is unknown');
+assert.equal(recoveryEvidence.failure.code, 500);
+assert.deepEqual(core.validateLiveVideoAcceptanceEvidence(recoveryEvidence), recoveryEvidence);
+assert.throws(
+  () => core.confirmLiveVideoAcceptanceEvidence(recoveryEvidence, { confirmedAt: '2026-09-14T15:06:00.000Z' }),
+  /RECOVERY_NEEDED нельзя подтвердить/
+);
 
 assert.throws(
-  () => core.validateLiveVideoAcceptanceEvidence({ ...evidence, status: 'FAILED' }),
+  () => core.validateLiveVideoAcceptanceEvidence({ ...apiEvidence, status: 'FAILED' }),
   /schema\/checkpoint\/status/
 );
 assert.throws(
-  () => core.buildLiveVideoAcceptanceEvidence({ ...evidence, buildSha: 'short' }),
+  () => core.buildLiveVideoAcceptanceEvidence({ ...common, buildSha: 'short', externalId: '1' }),
   /40-символьным Git SHA/
 );
 assert.throws(
-  () => core.buildLiveVideoAcceptanceEvidence({ ...evidence, media: { ...media, sha256: 'bad' } }),
+  () => core.buildLiveVideoAcceptanceEvidence({ ...common, media: { ...media, sha256: 'bad' }, externalId: '1' }),
   /sha256/
+);
+assert.throws(
+  () => core.validateLiveVideoAcceptanceEvidence({ ...apiEvidence, failure: { message: 'should not exist', code: null } }),
+  /не должна содержать failure/
 );
 
 const secretSentinel = 'super-secret-token-that-must-never-enter-evidence';
-const serialized = JSON.stringify(evidence);
-assert.equal(serialized.includes(secretSentinel), false);
-assert.equal('credentials' in evidence, false);
+for (const evidence of [apiEvidence, passedEvidence, recoveryEvidence]) {
+  const serialized = JSON.stringify(evidence);
+  assert.equal(serialized.includes(secretSentinel), false);
+  assert.equal(serialized.includes('temporary_signature'), false);
+  assert.equal('credentials' in evidence, false);
+}
 
-const cliSource = await fs.readFile(new URL('./cx3-008f-live-video-acceptance.mjs', import.meta.url), 'utf8');
+const cliSource = await fs.readFile(new URL('../src/cli/live-video-acceptance.ts', import.meta.url), 'utf8');
+assert.match(cliSource, /--account <social_accounts\.id>/);
+assert.match(cliSource, /--media <media\.id>/);
+assert.match(cliSource, /credentialsDecrypted: false/);
+assert.match(cliSource, /decryptJson<Record<string, unknown>>/);
 assert.match(cliSource, /PUBLIKATOR_LIVE_ACCEPTANCE_CONFIRM/);
+assert.match(cliSource, /PUBLIKATOR_LIVE_VISIBILITY_CONFIRM/);
 assert.match(cliSource, /--publish/);
-assert.match(cliSource, /credentialsRecorded: false/);
-assert.match(cliSource, /signedUrlQueryRecorded: false/);
-assert.match(cliSource, /url\.search = ''/);
-assert.match(cliSource, /url\.hash = ''/);
-assert.match(cliSource, /mode: 0o600/);
+assert.match(cliSource, /--confirm-visible/);
 assert.match(cliSource, /publisher\.validate\(input\)/);
-assert.match(cliSource, /testConnection\(platform, credentials\)/);
+assert.match(cliSource, /testConnection\(account\.platform, credentials\)/);
 assert.match(cliSource, /publisher\.publish\(input\)/);
-assert.match(cliSource, /finally \{[\s\S]*fsp\.rm\(runMediaDir/);
+assert.match(cliSource, /buildLiveVideoRecoveryEvidence/);
+assert.match(cliSource, /НЕ повторяйте публикацию автоматически/);
+assert.match(cliSource, /fsp\.chmod\(filePath, 0o600\)/);
+assert.match(cliSource, /mediaPublicUrl\(media\)/);
+assert.match(cliSource, /SHA-256 файла не совпадает/);
+assert.doesNotMatch(cliSource, /--credentials/);
 
 console.log(JSON.stringify({
   ok: true,
   checkpoint: 'CX3-008F',
   capabilityStillClosed: true,
+  productionAccountAndMediaIds: true,
   explicitPublishGuard: true,
-  credentialsShapeValidated: true,
+  explicitVisibilityGuard: true,
+  apiConfirmedBeforePass: true,
+  recoveryEvidence: true,
   evidenceSecretFreeByConstruction: true,
   signedUrlQueryRedacted: true,
-  evidenceMode0600: true,
-  stagedMediaCleanup: true
+  evidenceMode0600: true
 }, null, 2));
