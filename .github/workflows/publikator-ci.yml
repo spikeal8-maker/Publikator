@@ -107,8 +107,11 @@ jobs:
       - name: CX3-006 platform previews v2
         run: node scripts/cx3-006-platform-previews-e2e.mjs
 
-      - name: CX3-007 dashboard and contrast
-        run: node scripts/cx3-007-dashboard-contrast-e2e.mjs
+      - name: CX3-007 dashboard API semantics
+        run: node scripts/cx3-007-dashboard-api-e2e.mjs
+
+      - name: CX3-007 contrast UI contract
+        run: node scripts/cx3-007-contrast-ui-e2e.mjs
 
       - name: Publisher recovery and operations
         run: node scripts/v07-mock-e2e.mjs
