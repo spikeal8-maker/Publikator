@@ -609,8 +609,7 @@ async function planOrPublish(args: Args): Promise<void> {
       await lock.update({
         phase: 'API_RETURNED',
         runId,
-        externalId: result.externalId,
-        externalUrl: result.externalUrl || null
+        externalId: result.externalId
       });
     } catch {
       throw new Error(`CX3-008F: API вернул externalId=${result.externalId}, но lock-state не удалось обновить. Lock оставлен намеренно: ${lock.filePath}`);
