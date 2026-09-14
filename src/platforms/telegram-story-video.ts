@@ -133,7 +133,7 @@ async function probeRendition(filePath: string): Promise<{ durationSeconds: numb
   return { durationSeconds, hasAudio: audioStreams.length === 1 };
 }
 
-async function assertKeyframeCadence(filePath: string): Promise<void> {
+async function assertKeyframeCadence(filePath: string, durationSeconds: number): Promise<void> {
   const output = await runTool(config.ffprobePath, [
     '-v', 'error',
     '-select_streams', 'v:0',
@@ -150,6 +150,10 @@ async function assertKeyframeCadence(filePath: string): Promise<void> {
   for (let index = 1; index < timestamps.length; index += 1) {
     const interval = timestamps[index]! - timestamps[index - 1]!;
     if (interval > 1.15) throw new Error(`Telegram STORY/VIDEO keyframe interval ${interval.toFixed(3)} s превышает 1 секунду с допуском`);
+  }
+  const finalInterval = durationSeconds - timestamps[timestamps.length - 1]!;
+  if (finalInterval > 1.15) {
+    throw new Error(`Telegram STORY/VIDEO final keyframe interval ${finalInterval.toFixed(3)} s превышает 1 секунду с допуском`);
   }
 }
 
@@ -211,7 +215,7 @@ export async function prepareTelegramStoryVideo(media: MediaRow): Promise<Telegr
         throw new Error(`Telegram STORY/VIDEO rendition ${stat.size} байт превышает предел ${TELEGRAM_STORY_VIDEO_MAX_BYTES} байт`);
       }
       const probe = await probeRendition(outputPath);
-      await assertKeyframeCadence(outputPath);
+      await assertKeyframeCadence(outputPath, probe.durationSeconds);
       await assertFastStart(outputPath);
       keep = true;
       let cleaned = false;
