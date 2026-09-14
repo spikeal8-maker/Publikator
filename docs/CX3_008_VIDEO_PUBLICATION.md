@@ -101,9 +101,59 @@ Acceptance:
 - test asserts the production capability gate is still disabled;
 - full `Publikator CI / Acceptance` passes.
 
-## CX3-008C — VK video adapter
+## CX3-008C — VK FEED/VIDEO adapter
 
-Same rule: current official VK API review first, focused tests second, live acceptance before capability enablement.
+Official API review: VK API JSON schema version 5.199 and the official VK SDK upload flow, re-checked 2026-09-14.
+
+Confirmed FEED/VIDEO contract:
+
+- `video.save` creates the upload reservation and returns `upload_url`, `owner_id` and `video_id`;
+- community upload uses positive `group_id`;
+- `wallpost=0` keeps `video.save` in the preparation phase instead of asking VK to create a wall post implicitly;
+- the binary video is sent to the returned upload server through `multipart/form-data` in field `video_file`;
+- the resulting video can be attached to `wall.post` as `video<owner_id>_<video_id>`;
+- `wall.post` supports deterministic `guid`, and Publikator continues to use `postId` as that GUID;
+- VK video processing is asynchronous after upload, so the adapter must not invent a second public side effect to probe readiness.
+
+Implementation scope:
+
+- one canonical `video/mp4` asset only;
+- `publicationKind=FEED`, `contentFormat=VIDEO` only;
+- local video bytes are read before `video.save`, so a missing local file produces zero external requests;
+- defense-in-depth verification of canonical H.264, AAC-or-none and MP4 metadata when present;
+- phase 1: `video.save(wallpost=0)`;
+- phase 2: multipart `video_file` upload to `upload_url`;
+- phase 3: the only public wall side effect is the existing `wall.post` with `guid=postId`;
+- existing photo and photo-carousel upload path remains unchanged.
+
+Failure and recovery boundary:
+
+- failures during local read, `video.save` or binary upload are preparation failures with `outcomeUnknown=false`;
+- temporary preparation transport/5xx failures may be retried and can at worst leave orphan prepared video media in VK;
+- an inconsistent upload response is a known preparation failure and must not reach `wall.post`;
+- an explicit VK API error returned by `wall.post` is a known outcome and keeps its VK retryability classification;
+- only a transport/timeout failure after `wall.post` starts can have an unknown public result and therefore enters `RECOVERY_NEEDED`;
+- automatic retry of an unknown `wall.post` outcome remains prohibited to avoid duplicate posts.
+
+Capability gate:
+
+- implementation readiness does **not** enable production capability;
+- `PLATFORM_CAPABILITIES.vk.supportsVideo` remains `false`;
+- Stories and Shorts remain disabled;
+- `verification.richMediaPendingLiveAcceptance` remains `true`;
+- READY/preflight therefore continues blocking VK FEED/VIDEO before any external POST;
+- enablement requires live acceptance with real VK credentials/community and evidence that one canonical MP4 is uploaded, attached and published exactly once with a stable `post_id`.
+
+Acceptance:
+
+- existing image adapter scenarios remain green;
+- focused test covers `video.save` parameters, `video_file` multipart upload and final video attachment;
+- missing local video and invalid canonical codec are rejected before network activity;
+- preparation network/5xx failures remain safe-retry/known-outcome;
+- mismatched upload identifiers never reach `wall.post`;
+- `wall.post` transport failure remains the only unknown-outcome boundary;
+- test asserts the production capability gate is still disabled;
+- full `Publikator CI / Acceptance` passes.
 
 ## CX3-008D — MAX video adapter
 

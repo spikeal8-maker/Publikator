@@ -10,38 +10,77 @@ process.env.ADMIN_PASSWORD = 'vk-adapter-test-password';
 process.env.APP_MASTER_KEY = 'vk-adapter-test-master-key-longer-than-thirty-two-characters';
 
 const { vkPublisher } = await import('../dist/platforms/vk.js');
+const { PLATFORM_CAPABILITIES } = await import('../dist/platforms/capabilities.js');
 const { PlatformError } = await import('../dist/platforms/types.js');
 const { db } = await import('../dist/db.js');
 
-const relativePath = 'post-vk-test/image.jpg';
-const absolutePath = path.join(dataDir, 'media', 'post-vk-test', 'image.jpg');
-await fs.mkdir(path.dirname(absolutePath), { recursive: true });
-await fs.writeFile(absolutePath, Buffer.from('vk-image-test'));
+const imageRelativePath = 'post-vk-test/image.jpg';
+const imageAbsolutePath = path.join(dataDir, 'media', imageRelativePath);
+await fs.mkdir(path.dirname(imageAbsolutePath), { recursive: true });
+await fs.writeFile(imageAbsolutePath, Buffer.from('vk-image-test'));
+
+const videoRelativePath = 'post-vk-test/video.mp4';
+const videoAbsolutePath = path.join(dataDir, 'media', videoRelativePath);
+await fs.writeFile(videoAbsolutePath, Buffer.from('vk-video-test-fixture'));
+
+const credentials = {
+  accessToken: 'test-vk-token',
+  groupId: '12345',
+  apiVersion: '5.199'
+};
+
+const imageMedia = {
+  id: 'media-vk',
+  post_id: 'post-vk-test',
+  original_name: 'image.jpg',
+  relative_path: imageRelativePath,
+  mime_type: 'image/jpeg',
+  size_bytes: 13,
+  width: 100,
+  height: 100,
+  sha256: 'a'.repeat(64),
+  created_at: '2026-09-10T00:00:00.000Z',
+  sort_order: 0
+};
+
+const videoMedia = {
+  id: 'video-media-vk',
+  post_id: 'post-vk-test',
+  original_name: 'video.mp4',
+  relative_path: videoRelativePath,
+  mime_type: 'video/mp4',
+  size_bytes: 21,
+  width: 1080,
+  height: 1920,
+  duration_ms: 12_500,
+  fps: 30,
+  video_codec: 'h264',
+  audio_codec: 'aac',
+  container: 'mp4',
+  poster_asset_id: 'poster-vk',
+  sha256: 'b'.repeat(64),
+  created_at: '2026-09-10T00:00:00.000Z',
+  sort_order: 0
+};
 
 const baseInput = {
   postId: 'post-vk-test',
   title: 'VK phase test',
   text: 'Тест VK',
-  media: [{
-    id: 'media-vk',
-    post_id: 'post-vk-test',
-    original_name: 'image.jpg',
-    relative_path: relativePath,
-    mime_type: 'image/jpeg',
-    size_bytes: 13,
-    width: 100,
-    height: 100,
-    sha256: 'a'.repeat(64),
-    created_at: '2026-09-10T00:00:00.000Z',
-    sort_order: 0
-  }],
-  credentials: {
-    accessToken: 'test-vk-token',
-    groupId: '12345',
-    apiVersion: '5.199'
-  },
+  media: [imageMedia],
+  credentials,
   publicMediaUrls: []
 };
+
+function videoInput(overrides = {}) {
+  return {
+    ...baseInput,
+    publicationKind: 'FEED',
+    contentFormat: 'VIDEO',
+    media: [videoMedia],
+    ...overrides
+  };
+}
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -61,7 +100,8 @@ function mockFetch(steps) {
     const url = String(request);
     const method = String(init.method || 'GET').toUpperCase();
     const body = init.body instanceof URLSearchParams ? Object.fromEntries(init.body.entries()) : null;
-    const call = { url, method, body, apiMethod: apiMethod(url) };
+    const form = init.body instanceof FormData ? init.body : null;
+    const call = { url, method, body, form, apiMethod: apiMethod(url), init };
     calls.push(call);
     const step = steps.shift();
     assert.ok(step, `Unexpected fetch ${method} ${url}`);
@@ -87,7 +127,7 @@ async function expectPlatformError(promise, expected) {
   if (expected.message) assert.match(caught.message, expected.message);
 }
 
-function successPreparationSteps(finalStep) {
+function successImagePreparationSteps(finalStep) {
   return [
     { apiMethod: 'photos.getWallUploadServer', response: { response: { upload_url: 'https://upload.vk.test/photo' } } },
     { apiMethod: null, url: 'https://upload.vk.test/photo', response: { server: 42, photo: '[1]', hash: 'hash-1' } },
@@ -96,10 +136,50 @@ function successPreparationSteps(finalStep) {
   ];
 }
 
+function successVideoPreparationSteps(finalStep) {
+  return [
+    {
+      apiMethod: 'video.save',
+      check: (call) => {
+        assert.equal(call.body.group_id, '12345');
+        assert.equal(call.body.wallpost, '0');
+        assert.equal(call.body.name, 'VK phase test');
+        assert.equal(call.body.v, '5.199');
+      },
+      response: {
+        response: {
+          upload_url: 'https://upload.vk.test/video',
+          owner_id: -12345,
+          video_id: 888,
+          title: 'VK phase test'
+        }
+      }
+    },
+    {
+      apiMethod: null,
+      url: 'https://upload.vk.test/video',
+      check: (call) => {
+        assert.ok(call.form instanceof FormData);
+        const video = call.form.get('video_file');
+        assert.ok(video instanceof Blob);
+        assert.equal(video.type, 'video/mp4');
+        assert.ok(call.init.signal instanceof AbortSignal);
+      },
+      response: { size: 21, video_id: 888 }
+    },
+    finalStep
+  ];
+}
+
 try {
-  // Full happy path reaches wall.post only after all preparation stages.
+  assert.equal(PLATFORM_CAPABILITIES.vk.supportsVideo, false, 'VK video capability must remain gated until live acceptance');
+  assert.equal(PLATFORM_CAPABILITIES.vk.supportsStories, false);
+  assert.equal(PLATFORM_CAPABILITIES.vk.supportsShortVideo, false);
+  assert.equal(PLATFORM_CAPABILITIES.vk.verification.richMediaPendingLiveAcceptance, true);
+
+  // 1. Existing image happy path remains unchanged.
   {
-    const steps = successPreparationSteps({
+    const steps = successImagePreparationSteps({
       apiMethod: 'wall.post',
       check: (call) => {
         assert.equal(call.body.owner_id, '-12345');
@@ -116,7 +196,7 @@ try {
     assert.equal(calls.length, 4);
   }
 
-  // Network failure obtaining upload server is pre-publication: safe retry, never recovery.
+  // 2. Image upload-server network error is pre-publication and safe to retry.
   {
     const steps = [{ apiMethod: 'photos.getWallUploadServer', error: new TypeError('network down') }];
     mockFetch(steps);
@@ -127,7 +207,7 @@ try {
     });
   }
 
-  // HTTP 5xx from the upload host is also pre-publication and safe to retry.
+  // 3. Image upload host 5xx is pre-publication and safe to retry.
   {
     const steps = [
       { apiMethod: 'photos.getWallUploadServer', response: { response: { upload_url: 'https://upload.vk.test/photo' } } },
@@ -141,7 +221,7 @@ try {
     });
   }
 
-  // HTTP 5xx during saveWallPhoto may create an orphan photo, but cannot create a wall post.
+  // 4. photos.saveWallPhoto 5xx may leave orphan media but cannot create a wall post.
   {
     const steps = [
       { apiMethod: 'photos.getWallUploadServer', response: { response: { upload_url: 'https://upload.vk.test/photo' } } },
@@ -156,9 +236,9 @@ try {
     });
   }
 
-  // An explicit VK API error from wall.post is a known response, not an unknown outcome.
+  // 5. Explicit VK wall.post error is known, not an unknown outcome.
   {
-    const steps = successPreparationSteps({
+    const steps = successImagePreparationSteps({
       apiMethod: 'wall.post',
       response: { error: { error_code: 6, error_msg: 'Too many requests per second' } }
     });
@@ -170,9 +250,9 @@ try {
     });
   }
 
-  // A transport failure after wall.post starts can have an unknown public outcome.
+  // 6. Transport failure after wall.post starts can have an unknown public outcome.
   {
-    const steps = successPreparationSteps({
+    const steps = successImagePreparationSteps({
       apiMethod: 'wall.post',
       error: new TypeError('connection dropped after wall.post')
     });
@@ -184,11 +264,11 @@ try {
     });
   }
 
-  // Missing local media happens before any network POST and must never enter recovery.
+  // 7. Existing image missing-local-file semantics remain known/pre-publication.
   {
     const missingInput = {
       ...baseInput,
-      media: [{ ...baseInput.media[0], relative_path: 'post-vk-test/missing.jpg' }]
+      media: [{ ...imageMedia, relative_path: 'post-vk-test/missing.jpg' }]
     };
     const steps = [
       { apiMethod: 'photos.getWallUploadServer', response: { response: { upload_url: 'https://upload.vk.test/photo' } } }
@@ -202,7 +282,133 @@ try {
     assert.equal(steps.length, 0);
   }
 
-  console.log(JSON.stringify({ ok: true, scenarios: 7 }, null, 2));
+  // 8. Video happy path: video.save -> multipart video_file -> one deterministic wall.post.
+  {
+    const steps = successVideoPreparationSteps({
+      apiMethod: 'wall.post',
+      check: (call) => {
+        assert.equal(call.body.owner_id, '-12345');
+        assert.equal(call.body.from_group, '1');
+        assert.equal(call.body.message, 'Тест VK');
+        assert.equal(call.body.attachments, 'video-12345_888');
+        assert.equal(call.body.guid, 'post-vk-test');
+      },
+      response: { response: { post_id: 9002 } }
+    });
+    const calls = mockFetch(steps);
+    const result = await vkPublisher.publish(videoInput());
+    assert.equal(result.externalId, '9002');
+    assert.equal(result.externalUrl, 'https://vk.com/wall-12345_9002');
+    assert.equal(calls.length, 3);
+    assert.equal(steps.length, 0);
+  }
+
+  // 9. Missing local video is rejected before even video.save, so zero external requests occur.
+  {
+    let fetchCalls = 0;
+    globalThis.fetch = async () => {
+      fetchCalls += 1;
+      throw new Error('fetch must not run');
+    };
+    const missingVideo = { ...videoMedia, relative_path: 'post-vk-test/missing-video.mp4' };
+    await expectPlatformError(vkPublisher.publish(videoInput({ media: [missingVideo] })), {
+      retryable: false,
+      outcomeUnknown: false,
+      message: /локальное видео недоступно/
+    });
+    assert.equal(fetchCalls, 0);
+  }
+
+  // 10. video.save transport failure is preparation-only and safe to retry.
+  {
+    const steps = [{ apiMethod: 'video.save', error: new TypeError('video.save network down') }];
+    mockFetch(steps);
+    await expectPlatformError(vkPublisher.publish(videoInput()), {
+      retryable: true,
+      outcomeUnknown: false,
+      message: /video\.save.*подготовительная фаза/
+    });
+  }
+
+  // 11. Video upload host 5xx is preparation-only and cannot create a wall post.
+  {
+    const steps = [
+      {
+        apiMethod: 'video.save',
+        response: { response: { upload_url: 'https://upload.vk.test/video', owner_id: -12345, video_id: 888 } }
+      },
+      {
+        apiMethod: null,
+        url: 'https://upload.vk.test/video',
+        status: 503,
+        response: { error: 'temporary upload error' }
+      }
+    ];
+    mockFetch(steps);
+    await expectPlatformError(vkPublisher.publish(videoInput()), {
+      retryable: true,
+      outcomeUnknown: false,
+      message: /VK upload video.*подготовительная фаза/
+    });
+  }
+
+  // 12. Inconsistent upload response is known/pre-publication and never reaches wall.post.
+  {
+    const steps = [
+      {
+        apiMethod: 'video.save',
+        response: { response: { upload_url: 'https://upload.vk.test/video', owner_id: -12345, video_id: 888 } }
+      },
+      {
+        apiMethod: null,
+        url: 'https://upload.vk.test/video',
+        response: { size: 21, video_id: 999 }
+      }
+    ];
+    mockFetch(steps);
+    await expectPlatformError(vkPublisher.publish(videoInput()), {
+      retryable: false,
+      outcomeUnknown: false,
+      message: /video_id 999 не совпадает/
+    });
+    assert.equal(steps.length, 0);
+  }
+
+  // 13. Canonical HEVC is rejected before network activity.
+  {
+    let fetchCalls = 0;
+    globalThis.fetch = async () => {
+      fetchCalls += 1;
+      throw new Error('fetch must not run');
+    };
+    await assert.rejects(
+      vkPublisher.publish(videoInput({ media: [{ ...videoMedia, video_codec: 'hevc' }] })),
+      /canonical video должен быть H\.264/
+    );
+    assert.equal(fetchCalls, 0);
+  }
+
+  // 14. After successful video preparation, wall.post transport failure is the unknown-outcome boundary.
+  {
+    const steps = successVideoPreparationSteps({
+      apiMethod: 'wall.post',
+      error: new TypeError('connection dropped after video wall.post')
+    });
+    mockFetch(steps);
+    await expectPlatformError(vkPublisher.publish(videoInput()), {
+      retryable: false,
+      outcomeUnknown: true,
+      message: /VK wall\.post/
+    });
+    assert.equal(steps.length, 0);
+  }
+
+  console.log(JSON.stringify({
+    ok: true,
+    scenarios: 14,
+    feedVideoAdapterImplemented: true,
+    videoCapabilityStillLiveGated: true
+  }, null, 2));
 } finally {
   db.close();
   await fs.rm(dataDir, { recursive: true, force: true });
