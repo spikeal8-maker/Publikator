@@ -24,20 +24,33 @@ function validPublicHttpsUrl(value: string): boolean {
 }
 
 function isVideoPublication(input: PublishInput): boolean {
-  return input.contentFormat === 'VIDEO';
+  return input.contentFormat === 'VIDEO' || input.contentFormat === 'VERTICAL_VIDEO';
 }
 
-function assertFeedVideo(input: PublishInput) {
-  if (input.publicationKind && input.publicationKind !== 'FEED') {
-    throw new Error(`Instagram: CX3-008E поддерживает только FEED/VIDEO, получен ${input.publicationKind}/${input.contentFormat}`);
+function isShortVideoPublication(input: PublishInput): boolean {
+  return input.publicationKind === 'SHORT' && input.contentFormat === 'VERTICAL_VIDEO';
+}
+
+function assertReelVideo(input: PublishInput) {
+  if (input.contentFormat === 'VIDEO') {
+    if (input.publicationKind && input.publicationKind !== 'FEED') {
+      throw new Error(`Instagram: VIDEO поддерживается только как FEED/VIDEO, получен ${input.publicationKind}/${input.contentFormat}`);
+    }
+  } else if (input.contentFormat === 'VERTICAL_VIDEO') {
+    if (input.publicationKind !== 'SHORT') {
+      throw new Error(`Instagram: VERTICAL_VIDEO поддерживается только как SHORT/VERTICAL_VIDEO, получен ${input.publicationKind || 'FEED'}/${input.contentFormat}`);
+    }
+  } else {
+    throw new Error(`Instagram: Reel ожидает FEED/VIDEO или SHORT/VERTICAL_VIDEO, получен ${input.publicationKind || 'FEED'}/${input.contentFormat || 'IMAGE'}`);
   }
-  if (input.media.length !== 1) throw new Error('Instagram: FEED/VIDEO требует ровно один video asset');
+
+  if (input.media.length !== 1) throw new Error('Instagram: Reel требует ровно один video asset');
   if (input.publicMediaUrls.length !== 1 || !validPublicHttpsUrl(input.publicMediaUrls[0]!)) {
-    throw new Error('Instagram: FEED/VIDEO требует один публичный HTTPS video_url без credentials');
+    throw new Error('Instagram: Reel требует один публичный HTTPS video_url без credentials');
   }
 
   const media = input.media[0]!;
-  if (media.mime_type !== 'video/mp4') throw new Error(`Instagram: FEED/VIDEO требует video/mp4, получен ${media.mime_type}`);
+  if (media.mime_type !== 'video/mp4') throw new Error(`Instagram: Reel требует video/mp4, получен ${media.mime_type}`);
   if (media.size_bytes > INSTAGRAM_REEL_MAX_BYTES) {
     throw new Error(`Instagram: видео ${media.size_bytes} байт превышает предел 1 GB`);
   }
@@ -62,10 +75,16 @@ function assertFeedVideo(input: PublishInput) {
   if (media.width != null && media.width > INSTAGRAM_REEL_MAX_WIDTH) {
     throw new Error(`Instagram: ширина Reel ${media.width}px превышает ${INSTAGRAM_REEL_MAX_WIDTH}px`);
   }
+  if (isShortVideoPublication(input) && media.width != null && media.height != null && media.height <= media.width) {
+    throw new Error(`Instagram: SHORT/VERTICAL_VIDEO должен быть вертикальным, получен ${media.width}x${media.height}`);
+  }
   return media;
 }
 
 function assertImagePublication(input: PublishInput): void {
+  if (input.publicationKind && input.publicationKind !== 'FEED') {
+    throw new Error(`Instagram: image publication поддерживается только как FEED, получен ${input.publicationKind}/${input.contentFormat || 'IMAGE'}`);
+  }
   if (input.contentFormat && !['IMAGE', 'CAROUSEL'].includes(input.contentFormat)) {
     throw new Error(`Instagram: текущий adapter не поддерживает ${input.publicationKind || 'FEED'}/${input.contentFormat}`);
   }
@@ -190,7 +209,7 @@ export const instagramPublisher: SocialPublisher = {
     requireString(input.credentials, 'accessToken');
     requireString(input.credentials, 'igUserId');
     requireString(input.credentials, 'graphVersion');
-    if (isVideoPublication(input)) assertFeedVideo(input);
+    if (isVideoPublication(input)) assertReelVideo(input);
     else assertImagePublication(input);
   },
   async publish(input: PublishInput): Promise<PublishResult> {
@@ -204,12 +223,12 @@ export const instagramPublisher: SocialPublisher = {
     const children: string[] = [];
 
     if (isVideoPublication(input)) {
-      assertFeedVideo(input);
+      assertReelVideo(input);
       creationId = await createContainer(base, igUserId, {
         media_type: 'REELS',
         video_url: input.publicMediaUrls[0]!,
         caption: input.text,
-        share_to_feed: 'true',
+        share_to_feed: isShortVideoPublication(input) ? 'false' : 'true',
         access_token: accessToken
       });
       await waitForContainerReady(base, accessToken, creationId);
