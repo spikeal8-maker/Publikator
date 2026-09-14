@@ -18,6 +18,7 @@
   <link rel="stylesheet" href="/theme-v3.css">
   <link rel="stylesheet" href="/dashboard-v3.css">
   <link rel="stylesheet" href="/video-authoring-v3.css">
+  <link rel="stylesheet" href="/quick-start-v3.css">
 </head>
 <body>
   <div id="login" class="center-card hidden">
@@ -33,22 +34,24 @@
   <div id="app" class="hidden shell">
     <aside>
       <div class="brand">Publikator</div>
-      <button class="nav active" data-view="dashboard">Обзор</button>
-      <button id="calendar-nav" class="nav">Календарь</button>
-      <button id="content-library-nav" class="nav">Библиотека</button>
-      <button class="nav" data-view="posts">Контент</button>
-      <button id="content-plan-nav" class="nav">Контент-план</button>
-      <button class="nav" data-view="projects">Проекты</button>
+      <div class="nav-section">Работа</div>
+      <button class="nav active" data-view="dashboard">Старт</button>
       <button class="nav" data-view="accounts">Соцсети</button>
+      <button id="content-plan-nav" class="nav">Импорт таблицы</button>
+      <button class="nav" data-view="posts">Контент</button>
+      <button id="calendar-nav" class="nav">Календарь</button>
       <button class="nav" data-view="schedules">Расписание</button>
-      <button class="nav" data-view="events">Журнал</button>
-      <button class="nav" data-view="backups">Резервные копии</button>
-      <button id="diagnostics-nav" class="nav">Диагностика</button>
-      <button id="release-nav" class="nav">Release gate</button>
+      <button id="content-library-nav" class="nav">Библиотека</button>
+      <button class="nav" data-view="projects">Проекты</button>
+      <div class="nav-section">Система</div>
+      <button class="nav nav-system" data-view="events">Журнал</button>
+      <button class="nav nav-system" data-view="backups">Резервные копии</button>
+      <button id="diagnostics-nav" class="nav nav-system">Диагностика</button>
+      <button id="release-nav" class="nav nav-system">Проверка выпуска</button>
       <button id="logout" class="nav bottom">Выйти</button>
     </aside>
     <main>
-      <header><h1 id="page-title">Обзор</h1><div id="status-line"></div></header>
+      <header><h1 id="page-title">Старт</h1><div id="status-line"></div></header>
       <section id="view"></section>
     </main>
   </div>
@@ -61,6 +64,8 @@
   <script type="module" src="/calendar-v3.js"></script>
   <script type="module" src="/content-library-v3.js"></script>
   <script type="module" src="/dashboard-v3.js"></script>
+  <script type="module" src="/quick-start-router-v3.js"></script>
+  <script type="module" src="/quick-start-v3.js"></script>
   <script type="module" src="/backups-v06.js"></script>
   <script type="module" src="/backups-v081.js"></script>
   <script type="module" src="/content-plan-v06b.js"></script>
