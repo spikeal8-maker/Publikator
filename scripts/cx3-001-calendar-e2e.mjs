@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'publikator-cx3-001-'));
 process.env.NODE_ENV = 'test';
@@ -95,6 +96,16 @@ const frontend = await fs.readFile(path.join(process.cwd(), 'public', 'calendar-
 for (const required of ['id="calendar-nav"', '/calendar-v3.css', '/calendar-v3.js']) assert.match(html, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 for (const required of ["month:'Месяц'", "week:'Неделя'", "day:'День'", "agenda:'Agenda'", "className='open-post'", 'CALENDAR_DISPLAY_TIMEZONE']) assert.ok(frontend.includes(required), required);
 
+const restartAcceptance = spawnSync(process.execPath, ['scripts/cx3-009-restart-persistence-e2e.mjs'], {
+  cwd: process.cwd(),
+  env: process.env,
+  encoding: 'utf8',
+  timeout: 120000
+});
+if (restartAcceptance.stdout) process.stdout.write(restartAcceptance.stdout);
+if (restartAcceptance.stderr) process.stderr.write(restartAcceptance.stderr);
+assert.equal(restartAcceptance.status, 0, 'CX3-009 restart persistence acceptance failed');
+
 console.log(JSON.stringify({
   ok: true,
   checkpoint: 'CX3-001',
@@ -105,7 +116,8 @@ console.log(JSON.stringify({
   thumbnailPlatformSourceTimezone: true,
   monthWeekDayAgendaShell: true,
   inspectorTrigger: true,
-  rangeGuard: true
+  rangeGuard: true,
+  processRestartPersistence: true
 }, null, 2));
 
 await app.close();
