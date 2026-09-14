@@ -87,6 +87,16 @@ const listed = await app.inject({ method: 'GET', url: `/api/targets/${target.id}
 assert.equal(listed.statusCode, 200, listed.body);
 assert.equal(listed.json().units.length, 3);
 
+const missingExternalId = await app.inject({
+  method: 'POST',
+  url: `/api/publication-units/${units[1].id}/recovery/confirm-published`,
+  headers: { cookie },
+  payload: {}
+});
+assert.equal(missingExternalId.statusCode, 400, missingExternalId.body);
+assert.match(missingExternalId.json().error, /externalId/i);
+assert.equal(delivery.listPublicationUnits(target.id)[1].state, 'RECOVERY_NEEDED');
+
 const confirmAbsent = await app.inject({ method: 'POST', url: `/api/publication-units/${units[1].id}/recovery/confirm-not-published`, headers: { cookie } });
 assert.equal(confirmAbsent.statusCode, 200, confirmAbsent.body);
 units = delivery.listPublicationUnits(target.id);
@@ -103,7 +113,7 @@ assert.equal(db.prepare('SELECT state FROM post_targets WHERE id=?').get(target.
 assert.equal(db.prepare('SELECT status FROM posts WHERE id=?').get(post.id).status, 'PUBLISHED');
 
 Object.assign(capability, savedCapability);
-console.log(JSON.stringify({ ok: true, checkpoint: 'CX3-010C', publicationUnits: 3, unknownOutcomeScopedToUnit: true, resumeWithoutDuplicate: true, targetLevelRetryBlocked: true, finalAttempts: units.map((unit) => unit.attempts) }, null, 2));
+console.log(JSON.stringify({ ok: true, checkpoint: 'CX3-010C', publicationUnits: 3, unknownOutcomeScopedToUnit: true, resumeWithoutDuplicate: true, targetLevelRetryBlocked: true, truthfulManualRecoveryMetadata: true, finalAttempts: units.map((unit) => unit.attempts) }, null, 2));
 
 await app.close();
 db.close();
