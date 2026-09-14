@@ -97,6 +97,30 @@ assert.equal(missingExternalId.statusCode, 400, missingExternalId.body);
 assert.match(missingExternalId.json().error, /externalId/i);
 assert.equal(delivery.listPublicationUnits(target.id)[1].state, 'RECOVERY_NEEDED');
 
+const archived = await app.inject({
+  method: 'POST',
+  url: `/api/posts/${post.id}/archive`,
+  headers: { cookie },
+  payload: { expectedContentVersion: post.content_version }
+});
+assert.equal(archived.statusCode, 200, archived.body);
+assert.equal(archived.json().post.editorial_stage, 'ARCHIVED');
+assert.equal(archived.json().post.status, 'PARTIAL');
+const callsBeforeArchivedContinue = externalCalls;
+const archivedContinue = await app.inject({ method: 'POST', url: `/api/targets/${target.id}/sequence/continue`, headers: { cookie } });
+assert.equal(archivedContinue.statusCode, 409, archivedContinue.body);
+assert.match(archivedContinue.json().error, /APPROVED/i);
+assert.equal(externalCalls, callsBeforeArchivedContinue, 'archived sequence must not perform an external POST');
+const restored = await app.inject({
+  method: 'POST',
+  url: `/api/posts/${post.id}/restore`,
+  headers: { cookie },
+  payload: { expectedContentVersion: post.content_version }
+});
+assert.equal(restored.statusCode, 200, restored.body);
+assert.equal(restored.json().post.editorial_stage, 'APPROVED');
+assert.equal(restored.json().post.status, 'PARTIAL');
+
 const confirmAbsent = await app.inject({ method: 'POST', url: `/api/publication-units/${units[1].id}/recovery/confirm-not-published`, headers: { cookie } });
 assert.equal(confirmAbsent.statusCode, 200, confirmAbsent.body);
 units = delivery.listPublicationUnits(target.id);
@@ -113,7 +137,7 @@ assert.equal(db.prepare('SELECT state FROM post_targets WHERE id=?').get(target.
 assert.equal(db.prepare('SELECT status FROM posts WHERE id=?').get(post.id).status, 'PUBLISHED');
 
 Object.assign(capability, savedCapability);
-console.log(JSON.stringify({ ok: true, checkpoint: 'CX3-010C', publicationUnits: 3, unknownOutcomeScopedToUnit: true, resumeWithoutDuplicate: true, targetLevelRetryBlocked: true, truthfulManualRecoveryMetadata: true, finalAttempts: units.map((unit) => unit.attempts) }, null, 2));
+console.log(JSON.stringify({ ok: true, checkpoint: 'CX3-010C', publicationUnits: 3, unknownOutcomeScopedToUnit: true, resumeWithoutDuplicate: true, targetLevelRetryBlocked: true, truthfulManualRecoveryMetadata: true, archivedContinuationBlocked: true, finalAttempts: units.map((unit) => unit.attempts) }, null, 2));
 
 await app.close();
 db.close();
