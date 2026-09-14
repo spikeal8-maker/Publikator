@@ -237,7 +237,7 @@ async function postMessage(
     });
     const body = await responseJson(response, 'MAX POST /messages');
     const code = typeof body?.code === 'string' ? body.code : null;
-    const message = `MAX POST /messages: ${code || `HTTP ${response.status}`}: ${body?.message || body?.code || 'неизвестная ошибка'}`;
+    const message = `MAX POST /messages: HTTP ${response.status}${code ? ` ${code}` : ''}: ${body?.message || body?.code || 'неизвестная ошибка'}`;
 
     if (code === 'attachment.not.ready') throw attachmentNotReadyError(message, response.status);
     if (response.status === 429 || code === 'rate.limit') {
@@ -249,7 +249,7 @@ async function postMessage(
       });
     }
     if (response.status >= 500) {
-      throw new PlatformError(`MAX POST /messages: HTTP ${response.status}: ${body?.message || body?.code || 'server error'}`, {
+      throw new PlatformError(message, {
         retryable: false,
         outcomeUnknown: true,
         status: response.status,
