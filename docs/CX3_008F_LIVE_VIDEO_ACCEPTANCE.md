@@ -12,6 +12,7 @@ For each of Telegram, VK, MAX and Instagram the live gate must use:
 - an existing enabled account from `social_accounts`;
 - credentials already encrypted by Publikator with the deployment master key;
 - an existing canonical `VIDEO` media asset created through the normal Publikator video pipeline;
+- a source post quarantined as `status=DRAFT`, `editorial_stage=DRAFT`, `schedule_mode=MANUAL`;
 - the real production adapter from `getPublisher(platform)`;
 - the real connection test from `testConnection(platform, credentials)`;
 - exactly one explicit FEED/VIDEO control publication.
@@ -30,6 +31,23 @@ This ensures that acceptance exercises the same system that production uses:
 - ffprobe re-checks codec, dimensions, duration, FPS and container from the actual stored bytes;
 - Instagram derives its public `video_url` from the normal `PUBLIC_BASE_URL` through `mediaPublicUrl`;
 - Telegram, VK and MAX use the same local media path as their production adapters.
+
+The source post is required to remain a manual draft. The CLI rejects READY, scheduled, queued, publishing, published, archived or other non-quarantined source posts. This prevents the scheduler from publishing the same control asset independently while the live acceptance tool is using it.
+
+## Duplicate acceptance guard
+
+A real live publication always writes evidence to the protected `DATA_DIR/live-acceptance-evidence` directory. The publish command does not allow an alternate evidence path.
+
+Before decrypting credentials or making any external request, the CLI scans existing valid evidence. A second live publication is rejected when the same combination already exists for:
+
+- exact build SHA;
+- platform;
+- account id;
+- media id.
+
+All three durable states block a duplicate attempt: `API_CONFIRMED`, `PASSED` and `RECOVERY_NEEDED`.
+
+A new build SHA may require a new acceptance run, but an ambiguous attempt on the same build must never be retried blindly.
 
 ## Safety states
 
@@ -51,7 +69,7 @@ A `RECOVERY_NEEDED` evidence file cannot be converted to `PASSED` by the visibil
 
 ## Evidence security
 
-Evidence files are written under `/app/data/live-acceptance-evidence` by default and are forced to mode `0600`.
+Evidence files are written under `/app/data/live-acceptance-evidence` and are forced to mode `0600`.
 
 Evidence includes:
 
@@ -76,9 +94,18 @@ Evidence does not include:
 
 The production image contains `dist/cli/live-video-acceptance.js`, and `package.json` exposes it as `npm run live:video:accept`.
 
-### 1. Identify an enabled account and canonical video
+### 1. Prepare an isolated control draft
 
-Use the existing Publikator UI/API to identify the target account id and a canonical video media id. The media must belong to a post with `content_format=VIDEO` and be `video/mp4`.
+Use the normal Publikator editor to create a post with:
+
+- `content_format=VIDEO`;
+- `status=DRAFT`;
+- `editorial_stage=DRAFT`;
+- `schedule_mode=MANUAL`.
+
+Upload the control MP4 through the normal video upload flow. Do not mark this post READY and do not schedule it.
+
+Identify the target enabled account id and the canonical video media id from the running Publikator instance.
 
 The examples below use concrete syntactically valid ids only to demonstrate command structure; replace them with ids shown by the running Publikator instance before executing the command.
 
@@ -90,7 +117,7 @@ This command makes no external request and does not decrypt credentials:
 docker exec publikator npm run live:video:accept -- --account acc_11111111-1111-4111-8111-111111111111 --media med_22222222-2222-4222-8222-222222222222
 ```
 
-The output shows the platform, selected account, build SHA, media fingerprint and whether a public video URL is required.
+The output shows the platform, selected account, build SHA, source-post quarantine state, media fingerprint and whether a public video URL is required.
 
 ### 3. Explicit real publication
 
@@ -109,14 +136,16 @@ docker exec \
 
 The CLI performs these operations in order:
 
-1. validates the stored canonical media bytes and metadata;
-2. verifies the running build has a full immutable build SHA;
-3. only after the explicit confirmation guard, decrypts the selected stored account credentials;
-4. validates the credential shape for the account platform;
-5. runs the real non-public connection test;
-6. validates the exact `PublishInput` through the real adapter;
-7. executes exactly one real `publisher.publish(input)`;
-8. writes evidence.
+1. verifies that the source post is an isolated manual draft;
+2. validates the stored canonical media bytes and metadata;
+3. verifies the running build has a full immutable build SHA;
+4. checks that the same build/account/media has no prior live evidence;
+5. only after the explicit confirmation guard, decrypts the selected stored account credentials;
+6. validates the credential shape for the account platform;
+7. runs the real non-public connection test;
+8. validates the exact `PublishInput` through the real adapter;
+9. executes exactly one real `publisher.publish(input)`;
+10. writes evidence to `/app/data/live-acceptance-evidence`.
 
 A normal successful run produces `API_CONFIRMED`, not `PASSED`.
 
@@ -148,9 +177,9 @@ The evidence status becomes `PASSED`. This still does not modify `PLATFORM_CAPAB
 
 ## Recovery rule
 
-If the CLI reports `RECOVERY_NEEDED`, do not rerun the publish command. Inspect the target platform first. The evidence path printed by the error is the durable record of the ambiguous attempt.
+If the CLI reports `RECOVERY_NEEDED`, do not rerun the publish command. Inspect the target platform first. The evidence path printed by the error is the durable record of the ambiguous attempt, and the duplicate guard also blocks another attempt with the same build/account/media.
 
-The correct next engineering action is to resolve whether the external publication exists and document that resolution. A fresh acceptance publication may be attempted only after the ambiguous attempt is manually resolved.
+The correct next engineering action is to resolve whether the external publication exists and document that resolution. A fresh acceptance publication may be attempted only after the ambiguous attempt is manually resolved and the engineering review decides how to represent that resolution.
 
 ## Capability enablement rule
 
