@@ -144,7 +144,10 @@ for (const evidence of [apiEvidence, passedEvidence, recoveryEvidence]) {
   assert.equal('credentials' in evidence, false);
 }
 
-const cliSource = await fs.readFile(new URL('../src/cli/live-video-acceptance.ts', import.meta.url), 'utf8');
+const cliUrl = new URL('../src/cli/live-video-acceptance.ts', import.meta.url);
+const compiledCliUrl = new URL('../dist/cli/live-video-acceptance.js', import.meta.url);
+await fs.access(compiledCliUrl);
+const cliSource = await fs.readFile(cliUrl, 'utf8');
 assert.match(cliSource, /--account <social_accounts\.id>/);
 assert.match(cliSource, /--media <media\.id>/);
 assert.match(cliSource, /credentialsDecrypted: false/);
@@ -153,6 +156,10 @@ assert.match(cliSource, /PUBLIKATOR_LIVE_ACCEPTANCE_CONFIRM/);
 assert.match(cliSource, /PUBLIKATOR_LIVE_VISIBILITY_CONFIRM/);
 assert.match(cliSource, /--publish/);
 assert.match(cliSource, /--confirm-visible/);
+assert.match(cliSource, /source post должен быть изолированным MANUAL DRAFT\/DRAFT/);
+assert.match(cliSource, /findBlockingEvidence/);
+assert.match(cliSource, /повторная live публикация.*заблокирована/);
+assert.match(cliSource, /--evidence используется только с --confirm-visible/);
 assert.match(cliSource, /publisher\.validate\(input\)/);
 assert.match(cliSource, /testConnection\(account\.platform, credentials\)/);
 assert.match(cliSource, /publisher\.publish\(input\)/);
@@ -163,16 +170,24 @@ assert.match(cliSource, /mediaPublicUrl\(media\)/);
 assert.match(cliSource, /SHA-256 файла не совпадает/);
 assert.doesNotMatch(cliSource, /--credentials/);
 
+const dockerfile = await fs.readFile(new URL('../Dockerfile', import.meta.url), 'utf8');
+assert.match(dockerfile, /COPY --from=build \/app\/dist \.\/dist/);
+const packageJson = JSON.parse(await fs.readFile(new URL('../package.json', import.meta.url), 'utf8'));
+assert.equal(packageJson.scripts['live:video:accept'], 'node dist/cli/live-video-acceptance.js');
+
 console.log(JSON.stringify({
   ok: true,
   checkpoint: 'CX3-008F',
   capabilityStillClosed: true,
   productionAccountAndMediaIds: true,
+  sourceDraftQuarantine: true,
+  duplicateLiveRunBlocked: true,
   explicitPublishGuard: true,
   explicitVisibilityGuard: true,
   apiConfirmedBeforePass: true,
   recoveryEvidence: true,
   evidenceSecretFreeByConstruction: true,
   signedUrlQueryRedacted: true,
-  evidenceMode0600: true
+  evidenceMode0600: true,
+  compiledCliInRuntimeDist: true
 }, null, 2));
