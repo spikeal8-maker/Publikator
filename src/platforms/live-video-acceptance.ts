@@ -27,7 +27,7 @@ export type LiveVideoMediaFingerprint = {
 export type LiveVideoAcceptanceEvidence = {
   schemaVersion: 1;
   checkpoint: 'CX3-008F';
-  status: 'API_CONFIRMED' | 'PASSED';
+  status: 'API_CONFIRMED' | 'PASSED' | 'RECOVERY_NEEDED';
   runId: string;
   platform: Platform;
   publicationKind: 'FEED';
@@ -48,13 +48,29 @@ export type LiveVideoAcceptanceEvidence = {
     publicVideoUrl: string | null;
   };
   result: {
-    externalId: string;
+    externalId: string | null;
     externalUrl: string | null;
   };
+  failure: {
+    message: string;
+    code: string | number | null;
+  } | null;
   visibility: {
     confirmedAt: string | null;
     note: string | null;
   };
+};
+
+type EvidenceBaseParams = {
+  runId: string;
+  platform: Platform;
+  startedAt: string;
+  completedAt: string;
+  buildSha: string;
+  account: { id: string; name: string };
+  connection: { identity: string; destination: string };
+  media: LiveVideoMediaFingerprint;
+  publicVideoUrl?: string | null;
 };
 
 export function assertLiveCredentialShape(platform: Platform, credentials: Record<string, unknown>): void {
@@ -121,19 +137,7 @@ function normalizedPublicUrl(value: string | null | undefined): string | null {
   return url.toString();
 }
 
-export function buildLiveVideoAcceptanceEvidence(params: {
-  runId: string;
-  platform: Platform;
-  startedAt: string;
-  completedAt: string;
-  buildSha: string;
-  account: { id: string; name: string };
-  connection: { identity: string; destination: string };
-  media: LiveVideoMediaFingerprint;
-  publicVideoUrl?: string | null;
-  externalId: string;
-  externalUrl?: string | null;
-}): LiveVideoAcceptanceEvidence {
+function normalizedBase(params: EvidenceBaseParams) {
   if (!params.runId.trim()) throw new Error('CX3-008F evidence: runId отсутствует');
   if (!['telegram', 'vk', 'max', 'instagram'].includes(params.platform)) throw new Error('CX3-008F evidence: неизвестная platform');
   assertIsoDate(params.startedAt, 'startedAt');
@@ -145,39 +149,75 @@ export function buildLiveVideoAcceptanceEvidence(params: {
   if (!params.connection.identity.trim()) throw new Error('CX3-008F evidence: connection.identity отсутствует');
   if (!params.connection.destination.trim()) throw new Error('CX3-008F evidence: connection.destination отсутствует');
   assertMediaFingerprint(params.media);
-  if (!params.externalId.trim()) throw new Error('CX3-008F evidence: externalId отсутствует');
+  return {
+    runId: params.runId.trim(),
+    platform: params.platform,
+    startedAt: new Date(params.startedAt).toISOString(),
+    completedAt: new Date(params.completedAt).toISOString(),
+    buildSha,
+    account: { id: params.account.id.trim(), name: params.account.name.trim() },
+    connection: { identity: params.connection.identity.trim(), destination: params.connection.destination.trim() },
+    media: { ...params.media },
+    publicVideoUrl: normalizedPublicUrl(params.publicVideoUrl)
+  };
+}
 
+export function buildLiveVideoAcceptanceEvidence(params: EvidenceBaseParams & {
+  externalId: string;
+  externalUrl?: string | null;
+}): LiveVideoAcceptanceEvidence {
+  const base = normalizedBase(params);
+  if (!params.externalId.trim()) throw new Error('CX3-008F evidence: externalId отсутствует');
   return {
     schemaVersion: 1,
     checkpoint: 'CX3-008F',
     status: 'API_CONFIRMED',
-    runId: params.runId.trim(),
-    platform: params.platform,
+    runId: base.runId,
+    platform: base.platform,
     publicationKind: 'FEED',
     contentFormat: 'VIDEO',
-    startedAt: new Date(params.startedAt).toISOString(),
-    completedAt: new Date(params.completedAt).toISOString(),
-    buildSha,
-    account: {
-      id: params.account.id.trim(),
-      name: params.account.name.trim()
-    },
-    connection: {
-      identity: params.connection.identity.trim(),
-      destination: params.connection.destination.trim()
-    },
-    media: { ...params.media },
-    transport: {
-      publicVideoUrl: normalizedPublicUrl(params.publicVideoUrl)
-    },
+    startedAt: base.startedAt,
+    completedAt: base.completedAt,
+    buildSha: base.buildSha,
+    account: base.account,
+    connection: base.connection,
+    media: base.media,
+    transport: { publicVideoUrl: base.publicVideoUrl },
     result: {
       externalId: params.externalId.trim(),
       externalUrl: params.externalUrl?.trim() || null
     },
-    visibility: {
-      confirmedAt: null,
-      note: null
-    }
+    failure: null,
+    visibility: { confirmedAt: null, note: null }
+  };
+}
+
+export function buildLiveVideoRecoveryEvidence(params: EvidenceBaseParams & {
+  message: string;
+  code?: string | number | null;
+}): LiveVideoAcceptanceEvidence {
+  const base = normalizedBase(params);
+  const message = params.message.trim();
+  if (!message) throw new Error('CX3-008F recovery evidence: message отсутствует');
+  if (message.length > 2000) throw new Error('CX3-008F recovery evidence: message не должна превышать 2000 символов');
+  return {
+    schemaVersion: 1,
+    checkpoint: 'CX3-008F',
+    status: 'RECOVERY_NEEDED',
+    runId: base.runId,
+    platform: base.platform,
+    publicationKind: 'FEED',
+    contentFormat: 'VIDEO',
+    startedAt: base.startedAt,
+    completedAt: base.completedAt,
+    buildSha: base.buildSha,
+    account: base.account,
+    connection: base.connection,
+    media: base.media,
+    transport: { publicVideoUrl: base.publicVideoUrl },
+    result: { externalId: null, externalUrl: null },
+    failure: { message, code: params.code ?? null },
+    visibility: { confirmedAt: null, note: null }
   };
 }
 
@@ -186,6 +226,7 @@ export function confirmLiveVideoAcceptanceEvidence(
   params: { confirmedAt: string; note?: string | null }
 ): LiveVideoAcceptanceEvidence {
   const checked = validateLiveVideoAcceptanceEvidence(evidence);
+  if (checked.status === 'RECOVERY_NEEDED') throw new Error('CX3-008F evidence: RECOVERY_NEEDED нельзя подтвердить как PASS без ручного разрешения неопределённого исхода');
   if (checked.status === 'PASSED') throw new Error('CX3-008F evidence: видимость уже подтверждена');
   assertIsoDate(params.confirmedAt, 'visibility.confirmedAt');
   const note = params.note?.trim() || null;
@@ -203,7 +244,7 @@ export function confirmLiveVideoAcceptanceEvidence(
 export function validateLiveVideoAcceptanceEvidence(value: unknown): LiveVideoAcceptanceEvidence {
   if (!value || typeof value !== 'object') throw new Error('CX3-008F evidence: ожидается JSON object');
   const evidence = value as Partial<LiveVideoAcceptanceEvidence>;
-  if (evidence.schemaVersion !== 1 || evidence.checkpoint !== 'CX3-008F' || !['API_CONFIRMED', 'PASSED'].includes(String(evidence.status))) {
+  if (evidence.schemaVersion !== 1 || evidence.checkpoint !== 'CX3-008F' || !['API_CONFIRMED', 'PASSED', 'RECOVERY_NEEDED'].includes(String(evidence.status))) {
     throw new Error('CX3-008F evidence: неверная schema/checkpoint/status');
   }
   if (!['telegram', 'vk', 'max', 'instagram'].includes(String(evidence.platform))) {
@@ -216,7 +257,7 @@ export function validateLiveVideoAcceptanceEvidence(value: unknown): LiveVideoAc
     throw new Error('CX3-008F evidence: обязательные секции отсутствуют');
   }
 
-  const base = buildLiveVideoAcceptanceEvidence({
+  const common: EvidenceBaseParams = {
     runId: String(evidence.runId || ''),
     platform: evidence.platform as Platform,
     startedAt: String(evidence.startedAt || ''),
@@ -231,7 +272,23 @@ export function validateLiveVideoAcceptanceEvidence(value: unknown): LiveVideoAc
       destination: String(evidence.connection.destination || '')
     },
     media: evidence.media as LiveVideoMediaFingerprint,
-    publicVideoUrl: evidence.transport.publicVideoUrl ?? null,
+    publicVideoUrl: evidence.transport.publicVideoUrl ?? null
+  };
+
+  if (evidence.status === 'RECOVERY_NEEDED') {
+    if (!evidence.failure || evidence.result.externalId !== null || evidence.result.externalUrl !== null || evidence.visibility.confirmedAt !== null || evidence.visibility.note !== null) {
+      throw new Error('CX3-008F evidence: RECOVERY_NEEDED имеет некорректные result/failure/visibility секции');
+    }
+    return buildLiveVideoRecoveryEvidence({
+      ...common,
+      message: String(evidence.failure.message || ''),
+      code: evidence.failure.code ?? null
+    });
+  }
+
+  if (evidence.failure !== null) throw new Error('CX3-008F evidence: успешная acceptance не должна содержать failure');
+  const base = buildLiveVideoAcceptanceEvidence({
+    ...common,
     externalId: String(evidence.result.externalId || ''),
     externalUrl: evidence.result.externalUrl ?? null
   });
