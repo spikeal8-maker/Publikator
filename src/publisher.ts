@@ -2,7 +2,7 @@ import { decryptJson } from './crypto.js';
 import { db, event, nowIso, type Platform, type TargetState } from './db.js';
 import type { ContentFormat, PublicationKind } from './domain/content-domain.js';
 import { mediaPublicUrl } from './media.js';
-import { CapabilityValidationError, assertPlatformCapability } from './platforms/capabilities.js';
+import { CapabilityValidationError, assertPlatformCapability, platformRequiresPublicHttpsMedia } from './platforms/capabilities.js';
 import { getPublisher } from './platforms/index.js';
 import { PlatformError, type PublishInput } from './platforms/types.js';
 import { beginPublicationActivity } from './runtime-gate.js';
@@ -142,10 +142,10 @@ function buildRevisionPublishInput(target: PublishTargetRow, revision: ContentRe
   const targetSnapshot = revisionTargets(revision).find((item) => item.targetId === target.id && item.accountId === target.account_id && item.enabled);
   if (!targetSnapshot) throw new Error('Цель не входит в immutable READY revision');
   const media = revisionMedia(revision);
-  const publicMediaUrls = (target.platform === 'max' || target.platform === 'instagram') ? media.map(mediaPublicUrl) : [];
   const credentials = decryptJson<Record<string, unknown>>(target.credentials_encrypted);
   const publicationKind = resolvedPublicationKind(targetSnapshot.rendition?.publicationKind, revision.publication_kind);
   const contentFormat = resolvedContentFormat(targetSnapshot.rendition?.contentFormat, revision.content_format);
+  const publicMediaUrls = platformRequiresPublicHttpsMedia(target.platform, contentFormat) ? media.map(mediaPublicUrl) : [];
   return {
     postId: target.post_id,
     title: revision.title,
