@@ -16,13 +16,13 @@ WORKDIR /app
 ENV NODE_ENV=production \
     IMAGE_BUILD_SHA=${BUILD_SHA}
 LABEL org.opencontainers.image.revision=${BUILD_SHA}
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates ffmpeg && rm -rf /var/lib/apt/lists/*
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/package-lock.json ./package-lock.json
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY public ./public
-RUN mkdir -p /app/data/media /app/data/backups && chown -R node:node /app
+RUN mkdir -p /app/data/media /app/data/backups /app/data/.media-tmp && chown -R node:node /app
 USER node
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD node -e "fetch('http://127.0.0.1:8080/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
