@@ -104,6 +104,9 @@ jobs:
       - name: CX3-005 platform capability preflight
         run: node scripts/cx3-005-capability-preflight-e2e.mjs
 
+      - name: CX3-006 platform previews v2
+        run: node scripts/cx3-006-platform-previews-e2e.mjs
+
       - name: Publisher recovery and operations
         run: node scripts/v07-mock-e2e.mjs
 
