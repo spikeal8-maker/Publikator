@@ -291,6 +291,7 @@ const LEGACY_ROUTES = new Map([
   ['/overview', '.nav[data-view="dashboard"]'],
   ['/calendar', '#calendar-nav'],
   ['/content', '.nav[data-view="posts"]'],
+  ['/library', '#content-library-nav'],
   ['/projects', '.nav[data-view="projects"]'],
   ['/schedule', '.nav[data-view="schedules"]'],
   ['/journal', '.nav[data-view="events"]'],

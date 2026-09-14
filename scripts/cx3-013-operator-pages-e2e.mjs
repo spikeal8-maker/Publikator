@@ -33,6 +33,8 @@ assert.doesNotMatch(html, /quick-start-v3/);
 assert.doesNotMatch(html, /quick-start-router-v3/);
 assert.doesNotMatch(html, />Старт<\/button>/);
 assert.doesNotMatch(html, />Release gate<\/button>/);
+assert.match(html, /id="content-library-nav"[^>]*data-route="\/library"/);
+assert.ok(js.includes("['/library', '#content-library-nav']"), 'library route is missing');
 
 for (const endpoint of [
   '/api/accounts/test',

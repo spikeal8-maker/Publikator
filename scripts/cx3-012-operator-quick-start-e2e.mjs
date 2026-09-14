@@ -1,43 +1,27 @@
 import assert from 'node:assert/strict';
-import fs from 'node:fs/promises';
+import fs from 'node:fs';
 
-const index = await fs.readFile(new URL('../public/index.html', import.meta.url), 'utf8');
-const quick = await fs.readFile(new URL('../public/quick-start-v3.js', import.meta.url), 'utf8');
-const router = await fs.readFile(new URL('../public/quick-start-router-v3.js', import.meta.url), 'utf8');
-const css = await fs.readFile(new URL('../public/quick-start-v3.css', import.meta.url), 'utf8');
+const html = fs.readFileSync('public/index.html', 'utf8');
+const pages = fs.readFileSync('public/operator-pages-v4.js', 'utf8');
 
-assert.match(index, />Старт<\/button>/);
-assert.match(index, />Соцсети<\/button>/);
-assert.match(index, />Импорт таблицы<\/button>/);
-assert.match(index, /nav-section">Система/);
-assert.match(index, /release-nav" class="nav nav-system">Проверка выпуска/);
-assert.match(index, /quick-start-v3\.css/);
-assert.match(index, /quick-start-router-v3\.js/);
-assert.match(index, /quick-start-v3\.js/);
+assert.match(html, /operator-pages-v4\.css/);
+assert.match(html, /operator-pages-v4\.js/);
+assert.doesNotMatch(html, /quick-start-v3/);
+assert.doesNotMatch(html, /quick-start-router-v3/);
+assert.match(html, /data-route="\/socials"/);
+assert.match(html, /data-route="\/sources"/);
+assert.match(html, /id="content-library-nav"[^>]*data-route="\/library"/);
 
-assert.match(router, /data-view="dashboard"/);
-assert.match(router, /textContent = 'Старт'/);
-
-assert.match(quick, /Подключить Telegram \/ VK \/ MAX/);
-assert.match(quick, /Выбрать CSV\/XLSX/);
-assert.match(quick, /Скачать пустой шаблон CSV/);
-assert.match(quick, /\/api\/content-plan\/import\/preview/);
-assert.match(quick, /\/api\/content-plan\/import\/apply/);
-assert.match(quick, /x-publikator-content-plan/);
-assert.match(quick, /x-content-plan-sha256/);
-assert.match(quick, /Импортировать черновики/);
-assert.match(quick, /Импорт ничего не публикует автоматически/);
-assert.match(quick, /\.nav\[data-view="accounts"\]/);
-assert.match(quick, /\.nav\[data-view="posts"\]/);
-assert.match(quick, /#calendar-nav/);
-assert.match(css, /\.quick-drop/);
-assert.match(css, /\.nav-system/);
+assert.ok(pages.includes('/api/accounts/test'));
+assert.ok(pages.includes('/api/content-plan/v3/template.xlsx'));
+assert.ok(pages.includes('/api/content-plan/v3/import/preview?sourceId='));
+assert.ok(pages.includes('/api/content-plan/v3/import/apply?sourceId='));
+assert.ok(pages.includes("['/library', '#content-library-nav']"));
 
 console.log(JSON.stringify({
   ok: true,
   checkpoint: 'CX3-012',
-  primaryOperatorStart: true,
-  inlineSpreadsheetImport: true,
+  supersededByOperatorPages: true,
   socialSetupVisible: true,
-  technicalNavigationDemoted: true
+  spreadsheetImportVisible: true
 }));
