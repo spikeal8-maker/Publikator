@@ -11,7 +11,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "live:video:accept": "node dist/cli/live-video-acceptance.js"
+    "live:video:accept": "node dist/cli/live-video-acceptance.js",
+    "live:instagram-short:accept": "node dist/cli/live-instagram-short-acceptance.js"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.0",
