@@ -176,6 +176,9 @@ jobs:
       - name: CX3-012 operator quick start workflow
         run: node scripts/cx3-012-operator-quick-start-e2e.mjs
 
+      - name: CX3-013 routed operator pages
+        run: node scripts/cx3-013-operator-pages-e2e.mjs
+
       - name: Schema v4 content versioning backup and restore
         run: node scripts/backup-v4-content-versioning-e2e.mjs
 
