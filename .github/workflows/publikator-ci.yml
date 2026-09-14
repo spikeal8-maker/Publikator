@@ -101,6 +101,9 @@ jobs:
       - name: CX3-004 media viewer player
         run: node scripts/cx3-004-media-viewer-e2e.mjs
 
+      - name: CX3-005 platform capability preflight
+        run: node scripts/cx3-005-capability-preflight-e2e.mjs
+
       - name: Publisher recovery and operations
         run: node scripts/v07-mock-e2e.mjs
 

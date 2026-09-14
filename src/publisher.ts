@@ -1,6 +1,8 @@
 import { decryptJson } from './crypto.js';
 import { db, event, nowIso, type Platform, type TargetState } from './db.js';
+import type { ContentFormat, PublicationKind } from './domain/content-domain.js';
 import { mediaPublicUrl } from './media.js';
+import { CapabilityValidationError, assertPlatformCapability } from './platforms/capabilities.js';
 import { getPublisher } from './platforms/index.js';
 import { PlatformError, type PublishInput } from './platforms/types.js';
 import { beginPublicationActivity } from './runtime-gate.js';
@@ -8,6 +10,8 @@ import { getContentRevision, revisionMedia, revisionTargets, type ContentRevisio
 
 const RETRY_DELAYS_MS = [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000];
 const CLAIMABLE_TARGET_STATES: TargetState[] = ['PENDING', 'RETRY', 'FAILED'];
+const PUBLICATION_KINDS = new Set<PublicationKind>(['FEED', 'SHORT', 'STORY']);
+const CONTENT_FORMATS = new Set<ContentFormat>(['TEXT_ONLY', 'IMAGE', 'CAROUSEL', 'VIDEO', 'VERTICAL_VIDEO', 'STORY_SEQUENCE']);
 
 type PublishTargetRow = {
   id: string;
@@ -39,6 +43,7 @@ export type PreflightIssue = {
   platform: Platform;
   accountName: string;
   message: string;
+  code?: string;
 };
 
 export type PreflightResult = {
@@ -121,19 +126,35 @@ function revisionTargetRow(targetId: string): PublishTargetRow | undefined {
     WHERE pt.id=?`).get(targetId) as PublishTargetRow | undefined;
 }
 
+function resolvedPublicationKind(value: string | null | undefined, fallback: PublicationKind): PublicationKind {
+  if (value == null) return fallback;
+  if (!PUBLICATION_KINDS.has(value as PublicationKind)) throw new Error(`Некорректный publication kind в target rendition: ${value}`);
+  return value as PublicationKind;
+}
+
+function resolvedContentFormat(value: string | null | undefined, fallback: string): ContentFormat {
+  const candidate = value ?? fallback;
+  if (!CONTENT_FORMATS.has(candidate as ContentFormat)) throw new Error(`Некорректный content format в target rendition: ${candidate}`);
+  return candidate as ContentFormat;
+}
+
 function buildRevisionPublishInput(target: PublishTargetRow, revision: ContentRevisionRow): PublishInput {
   const targetSnapshot = revisionTargets(revision).find((item) => item.targetId === target.id && item.accountId === target.account_id && item.enabled);
   if (!targetSnapshot) throw new Error('Цель не входит в immutable READY revision');
   const media = revisionMedia(revision);
   const publicMediaUrls = (target.platform === 'max' || target.platform === 'instagram') ? media.map(mediaPublicUrl) : [];
   const credentials = decryptJson<Record<string, unknown>>(target.credentials_encrypted);
+  const publicationKind = resolvedPublicationKind(targetSnapshot.rendition?.publicationKind, revision.publication_kind);
+  const contentFormat = resolvedContentFormat(targetSnapshot.rendition?.contentFormat, revision.content_format);
   return {
     postId: target.post_id,
     title: revision.title,
-    text: targetSnapshot.overrideText ?? revision.body,
+    text: targetSnapshot.rendition?.textPlain ?? targetSnapshot.overrideText ?? revision.body,
     media,
     credentials,
-    publicMediaUrls
+    publicMediaUrls,
+    publicationKind,
+    contentFormat
   };
 }
 
@@ -151,15 +172,30 @@ export function preflightRevision(revisionId: string): PreflightResult {
       continue;
     }
     try {
-      getPublisher(target.platform).validate(buildRevisionPublishInput(target, revision));
+      const input = buildRevisionPublishInput(target, revision);
+      assertPlatformCapability(target.platform, input);
+      getPublisher(target.platform).validate(input);
     } catch (error) {
-      issues.push({
-        targetId: target.id,
-        accountId: target.account_id,
-        platform: target.platform,
-        accountName: target.account_name || target.platform,
-        message: error instanceof Error ? error.message : String(error)
-      });
+      if (error instanceof CapabilityValidationError) {
+        for (const capabilityIssue of error.issues) {
+          issues.push({
+            targetId: target.id,
+            accountId: target.account_id,
+            platform: target.platform,
+            accountName: target.account_name || target.platform,
+            message: capabilityIssue.message,
+            code: capabilityIssue.code
+          });
+        }
+      } else {
+        issues.push({
+          targetId: target.id,
+          accountId: target.account_id,
+          platform: target.platform,
+          accountName: target.account_name || target.platform,
+          message: error instanceof Error ? error.message : String(error)
+        });
+      }
     }
   }
   return { ok: issues.length === 0, issues };
@@ -174,13 +210,12 @@ async function publishTargetInternal(targetId: string, forcedRevisionId?: string
   const revisionId = forcedRevisionId ?? post?.ready_revision_id ?? null;
   if (!revisionId) throw new Error('Публикация заблокирована: отсутствует immutable READY revision');
   const revision = getContentRevision(revisionId);
-  const media = revisionMedia(revision);
-  if (media.length < 1) throw new Error('Публикация заблокирована: нет изображения');
   const publisher = getPublisher(target.platform);
   let input: PublishInput;
 
   try {
     input = buildRevisionPublishInput(target, revision);
+    assertPlatformCapability(target.platform, input);
     publisher.validate(input);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -335,7 +370,6 @@ export async function publishPost(postId: string): Promise<void> {
     if (revision.post_id !== postId || revision.content_version !== post.content_version) {
       throw new Error('READY revision не соответствует текущей версии поста');
     }
-    if (revisionMedia(revision).length < 1) throw new Error('Публикация без изображения запрещена');
     const preflight = preflightRevision(revision.id);
     if (!preflight.ok) throw new Error(`Публикация не прошла preflight:\n${formatPreflightIssues(preflight.issues)}`);
 
