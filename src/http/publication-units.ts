@@ -6,7 +6,6 @@ import {
   continuePublicationSequence,
   retrySequenceUnit
 } from '../publisher.js';
-import { beginPublicationActivity } from '../runtime-gate.js';
 
 function bodyObject(body: unknown): Record<string, any> {
   if (body == null) return {};
@@ -47,9 +46,7 @@ export async function registerPublicationUnitRoutes(app: FastifyInstance): Promi
 
   app.post('/api/targets/:id/sequence/continue', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const releasePublication = beginPublicationActivity();
     try { return { ok: true, ...(await continuePublicationSequence(id)) }; }
     catch (error) { return reply.code(409).send({ error: error instanceof Error ? error.message : String(error) }); }
-    finally { releasePublication(); }
   });
 }
