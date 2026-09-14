@@ -98,6 +98,9 @@ jobs:
       - name: CX3-003 rich media data model
         run: node scripts/cx3-003-rich-media-e2e.mjs
 
+      - name: CX3-004 media viewer player
+        run: node scripts/cx3-004-media-viewer-e2e.mjs
+
       - name: Publisher recovery and operations
         run: node scripts/v07-mock-e2e.mjs
 

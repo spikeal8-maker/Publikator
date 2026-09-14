@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { db } from '../db.js';
 import { listMedia } from '../media.js';
+import { listContentMedia } from '../rich-media.js';
 import {
   archivePost,
   deletePostPermanently,
@@ -45,6 +46,7 @@ function inspector(postId: string): any | undefined {
   return {
     ...post,
     media: listMedia(postId),
+    contentMedia: listContentMedia(postId),
     targets,
     recentEvents: events,
     actions: editorialActions({ status: post.status, editorial_stage: post.editorial_stage as EditorialStage })

@@ -112,11 +112,12 @@ async function enhanceContentScreen() {
 }
 
 function inspectorMedia(post) {
-  if (!post.media?.length) return '<div class="inspector-empty-media">Нет медиа</div>';
-  return `<div class="inspector-media-grid">${post.media.map((media, index) => `<figure>
+  if (!post.media?.length) return '<div class="inspector-media-host"><div class="inspector-empty-media">Нет медиа</div></div>';
+  const fallback = `<div class="inspector-media-grid">${post.media.map((media, index) => `<figure>
     <img src="/public-media/${editorialEscape(media.relative_path)}" alt="">
     <figcaption>#${index + 1} · ${media.width || '?'}×${media.height || '?'}</figcaption>
   </figure>`).join('')}</div>`;
+  return `<div class="inspector-media-host">${fallback}</div>`;
 }
 
 function inspectorTargets(post) {
@@ -189,7 +190,8 @@ async function openContentInspector(postId) {
     <div class="error inspector-error"></div>
   </div>`;
   document.body.append(overlay);
-  const close = () => overlay.remove();
+  const mediaCleanup = window.PublikatorMediaViewer?.mount?.(overlay.querySelector('.inspector-media-host'), post) || (() => {});
+  const close = () => { mediaCleanup(); overlay.remove(); };
   overlay.addEventListener('click', (event) => { if (event.target === overlay) close(); });
   overlay.querySelector('.inspector-close')?.addEventListener('click', close);
   overlay.querySelector('.inspector-edit')?.addEventListener('click', () => {
