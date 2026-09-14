@@ -39,6 +39,26 @@ Acceptance:
 - Docker runtime exposes both `ffmpeg` and `ffprobe`;
 - full `Publikator CI / Acceptance` passes.
 
+## CX3-008A2 — Browser video authoring closure
+
+Scope:
+
+- the normal post editor accepts both `image/*` and `video/mp4`;
+- MP4 is routed to the canonical `/api/posts/:id/video` endpoint and images remain on `/api/posts/:id/media`;
+- generated poster media is hidden as an implementation asset and is never presented to the editor as a second user attachment;
+- video is rendered through an HTML5 player with the generated poster;
+- Video v1 prevents mixed image/video authoring and prevents a second video until the first video is removed;
+- video deletion uses the same optimistic `content_version` contract and relies on the backend cascade for the generated poster;
+- platform cards show the video poster and defer sendability to capability preflight instead of pretending image semantics.
+
+Acceptance:
+
+- browser shell loads the video-authoring JS/CSS assets;
+- UI projection collapses the stored video+poster pair into one authoring item;
+- image and MP4 uploads are routed to different canonical endpoints;
+- existing image authoring remains available;
+- full `Publikator CI / Acceptance` passes.
+
 ## CX3-008B — Telegram video adapter
 
 Before implementation, re-check the current official Telegram Bot API. Implement only capabilities confirmed by current docs. Add focused adapter/recovery tests. Capability remains disabled until the live-acceptance evidence required by the master spec is recorded.
