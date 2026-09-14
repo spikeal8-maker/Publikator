@@ -3,9 +3,80 @@ import { PlatformError, requireString, responseJson } from './types.js';
 
 const STATUS_POLL_INTERVAL_MS = process.env.NODE_ENV === 'test' ? 5 : 5_000;
 const STATUS_WAIT_TIMEOUT_MS = process.env.NODE_ENV === 'test' ? 250 : 90_000;
+const INSTAGRAM_REEL_MIN_DURATION_MS = 3_000;
+const INSTAGRAM_REEL_MAX_DURATION_MS = 15 * 60 * 1_000;
+const INSTAGRAM_REEL_MAX_BYTES = 1024 * 1024 * 1024;
+const INSTAGRAM_REEL_MIN_FPS = 23;
+const INSTAGRAM_REEL_MAX_FPS = 60;
+const INSTAGRAM_REEL_MAX_WIDTH = 1920;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function validPublicHttpsUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && Boolean(url.hostname) && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+
+function isVideoPublication(input: PublishInput): boolean {
+  return input.contentFormat === 'VIDEO';
+}
+
+function assertFeedVideo(input: PublishInput) {
+  if (input.publicationKind && input.publicationKind !== 'FEED') {
+    throw new Error(`Instagram: CX3-008E поддерживает только FEED/VIDEO, получен ${input.publicationKind}/${input.contentFormat}`);
+  }
+  if (input.media.length !== 1) throw new Error('Instagram: FEED/VIDEO требует ровно один video asset');
+  if (input.publicMediaUrls.length !== 1 || !validPublicHttpsUrl(input.publicMediaUrls[0]!)) {
+    throw new Error('Instagram: FEED/VIDEO требует один публичный HTTPS video_url без credentials');
+  }
+
+  const media = input.media[0]!;
+  if (media.mime_type !== 'video/mp4') throw new Error(`Instagram: FEED/VIDEO требует video/mp4, получен ${media.mime_type}`);
+  if (media.size_bytes > INSTAGRAM_REEL_MAX_BYTES) {
+    throw new Error(`Instagram: видео ${media.size_bytes} байт превышает предел 1 GB`);
+  }
+  if (media.video_codec && media.video_codec.toLowerCase() !== 'h264') {
+    throw new Error(`Instagram: canonical video должен быть H.264, получен ${media.video_codec}`);
+  }
+  if (media.audio_codec && media.audio_codec.toLowerCase() !== 'aac') {
+    throw new Error(`Instagram: canonical audio должен быть AAC либо отсутствовать, получен ${media.audio_codec}`);
+  }
+  if (media.container && media.container.toLowerCase() !== 'mp4') {
+    throw new Error(`Instagram: canonical video container должен быть MP4, получен ${media.container}`);
+  }
+  if (media.duration_ms != null && media.duration_ms < INSTAGRAM_REEL_MIN_DURATION_MS) {
+    throw new Error(`Instagram: Reel короче ${INSTAGRAM_REEL_MIN_DURATION_MS / 1000} секунд`);
+  }
+  if (media.duration_ms != null && media.duration_ms > INSTAGRAM_REEL_MAX_DURATION_MS) {
+    throw new Error(`Instagram: Reel длиннее ${INSTAGRAM_REEL_MAX_DURATION_MS / 1000} секунд`);
+  }
+  if (media.fps != null && (media.fps < INSTAGRAM_REEL_MIN_FPS || media.fps > INSTAGRAM_REEL_MAX_FPS)) {
+    throw new Error(`Instagram: Reel FPS ${media.fps} вне диапазона ${INSTAGRAM_REEL_MIN_FPS}-${INSTAGRAM_REEL_MAX_FPS}`);
+  }
+  if (media.width != null && media.width > INSTAGRAM_REEL_MAX_WIDTH) {
+    throw new Error(`Instagram: ширина Reel ${media.width}px превышает ${INSTAGRAM_REEL_MAX_WIDTH}px`);
+  }
+  return media;
+}
+
+function assertImagePublication(input: PublishInput): void {
+  if (input.contentFormat && !['IMAGE', 'CAROUSEL'].includes(input.contentFormat)) {
+    throw new Error(`Instagram: текущий adapter не поддерживает ${input.publicationKind || 'FEED'}/${input.contentFormat}`);
+  }
+  if (input.media.length < 1) throw new Error('Instagram: требуется минимум одно изображение');
+  if (input.media.length > 10) throw new Error('Instagram: карусель поддерживает не более 10 изображений');
+  if (input.publicMediaUrls.length !== input.media.length || input.publicMediaUrls.some((url) => !validPublicHttpsUrl(url))) {
+    throw new Error('Instagram: PUBLIC_BASE_URL должен быть публичным HTTPS URL без credentials для каждого изображения');
+  }
+  for (const media of input.media) {
+    if (media.mime_type !== 'image/jpeg') throw new Error('Instagram: публикационные изображения должны быть JPEG');
+  }
 }
 
 function safePrePublishError(error: unknown, context: string): PlatformError {
@@ -119,14 +190,8 @@ export const instagramPublisher: SocialPublisher = {
     requireString(input.credentials, 'accessToken');
     requireString(input.credentials, 'igUserId');
     requireString(input.credentials, 'graphVersion');
-    if (input.media.length < 1) throw new Error('Instagram: требуется минимум одно изображение');
-    if (input.media.length > 10) throw new Error('Instagram: карусель поддерживает не более 10 изображений');
-    if (input.publicMediaUrls.length !== input.media.length || input.publicMediaUrls.some((url) => !url.startsWith('https://'))) {
-      throw new Error('Instagram: PUBLIC_BASE_URL должен быть публичным HTTPS URL для каждого изображения');
-    }
-    for (const media of input.media) {
-      if (media.mime_type !== 'image/jpeg') throw new Error('Instagram: публикационные изображения должны быть JPEG');
-    }
+    if (isVideoPublication(input)) assertFeedVideo(input);
+    else assertImagePublication(input);
   },
   async publish(input: PublishInput): Promise<PublishResult> {
     this.validate(input);
@@ -138,7 +203,17 @@ export const instagramPublisher: SocialPublisher = {
     let creationId: string;
     const children: string[] = [];
 
-    if (input.media.length === 1) {
+    if (isVideoPublication(input)) {
+      assertFeedVideo(input);
+      creationId = await createContainer(base, igUserId, {
+        media_type: 'REELS',
+        video_url: input.publicMediaUrls[0]!,
+        caption: input.text,
+        share_to_feed: 'true',
+        access_token: accessToken
+      });
+      await waitForContainerReady(base, accessToken, creationId);
+    } else if (input.media.length === 1) {
       creationId = await createContainer(base, igUserId, {
         image_url: input.publicMediaUrls[0]!,
         caption: input.text,
