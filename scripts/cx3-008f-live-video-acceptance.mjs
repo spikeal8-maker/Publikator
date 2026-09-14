@@ -124,6 +124,14 @@ function publicHttpsUrl(value) {
   }
 }
 
+function evidenceSafePublicUrl(value) {
+  if (!value) return null;
+  const url = new URL(value);
+  url.search = '';
+  url.hash = '';
+  return url.toString();
+}
+
 async function readCredentials(filePath) {
   const raw = await fsp.readFile(filePath, 'utf8');
   const parsed = JSON.parse(raw);
@@ -267,7 +275,7 @@ async function main() {
         destination: connection.destination
       },
       media: mediaFingerprint,
-      publicVideoUrl,
+      publicVideoUrl: evidenceSafePublicUrl(publicVideoUrl),
       externalId: result.externalId,
       externalUrl: result.externalUrl || null
     });
@@ -284,6 +292,7 @@ async function main() {
       externalUrl: result.externalUrl || null,
       evidencePath,
       credentialsRecorded: false,
+      signedUrlQueryRecorded: false,
       capabilityChanged: false,
       next: 'Проверьте публикацию визуально на целевой платформе. Только после ручного подтверждения evidence можно отдельным review изменить supportsVideo.'
     }, null, 2));
