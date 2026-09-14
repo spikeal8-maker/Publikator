@@ -51,7 +51,14 @@ type VideoMediaRow = MediaRow & {
   post_status: string;
   post_editorial_stage: string;
   post_schedule_mode: string;
+  post_target_count: number;
   media_role: string | null;
+};
+
+type LiveLock = {
+  filePath: string;
+  update: (payload: Record<string, unknown>) => Promise<void>;
+  release: () => Promise<void>;
 };
 
 function usage(): string {
@@ -70,7 +77,7 @@ After visually checking that the control video is really visible on the target p
 
 Options:
   --account <social_accounts.id>   Existing enabled Publikator social account
-  --media <media.id>               Canonical video from a MANUAL DRAFT post
+  --media <media.id>               Canonical video from a target-free MANUAL DRAFT post
   --text <caption>                 Optional control publication text
   --evidence <path>                Required only by --confirm-visible; live publish always uses protected DATA_DIR evidence storage
   --note <text>                    Optional note for --confirm-visible
@@ -80,9 +87,11 @@ Options:
 
 Safety invariants:
 - normal capability preflight remains unchanged and supportsVideo is not modified;
-- source media must belong to a MANUAL post in DRAFT/DRAFT state so scheduler cannot publish it independently;
+- source media must belong to a target-free MANUAL post in DRAFT/DRAFT state so scheduler cannot publish it independently;
 - credentials are decrypted only after the explicit publish guard succeeds;
 - same build/account/media cannot be published again while prior live evidence exists;
+- concurrent live runs for the same build/account/media are serialized by a crash-safe lock file;
+- an interrupted public attempt leaves the lock in place and blocks blind retry;
 - a RECOVERY_NEEDED result is persisted if the public POST outcome is uncertain;
 - credentials, encrypted payloads and signed URL query strings are never written to evidence.`;
 }
@@ -159,12 +168,24 @@ function accountWithCredentials(accountId: string): AccountRow {
   return row;
 }
 
+function assertSourcePostQuarantined(row: Pick<VideoMediaRow, 'post_status' | 'post_editorial_stage' | 'post_schedule_mode' | 'post_target_count'>): void {
+  if (
+    row.post_status !== 'DRAFT' ||
+    row.post_editorial_stage !== 'DRAFT' ||
+    row.post_schedule_mode !== 'MANUAL' ||
+    Number(row.post_target_count) !== 0
+  ) {
+    throw new Error(`CX3-008F: source post должен быть target-free MANUAL DRAFT/DRAFT; получено status=${row.post_status}, editorial=${row.post_editorial_stage}, schedule=${row.post_schedule_mode}, targets=${row.post_target_count}`);
+  }
+}
+
 function videoMedia(mediaId: string): VideoMediaRow {
   const row = db.prepare(`SELECT m.*,
       p.content_format AS post_content_format,
       p.status AS post_status,
       p.editorial_stage AS post_editorial_stage,
       p.schedule_mode AS post_schedule_mode,
+      (SELECT COUNT(*) FROM post_targets pt WHERE pt.post_id=p.id) AS post_target_count,
       cm.role AS media_role
     FROM media m
     JOIN posts p ON p.id=m.post_id
@@ -178,10 +199,18 @@ function videoMedia(mediaId: string): VideoMediaRow {
   if (row.media_role && row.media_role !== 'video') {
     throw new Error(`CX3-008F: media ${mediaId} имеет role=${row.media_role}, нужен video`);
   }
-  if (row.post_status !== 'DRAFT' || row.post_editorial_stage !== 'DRAFT' || row.post_schedule_mode !== 'MANUAL') {
-    throw new Error(`CX3-008F: source post должен быть изолированным MANUAL DRAFT/DRAFT; получено status=${row.post_status}, editorial=${row.post_editorial_stage}, schedule=${row.post_schedule_mode}`);
-  }
+  assertSourcePostQuarantined(row);
   return row;
+}
+
+function recheckSourcePostQuarantine(postId: string): void {
+  const row = db.prepare(`SELECT status AS post_status,
+      editorial_stage AS post_editorial_stage,
+      schedule_mode AS post_schedule_mode,
+      (SELECT COUNT(*) FROM post_targets pt WHERE pt.post_id=posts.id) AS post_target_count
+    FROM posts WHERE id=?`).get(postId) as Pick<VideoMediaRow, 'post_status' | 'post_editorial_stage' | 'post_schedule_mode' | 'post_target_count'> | undefined;
+  if (!row) throw new Error(`CX3-008F: source post ${postId} исчез до live publish`);
+  assertSourcePostQuarantined(row);
 }
 
 async function inspectCanonicalMedia(media: VideoMediaRow): Promise<LiveVideoMediaFingerprint> {
@@ -303,10 +332,73 @@ async function findBlockingEvidence(params: {
         return { filePath, evidence };
       }
     } catch {
-      // Ignore unrelated/corrupt files here; explicit --confirm-visible still validates its selected evidence strictly.
+      // Ignore unrelated/corrupt files here; an interrupted publish is additionally protected by the live lock file.
     }
   }
   return null;
+}
+
+function liveLockPath(params: { buildSha: string; platform: Platform; accountId: string; mediaId: string }): string {
+  const key = crypto.createHash('sha256')
+    .update([params.buildSha, params.platform, params.accountId, params.mediaId].join('\u0000'))
+    .digest('hex');
+  return path.join(evidenceDirectory(), `.cx3-008f-${key}.lock`);
+}
+
+async function acquireLiveLock(params: {
+  buildSha: string;
+  platform: Platform;
+  accountId: string;
+  mediaId: string;
+}): Promise<LiveLock> {
+  await fsp.mkdir(evidenceDirectory(), { recursive: true });
+  const filePath = liveLockPath(params);
+  let handle;
+  try {
+    handle = await fsp.open(filePath, 'wx', 0o600);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+      let detail = '';
+      try { detail = (await fsp.readFile(filePath, 'utf8')).slice(0, 2000); } catch { detail = ''; }
+      throw new Error(`CX3-008F: live lock уже существует. Предыдущий/параллельный запуск должен быть вручную разрешён до новой публикации: ${filePath}${detail ? `; lock=${detail}` : ''}`);
+    }
+    throw error;
+  }
+  try {
+    await handle.writeFile(`${JSON.stringify({
+      checkpoint: 'CX3-008F',
+      phase: 'LOCKED_PRE_PUBLISH',
+      createdAt: new Date().toISOString(),
+      pid: process.pid,
+      buildSha: params.buildSha,
+      platform: params.platform,
+      accountId: params.accountId,
+      mediaId: params.mediaId
+    }, null, 2)}\n`);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  await fsp.chmod(filePath, 0o600);
+
+  return {
+    filePath,
+    update: async (payload) => {
+      await fsp.writeFile(filePath, `${JSON.stringify({
+        checkpoint: 'CX3-008F',
+        updatedAt: new Date().toISOString(),
+        buildSha: params.buildSha,
+        platform: params.platform,
+        accountId: params.accountId,
+        mediaId: params.mediaId,
+        ...payload
+      }, null, 2)}\n`, { mode: 0o600 });
+      await fsp.chmod(filePath, 0o600);
+    },
+    release: async () => {
+      await fsp.rm(filePath, { force: true });
+    }
+  };
 }
 
 function redactFailureMessage(message: string, credentials: Record<string, unknown>, publicVideoUrl: string | null): string {
@@ -390,7 +482,8 @@ async function planOrPublish(args: Args): Promise<void> {
         id: media.post_id,
         status: media.post_status,
         editorialStage: media.post_editorial_stage,
-        scheduleMode: media.post_schedule_mode
+        scheduleMode: media.post_schedule_mode,
+        targetCount: media.post_target_count
       },
       media: fingerprint,
       buildSha: config.appBuildSha || null,
@@ -410,50 +503,119 @@ async function planOrPublish(args: Args): Promise<void> {
     confirmation: process.env.PUBLIKATOR_LIVE_ACCEPTANCE_CONFIRM
   });
   const buildSha = assertPublishBuildIdentity();
-  const blocking = await findBlockingEvidence({
+  const lock = await acquireLiveLock({
     buildSha,
     platform: account.platform,
     accountId: account.id,
     mediaId: media.id
   });
-  if (blocking) {
-    throw new Error(`CX3-008F: повторная live публикация для этого build/account/media заблокирована: ${blocking.evidence.status}; evidence=${blocking.filePath}`);
-  }
-
-  const accountSecretRow = accountWithCredentials(account.id);
-  const credentials = decryptJson<Record<string, unknown>>(accountSecretRow.credentials_encrypted!);
-  assertLiveCredentialShape(account.platform, credentials);
-
-  const runId = safeRunId(account.platform);
-  const startedAt = new Date().toISOString();
-  const connection = await testConnection(account.platform, credentials);
-  const input: PublishInput = {
-    postId: media.post_id,
-    title: `Publikator CX3-008F ${runId}`,
-    text: args.text?.trim() || `Publikator CX3-008F live FEED/VIDEO acceptance ${runId}`,
-    media: [publishMediaRow(media, fingerprint)],
-    credentials,
-    publicMediaUrls: publicVideoUrl ? [publicVideoUrl] : [],
-    publicationKind: 'FEED',
-    contentFormat: 'VIDEO'
-  };
-  const publisher = getPublisher(account.platform);
-  publisher.validate(input);
-
-  console.log(JSON.stringify({
-    checkpoint: 'CX3-008F',
-    phase: 'CONNECTION_VERIFIED',
-    platform: account.platform,
-    account: { id: account.id, name: account.name },
-    identity: connection.identity,
-    destination: connection.destination,
-    mediaId: media.id,
-    runId,
-    next: 'Следующий вызов — ровно один реальный publisher.publish для контрольного FEED/VIDEO.'
-  }, null, 2));
+  let releaseLock = false;
+  let publicAttemptStarted = false;
 
   try {
-    const result = await publisher.publish(input);
+    const blocking = await findBlockingEvidence({
+      buildSha,
+      platform: account.platform,
+      accountId: account.id,
+      mediaId: media.id
+    });
+    if (blocking) {
+      releaseLock = true;
+      throw new Error(`CX3-008F: повторная live публикация для этого build/account/media заблокирована: ${blocking.evidence.status}; evidence=${blocking.filePath}`);
+    }
+
+    const accountSecretRow = accountWithCredentials(account.id);
+    const credentials = decryptJson<Record<string, unknown>>(accountSecretRow.credentials_encrypted!);
+    assertLiveCredentialShape(account.platform, credentials);
+
+    const runId = safeRunId(account.platform);
+    const startedAt = new Date().toISOString();
+    const connection = await testConnection(account.platform, credentials);
+    recheckSourcePostQuarantine(media.post_id);
+
+    const input: PublishInput = {
+      postId: media.post_id,
+      title: `Publikator CX3-008F ${runId}`,
+      text: args.text?.trim() || `Publikator CX3-008F live FEED/VIDEO acceptance ${runId}`,
+      media: [publishMediaRow(media, fingerprint)],
+      credentials,
+      publicMediaUrls: publicVideoUrl ? [publicVideoUrl] : [],
+      publicationKind: 'FEED',
+      contentFormat: 'VIDEO'
+    };
+    const publisher = getPublisher(account.platform);
+    publisher.validate(input);
+
+    console.log(JSON.stringify({
+      checkpoint: 'CX3-008F',
+      phase: 'CONNECTION_VERIFIED',
+      platform: account.platform,
+      account: { id: account.id, name: account.name },
+      identity: connection.identity,
+      destination: connection.destination,
+      mediaId: media.id,
+      runId,
+      lockPath: lock.filePath,
+      next: 'Следующий вызов — ровно один реальный publisher.publish для контрольного FEED/VIDEO.'
+    }, null, 2));
+
+    await lock.update({ phase: 'PUBLIC_PUBLISH_STARTING', runId, startedAt });
+    publicAttemptStarted = true;
+
+    let result;
+    try {
+      result = await publisher.publish(input);
+    } catch (error) {
+      if (error instanceof PlatformError && !error.outcomeUnknown) {
+        releaseLock = true;
+        throw error;
+      }
+      const message = redactFailureMessage(error instanceof Error ? error.message : String(error), credentials, publicVideoUrl);
+      const recovery = buildLiveVideoRecoveryEvidence({
+        runId,
+        platform: account.platform,
+        startedAt,
+        completedAt: new Date().toISOString(),
+        buildSha,
+        account: { id: account.id, name: account.name },
+        connection: { identity: connection.identity, destination: connection.destination },
+        media: fingerprint,
+        publicVideoUrl,
+        message,
+        code: error instanceof PlatformError ? error.code ?? null : null
+      });
+      const filePath = evidenceOutputPath(runId);
+      try {
+        await writeEvidence(filePath, recovery);
+        await lock.update({ phase: 'RECOVERY_RECORDED', runId, evidencePath: filePath });
+        releaseLock = true;
+      } catch (persistError) {
+        try {
+          await lock.update({
+            phase: 'RECOVERY_PERSIST_FAILED',
+            runId,
+            failure: message,
+            persistenceError: persistError instanceof Error ? persistError.message.slice(0, 1000) : String(persistError).slice(0, 1000)
+          });
+        } catch {
+          // Keep the original lock file even if updating its diagnostic payload also fails.
+        }
+        throw new Error(`CX3-008F RECOVERY_NEEDED: внешний результат неопределён, а recovery evidence не удалось сохранить. Lock оставлен намеренно: ${lock.filePath}`);
+      }
+      throw new Error(`CX3-008F RECOVERY_NEEDED: внешний результат неопределён. НЕ повторяйте публикацию автоматически. Evidence: ${filePath}`);
+    }
+
+    try {
+      await lock.update({
+        phase: 'API_RETURNED',
+        runId,
+        externalId: result.externalId,
+        externalUrl: result.externalUrl || null
+      });
+    } catch {
+      throw new Error(`CX3-008F: API вернул externalId=${result.externalId}, но lock-state не удалось обновить. Lock оставлен намеренно: ${lock.filePath}`);
+    }
+
     const evidence = buildLiveVideoAcceptanceEvidence({
       runId,
       platform: account.platform,
@@ -468,7 +630,24 @@ async function planOrPublish(args: Args): Promise<void> {
       externalUrl: result.externalUrl || null
     });
     const filePath = evidenceOutputPath(runId);
-    await writeEvidence(filePath, evidence);
+    try {
+      await writeEvidence(filePath, evidence);
+      await lock.update({ phase: 'API_CONFIRMED_RECORDED', runId, evidencePath: filePath, externalId: result.externalId });
+      releaseLock = true;
+    } catch (persistError) {
+      try {
+        await lock.update({
+          phase: 'EVIDENCE_PERSIST_FAILED',
+          runId,
+          externalId: result.externalId,
+          persistenceError: persistError instanceof Error ? persistError.message.slice(0, 1000) : String(persistError).slice(0, 1000)
+        });
+      } catch {
+        // Keep the existing lock file; it already records that a public attempt started.
+      }
+      throw new Error(`CX3-008F: API подтвердил externalId=${result.externalId}, но evidence не удалось сохранить. НЕ повторяйте публикацию; lock оставлен: ${lock.filePath}`);
+    }
+
     console.log(JSON.stringify({
       ok: true,
       checkpoint: 'CX3-008F',
@@ -483,25 +662,10 @@ async function planOrPublish(args: Args): Promise<void> {
       next: `API подтвердил публикацию, но это ещё не PASS. Проверьте ролик визуально, затем выполните --confirm-visible с PUBLIKATOR_LIVE_VISIBILITY_CONFIRM=${LIVE_VIDEO_VISIBILITY_CONFIRMATION}.`
     }, null, 2));
   } catch (error) {
-    const unknownOutcome = !(error instanceof PlatformError) || error.outcomeUnknown;
-    if (!unknownOutcome) throw error;
-    const message = redactFailureMessage(error instanceof Error ? error.message : String(error), credentials, publicVideoUrl);
-    const recovery = buildLiveVideoRecoveryEvidence({
-      runId,
-      platform: account.platform,
-      startedAt,
-      completedAt: new Date().toISOString(),
-      buildSha,
-      account: { id: account.id, name: account.name },
-      connection: { identity: connection.identity, destination: connection.destination },
-      media: fingerprint,
-      publicVideoUrl,
-      message,
-      code: error instanceof PlatformError ? error.code ?? null : null
-    });
-    const filePath = evidenceOutputPath(runId);
-    await writeEvidence(filePath, recovery);
-    throw new Error(`CX3-008F RECOVERY_NEEDED: внешний результат неопределён. НЕ повторяйте публикацию автоматически. Evidence: ${filePath}`);
+    if (!publicAttemptStarted) releaseLock = true;
+    throw error;
+  } finally {
+    if (releaseLock) await lock.release();
   }
 }
 
