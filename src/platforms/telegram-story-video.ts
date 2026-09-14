@@ -144,14 +144,18 @@ async function assertKeyframeCadence(filePath: string, durationSeconds: number):
   ], 'Telegram STORY/VIDEO keyframe probe');
   const timestamps = output
     .split(/\r?\n/)
-    .map((value) => Number(value.trim().replace(/,$/, '')))
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => Number(line.split(',')[0]?.trim()))
     .filter((value) => Number.isFinite(value));
   if (!timestamps.length || timestamps[0]! > 0.1) throw new Error('Telegram STORY/VIDEO rendition не содержит начальный keyframe');
   for (let index = 1; index < timestamps.length; index += 1) {
     const interval = timestamps[index]! - timestamps[index - 1]!;
+    if (interval <= 0) throw new Error('Telegram STORY/VIDEO keyframe timestamps должны строго возрастать');
     if (interval > 1.15) throw new Error(`Telegram STORY/VIDEO keyframe interval ${interval.toFixed(3)} s превышает 1 секунду с допуском`);
   }
   const finalInterval = durationSeconds - timestamps[timestamps.length - 1]!;
+  if (finalInterval < -0.05) throw new Error('Telegram STORY/VIDEO последний keyframe находится после конца media duration');
   if (finalInterval > 1.15) {
     throw new Error(`Telegram STORY/VIDEO final keyframe interval ${finalInterval.toFixed(3)} s превышает 1 секунду с допуском`);
   }
