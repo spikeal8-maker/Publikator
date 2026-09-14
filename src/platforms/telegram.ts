@@ -17,287 +17,128 @@ const TELEGRAM_STORY_PHOTO_HEIGHT = 1920;
 const TELEGRAM_STORY_ACTIVE_PERIOD_SECONDS = 24 * 60 * 60;
 const TELEGRAM_MEDIA_GROUP_LIMIT = 10;
 
-function characterCount(value: string): number {
-  return Array.from(value).length;
-}
-
-function isStoryImagePublication(input: PublishInput): boolean {
-  return input.publicationKind === 'STORY' && input.contentFormat === 'IMAGE';
-}
-
-function isStoryVideoPublication(input: PublishInput): boolean {
-  return input.publicationKind === 'STORY' && input.contentFormat === 'VERTICAL_VIDEO';
-}
-
-function isVideoPublication(input: PublishInput): boolean {
-  return input.publicationKind !== 'STORY' && input.contentFormat === 'VIDEO';
-}
+function characterCount(value: string): number { return Array.from(value).length; }
+function isStoryImagePublication(input: PublishInput): boolean { return input.publicationKind === 'STORY' && input.contentFormat === 'IMAGE'; }
+function isStoryVideoPublication(input: PublishInput): boolean { return input.publicationKind === 'STORY' && input.contentFormat === 'VERTICAL_VIDEO'; }
+function isStorySequencePublication(input: PublishInput): boolean { return input.publicationKind === 'STORY' && input.contentFormat === 'STORY_SEQUENCE'; }
+function isVideoPublication(input: PublishInput): boolean { return input.publicationKind !== 'STORY' && input.contentFormat === 'VIDEO'; }
 
 function telegramError(body: any): PlatformError {
   const code = Number(body?.error_code || 0);
-  return new PlatformError(`Telegram: ${body?.description || 'неизвестная ошибка'}`, {
-    retryable: code === 429,
-    outcomeUnknown: code >= 500,
-    code
-  });
+  return new PlatformError(`Telegram: ${body?.description || 'неизвестная ошибка'}`, { retryable: code === 429, outcomeUnknown: code >= 500, code });
 }
-
 function publicPostError(error: unknown, context: string): PlatformError {
   if (error instanceof PlatformError) return error;
-  return new PlatformError(`${context}: ${error instanceof Error ? error.message : String(error)}`, {
-    retryable: false,
-    outcomeUnknown: true
-  });
+  return new PlatformError(`${context}: ${error instanceof Error ? error.message : String(error)}`, { retryable: false, outcomeUnknown: true });
 }
-
 function localPreparationError(error: unknown, context: string): PlatformError {
   if (error instanceof PlatformError) return error;
-  return new PlatformError(`${context}: ${error instanceof Error ? error.message : String(error)}`, {
-    retryable: false,
-    outcomeUnknown: false
-  });
+  return new PlatformError(`${context}: ${error instanceof Error ? error.message : String(error)}`, { retryable: false, outcomeUnknown: false });
 }
-
 async function readMediaBytes(mediaPath: string, maxBytes?: number): Promise<Uint8Array<ArrayBuffer>> {
   try {
     const bytes = await fs.readFile(mediaPath);
-    if (maxBytes != null && bytes.byteLength > maxBytes) {
-      throw new PlatformError(`Telegram: локальный media превышает безопасный лимит ${maxBytes} байт до внешнего POST`, {
-        retryable: false,
-        outcomeUnknown: false
-      });
-    }
-    const copy = new Uint8Array(bytes.byteLength);
-    copy.set(bytes);
-    return copy;
+    if (maxBytes != null && bytes.byteLength > maxBytes) throw new PlatformError(`Telegram: локальный media превышает безопасный лимит ${maxBytes} байт до внешнего POST`, { retryable: false, outcomeUnknown: false });
+    const copy = new Uint8Array(bytes.byteLength); copy.set(bytes); return copy;
   } catch (error) {
     if (error instanceof PlatformError) throw error;
-    throw new PlatformError(`Telegram: локальный media недоступен до внешнего POST: ${error instanceof Error ? error.message : String(error)}`, {
-      retryable: false,
-      outcomeUnknown: false
-    });
+    throw new PlatformError(`Telegram: локальный media недоступен до внешнего POST: ${error instanceof Error ? error.message : String(error)}`, { retryable: false, outcomeUnknown: false });
   }
 }
-
 async function telegramRequest(url: string, init: RequestInit, context: string, timeoutMs = TELEGRAM_REQUEST_TIMEOUT_MS): Promise<any> {
   try {
-    const response = await fetch(url, {
-      ...init,
-      signal: AbortSignal.timeout(timeoutMs)
-    });
+    const response = await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
     const body = await responseJson(response, context);
     if (!body.ok) throw telegramError(body);
     return body;
-  } catch (error) {
-    throw publicPostError(error, context);
-  }
+  } catch (error) { throw publicPostError(error, context); }
 }
-
 async function sendMessage(token: string, chatId: string, text: string): Promise<any> {
-  const body = await telegramRequest(`https://api.telegram.org/bot${token}/sendMessage`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: false })
-  }, 'Telegram sendMessage');
+  const body = await telegramRequest(`https://api.telegram.org/bot${token}/sendMessage`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: false }) }, 'Telegram sendMessage');
   return body.result;
 }
-
-function assertStoryCaption(input: PublishInput): void {
-  const textLength = characterCount(input.text);
-  if (textLength > STORY_CAPTION_LIMIT) {
-    throw new Error(`Telegram: STORY caption ${textLength} символов превышает предел ${STORY_CAPTION_LIMIT}`);
-  }
+function assertStoryCaptionText(text: string): void {
+  const length = characterCount(text);
+  if (length > STORY_CAPTION_LIMIT) throw new Error(`Telegram: STORY caption ${length} символов превышает предел ${STORY_CAPTION_LIMIT}`);
 }
-
+function assertStoryImageMedia(media: MediaRow, label = 'STORY/IMAGE'): MediaRow {
+  if (media.mime_type !== 'image/jpeg') throw new Error(`Telegram: ${label} требует image/jpeg, получен ${media.mime_type}`);
+  if (media.width !== TELEGRAM_STORY_PHOTO_WIDTH || media.height !== TELEGRAM_STORY_PHOTO_HEIGHT) throw new Error(`Telegram: ${label} требует ровно ${TELEGRAM_STORY_PHOTO_WIDTH}x${TELEGRAM_STORY_PHOTO_HEIGHT}, получен ${media.width || 0}x${media.height || 0}`);
+  if (media.size_bytes > TELEGRAM_STORY_PHOTO_MAX_BYTES) throw new Error(`Telegram: ${label} ${media.size_bytes} байт превышает предел 10 MB`);
+  return media;
+}
+function assertStoryVideoMedia(media: MediaRow, label = 'STORY/VERTICAL_VIDEO'): MediaRow {
+  if (media.mime_type !== 'video/mp4') throw new Error(`Telegram: ${label} требует canonical video/mp4, получен ${media.mime_type}`);
+  if (!media.duration_ms || media.duration_ms <= 0) throw new Error(`Telegram: ${label} требует известную положительную duration`);
+  if (media.duration_ms > TELEGRAM_STORY_VIDEO_MAX_DURATION_MS) throw new Error(`Telegram: ${label} duration ${media.duration_ms} ms превышает предел ${TELEGRAM_STORY_VIDEO_MAX_DURATION_MS} ms`);
+  if (media.video_codec?.toLowerCase() !== 'h264') throw new Error(`Telegram: ${label} source должен быть canonical H.264, получен ${media.video_codec || 'unknown'}`);
+  if (media.audio_codec && media.audio_codec.toLowerCase() !== 'aac') throw new Error(`Telegram: ${label} source audio должен быть AAC либо отсутствовать, получен ${media.audio_codec}`);
+  if (media.container?.toLowerCase() !== 'mp4') throw new Error(`Telegram: ${label} source container должен быть MP4, получен ${media.container || 'unknown'}`);
+  return media;
+}
 function assertStoryImage(input: PublishInput): MediaRow {
-  if (input.publicationKind !== 'STORY' || input.contentFormat !== 'IMAGE') {
-    throw new Error(`Telegram: CX3-010A поддерживает только STORY/IMAGE, получен ${input.publicationKind || 'FEED'}/${input.contentFormat || 'IMAGE'}`);
-  }
+  if (!isStoryImagePublication(input)) throw new Error(`Telegram: CX3-010A поддерживает только STORY/IMAGE, получен ${input.publicationKind || 'FEED'}/${input.contentFormat || 'IMAGE'}`);
   if (input.media.length !== 1) throw new Error('Telegram: STORY/IMAGE требует ровно один image asset');
-  const media = input.media[0]!;
-  if (media.mime_type !== 'image/jpeg') {
-    throw new Error(`Telegram: STORY/IMAGE требует image/jpeg, получен ${media.mime_type}`);
-  }
-  if (media.width !== TELEGRAM_STORY_PHOTO_WIDTH || media.height !== TELEGRAM_STORY_PHOTO_HEIGHT) {
-    throw new Error(`Telegram: STORY/IMAGE требует ровно ${TELEGRAM_STORY_PHOTO_WIDTH}x${TELEGRAM_STORY_PHOTO_HEIGHT}, получен ${media.width || 0}x${media.height || 0}`);
-  }
-  if (media.size_bytes > TELEGRAM_STORY_PHOTO_MAX_BYTES) {
-    throw new Error(`Telegram: STORY/IMAGE ${media.size_bytes} байт превышает предел 10 MB`);
-  }
-  assertStoryCaption(input);
-  return media;
+  assertStoryCaptionText(input.text); return assertStoryImageMedia(input.media[0]!);
 }
-
 function assertStoryVideoSource(input: PublishInput): MediaRow {
-  if (input.publicationKind !== 'STORY' || input.contentFormat !== 'VERTICAL_VIDEO') {
-    throw new Error(`Telegram: CX3-010B поддерживает только STORY/VERTICAL_VIDEO, получен ${input.publicationKind || 'FEED'}/${input.contentFormat || 'VIDEO'}`);
-  }
+  if (!isStoryVideoPublication(input)) throw new Error(`Telegram: CX3-010B поддерживает только STORY/VERTICAL_VIDEO, получен ${input.publicationKind || 'FEED'}/${input.contentFormat || 'VIDEO'}`);
   if (input.media.length !== 1) throw new Error('Telegram: STORY/VERTICAL_VIDEO требует ровно один canonical video asset');
-  const media = input.media[0]!;
-  if (media.mime_type !== 'video/mp4') throw new Error(`Telegram: STORY/VERTICAL_VIDEO требует canonical video/mp4, получен ${media.mime_type}`);
-  if (!media.duration_ms || media.duration_ms <= 0) throw new Error('Telegram: STORY/VERTICAL_VIDEO требует известную положительную duration');
-  if (media.duration_ms > TELEGRAM_STORY_VIDEO_MAX_DURATION_MS) {
-    throw new Error(`Telegram: STORY/VERTICAL_VIDEO duration ${media.duration_ms} ms превышает предел ${TELEGRAM_STORY_VIDEO_MAX_DURATION_MS} ms`);
-  }
-  if (media.video_codec?.toLowerCase() !== 'h264') {
-    throw new Error(`Telegram: STORY/VERTICAL_VIDEO source должен быть canonical H.264, получен ${media.video_codec || 'unknown'}`);
-  }
-  if (media.audio_codec && media.audio_codec.toLowerCase() !== 'aac') {
-    throw new Error(`Telegram: STORY/VERTICAL_VIDEO source audio должен быть AAC либо отсутствовать, получен ${media.audio_codec}`);
-  }
-  if (media.container?.toLowerCase() !== 'mp4') {
-    throw new Error(`Telegram: STORY/VERTICAL_VIDEO source container должен быть MP4, получен ${media.container || 'unknown'}`);
-  }
-  assertStoryCaption(input);
-  return media;
+  assertStoryCaptionText(input.text); return assertStoryVideoMedia(input.media[0]!);
 }
-
+function assertStorySequence(input: PublishInput): void {
+  if (!isStorySequencePublication(input)) throw new Error(`Telegram: STORY_SEQUENCE ожидает STORY/STORY_SEQUENCE, получен ${input.publicationKind || 'FEED'}/${input.contentFormat || 'IMAGE'}`);
+  if (input.media.length < 1) throw new Error('Telegram: STORY_SEQUENCE требует минимум один media asset');
+  assertStoryCaptionText(input.text);
+  input.media.forEach((media, index) => {
+    const label = `STORY_SEQUENCE slide ${index + 1}`;
+    if (media.mime_type === 'image/jpeg') assertStoryImageMedia(media, label);
+    else if (media.mime_type === 'video/mp4') assertStoryVideoMedia(media, label);
+    else throw new Error(`Telegram: ${label} имеет неподдерживаемый MIME ${media.mime_type}`);
+  });
+}
 function assertFeedVideo(input: PublishInput): MediaRow {
-  if (input.publicationKind && input.publicationKind !== 'FEED') {
-    throw new Error(`Telegram: CX3-008B поддерживает только FEED/VIDEO, получен ${input.publicationKind}/${input.contentFormat}`);
-  }
+  if (input.publicationKind && input.publicationKind !== 'FEED') throw new Error(`Telegram: CX3-008B поддерживает только FEED/VIDEO, получен ${input.publicationKind}/${input.contentFormat}`);
   if (input.media.length !== 1) throw new Error('Telegram: FEED/VIDEO требует ровно один video asset');
   const media = input.media[0]!;
   if (media.mime_type !== 'video/mp4') throw new Error(`Telegram: FEED/VIDEO требует video/mp4, получен ${media.mime_type}`);
-  if (media.size_bytes > TELEGRAM_VIDEO_MAX_BYTES) {
-    throw new Error(`Telegram: видео ${media.size_bytes} байт превышает предел 50 MB`);
-  }
-  if (media.video_codec && media.video_codec.toLowerCase() !== 'h264') {
-    throw new Error(`Telegram: canonical video должен быть H.264, получен ${media.video_codec}`);
-  }
-  if (media.audio_codec && media.audio_codec.toLowerCase() !== 'aac') {
-    throw new Error(`Telegram: canonical audio должен быть AAC либо отсутствовать, получен ${media.audio_codec}`);
-  }
-  if (media.container && media.container.toLowerCase() !== 'mp4') {
-    throw new Error(`Telegram: canonical video container должен быть MP4, получен ${media.container}`);
-  }
+  if (media.size_bytes > TELEGRAM_VIDEO_MAX_BYTES) throw new Error(`Telegram: видео ${media.size_bytes} байт превышает предел 50 MB`);
+  if (media.video_codec && media.video_codec.toLowerCase() !== 'h264') throw new Error(`Telegram: canonical video должен быть H.264, получен ${media.video_codec}`);
+  if (media.audio_codec && media.audio_codec.toLowerCase() !== 'aac') throw new Error(`Telegram: canonical audio должен быть AAC либо отсутствовать, получен ${media.audio_codec}`);
+  if (media.container && media.container.toLowerCase() !== 'mp4') throw new Error(`Telegram: canonical video container должен быть MP4, получен ${media.container}`);
   return media;
 }
-
 function assertImagePublication(input: PublishInput): void {
-  if (input.publicationKind && input.publicationKind !== 'FEED') {
-    throw new Error(`Telegram: текущий image adapter поддерживает только FEED, получен ${input.publicationKind}/${input.contentFormat || 'IMAGE'}`);
-  }
-  if (input.contentFormat && !['IMAGE', 'CAROUSEL'].includes(input.contentFormat)) {
-    throw new Error(`Telegram: текущий adapter не поддерживает ${input.publicationKind || 'FEED'}/${input.contentFormat}`);
-  }
+  if (input.publicationKind && input.publicationKind !== 'FEED') throw new Error(`Telegram: текущий image adapter поддерживает только FEED, получен ${input.publicationKind}/${input.contentFormat || 'IMAGE'}`);
+  if (input.contentFormat && !['IMAGE', 'CAROUSEL'].includes(input.contentFormat)) throw new Error(`Telegram: текущий adapter не поддерживает ${input.publicationKind || 'FEED'}/${input.contentFormat}`);
   if (input.media.length < 1) throw new Error('Telegram: требуется минимум одно изображение');
-  if (input.media.length > TELEGRAM_MEDIA_GROUP_LIMIT) {
-    throw new Error(`Telegram: в одной медиагруппе допускается не более ${TELEGRAM_MEDIA_GROUP_LIMIT} файлов`);
-  }
-  for (const media of input.media) {
-    if (media.mime_type !== 'image/jpeg') {
-      throw new Error(`Telegram: image publication требует image/jpeg, получен ${media.mime_type}`);
-    }
-  }
+  if (input.media.length > TELEGRAM_MEDIA_GROUP_LIMIT) throw new Error(`Telegram: в одной медиагруппе допускается не более ${TELEGRAM_MEDIA_GROUP_LIMIT} файлов`);
+  for (const media of input.media) if (media.mime_type !== 'image/jpeg') throw new Error(`Telegram: image publication требует image/jpeg, получен ${media.mime_type}`);
 }
-
 async function publishStoryImage(token: string, businessConnectionId: string, media: MediaRow, caption: string): Promise<any> {
   const bytes = await readMediaBytes(mediaAbsolutePath(media), TELEGRAM_STORY_PHOTO_MAX_BYTES);
-  const data = new FormData();
-  data.set('business_connection_id', businessConnectionId);
-  data.set('content', JSON.stringify({ type: 'photo', photo: 'attach://story' }));
-  data.set('active_period', String(TELEGRAM_STORY_ACTIVE_PERIOD_SECONDS));
-  if (caption) data.set('caption', caption);
-  data.set('story', new Blob([bytes], { type: 'image/jpeg' }), media.original_name.replace(/\.[^.]+$/, '') + '.jpg');
-  const body = await telegramRequest(`https://api.telegram.org/bot${token}/postStory`, {
-    method: 'POST',
-    body: data
-  }, 'Telegram postStory', TELEGRAM_STORY_REQUEST_TIMEOUT_MS);
-  return body.result;
+  const data = new FormData(); data.set('business_connection_id', businessConnectionId); data.set('content', JSON.stringify({ type: 'photo', photo: 'attach://story' })); data.set('active_period', String(TELEGRAM_STORY_ACTIVE_PERIOD_SECONDS)); if (caption) data.set('caption', caption); data.set('story', new Blob([bytes], { type: 'image/jpeg' }), media.original_name.replace(/\.[^.]+$/, '') + '.jpg');
+  const body = await telegramRequest(`https://api.telegram.org/bot${token}/postStory`, { method: 'POST', body: data }, 'Telegram postStory', TELEGRAM_STORY_REQUEST_TIMEOUT_MS); return body.result;
 }
-
 async function publishStoryVideo(token: string, businessConnectionId: string, media: MediaRow, caption: string): Promise<any> {
-  let rendition;
+  let rendition; try { rendition = await prepareTelegramStoryVideo(media); } catch (error) { throw localPreparationError(error, 'Telegram STORY/VIDEO rendition не подготовлен до внешнего POST'); }
   try {
-    rendition = await prepareTelegramStoryVideo(media);
-  } catch (error) {
-    throw localPreparationError(error, 'Telegram STORY/VIDEO rendition не подготовлен до внешнего POST');
-  }
-  try {
-    const bytes = await readMediaBytes(rendition.path, rendition.sizeBytes);
-    const data = new FormData();
-    data.set('business_connection_id', businessConnectionId);
-    data.set('content', JSON.stringify({
-      type: 'video',
-      video: 'attach://story',
-      duration: Number(rendition.durationSeconds.toFixed(3)),
-      cover_frame_timestamp: 0,
-      ...(rendition.hasAudio ? {} : { is_animation: true })
-    }));
-    data.set('active_period', String(TELEGRAM_STORY_ACTIVE_PERIOD_SECONDS));
-    if (caption) data.set('caption', caption);
-    data.set('story', new Blob([bytes], { type: 'video/mp4' }), 'story.mp4');
-    const body = await telegramRequest(`https://api.telegram.org/bot${token}/postStory`, {
-      method: 'POST',
-      body: data
-    }, 'Telegram postStory', TELEGRAM_STORY_REQUEST_TIMEOUT_MS);
-    return body.result;
-  } finally {
-    await rendition.cleanup().catch(() => undefined);
-  }
+    const bytes = await readMediaBytes(rendition.path, rendition.sizeBytes); const data = new FormData(); data.set('business_connection_id', businessConnectionId); data.set('content', JSON.stringify({ type: 'video', video: 'attach://story', duration: Number(rendition.durationSeconds.toFixed(3)), cover_frame_timestamp: 0, ...(rendition.hasAudio ? {} : { is_animation: true }) })); data.set('active_period', String(TELEGRAM_STORY_ACTIVE_PERIOD_SECONDS)); if (caption) data.set('caption', caption); data.set('story', new Blob([bytes], { type: 'video/mp4' }), 'story.mp4');
+    const body = await telegramRequest(`https://api.telegram.org/bot${token}/postStory`, { method: 'POST', body: data }, 'Telegram postStory', TELEGRAM_STORY_REQUEST_TIMEOUT_MS); return body.result;
+  } finally { await rendition.cleanup().catch(() => undefined); }
 }
-
 async function publishVideo(token: string, chatId: string, media: MediaRow, caption: string): Promise<any> {
-  const bytes = await readMediaBytes(mediaAbsolutePath(media), TELEGRAM_VIDEO_MAX_BYTES);
-  const data = new FormData();
-  data.set('chat_id', chatId);
-  data.set('caption', caption);
-  data.set('supports_streaming', 'true');
-  if (media.width && media.width > 0) data.set('width', String(media.width));
-  if (media.height && media.height > 0) data.set('height', String(media.height));
-  if (media.duration_ms && media.duration_ms > 0) {
-    data.set('duration', String(Math.max(1, Math.round(media.duration_ms / 1000))));
-  }
-  const filename = media.original_name.toLowerCase().endsWith('.mp4') ? media.original_name : `${media.original_name}.mp4`;
-  data.set('video', new Blob([bytes], { type: 'video/mp4' }), filename);
-  const body = await telegramRequest(`https://api.telegram.org/bot${token}/sendVideo`, {
-    method: 'POST',
-    body: data
-  }, 'Telegram sendVideo');
-  return body.result;
+  const bytes = await readMediaBytes(mediaAbsolutePath(media), TELEGRAM_VIDEO_MAX_BYTES); const data = new FormData(); data.set('chat_id', chatId); data.set('caption', caption); data.set('supports_streaming', 'true'); if (media.width && media.width > 0) data.set('width', String(media.width)); if (media.height && media.height > 0) data.set('height', String(media.height)); if (media.duration_ms && media.duration_ms > 0) data.set('duration', String(Math.max(1, Math.round(media.duration_ms / 1000)))); const filename = media.original_name.toLowerCase().endsWith('.mp4') ? media.original_name : `${media.original_name}.mp4`; data.set('video', new Blob([bytes], { type: 'video/mp4' }), filename);
+  const body = await telegramRequest(`https://api.telegram.org/bot${token}/sendVideo`, { method: 'POST', body: data }, 'Telegram sendVideo'); return body.result;
 }
-
 async function publishImages(token: string, chatId: string, mediaRows: MediaRow[], caption: string): Promise<any> {
-  if (mediaRows.length === 1) {
-    const media = mediaRows[0]!;
-    const bytes = await readMediaBytes(mediaAbsolutePath(media));
-    const data = new FormData();
-    data.set('chat_id', chatId);
-    data.set('caption', caption);
-    data.set('photo', new Blob([bytes], { type: 'image/jpeg' }), media.original_name.replace(/\.[^.]+$/, '') + '.jpg');
-    const body = await telegramRequest(`https://api.telegram.org/bot${token}/sendPhoto`, {
-      method: 'POST',
-      body: data
-    }, 'Telegram sendPhoto');
-    return body.result;
-  }
-
-  const data = new FormData();
-  data.set('chat_id', chatId);
-  const descriptors = [];
-  for (let index = 0; index < mediaRows.length; index += 1) {
-    const media = mediaRows[index]!;
-    const name = `media${index}`;
-    const bytes = await readMediaBytes(mediaAbsolutePath(media));
-    data.set(name, new Blob([bytes], { type: 'image/jpeg' }), `${name}.jpg`);
-    descriptors.push({ type: 'photo', media: `attach://${name}`, ...(index === 0 && caption ? { caption } : {}) });
-  }
-  data.set('media', JSON.stringify(descriptors));
-  const body = await telegramRequest(`https://api.telegram.org/bot${token}/sendMediaGroup`, {
-    method: 'POST',
-    body: data
-  }, 'Telegram sendMediaGroup');
-  return body.result?.[0];
+  if (mediaRows.length === 1) { const media = mediaRows[0]!; const bytes = await readMediaBytes(mediaAbsolutePath(media)); const data = new FormData(); data.set('chat_id', chatId); data.set('caption', caption); data.set('photo', new Blob([bytes], { type: 'image/jpeg' }), media.original_name.replace(/\.[^.]+$/, '') + '.jpg'); const body = await telegramRequest(`https://api.telegram.org/bot${token}/sendPhoto`, { method: 'POST', body: data }, 'Telegram sendPhoto'); return body.result; }
+  const data = new FormData(); data.set('chat_id', chatId); const descriptors = [];
+  for (let index = 0; index < mediaRows.length; index += 1) { const media = mediaRows[index]!; const name = `media${index}`; const bytes = await readMediaBytes(mediaAbsolutePath(media)); data.set(name, new Blob([bytes], { type: 'image/jpeg' }), `${name}.jpg`); descriptors.push({ type: 'photo', media: `attach://${name}`, ...(index === 0 && caption ? { caption } : {}) }); }
+  data.set('media', JSON.stringify(descriptors)); const body = await telegramRequest(`https://api.telegram.org/bot${token}/sendMediaGroup`, { method: 'POST', body: data }, 'Telegram sendMediaGroup'); return body.result?.[0];
 }
-
 function assertStoryResult(result: any): PublishResult {
-  if (!Number.isInteger(result?.id) || result.id <= 0) {
-    throw new PlatformError('Telegram: postStory подтвердил запрос, но не вернул story id; автоматический повтор небезопасен', {
-      retryable: false,
-      outcomeUnknown: true
-    });
-  }
+  if (!Number.isInteger(result?.id) || result.id <= 0) throw new PlatformError('Telegram: postStory подтвердил запрос, но не вернул story id; автоматический повтор небезопасен', { retryable: false, outcomeUnknown: true });
   return { externalId: String(result.id), raw: result };
 }
 
@@ -305,66 +146,33 @@ export const telegramPublisher: SocialPublisher = {
   platform: 'telegram',
   validate(input) {
     requireString(input.credentials, 'botToken');
-    if (isStoryImagePublication(input)) {
-      requireString(input.credentials, 'businessConnectionId');
-      assertStoryImage(input);
-      return;
-    }
-    if (isStoryVideoPublication(input)) {
-      requireString(input.credentials, 'businessConnectionId');
-      assertStoryVideoSource(input);
-      return;
-    }
+    if (isStoryImagePublication(input)) { requireString(input.credentials, 'businessConnectionId'); assertStoryImage(input); return; }
+    if (isStoryVideoPublication(input)) { requireString(input.credentials, 'businessConnectionId'); assertStoryVideoSource(input); return; }
+    if (isStorySequencePublication(input)) { requireString(input.credentials, 'businessConnectionId'); assertStorySequence(input); return; }
     requireString(input.credentials, 'chatId');
-    if (isVideoPublication(input)) assertFeedVideo(input);
-    else assertImagePublication(input);
-    const textLength = characterCount(input.text);
-    if (textLength > MESSAGE_LIMIT) {
-      throw new Error(`Telegram: текст ${textLength} символов превышает предел ${MESSAGE_LIMIT}. Сократите базовый текст или задайте отдельный текст Telegram.`);
-    }
+    if (isVideoPublication(input)) assertFeedVideo(input); else assertImagePublication(input);
+    const textLength = characterCount(input.text); if (textLength > MESSAGE_LIMIT) throw new Error(`Telegram: текст ${textLength} символов превышает предел ${MESSAGE_LIMIT}. Сократите базовый текст или задайте отдельный текст Telegram.`);
+  },
+  async publishUnit(input: PublishInput, unitIndex: number): Promise<PublishResult> {
+    this.validate(input);
+    if (!isStorySequencePublication(input)) throw new Error('Telegram: unit publishing разрешён только для STORY/STORY_SEQUENCE');
+    if (!Number.isInteger(unitIndex) || unitIndex < 0 || unitIndex >= input.media.length) throw new Error(`Telegram: unit index ${unitIndex} вне STORY_SEQUENCE`);
+    const token = requireString(input.credentials, 'botToken'); const businessConnectionId = requireString(input.credentials, 'businessConnectionId'); const media = input.media[unitIndex]!; const caption = unitIndex === 0 ? input.text : '';
+    if (media.mime_type === 'image/jpeg') return assertStoryResult(await publishStoryImage(token, businessConnectionId, assertStoryImageMedia(media, `STORY_SEQUENCE slide ${unitIndex + 1}`), caption));
+    if (media.mime_type === 'video/mp4') return assertStoryResult(await publishStoryVideo(token, businessConnectionId, assertStoryVideoMedia(media, `STORY_SEQUENCE slide ${unitIndex + 1}`), caption));
+    throw new Error(`Telegram: STORY_SEQUENCE slide ${unitIndex + 1} имеет неподдерживаемый MIME ${media.mime_type}`);
   },
   async publish(input: PublishInput): Promise<PublishResult> {
     this.validate(input);
+    if (isStorySequencePublication(input)) throw new Error('Telegram: STORY_SEQUENCE должен выполняться только через PublicationUnit executor');
     const token = requireString(input.credentials, 'botToken');
-
-    if (isStoryImagePublication(input)) {
-      const businessConnectionId = requireString(input.credentials, 'businessConnectionId');
-      return assertStoryResult(await publishStoryImage(token, businessConnectionId, assertStoryImage(input), input.text));
-    }
-    if (isStoryVideoPublication(input)) {
-      const businessConnectionId = requireString(input.credentials, 'businessConnectionId');
-      return assertStoryResult(await publishStoryVideo(token, businessConnectionId, assertStoryVideoSource(input), input.text));
-    }
-
-    const chatId = requireString(input.credentials, 'chatId');
-    const textLength = characterCount(input.text);
-    const caption = textLength <= CAPTION_LIMIT ? input.text : '';
-    const result = isVideoPublication(input)
-      ? await publishVideo(token, chatId, assertFeedVideo(input), caption)
-      : await publishImages(token, chatId, input.media, caption);
-
-    if (!result?.message_id) {
-      throw new PlatformError('Telegram: API подтвердил запрос, но не вернул message_id; автоматический повтор небезопасен', {
-        retryable: false,
-        outcomeUnknown: true
-      });
-    }
-
+    if (isStoryImagePublication(input)) { const businessConnectionId = requireString(input.credentials, 'businessConnectionId'); return assertStoryResult(await publishStoryImage(token, businessConnectionId, assertStoryImage(input), input.text)); }
+    if (isStoryVideoPublication(input)) { const businessConnectionId = requireString(input.credentials, 'businessConnectionId'); return assertStoryResult(await publishStoryVideo(token, businessConnectionId, assertStoryVideoSource(input), input.text)); }
+    const chatId = requireString(input.credentials, 'chatId'); const textLength = characterCount(input.text); const caption = textLength <= CAPTION_LIMIT ? input.text : ''; const result = isVideoPublication(input) ? await publishVideo(token, chatId, assertFeedVideo(input), caption) : await publishImages(token, chatId, input.media, caption);
+    if (!result?.message_id) throw new PlatformError('Telegram: API подтвердил запрос, но не вернул message_id; автоматический повтор небезопасен', { retryable: false, outcomeUnknown: true });
     if (textLength > CAPTION_LIMIT) {
-      try {
-        const textResult = await sendMessage(token, chatId, input.text);
-        if (!textResult?.message_id) {
-          throw new PlatformError('Telegram sendMessage: API не вернул message_id', {
-            retryable: false,
-            outcomeUnknown: true
-          });
-        }
-      } catch (error) {
-        throw new PlatformError(`Telegram: media уже опубликовано (message_id=${result.message_id}), но дополнительный текст не подтверждён: ${error instanceof Error ? error.message : String(error)}. Требуется ручная проверка, повтор всего target заблокирован.`, {
-          retryable: false,
-          outcomeUnknown: true
-        });
-      }
+      try { const textResult = await sendMessage(token, chatId, input.text); if (!textResult?.message_id) throw new PlatformError('Telegram sendMessage: API не вернул message_id', { retryable: false, outcomeUnknown: true }); }
+      catch (error) { throw new PlatformError(`Telegram: media уже опубликовано (message_id=${result.message_id}), но дополнительный текст не подтверждён: ${error instanceof Error ? error.message : String(error)}. Требуется ручная проверка, повтор всего target заблокирован.`, { retryable: false, outcomeUnknown: true }); }
     }
     return { externalId: String(result.message_id), raw: result };
   }
