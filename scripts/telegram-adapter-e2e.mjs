@@ -10,6 +10,7 @@ process.env.ADMIN_PASSWORD = 'telegram-adapter-test-password';
 process.env.APP_MASTER_KEY = 'telegram-adapter-test-master-key-longer-than-thirty-two-characters';
 
 const { telegramPublisher } = await import('../dist/platforms/telegram.js');
+const { PLATFORM_CAPABILITIES } = await import('../dist/platforms/capabilities.js');
 const { PlatformError } = await import('../dist/platforms/types.js');
 const { db } = await import('../dist/db.js');
 
@@ -33,18 +34,56 @@ async function makeMedia(index) {
   };
 }
 
+async function makeVideo({ sizeBytes = 4096, videoCodec = 'h264', audioCodec = 'aac', container = 'mp4' } = {}) {
+  const relativePath = 'post-telegram-test/clip.mp4';
+  const absolutePath = path.join(dataDir, 'media', relativePath);
+  await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+  await fs.writeFile(absolutePath, Buffer.from('telegram-video-fixture'));
+  return {
+    id: 'telegram-video-1',
+    post_id: 'post-telegram-test',
+    original_name: 'clip.mp4',
+    relative_path: relativePath,
+    mime_type: 'video/mp4',
+    size_bytes: sizeBytes,
+    width: 1080,
+    height: 1920,
+    duration_ms: 12_500,
+    fps: 30,
+    video_codec: videoCodec,
+    audio_codec: audioCodec,
+    container,
+    poster_asset_id: 'telegram-poster-1',
+    sha256: 'v'.repeat(64),
+    created_at: '2026-09-10T00:00:00.000Z',
+    sort_order: 0
+  };
+}
+
 const media1 = await makeMedia(1);
 const media2 = await makeMedia(2);
+const video1 = await makeVideo();
 
-function input({ text = 'Короткий Telegram текст', media = [media1] } = {}) {
+function input({
+  text = 'Короткий Telegram текст',
+  media = [media1],
+  publicationKind,
+  contentFormat
+} = {}) {
   return {
     postId: 'post-telegram-test',
     title: 'Telegram adapter test',
     text,
     media,
     credentials: { botToken: 'test-telegram-token', chatId: '@test-channel' },
-    publicMediaUrls: []
+    publicMediaUrls: [],
+    ...(publicationKind ? { publicationKind } : {}),
+    ...(contentFormat ? { contentFormat } : {})
   };
+}
+
+function videoInput(options = {}) {
+  return input({ publicationKind: 'FEED', contentFormat: 'VIDEO', media: [video1], ...options });
 }
 
 function json(body, status = 200) {
@@ -55,7 +94,7 @@ function json(body, status = 200) {
 }
 
 function telegramMethod(url) {
-  const match = /\/bot[^/]+\/(sendPhoto|sendMediaGroup|sendMessage)$/.exec(url);
+  const match = /\/bot[^/]+\/(sendPhoto|sendMediaGroup|sendVideo|sendMessage)$/.exec(url);
   return match?.[1] || null;
 }
 
@@ -89,6 +128,11 @@ async function expectPlatformError(promise, expected) {
 }
 
 try {
+  assert.equal(PLATFORM_CAPABILITIES.telegram.supportsVideo, false, 'Telegram video capability must remain gated until live acceptance');
+  assert.equal(PLATFORM_CAPABILITIES.telegram.supportsStories, false);
+  assert.equal(PLATFORM_CAPABILITIES.telegram.supportsShortVideo, false);
+  assert.equal(PLATFORM_CAPABILITIES.telegram.verification.richMediaPendingLiveAcceptance, true);
+
   {
     const steps = [{
       telegramMethod: 'sendPhoto',
@@ -126,6 +170,59 @@ try {
   }
 
   {
+    const steps = [{
+      telegramMethod: 'sendVideo',
+      check: (call) => {
+        assert.ok(call.init.body instanceof FormData);
+        assert.equal(call.init.body.get('chat_id'), '@test-channel');
+        assert.equal(call.init.body.get('caption'), 'Короткий Telegram текст');
+        assert.equal(call.init.body.get('supports_streaming'), 'true');
+        assert.equal(call.init.body.get('width'), '1080');
+        assert.equal(call.init.body.get('height'), '1920');
+        assert.equal(call.init.body.get('duration'), '13');
+        const video = call.init.body.get('video');
+        assert.ok(video instanceof Blob);
+        assert.equal(video.type, 'video/mp4');
+        assert.ok(call.init.signal instanceof AbortSignal);
+      },
+      response: { ok: true, result: { message_id: 251, video: { file_id: 'video-file-id' } } }
+    }];
+    const calls = mockFetch(steps);
+    const result = await telegramPublisher.publish(videoInput());
+    assert.equal(result.externalId, '251');
+    assert.equal(calls.length, 1);
+    assert.equal(steps.length, 0);
+  }
+
+  {
+    let fetchCalls = 0;
+    globalThis.fetch = async () => {
+      fetchCalls += 1;
+      throw new Error('fetch must not run');
+    };
+    const oversized = await makeVideo({ sizeBytes: 50 * 1024 * 1024 + 1 });
+    await assert.rejects(
+      telegramPublisher.publish(videoInput({ media: [oversized] })),
+      /превышает предел 50 MB/
+    );
+    assert.equal(fetchCalls, 0);
+  }
+
+  {
+    let fetchCalls = 0;
+    globalThis.fetch = async () => {
+      fetchCalls += 1;
+      throw new Error('fetch must not run');
+    };
+    const hevc = await makeVideo({ videoCodec: 'hevc' });
+    await assert.rejects(
+      telegramPublisher.publish(videoInput({ media: [hevc] })),
+      /canonical video должен быть H\.264/
+    );
+    assert.equal(fetchCalls, 0);
+  }
+
+  {
     const missing = { ...media1, relative_path: 'post-telegram-test/missing.jpg' };
     let fetchCalls = 0;
     globalThis.fetch = async () => {
@@ -135,7 +232,7 @@ try {
     await expectPlatformError(telegramPublisher.publish(input({ media: [missing] })), {
       retryable: false,
       outcomeUnknown: false,
-      message: /локальное изображение недоступно/
+      message: /локальный media недоступен/
     });
     assert.equal(fetchCalls, 0);
   }
@@ -198,16 +295,43 @@ try {
   }
 
   {
-    const steps = [{ telegramMethod: 'sendPhoto', response: { ok: true, result: {} } }];
+    const longText = 'в'.repeat(1025);
+    const steps = [
+      {
+        telegramMethod: 'sendVideo',
+        check: (call) => assert.equal(call.init.body.get('caption'), ''),
+        response: { ok: true, result: { message_id: 351 } }
+      },
+      {
+        telegramMethod: 'sendMessage',
+        status: 503,
+        response: { ok: false, description: 'Unavailable' }
+      }
+    ];
     mockFetch(steps);
-    await expectPlatformError(telegramPublisher.publish(input()), {
+    await expectPlatformError(telegramPublisher.publish(videoInput({ text: longText })), {
+      retryable: false,
+      outcomeUnknown: true,
+      message: /media уже опубликовано \(message_id=351\).*повтор всего target заблокирован/
+    });
+  }
+
+  {
+    const steps = [{ telegramMethod: 'sendVideo', response: { ok: true, result: {} } }];
+    mockFetch(steps);
+    await expectPlatformError(telegramPublisher.publish(videoInput()), {
       retryable: false,
       outcomeUnknown: true,
       message: /не вернул message_id/
     });
   }
 
-  console.log(JSON.stringify({ ok: true, scenarios: 8 }, null, 2));
+  console.log(JSON.stringify({
+    ok: true,
+    scenarios: 12,
+    feedVideoAdapterImplemented: true,
+    videoCapabilityStillLiveGated: true
+  }, null, 2));
 } finally {
   db.close();
   await fs.rm(dataDir, { recursive: true, force: true });
