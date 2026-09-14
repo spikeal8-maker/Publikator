@@ -45,17 +45,17 @@ db.prepare(`UPDATE posts SET source_revision='mutated',source_payload_hash=?,sou
   .run('b'.repeat(64), postId);
 const mutated = db.prepare(selectProvenance).get(postId);
 assert.notDeepEqual(mutated, before);const staged = await stageRestoreBundle(bundlePath);
-assert.equal(staged.manifest.schemaVersion, 7);
+assert.equal(staged.manifest.schemaVersion, 8);
 
 db.close();
 const applied = await applyPendingRestore();
 assert.equal(applied.applied, true);
 
 const restoredDb = new Database(config.dbPath, { readonly: true, fileMustExist: true });try {
-  assert.equal(Number(restoredDb.pragma('user_version', { simple: true })), 7);
+  assert.equal(Number(restoredDb.pragma('user_version', { simple: true })), 8);
   const after = restoredDb.prepare(selectProvenance).get(postId);
   assert.deepEqual(after, before);
-  console.log(JSON.stringify({ ok: true, schemaVersion: 7, canonicalBundle: true, pendingRestoreApplied: true, ingestionProvenancePreserved: true }, null, 2));
+  console.log(JSON.stringify({ ok: true, schemaVersion: 8, canonicalBundle: true, pendingRestoreApplied: true, ingestionProvenancePreserved: true }, null, 2));
 } finally {
   restoredDb.close();
   await fs.rm(dataDir, { recursive: true, force: true });

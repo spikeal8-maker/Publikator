@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import Database from 'better-sqlite3';
 import { config } from './config.js';
 import { DATABASE_SCHEMA_VERSION } from './schema.js';
+import { migrateRichMediaModel } from './rich-media-migration.js';
 
 export { DATABASE_SCHEMA_VERSION } from './schema.js';
 
@@ -83,7 +84,6 @@ function migrateUniqueScheduleSlots(): void {
     }
   })();
 }
-
 
 function migrateContentVersioning(): void {
   const columns = new Set((db.prepare('PRAGMA table_info(posts)').all() as Array<{ name: string }>).map((column) => column.name));
@@ -168,7 +168,6 @@ function migrateIngestionProvenance(): void {
     if (!columns.has(name)) db.exec(`ALTER TABLE posts ADD COLUMN ${name} ${type}`);
   }
 }
-
 
 function migrateIngestionSecurity(): void {
   db.exec(`
@@ -378,6 +377,7 @@ export function migrate(): void {
   if (currentSchemaVersion < 5) migrateIngestionProvenance();
   if (currentSchemaVersion < 6) migrateIngestionSecurity();
   if (currentSchemaVersion < 7) migrateTimeRenditionSequence();
+  if (currentSchemaVersion < 8) migrateRichMediaModel(db);
 
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_posts_status_schedule ON posts(status, schedule_mode, scheduled_at);
@@ -388,6 +388,8 @@ export function migrate(): void {
     CREATE INDEX IF NOT EXISTS idx_ingestion_connectors_type ON ingestion_connectors(type, enabled);
     CREATE INDEX IF NOT EXISTS idx_targets_state_retry ON post_targets(state, next_attempt_at);
     CREATE INDEX IF NOT EXISTS idx_media_post ON media(post_id);
+    CREATE INDEX IF NOT EXISTS idx_media_poster_asset ON media(poster_asset_id) WHERE poster_asset_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_content_media_post_order ON content_media(post_id, sort_order, created_at);
     CREATE INDEX IF NOT EXISTS idx_content_revisions_post_version ON content_revisions(post_id, content_version);
     CREATE INDEX IF NOT EXISTS idx_publication_units_target_state ON publication_units(target_id, state, unit_index);
     CREATE INDEX IF NOT EXISTS idx_media_post_order ON media(post_id, sort_order, created_at);

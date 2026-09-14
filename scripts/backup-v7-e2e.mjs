@@ -55,20 +55,20 @@ db.prepare("UPDATE posts SET schedule_timezone='UTC',scheduled_at_utc='2030-01-0
 db.prepare('DELETE FROM target_renditions WHERE target_id=?').run(targetId);
 db.prepare('DELETE FROM publication_units WHERE target_id=?').run(targetId);
 const staged = await stageRestoreBundle(bundlePath);
-assert.equal(staged.manifest.schemaVersion, 7);
+assert.equal(staged.manifest.schemaVersion, 8);
 db.close();
 const applied = await applyPendingRestore();
 assert.equal(applied.applied, true);
 
 const restored = new Database(config.dbPath, { readonly: true, fileMustExist: true });
 try {
-  assert.equal(Number(restored.pragma('user_version', { simple: true })), 7);
+  assert.equal(Number(restored.pragma('user_version', { simple: true })), 8);
   assert.deepEqual(restored.prepare(`SELECT scheduled_at_utc,schedule_timezone,publication_kind,content_format FROM posts WHERE id=?`).get(postId), postBefore);
   assert.deepEqual(restored.prepare('SELECT * FROM target_renditions WHERE target_id=?').get(targetId), renditionBefore);
   assert.deepEqual(restored.prepare('SELECT * FROM publication_units WHERE target_id=? ORDER BY unit_index').all(targetId), unitsBefore);
   console.log(JSON.stringify({
     ok: true,
-    schemaVersion: 7,
+    schemaVersion: 8,
     scheduleTimezonePreserved: true,
     targetRenditionPreserved: true,
     publicationUnitRecoveryPreserved: true,
