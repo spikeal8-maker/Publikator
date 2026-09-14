@@ -3,6 +3,9 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+const phase = process.argv[2] || 'full';
+if (!['upload', 'rejection', 'full'].includes(phase)) throw new Error(`Unknown CX3-008A phase: ${phase}`);
+
 const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'publikator-cx3-008a-'));
 const toolDir = await fs.mkdtemp(path.join(os.tmpdir(), 'publikator-cx3-008a-tools-'));
 const ffprobePath = path.join(toolDir, 'ffprobe-test');
@@ -120,6 +123,7 @@ try {
   assert.equal(stored.content_format, 'VIDEO');
   assert.equal(stored.media.length, 2);
   const storedVideo = stored.media.find((item) => item.mime_type === 'video/mp4');
+  assert.ok(storedVideo);
   const storedPoster = stored.media.find((item) => item.id === storedVideo.poster_asset_id);
   assert.ok(storedPoster);
   assert.equal(storedPoster.mime_type, 'image/jpeg');
@@ -146,51 +150,45 @@ try {
   const posterMeta = await sharp(posterBytesOnDisk).metadata();
   assert.equal(posterMeta.format, 'jpeg');
 
-  const badCodecPost = await createPost(project.id, 'Bad codec');
-  process.env.FAKE_VIDEO_CODEC = 'hevc';
-  const badCodec = await uploadVideo(badCodecPost.id, badCodecPost.content_version, Buffer.from('not-h264'), 400);
-  assert.match(badCodec.error, /H\.264/);
-  const badCodecAfter = await json(`/api/posts/${badCodecPost.id}`);
-  assert.equal(badCodecAfter.media.length, 0);
-  assert.equal(badCodecAfter.content_version, badCodecPost.content_version);
-  process.env.FAKE_VIDEO_CODEC = 'h264';
+  if (phase !== 'upload') {
+    const badCodecPost = await createPost(project.id, 'Bad codec');
+    process.env.FAKE_VIDEO_CODEC = 'hevc';
+    const badCodec = await uploadVideo(badCodecPost.id, badCodecPost.content_version, Buffer.from('not-h264'), 400);
+    assert.match(badCodec.error, /H\.264/);
+    const badCodecAfter = await json(`/api/posts/${badCodecPost.id}`);
+    assert.equal(badCodecAfter.media.length, 0);
+    assert.equal(badCodecAfter.content_version, badCodecPost.content_version);
+    process.env.FAKE_VIDEO_CODEC = 'h264';
 
-  const oversizePost = await createPost(project.id, 'Oversize');
-  const oversize = await uploadVideo(oversizePost.id, oversizePost.content_version, Buffer.alloc(1024 * 1024 + 1), 413);
-  assert.match(oversize.error, /limit|превыш/i);
-  const oversizeAfter = await json(`/api/posts/${oversizePost.id}`);
-  assert.equal(oversizeAfter.media.length, 0);
-  assert.equal(oversizeAfter.content_version, oversizePost.content_version);
+    const oversizePost = await createPost(project.id, 'Oversize');
+    const oversize = await uploadVideo(oversizePost.id, oversizePost.content_version, Buffer.alloc(1024 * 1024 + 1), 413);
+    assert.match(oversize.error, /limit|превыш/i);
+    const oversizeAfter = await json(`/api/posts/${oversizePost.id}`);
+    assert.equal(oversizeAfter.media.length, 0);
+    assert.equal(oversizeAfter.content_version, oversizePost.content_version);
+  }
 
-  const beforeDeleteVideoPath = path.join(dataDir, 'media', storedVideo.relative_path);
-  const beforeDeletePosterPath = path.join(dataDir, 'media', storedPoster.relative_path);
-  await json(`/api/media/${storedVideo.id}`, {
-    method: 'DELETE',
-    headers: { 'x-content-version': String(stored.content_version) }
-  });
-  const afterDelete = await json(`/api/posts/${post.id}`);
-  assert.equal(afterDelete.media.length, 0);
-  assert.equal(afterDelete.content_format, 'IMAGE');
-  await assert.rejects(fs.access(beforeDeleteVideoPath));
-  await assert.rejects(fs.access(beforeDeletePosterPath));
+  if (phase === 'full') {
+    const beforeDeleteVideoPath = path.join(dataDir, 'media', storedVideo.relative_path);
+    const beforeDeletePosterPath = path.join(dataDir, 'media', storedPoster.relative_path);
+    await json(`/api/media/${storedVideo.id}`, {
+      method: 'DELETE',
+      headers: { 'x-content-version': String(stored.content_version) }
+    });
+    const afterDelete = await json(`/api/posts/${post.id}`);
+    assert.equal(afterDelete.media.length, 0);
+    assert.equal(afterDelete.content_format, 'IMAGE');
+    await assert.rejects(fs.access(beforeDeleteVideoPath));
+    await assert.rejects(fs.access(beforeDeletePosterPath));
 
-  const tempDir = path.join(dataDir, '.media-tmp');
-  await fs.mkdir(tempDir, { recursive: true });
-  await fs.writeFile(path.join(tempDir, 'stale.tmp'), 'stale');
-  await cleanupVideoTemp();
-  assert.deepEqual(await fs.readdir(tempDir), []);
+    const tempDir = path.join(dataDir, '.media-tmp');
+    await fs.mkdir(tempDir, { recursive: true });
+    await fs.writeFile(path.join(tempDir, 'stale.tmp'), 'stale');
+    await cleanupVideoTemp();
+    assert.deepEqual(await fs.readdir(tempDir), []);
+  }
 
-  console.log(JSON.stringify({
-    ok: true,
-    checkpoint: 'CX3-008A',
-    videoUpload: true,
-    h264AacValidation: true,
-    generatedPoster: true,
-    immutablePublicationProjection: true,
-    oversizeRejected: true,
-    deleteCascadesGeneratedPoster: true,
-    tempCleanup: true
-  }, null, 2));
+  console.log(JSON.stringify({ ok: true, checkpoint: 'CX3-008A', phase }, null, 2));
 } finally {
   await app.close();
   db.close();
