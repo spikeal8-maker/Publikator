@@ -32,6 +32,20 @@ const videoMedia = {
   sort_order: 0
 };
 
+const imageMedia = {
+  id: 'instagram-short-image-1',
+  post_id: 'post-instagram-short-test',
+  original_name: 'image.jpg',
+  relative_path: 'post-instagram-short-test/image.jpg',
+  mime_type: 'image/jpeg',
+  size_bytes: 1024,
+  width: 1080,
+  height: 1920,
+  sha256: 'b'.repeat(64),
+  created_at: '2026-09-14T00:00:00.000Z',
+  sort_order: 0
+};
+
 function shortInput(overrides = {}) {
   return {
     postId: 'post-instagram-short-test',
@@ -134,6 +148,14 @@ assert.equal(platformRequiresPublicHttpsMedia('instagram', 'VERTICAL_VIDEO'), tr
     instagramPublisher.publish(shortInput({ publicationKind: 'FEED' })),
     /VERTICAL_VIDEO поддерживается только как SHORT\/VERTICAL_VIDEO/
   );
+  await assert.rejects(
+    instagramPublisher.publish(shortInput({
+      contentFormat: 'IMAGE',
+      media: [imageMedia],
+      publicMediaUrls: ['https://publisher.example.test/public-media/image.jpg']
+    })),
+    /image publication поддерживается только как FEED/
+  );
   assert.equal(fetchCalls, 0);
 }
 
@@ -201,6 +223,7 @@ console.log(JSON.stringify({
   scenarios: 6,
   instagramShortViaReel: true,
   shareToFeedFalse: true,
+  compositionDefenseInDepth: true,
   verticalSemanticGuard: true,
   publicHttpsVideoUrlRequired: true,
   recoveryBoundaryPreserved: true,
