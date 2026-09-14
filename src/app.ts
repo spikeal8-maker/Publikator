@@ -20,6 +20,7 @@ import { registerCalendarRoutes } from './http/calendar.js';
 import { registerContentLibraryRoutes } from './http/content-library.js';
 import { registerPlatformCapabilityRoutes } from './http/platform-capabilities.js';
 import { registerPlatformPreviewRoutes } from './http/platform-previews.js';
+import { registerEditorialDashboardRoutes } from './http/editorial-dashboard.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -40,6 +41,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await registerContentLibraryRoutes(app);
   await registerPlatformCapabilityRoutes(app);
   await registerPlatformPreviewRoutes(app);
+  await registerEditorialDashboardRoutes(app);
   await registerTargetOverrideRoutes(app);
   await registerMediaOrderRoutes(app);
   await registerBackupBundleRoutes(app);
