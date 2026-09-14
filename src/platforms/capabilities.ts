@@ -38,6 +38,7 @@ export type PlatformCapability = {
   durationRules: DurationRule[];
   textRules: TextRules;
   requiresPublicHttpsMedia: boolean;
+  publicHttpsMediaFormats?: ContentFormat[];
   platformOptionsSchema: Record<string, unknown>;
   verification: {
     officialDocsReviewedAt: string;
@@ -110,6 +111,7 @@ export const PLATFORM_CAPABILITIES: Record<Platform, PlatformCapability> = {
     durationRules: [],
     textRules: { maxChars: 4000 },
     requiresPublicHttpsMedia: true,
+    publicHttpsMediaFormats: ['IMAGE', 'CAROUSEL'],
     platformOptionsSchema: {},
     verification: { officialDocsReviewedAt: VERIFIED_AT, richMediaPendingLiveAcceptance: true }
   },
@@ -164,6 +166,13 @@ function resolvedKind(input: PublishInput): PublicationKind {
 
 function resolvedFormat(input: PublishInput): ContentFormat {
   return input.contentFormat ?? (input.media.length > 1 ? 'CAROUSEL' : 'IMAGE');
+}
+
+export function platformRequiresPublicHttpsMedia(platform: Platform, format: ContentFormat): boolean {
+  const capability = PLATFORM_CAPABILITIES[platform];
+  if (!capability.requiresPublicHttpsMedia) return false;
+  if (!capability.publicHttpsMediaFormats) return true;
+  return capability.publicHttpsMediaFormats.includes(format);
 }
 
 function compositionSupported(capability: PlatformCapability, kind: PublicationKind, format: ContentFormat): boolean {
@@ -261,7 +270,7 @@ export function capabilityIssues(platform: Platform, input: PublishInput): Capab
     }
   }
 
-  if (capability.requiresPublicHttpsMedia) {
+  if (platformRequiresPublicHttpsMedia(platform, format)) {
     if (input.publicMediaUrls.length !== input.media.length) {
       issues.push({ code: 'PUBLIC_MEDIA_URL_REQUIRED', message: 'Для каждого media asset требуется публичный HTTPS URL' });
     } else if (input.publicMediaUrls.some((url) => !publicHttpsUrl(url))) {
