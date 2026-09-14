@@ -21,7 +21,7 @@ assert.ok(contrast(color(darkCss, '--text-secondary'), color(darkCss, '--surface
 for (const marker of ['--success', '--warning', '--danger', '.badge.PUBLISHED::before', '.badge.FAILED::before', ':focus-visible']) assert.ok(css.includes(marker), `theme marker missing: ${marker}`);
 
 const dashboardSource = await fs.readFile(new URL('../public/dashboard-v3.js', import.meta.url), 'utf8');
-for (const marker of ['Сегодня', '7 дней', 'Нужно проверить', 'Проблемы', 'status-chip', '.open-post']) assert.ok(dashboardSource.includes(marker), `dashboard marker missing: ${marker}`);
+for (const marker of ['Сегодня', '7 дней', 'Нужно проверить', 'Проблемы', 'status-chip', "className = 'open-post'"]) assert.ok(dashboardSource.includes(marker), `dashboard marker missing: ${marker}`);
 const dashboardCss = await fs.readFile(new URL('../public/dashboard-v3.css', import.meta.url), 'utf8');
 for (const marker of ['dashboard-v3-metrics', 'dashboard-v3-attention', 'status-chip', '@media (max-width: 620px)']) assert.ok(dashboardCss.includes(marker), `dashboard css marker missing: ${marker}`);
 const index = await fs.readFile(new URL('../public/index.html', import.meta.url), 'utf8');
