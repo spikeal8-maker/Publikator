@@ -145,6 +145,9 @@ jobs:
           NODE_ENV: test
         run: node scripts/instagram-adapter-e2e.mjs
 
+      - name: CX3-008F live video acceptance gate contract
+        run: node scripts/cx3-008f-live-acceptance-e2e.mjs
+
       - name: Content plan CSV/XLSX roundtrip
         run: node scripts/content-plan-e2e.mjs
 
