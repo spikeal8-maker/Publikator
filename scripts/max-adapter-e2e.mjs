@@ -6,6 +6,8 @@ import path from 'node:path';
 const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'publikator-max-adapter-'));
 process.env.NODE_ENV = 'test';
 process.env.DATA_DIR = dataDir;
+process.env.ADMIN_PASSWORD = 'max-adapter-test-password';
+process.env.APP_MASTER_KEY = 'max-adapter-test-master-key-longer-than-thirty-two-characters';
 
 const { maxPublisher } = await import('../dist/platforms/max.js');
 const { PLATFORM_CAPABILITIES, platformRequiresPublicHttpsMedia } = await import('../dist/platforms/capabilities.js');
