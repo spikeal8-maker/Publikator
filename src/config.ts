@@ -26,6 +26,12 @@ function nonNegativeInteger(name: string, fallback: number): number {
   return value;
 }
 
+function positiveInteger(name: string, fallback: number): number {
+  const value = nonNegativeInteger(name, fallback);
+  if (value < 1) throw new Error(`${name} must be a positive integer`);
+  return value;
+}
+
 function boundedNonNegativeInteger(name: string, fallback: number, max: number): number {
   const value = nonNegativeInteger(name, fallback);
   if (value > max) throw new Error(`${name} must be between 0 and ${max}`);
@@ -66,6 +72,13 @@ const dataDir = process.env.DATA_DIR?.trim() || path.resolve('data');
 const publicBaseUrl = process.env.PUBLIC_BASE_URL?.trim().replace(/\/$/, '') || '';
 const adminPassword = deploymentSecret('ADMIN_PASSWORD', 12);
 const masterKey = deploymentSecret('APP_MASTER_KEY', 32);
+const maxImageBytes = positiveInteger('MAX_IMAGE_BYTES', 50 * 1024 * 1024);
+const maxVideoBytes = positiveInteger('MAX_VIDEO_BYTES', 512 * 1024 * 1024);
+const mediaProcessingTimeoutMs = positiveInteger('MEDIA_PROCESSING_TIMEOUT_MS', 120_000);
+const mediaTempBudgetBytes = positiveInteger('MEDIA_TEMP_BUDGET_BYTES', 1024 * 1024 * 1024);
+if (mediaTempBudgetBytes < maxVideoBytes + maxImageBytes) {
+  throw new Error('MEDIA_TEMP_BUDGET_BYTES must be at least MAX_VIDEO_BYTES + MAX_IMAGE_BYTES');
+}
 
 const imageBuildSha = bakedCommitSha('IMAGE_BUILD_SHA');
 const nonProductionBuildSha = optionalCommitSha('APP_BUILD_SHA');
@@ -77,6 +90,7 @@ export const config = {
   dataDir,
   dbPath: path.join(dataDir, 'publikator.sqlite'),
   mediaDir: path.join(dataDir, 'media'),
+  mediaTempDir: path.join(dataDir, '.media-tmp'),
   backupDir: path.join(dataDir, 'backups'),
   restorePendingDir: path.join(dataDir, '.restore-pending'),
   publicDir: path.resolve('public'),
@@ -89,6 +103,12 @@ export const config = {
   queueSlotGraceMinutes: boundedNonNegativeInteger('QUEUE_SLOT_GRACE_MINUTES', 60, 1440),
   eventRetentionDays: nonNegativeInteger('EVENT_RETENTION_DAYS', 180),
   backupRetentionCount: nonNegativeInteger('BACKUP_RETENTION_COUNT', 30),
+  maxImageBytes,
+  maxVideoBytes,
+  mediaProcessingTimeoutMs,
+  mediaTempBudgetBytes,
+  ffmpegPath: process.env.FFMPEG_PATH?.trim() || 'ffmpeg',
+  ffprobePath: process.env.FFPROBE_PATH?.trim() || 'ffprobe',
   imageBuildSha,
   appBuildSha,
   releaseTargetVersion: releaseVersion('RELEASE_TARGET_VERSION', '1.0.0')
