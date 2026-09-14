@@ -59,9 +59,47 @@ Acceptance:
 - existing image authoring remains available;
 - full `Publikator CI / Acceptance` passes.
 
-## CX3-008B — Telegram video adapter
+## CX3-008B — Telegram FEED/VIDEO adapter
 
-Before implementation, re-check the current official Telegram Bot API. Implement only capabilities confirmed by current docs. Add focused adapter/recovery tests. Capability remains disabled until the live-acceptance evidence required by the master spec is recorded.
+Official API review: Telegram Bot API 10.3, published 2026-08-24 and re-checked 2026-09-14.
+
+Confirmed FEED/VIDEO contract:
+
+- `sendVideo` is the publication method for MPEG4 video messages;
+- new files may be sent through `multipart/form-data`;
+- bot-uploaded video is limited to 50 MB by the current Bot API;
+- caption limit is 1024 characters after entity parsing;
+- `supports_streaming` may be set for streamable uploads;
+- successful publication returns a `Message`, and `message_id` remains the adapter external id;
+- local bytes must be available and size-valid before the first external POST;
+- text longer than the caption limit uses the existing two-step `sendVideo` then `sendMessage` path; failure after confirmed video publication enters manual recovery and must never retry the whole target automatically.
+
+Implementation scope:
+
+- one canonical `video/mp4` asset only;
+- `publicationKind=FEED`, `contentFormat=VIDEO` only;
+- defense-in-depth verification of canonical H.264, AAC-or-none and MP4 metadata when present;
+- no video carousel or mixed-media group in this checkpoint;
+- existing photo and photo-carousel behavior remains unchanged.
+
+Capability gate:
+
+- implementation readiness does **not** enable production capability;
+- `PLATFORM_CAPABILITIES.telegram.supportsVideo` remains `false`;
+- `verification.richMediaPendingLiveAcceptance` remains `true`;
+- therefore READY/preflight still blocks Telegram FEED/VIDEO before any external POST;
+- enablement requires a live acceptance with real Telegram credentials/channel and recorded evidence that one canonical MP4 publishes exactly once and returns a stable `message_id`.
+
+Telegram Story/Short is explicitly out of scope. The current Bot API Story video profile requires 720×1280, streamable H.265 MPEG4, keyframes each second, max 30 MB and duration up to 60 seconds. That is a different rendition from the canonical H.264 FEED video and must not be enabled by this adapter.
+
+Acceptance:
+
+- focused adapter test covers `sendVideo` multipart fields and external id;
+- >50 MB and non-H.264 canonical input are rejected before `fetch`;
+- 429, 5xx and network unknown-outcome semantics remain covered;
+- long-caption partial publication remains duplicate-safe for both image and video;
+- test asserts the production capability gate is still disabled;
+- full `Publikator CI / Acceptance` passes.
 
 ## CX3-008C — VK video adapter
 
