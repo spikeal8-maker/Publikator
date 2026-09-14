@@ -27,7 +27,7 @@ const itemSelect = `SELECT p.id,p.title,p.status,COALESCE(p.editorial_stage,'DRA
   p.schedule_mode,p.scheduled_at_utc,p.schedule_timezone,p.publication_kind,p.content_format,p.updated_at,
   pr.name AS project_name,
   (SELECT m.relative_path FROM content_media cm JOIN media m ON m.id=cm.media_id
-    WHERE cm.post_id=p.id AND cm.role<>'poster' ORDER BY cm.position,cm.created_at LIMIT 1) AS thumbnail_path,
+    WHERE cm.post_id=p.id AND cm.role<>'poster' ORDER BY cm.sort_order,cm.created_at LIMIT 1) AS thumbnail_path,
   (SELECT group_concat(DISTINCT a.platform) FROM post_targets pt JOIN social_accounts a ON a.id=pt.account_id
     WHERE pt.post_id=p.id AND pt.enabled=1) AS platforms,
   (SELECT group_concat(DISTINCT pt.state) FROM post_targets pt
