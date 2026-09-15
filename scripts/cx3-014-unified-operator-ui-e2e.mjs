@@ -32,6 +32,7 @@ for (const contract of ['.ui-mobile-menu', '@media (max-width: 820px)', '.table-
   assert.ok(css.includes(contract), `missing UI contract ${contract}`);
 }
 assert.ok(polishCss.includes('.ui-editor-section-title'), 'structured editor styling missing');
+assert.ok(polishCss.includes('.ui-internal-status'), 'semantic status carrier styling missing');
 
 for (const route of routes) assert.ok(ui.includes(`'${route}'`), `route metadata missing ${route}`);
 for (const behavior of ['uiContentFilters', 'uiProjectsPage', 'uiSchedulePage', 'uiJournalFilters', 'uiWrapTables', 'uiDecorateSocialCards', 'ui-nav-open']) {
@@ -40,6 +41,9 @@ for (const behavior of ['uiContentFilters', 'uiProjectsPage', 'uiSchedulePage', 
 for (const behavior of ['uiPolishStatuses', 'uiPolishCalendar', 'uiPolishLibrary', 'uiPolishSources', 'uiPolishTemplates', 'uiPolishPostEditor']) {
   assert.ok(polish.includes(behavior), `page polish missing ${behavior}`);
 }
+assert.ok(polish.includes("preserveContentStatus = window.location.pathname === '/content'"), 'content filter must retain raw semantic status');
+assert.ok(polish.includes("badge.classList.add('ui-internal-status')"), 'content rows must retain a hidden semantic badge');
+assert.ok(polish.includes('ui-human-status'), 'content rows must expose a human status badge');
 
 assert.ok(operator.includes("'/api/accounts/test'"), 'social connection verification must remain real API-backed');
 assert.ok(operator.includes('/api/content-plan/v3/import/preview?sourceId='), 'source preview must remain schema-v3 backed');
@@ -57,6 +61,7 @@ console.log(JSON.stringify({
   responsiveNavigation: true,
   humanizedOperatorLanguage: true,
   structuredPostEditor: true,
+  semanticStatusFiltering: true,
   legacyPageEnhancements: ['content-filter', 'projects-summary', 'schedule-weekdays', 'journal-filter'],
   existingProductWorkflowsPreserved: true
 }));
