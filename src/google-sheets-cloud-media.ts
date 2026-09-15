@@ -13,6 +13,11 @@ import {
 } from './content-plan-v3.js';
 import { readIngestionConnectorCredentials } from './integration-security.js';
 import {
+  applyGoogleSheetsConnector,
+  previewGoogleSheetsConnector,
+  type GoogleSheetsPreview
+} from './google-sheets.js';
+import {
   googleBearerHeaders,
   googleFetchWithTimeout,
   googleServiceAccountAccessToken
@@ -102,10 +107,10 @@ function csvCell(value: unknown): string {
 }
 
 function valuesToCsv(values: unknown[][], stripMedia: boolean): Buffer {
-  const rows = values.map((input) => {
+  const rows = values.map((input, rowIndex) => {
     const row = input.slice(0, CONTENT_PLAN_V3_COLUMNS.length);
     while (row.length < CONTENT_PLAN_V3_COLUMNS.length) row.push('');
-    if (stripMedia && MEDIA_COLUMN >= 0) row[MEDIA_COLUMN] = '';
+    if (stripMedia && rowIndex > 0 && MEDIA_COLUMN >= 0) row[MEDIA_COLUMN] = '';
     return row.map(csvCell).join(',');
   });
   return Buffer.from(`${rows.join('\n')}\n`, 'utf8');
@@ -122,6 +127,15 @@ function sourceRef(connectorId: string, externalId: string): string {
 function rawMediaCell(values: unknown[][], rowNumber: number): string {
   const row = values[rowNumber - 1] ?? [];
   return String(row[MEDIA_COLUMN] ?? '').trim();
+}
+
+function hasCloudMediaInput(values: unknown[][]): boolean {
+  if (MEDIA_COLUMN < 0) return false;
+  for (let index = 1; index < values.length; index += 1) {
+    const row = values[index] ?? [];
+    if (String(row[MEDIA_COLUMN] ?? '').trim()) return true;
+  }
+  return false;
 }
 
 function sourceAction(values: unknown[][]): void {
@@ -262,8 +276,9 @@ async function previewFromValues(connectorId: string, configValue: SheetConfig, 
   };
 }
 
-export async function previewGoogleSheetsCloudMedia(connectorId: string): Promise<GoogleSheetsCloudMediaPreview> {
+export async function previewGoogleSheetsCloudMedia(connectorId: string): Promise<GoogleSheetsCloudMediaPreview | GoogleSheetsPreview> {
   const { config: cfg, values } = await sheetValues(connectorId);
+  if (!hasCloudMediaInput(values)) return previewGoogleSheetsConnector(connectorId);
   return previewFromValues(connectorId, cfg, values);
 }
 
@@ -396,13 +411,20 @@ async function writeBack(connectorId: string, cfg: SheetConfig, credentials: Rec
   if (!response.ok) throw new Error(`Google Sheets status write-back failed (HTTP ${response.status})`);
 }
 
-export async function applyGoogleSheetsCloudMedia(connectorId: string, expectedSnapshotSha256: string, expectedMediaSnapshotSha256?: string | null): Promise<{
-  created: number; updated: number; unchanged: number; archived: number; trashed: number; postIds: string[];
-  sourceSnapshotSha256: string; mediaSnapshotSha256: string | null;
-  media: { managedRows: number; syncedRows: number };
-  writeBack: { attempted: boolean; ok: boolean; error: string | null };
-}> {
+export async function applyGoogleSheetsCloudMedia(connectorId: string, expectedSnapshotSha256: string, expectedMediaSnapshotSha256?: string | null): Promise<
+  Awaited<ReturnType<typeof applyGoogleSheetsConnector>> | {
+    created: number; updated: number; unchanged: number; archived: number; trashed: number; postIds: string[];
+    sourceSnapshotSha256: string; mediaSnapshotSha256: string | null;
+    media: { managedRows: number; syncedRows: number };
+    writeBack: { attempted: boolean; ok: boolean; error: string | null };
+  }
+> {
   if (!/^[a-f0-9]{64}$/i.test(expectedSnapshotSha256)) throw new Error('A preview SHA-256 is required');
+  if (!expectedMediaSnapshotSha256) {
+    const { values } = await sheetValues(connectorId);
+    if (!hasCloudMediaInput(values)) return applyGoogleSheetsConnector(connectorId, expectedSnapshotSha256);
+    throw new Error('Cloud media preview SHA-256 is required; preview again before apply');
+  }
   const { config: cfg, credentials, values } = await sheetValues(connectorId);
   const preview = await previewFromValues(connectorId, cfg, values);
   if (preview.sourceSnapshotSha256 !== expectedSnapshotSha256.toLowerCase()) throw new Error('Google Sheet changed after preview; preview again before apply');
