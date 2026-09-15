@@ -8,56 +8,60 @@ const UI_SCHEDULE_LABEL = { MANUAL: 'Вручную', QUEUE: 'Очередь', A
 const UI_SOURCE_LABEL = { manual: 'Вручную', ai: 'ИИ', api: 'API', bundle: 'Пакет', sheets: 'Таблица' };
 let uiPolishTimer = null;
 
+function uiSetText(node, value) {
+  if (node && node.textContent !== value) node.textContent = value;
+}
+
 function uiPolishStatuses(root = document) {
   const preserveContentStatus = window.location.pathname === '/content';
   root.querySelectorAll('.badge').forEach((badge) => {
     const raw = badge.dataset.rawStatus || badge.textContent.trim();
     if (!badge.dataset.rawStatus && UI_STATUS_LABEL[raw]) badge.dataset.rawStatus = raw;
     const key = badge.dataset.rawStatus;
-    if (key && UI_STATUS_LABEL[key] && !preserveContentStatus) badge.textContent = UI_STATUS_LABEL[key];
+    if (key && UI_STATUS_LABEL[key] && !preserveContentStatus) uiSetText(badge, UI_STATUS_LABEL[key]);
   });
   root.querySelectorAll('.operator-classification').forEach((chip) => {
     const raw = chip.dataset.rawClassification || chip.textContent.trim();
     if (!chip.dataset.rawClassification && UI_STATUS_LABEL[raw]) chip.dataset.rawClassification = raw;
-    if (chip.dataset.rawClassification) chip.textContent = UI_STATUS_LABEL[chip.dataset.rawClassification] || chip.dataset.rawClassification;
+    if (chip.dataset.rawClassification) uiSetText(chip, UI_STATUS_LABEL[chip.dataset.rawClassification] || chip.dataset.rawClassification);
   });
 }
 
 function uiPolishCalendar(root = document) {
   const agenda = root.querySelector('[data-calendar-mode="agenda"]');
-  if (agenda) agenda.textContent = 'Список';
+  uiSetText(agenda, 'Список');
   root.querySelectorAll('.calendar-toolbar .small.muted').forEach((node) => {
     const text = node.textContent.trim();
-    if (text.startsWith('display:')) node.textContent = `Часовой пояс: ${text.slice('display:'.length).trim()}`;
+    if (text.startsWith('display:')) uiSetText(node, `Часовой пояс: ${text.slice('display:'.length).trim()}`);
   });
   root.querySelectorAll('.calendar-source').forEach((node) => {
     let text = node.textContent;
     text = text.replace(/\bmanual\b/gi, 'вручную').replace(/\bsource:\s*/gi, 'Источник: ');
     for (const [raw, label] of Object.entries(UI_STATUS_LABEL)) text = text.replace(new RegExp(`\\b${raw}\\b`, 'g'), label);
     text = text.replace(/schedule\s+/gi, 'план: ').replace(/display\s+/gi, 'просмотр: ');
-    node.textContent = text;
+    uiSetText(node, text);
   });
 }
 
 function uiPolishLibrary(root = document) {
   root.querySelectorAll('[data-library-view]').forEach((button) => {
     const labels = { all: 'Все', inbox: 'Входящие', draft: 'Черновики', ready: 'Готово', scheduled: 'Запланировано', published: 'Опубликовано', problems: 'Проблемы' };
-    if (labels[button.dataset.libraryView]) button.textContent = labels[button.dataset.libraryView];
+    if (labels[button.dataset.libraryView]) uiSetText(button, labels[button.dataset.libraryView]);
   });
   root.querySelectorAll('[data-layout]').forEach((button) => {
-    if (button.dataset.layout === 'grid') button.textContent = 'Карточки';
-    if (button.dataset.layout === 'list') button.textContent = 'Таблица';
+    if (button.dataset.layout === 'grid') uiSetText(button, 'Карточки');
+    if (button.dataset.layout === 'list') uiSetText(button, 'Таблица');
   });
   const format = root.querySelector('#library-format');
   if (format) {
     const labels = { all: 'Все форматы', image: 'Изображения', stories: 'Истории', shorts: 'Короткие видео', video: 'Видео' };
-    [...format.options].forEach((option) => { if (labels[option.value]) option.textContent = labels[option.value]; });
+    [...format.options].forEach((option) => { if (labels[option.value]) uiSetText(option, labels[option.value]); });
   }
   root.querySelectorAll('.library-meta').forEach((node) => {
     const match = node.textContent.match(/source:\s*([^·]+)/i);
     if (!match) return;
     const raw = match[1].trim().toLowerCase();
-    node.textContent = node.textContent.replace(/source:\s*[^·]+/i, `Источник: ${UI_SOURCE_LABEL[raw] || match[1].trim()}`);
+    uiSetText(node, node.textContent.replace(/source:\s*[^·]+/i, `Источник: ${UI_SOURCE_LABEL[raw] || match[1].trim()}`));
   });
 }
 
@@ -70,13 +74,13 @@ function uiPolishContent(root = document) {
     if (mode) {
       const rawMode = mode.dataset.rawSchedule || mode.textContent.trim();
       if (!mode.dataset.rawSchedule && UI_SCHEDULE_LABEL[rawMode]) mode.dataset.rawSchedule = rawMode;
-      if (mode.dataset.rawSchedule) mode.textContent = UI_SCHEDULE_LABEL[mode.dataset.rawSchedule] || mode.dataset.rawSchedule;
+      if (mode.dataset.rawSchedule) uiSetText(mode, UI_SCHEDULE_LABEL[mode.dataset.rawSchedule] || mode.dataset.rawSchedule);
     }
     const badge = row.querySelector('.badge');
     if (!badge) return;
     const rawStatus = badge.dataset.rawStatus || badge.textContent.trim();
     if (!UI_STATUS_LABEL[rawStatus]) return;
-    badge.dataset.rawStatus = rawStatus;
+    if (!badge.dataset.rawStatus) badge.dataset.rawStatus = rawStatus;
     badge.classList.add('ui-internal-status');
     let visible = badge.nextElementSibling;
     if (!visible?.classList.contains('ui-human-status')) {
@@ -84,7 +88,7 @@ function uiPolishContent(root = document) {
       visible.className = `badge ui-human-status ${rawStatus}`;
       badge.after(visible);
     }
-    visible.textContent = UI_STATUS_LABEL[rawStatus];
+    uiSetText(visible, UI_STATUS_LABEL[rawStatus]);
   });
 }
 
@@ -93,10 +97,8 @@ function uiPolishTemplates(root = document) {
   const page = root.querySelector('.operator-page');
   if (!page || page.dataset.uiCopy === '1') return;
   page.dataset.uiCopy = '1';
-  const description = page.querySelector('.operator-page-head p');
-  if (description) description.textContent = 'Здесь будут храниться повторно используемые заготовки текста, структуры и настроек публикации.';
-  const empty = page.querySelector('.operator-empty');
-  if (empty) empty.textContent = 'Шаблоны пока не включены. До их появления создавайте и дублируйте материалы через раздел «Контент».';
+  uiSetText(page.querySelector('.operator-page-head p'), 'Здесь будут храниться повторно используемые заготовки текста, структуры и настроек публикации.');
+  uiSetText(page.querySelector('.operator-empty'), 'Шаблоны пока не включены. До их появления создавайте и дублируйте материалы через раздел «Контент».');
 }
 
 function uiPolishSources(root = document) {
@@ -107,21 +109,18 @@ function uiPolishSources(root = document) {
     if (label && label.dataset.uiCopy !== '1') {
       label.dataset.uiCopy = '1';
       const first = [...label.childNodes].find((node) => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
-      if (first) first.textContent = 'Название набора ';
-      const help = label.querySelector('.operator-field-help');
-      if (help) help.textContent = 'Например: social-plan. Оставляйте одно название для повторных версий одной и той же таблицы.';
+      if (first && first.textContent !== 'Название набора ') first.textContent = 'Название набора ';
+      uiSetText(label.querySelector('.operator-field-help'), 'Например: social-plan. Оставляйте одно название для повторных версий одной и той же таблицы.');
     }
   }
   root.querySelectorAll('.operator-section h3').forEach((heading) => {
-    if (/Excel\s*\/\s*CSV/i.test(heading.textContent)) heading.textContent = 'Таблица Excel / CSV';
+    if (/Excel\s*\/\s*CSV/i.test(heading.textContent)) uiSetText(heading, 'Таблица Excel / CSV');
   });
   root.querySelectorAll('.operator-section > p').forEach((paragraph) => {
-    if (paragraph.textContent.includes('Preview') && paragraph.textContent.includes('Apply')) paragraph.textContent = 'Сначала выберите файл и нажмите «Проверить». Импорт станет доступен только после успешной проверки этого же файла.';
+    if (paragraph.textContent.includes('Preview') && paragraph.textContent.includes('Apply')) uiSetText(paragraph, 'Сначала выберите файл и нажмите «Проверить». Импорт станет доступен только после успешной проверки этого же файла.');
   });
-  const preview = root.querySelector('#operator-source-preview');
-  if (preview) preview.textContent = '1. Проверить таблицу';
-  const apply = root.querySelector('#operator-source-apply');
-  if (apply) apply.textContent = '2. Импортировать';
+  uiSetText(root.querySelector('#operator-source-preview'), '1. Проверить таблицу');
+  uiSetText(root.querySelector('#operator-source-apply'), '2. Импортировать');
 }
 
 function uiEditorSection(title, note, index) {
@@ -142,7 +141,7 @@ function uiPolishPostEditor(root = document) {
     const mediaBlock = mediaInput?.closest('.full') || [...form.querySelectorAll('.full')].find((node) => node.querySelector('.media-list'));
     if (mediaBlock) {
       const heading = [...mediaBlock.children].find((node) => node.tagName === 'STRONG');
-      if (heading) heading.textContent = 'Медиа';
+      uiSetText(heading, 'Медиа');
       mediaBlock.before(uiEditorSection('Медиа', 'Добавьте изображения или видео и проверьте порядок файлов.', '2'));
     }
     const targetPicker = form.querySelector('.target-picker');
@@ -154,7 +153,7 @@ function uiPolishPostEditor(root = document) {
 function uiPolishPlatformCards(root = document) {
   root.querySelectorAll('.operator-platform-card').forEach((card) => {
     const trigger = card.querySelector('[data-platform]');
-    if (trigger?.dataset.platform) card.dataset.platform = trigger.dataset.platform;
+    if (trigger?.dataset.platform && card.dataset.platform !== trigger.dataset.platform) card.dataset.platform = trigger.dataset.platform;
   });
 }
 
