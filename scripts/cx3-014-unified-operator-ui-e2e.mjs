@@ -37,18 +37,27 @@ for (const contract of ['.ui-mobile-menu', '@media (max-width: 820px)', '.table-
 }
 assert.ok(polishCss.includes('.ui-editor-section-title'), 'structured editor styling missing');
 assert.ok(polishCss.includes('.ui-internal-status'), 'semantic status carrier styling missing');
+assert.ok(polishCss.includes('.brand::after'), 'legacy compact-brand pseudo element must be suppressed');
+assert.ok(polishCss.includes('grid-template-columns: repeat(7, minmax(0, 1fr))'), 'mobile calendar must fit seven columns');
+assert.ok(polishCss.includes('overscroll-behavior-inline: contain'), 'mobile library tabs must scroll internally');
+assert.ok(polishCss.includes('html[data-page="content"] .table tbody tr'), 'mobile content cards contract missing');
 
 for (const route of routes) assert.ok(ui.includes(`'${route}'`), `route metadata missing ${route}`);
 for (const behavior of ['uiContentFilters', 'uiProjectsPage', 'uiSchedulePage', 'uiJournalFilters', 'uiWrapTables', 'uiDecorateSocialCards', 'ui-nav-open']) {
   assert.ok(ui.includes(behavior), `shared enhancement missing ${behavior}`);
 }
-for (const behavior of ['uiSetText', 'uiPolishStatuses', 'uiPolishCalendar', 'uiPolishLibrary', 'uiPolishSources', 'uiPolishTemplates', 'uiPolishPostEditor']) {
+for (const behavior of ['uiSetText', 'uiSetLabelText', 'uiPolishStatuses', 'uiPolishCalendar', 'uiPolishLibrary', 'uiPolishSources', 'uiPolishTemplates', 'uiPolishPostEditor', 'uiPolishOverview', 'uiPolishSocials', 'uiRefineSources', 'uiPolishScheduleModal', 'uiPolishLibraryRoles']) {
   assert.ok(polish.includes(behavior), `page polish missing ${behavior}`);
 }
 assert.ok(polish.includes('node.textContent !== value'), 'DOM copy updates must be idempotent under MutationObserver');
 assert.ok(polish.includes("preserveContentStatus = window.location.pathname === '/content'"), 'content filter must retain raw semantic status');
 assert.ok(polish.includes("badge.classList.add('ui-internal-status')"), 'content rows must retain a hidden semantic badge');
 assert.ok(polish.includes('ui-human-status'), 'content rows must expose a human status badge');
+assert.ok(polish.includes('После сохранения'), 'new-post lifecycle explanation missing');
+assert.ok(polish.includes('Дата и время публикации'), 'technical AT label must not be exposed');
+assert.ok(polish.includes("modeSelect.value !== 'AT'"), 'scheduled datetime must hide outside timed mode');
+assert.ok(ui.includes('Автоматические публикации'), 'schedule page must use operator language');
+assert.ok(ui.includes('+ Добавить время'), 'schedule action must use operator language');
 
 assert.ok(operator.includes("'/api/accounts/test'"), 'social connection verification must remain real API-backed');
 assert.ok(operator.includes('/api/content-plan/v3/import/preview?sourceId='), 'source preview must remain schema-v3 backed');

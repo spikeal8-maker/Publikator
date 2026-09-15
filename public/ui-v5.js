@@ -7,7 +7,7 @@ const UI_ROUTE_META = {
   '/projects': { key: 'projects', group: 'Работа', title: 'Проекты', subtitle: 'Разделение контента по брендам, продуктам и независимым очередям.' },
   '/socials': { key: 'socials', group: 'Работа', title: 'Соцсети', subtitle: 'Подключение площадок, проверка токенов и конкретных мест публикации.' },
   '/sources': { key: 'sources', group: 'Работа', title: 'Источники / Интеграции', subtitle: 'Массовый импорт и подключение внешних источников контента.' },
-  '/schedule': { key: 'schedule', group: 'Работа', title: 'Расписание', subtitle: 'Технические QUEUE-слоты для автоматического выпуска готового контента.' },
+  '/schedule': { key: 'schedule', group: 'Работа', title: 'Расписание', subtitle: 'Правила автоматического выпуска готового контента по дням и времени.' },
   '/journal': { key: 'journal', group: 'Система', title: 'Журнал', subtitle: 'История действий, публикаций, ошибок и служебных событий.' },
   '/backups': { key: 'backups', group: 'Система', title: 'Резервные копии', subtitle: 'Создание и проверка резервных копий данных Publikator.' },
   '/diagnostics': { key: 'diagnostics', group: 'Система', title: 'Диагностика', subtitle: 'Состояние приложения, окружения и эксплуатационных проверок.' }
@@ -174,7 +174,7 @@ function uiProjectsPage() {
     const count = [...table.querySelectorAll('tbody tr')].filter((row) => !row.querySelector('td[colspan]')).length;
     const pill = document.createElement('span');
     pill.className = 'ui-count-pill';
-    pill.textContent = `${count} проектов`;
+    pill.textContent = count === 1 ? '1 проект' : `${count} проектов`;
     toolbar.insertBefore(pill, button || null);
   }
 }
@@ -183,9 +183,13 @@ function uiSchedulePage() {
   const toolbar = document.querySelector('#view .toolbar');
   const table = document.querySelector('#view table.table');
   if (!toolbar || !table) return;
-  uiToolbarCopy(toolbar, 'Автоматические слоты', 'В каждый слот Publikator забирает следующий READY-материал проекта с режимом QUEUE.');
+  uiToolbarCopy(toolbar, 'Автоматические публикации', 'Publikator берёт следующий материал со статусом «Готово» из очереди выбранного проекта.');
   const button = document.querySelector('#new-slot');
-  if (button) button.textContent = '+ Добавить слот';
+  if (button) button.textContent = '+ Добавить время';
+  const headers = table.querySelectorAll('thead th');
+  if (headers[3]) headers[3].textContent = 'Часовой пояс';
+  const empty = table.querySelector('tbody td[colspan]');
+  if (empty) empty.textContent = 'Правил автоматической публикации пока нет.';
   const weekdays = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
   table.querySelectorAll('tbody tr').forEach((row) => {
     const cell = row.children[1];

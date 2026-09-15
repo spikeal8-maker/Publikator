@@ -6,6 +6,7 @@ const UI_STATUS_LABEL = {
 };
 const UI_SCHEDULE_LABEL = { MANUAL: 'Вручную', QUEUE: 'Очередь', AT: 'По времени' };
 const UI_SOURCE_LABEL = { manual: 'Вручную', ai: 'ИИ', api: 'API', bundle: 'Пакет', sheets: 'Таблица' };
+const UI_FORMAT_LABEL = { 'FEED / IMAGE': 'Пост · Изображение', 'FEED / VIDEO': 'Пост · Видео', 'SHORT / VERTICAL_VIDEO': 'Короткое видео', 'STORY / IMAGE': 'История · Изображение', 'STORY / VIDEO': 'История · Видео', 'STORY / STORY_SEQUENCE': 'Серия историй' };
 let uiPolishTimer = null;
 
 function uiSetText(node, value) {
@@ -58,6 +59,9 @@ function uiPolishLibrary(root = document) {
     [...format.options].forEach((option) => { if (labels[option.value]) uiSetText(option, labels[option.value]); });
   }
   root.querySelectorAll('.library-meta').forEach((node) => {
+    let text = node.textContent;
+    for (const [raw, label] of Object.entries(UI_FORMAT_LABEL)) text = text.replace(raw, label);
+    uiSetText(node, text);
     const match = node.textContent.match(/source:\s*([^·]+)/i);
     if (!match) return;
     const raw = match[1].trim().toLowerCase();
@@ -123,6 +127,12 @@ function uiPolishSources(root = document) {
   uiSetText(root.querySelector('#operator-source-apply'), '2. Импортировать');
 }
 
+function uiSetLabelText(label, value) {
+  if (!label) return;
+  const node = [...label.childNodes].find((item) => item.nodeType === Node.TEXT_NODE && item.textContent.trim());
+  if (node && node.textContent !== value + ' ') node.textContent = value + ' ';
+}
+
 function uiEditorSection(title, note, index) {
   const section = document.createElement('div');
   section.className = 'ui-editor-section-title full';
@@ -135,16 +145,38 @@ function uiPolishPostEditor(root = document) {
     if (form.dataset.uiStructured === '1') return;
     form.dataset.uiStructured = '1';
     form.classList.add('ui-post-form');
+    const modalTitle = form.closest('.modal-card')?.querySelector('h2');
+    if (modalTitle?.textContent.trim() === 'Новый пост') uiSetText(modalTitle, 'Новая публикация');
+    const projectLabel = form.querySelector('select[name="projectId"]')?.closest('label');
+    const modeSelect = form.querySelector('select[name="scheduleMode"]');
+    const modeLabel = modeSelect?.closest('label');
+    const scheduledInput = form.querySelector('input[name="scheduledAt"]');
+    const scheduledLabel = scheduledInput?.closest('label');
+    uiSetLabelText(projectLabel, 'Проект');
+    uiSetLabelText(modeLabel, 'Когда публиковать');
+    uiSetLabelText(scheduledLabel, 'Дата и время публикации');
+    if (modeSelect && scheduledLabel && modeSelect.dataset.uiScheduleSync !== '1') {
+      modeSelect.dataset.uiScheduleSync = '1';
+      const sync = () => scheduledLabel.classList.toggle('hidden', modeSelect.value !== 'AT');
+      modeSelect.addEventListener('change', sync);
+      sync();
+    }
     const firstField = form.querySelector('label');
     if (firstField) firstField.before(uiEditorSection('Основное', 'Проект, режим публикации, заголовок и текст.', '1'));
     const mediaInput = form.querySelector('#media-file');
     const mediaBlock = mediaInput?.closest('.full') || [...form.querySelectorAll('.full')].find((node) => node.querySelector('.media-list'));
+    const targetPicker = form.querySelector('.target-picker');
     if (mediaBlock) {
       const heading = [...mediaBlock.children].find((node) => node.tagName === 'STRONG');
       uiSetText(heading, 'Медиа');
-      mediaBlock.before(uiEditorSection('Медиа', 'Добавьте изображения или видео и проверьте порядок файлов.', '2'));
+      if (mediaInput) {
+        mediaBlock.before(uiEditorSection('Медиа', 'Добавьте изображения или видео и проверьте порядок файлов.', '2'));
+      } else {
+        mediaBlock.before(uiEditorSection('После сохранения', 'Сначала сохраните черновик — затем появятся загрузка медиа и выбор площадок.', '2'));
+        const hint = mediaBlock.querySelector('.muted.small');
+        uiSetText(hint, 'Сохраните черновик. После этого можно загрузить медиа и выбрать площадки.');
+      }
     }
-    const targetPicker = form.querySelector('.target-picker');
     const targetBlock = targetPicker?.closest('.full');
     if (targetBlock) targetBlock.before(uiEditorSection('Площадки', 'Выберите подключения, куда должна уйти публикация.', '3'));
   });
@@ -154,6 +186,59 @@ function uiPolishPlatformCards(root = document) {
   root.querySelectorAll('.operator-platform-card').forEach((card) => {
     const trigger = card.querySelector('[data-platform]');
     if (trigger?.dataset.platform && card.dataset.platform !== trigger.dataset.platform) card.dataset.platform = trigger.dataset.platform;
+  });
+}
+
+function uiPolishOverview(root = document) {
+  if (window.location.pathname !== '/overview') return;
+  root.querySelectorAll('.dashboard-v3-metric').forEach((metric) => {
+    const label = metric.querySelector('div')?.textContent.trim();
+    if (label === 'Проблемы') uiSetText(metric.querySelector('span'), 'ошибки и публикации, требующие проверки');
+  });
+  root.querySelectorAll('.dashboard-v3-item-side .dashboard-v3-meta').forEach((node) => {
+    const key = node.textContent.trim();
+    if (UI_FORMAT_LABEL[key]) uiSetText(node, UI_FORMAT_LABEL[key]);
+  });
+}
+
+function uiPolishSocials(root = document) {
+  if (window.location.pathname !== '/socials') return;
+  uiSetText(root.querySelector('.operator-page > .operator-page-head p'), 'Подключите площадку, проверьте токен и укажите конкретный канал, группу или чат. Сохранить можно только проверенное подключение.');
+  uiSetText(root.querySelector('.operator-platform-card[data-platform="instagram"] span'), 'Публикация в профессиональный аккаунт Instagram.');
+}
+
+function uiRefineSources(root = document) {
+  if (window.location.pathname !== '/sources') return;
+  uiSetText(root.querySelector('.operator-page > .operator-page-head p'), 'Загружайте контент пачками из Excel или CSV. Повторная версия того же набора обновит строки вместо создания дублей.');
+  const aside = root.querySelector('.operator-source-layout > aside.operator-section');
+  if (!aside) return;
+  uiSetText(aside.querySelector('h3'), 'Другие источники');
+  uiSetText(aside.querySelector(':scope > p'), 'Здесь появятся дополнительные подключения по мере готовности.');
+  const cards = aside.querySelectorAll('.operator-connector-card');
+  if (cards[0]) { uiSetText(cards[0].querySelector('strong'), 'Excel / CSV'); uiSetText(cards[0].querySelector('span'), 'Работает сейчас. Повторная загрузка обновляет существующие строки без дублей.'); }
+  if (cards[1]) { uiSetText(cards[1].querySelector('strong'), 'Google Sheets'); uiSetText(cards[1].querySelector('span'), 'Пока не подключено. Будет отдельной интеграцией с таблицей.'); }
+  if (cards[2]) { uiSetText(cards[2].querySelector('strong'), 'Google Drive / Яндекс Диск'); uiSetText(cards[2].querySelector('span'), 'Пока не подключено. Здесь появится выбор медиафайлов из облака.'); }
+}
+
+function uiPolishScheduleModal(root = document) {
+  const form = root.querySelector('#slot-form');
+  if (!form || form.dataset.uiCopy === '1') return;
+  form.dataset.uiCopy = '1';
+  uiSetText(form.closest('.modal-card')?.querySelector('h2'), 'Новое время публикации');
+  const timezone = form.querySelector('[name="timezone"]')?.closest('label');
+  if (timezone) {
+    const text = [...timezone.childNodes].find((node) => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
+    if (text) text.textContent = 'Часовой пояс ';
+  }
+  uiSetText(form.querySelector('button.primary'), 'Добавить');
+}
+
+function uiPolishLibraryRoles(root = document) {
+  if (window.location.pathname !== '/library') return;
+  root.querySelectorAll('.library-badges, .library-table tbody td:nth-child(7)').forEach((group) => {
+    const badges = group.querySelectorAll('.badge');
+    if (badges[0]?.dataset.rawStatus) uiSetText(badges[0], `Контент · ${UI_STATUS_LABEL[badges[0].dataset.rawStatus] || badges[0].dataset.rawStatus}`);
+    if (badges[1]?.dataset.rawStatus) uiSetText(badges[1], `Публикация · ${UI_STATUS_LABEL[badges[1].dataset.rawStatus] || badges[1].dataset.rawStatus}`);
   });
 }
 
@@ -167,6 +252,11 @@ function uiPolishAll() {
   uiPolishSources(view);
   uiPolishPostEditor(document);
   uiPolishPlatformCards(view);
+  uiPolishOverview(view);
+  uiPolishSocials(view);
+  uiRefineSources(view);
+  uiPolishScheduleModal(document);
+  uiPolishLibraryRoles(view);
 }
 
 function uiQueuePolish() {
