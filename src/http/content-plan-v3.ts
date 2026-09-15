@@ -2,8 +2,9 @@ import path from 'node:path';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import {
   CONTENT_PLAN_V3_COLUMNS,CONTENT_PLAN_V3_VERSION,MAX_CONTENT_PLAN_V3_BYTES,
-  applyContentPlanV3,createContentPlanV3Template,exportContentPlanV3,parseContentPlanV3,validateContentPlanV3
+  applyContentPlanV3,exportContentPlanV3,parseContentPlanV3,validateContentPlanV3
 } from '../content-plan-v3.js';
+import { createCanonicalContentPlanV3Template } from '../content-plan-v3-template.js';
 import { beginExclusiveRuntimeMaintenance } from '../runtime-gate.js';
 
 function sourceId(request:FastifyRequest):string {
@@ -17,8 +18,8 @@ async function uploaded(request:FastifyRequest):Promise<{filename:string;buffer:
 }
 
 export async function registerContentPlanV3Routes(app:FastifyInstance):Promise<void>{
-  app.get('/api/content-plan/v3/schema',async()=>({version:CONTENT_PLAN_V3_VERSION,columns:CONTENT_PLAN_V3_COLUMNS,sourceIdentity:'sourceId + external_id',actions:['UPSERT','ARCHIVE','TRASH_REQUEST'],compatibility:'V1 schema 1 endpoints unchanged',foundationLimits:{publicationKinds:['FEED'],contentFormats:['IMAGE'],media:'reserved for next ingestion/media checkpoint',timezone:'UTC until M0-005'}}));
-  app.get('/api/content-plan/v3/template.xlsx',async(_request,reply)=>{const buf=await createContentPlanV3Template();reply.header('content-type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');return reply.send(buf);});
+  app.get('/api/content-plan/v3/schema',async()=>({version:CONTENT_PLAN_V3_VERSION,columns:CONTENT_PLAN_V3_COLUMNS,sourceIdentity:'sourceId + external_id',actions:['UPSERT','ARCHIVE','TRASH_REQUEST'],compatibility:'V1 schema 1 endpoints unchanged',foundationLimits:{publicationKinds:['FEED'],contentFormats:['IMAGE'],media:{directFileImport:'leave empty',googleSheets:'JSON [{source,path}] from enabled Google Drive/Yandex Disk connectors; Apply localizes images into Publikator'},timezone:'IANA timezone supported; AT defaults to UTC when omitted'}}));
+  app.get('/api/content-plan/v3/template.xlsx',async(_request,reply)=>{const buf=await createCanonicalContentPlanV3Template();reply.header('content-type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');reply.header('content-disposition','attachment; filename="publikator-content-plan-v3-template.xlsx"');return reply.send(buf);});
   app.get('/api/content-plan/v3/export.xlsx',async(request,reply)=>{try{const buf=await exportContentPlanV3(sourceId(request));reply.header('content-type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');return reply.send(buf);}catch(error){return reply.code(400).send({error:error instanceof Error?error.message:String(error)});}});
   app.post('/api/content-plan/v3/import/preview',async(request,reply)=>{try{const src=sourceId(request);const file=await uploaded(request);return await validateContentPlanV3(await parseContentPlanV3(file.filename,file.buffer),src);}catch(error){return reply.code(400).send({error:error instanceof Error?error.message:String(error)});}});  app.post('/api/content-plan/v3/import/apply',async(request,reply)=>{
     if(request.headers['x-publikator-content-plan']!=='IMPORT')return reply.code(400).send({error:'Нужно подтверждение IMPORT'});
