@@ -9,11 +9,12 @@ const UI_SOURCE_LABEL = { manual: 'Вручную', ai: 'ИИ', api: 'API', bund
 let uiPolishTimer = null;
 
 function uiPolishStatuses(root = document) {
+  const preserveContentStatus = window.location.pathname === '/content';
   root.querySelectorAll('.badge').forEach((badge) => {
     const raw = badge.dataset.rawStatus || badge.textContent.trim();
     if (!badge.dataset.rawStatus && UI_STATUS_LABEL[raw]) badge.dataset.rawStatus = raw;
     const key = badge.dataset.rawStatus;
-    if (key && UI_STATUS_LABEL[key]) badge.textContent = UI_STATUS_LABEL[key];
+    if (key && UI_STATUS_LABEL[key] && !preserveContentStatus) badge.textContent = UI_STATUS_LABEL[key];
   });
   root.querySelectorAll('.operator-classification').forEach((chip) => {
     const raw = chip.dataset.rawClassification || chip.textContent.trim();
@@ -66,10 +67,24 @@ function uiPolishContent(root = document) {
   if (!table) return;
   table.querySelectorAll('tbody tr').forEach((row) => {
     const mode = row.children[3];
-    if (!mode) return;
-    const raw = mode.dataset.rawSchedule || mode.textContent.trim();
-    if (!mode.dataset.rawSchedule && UI_SCHEDULE_LABEL[raw]) mode.dataset.rawSchedule = raw;
-    if (mode.dataset.rawSchedule) mode.textContent = UI_SCHEDULE_LABEL[mode.dataset.rawSchedule] || mode.dataset.rawSchedule;
+    if (mode) {
+      const rawMode = mode.dataset.rawSchedule || mode.textContent.trim();
+      if (!mode.dataset.rawSchedule && UI_SCHEDULE_LABEL[rawMode]) mode.dataset.rawSchedule = rawMode;
+      if (mode.dataset.rawSchedule) mode.textContent = UI_SCHEDULE_LABEL[mode.dataset.rawSchedule] || mode.dataset.rawSchedule;
+    }
+    const badge = row.querySelector('.badge');
+    if (!badge) return;
+    const rawStatus = badge.dataset.rawStatus || badge.textContent.trim();
+    if (!UI_STATUS_LABEL[rawStatus]) return;
+    badge.dataset.rawStatus = rawStatus;
+    badge.classList.add('ui-internal-status');
+    let visible = badge.nextElementSibling;
+    if (!visible?.classList.contains('ui-human-status')) {
+      visible = document.createElement('span');
+      visible.className = `badge ui-human-status ${rawStatus}`;
+      badge.after(visible);
+    }
+    visible.textContent = UI_STATUS_LABEL[rawStatus];
   });
 }
 
