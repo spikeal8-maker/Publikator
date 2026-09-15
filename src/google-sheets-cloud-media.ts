@@ -22,8 +22,7 @@ import {
   googleFetchWithTimeout,
   googleServiceAccountAccessToken
 } from './google-service-account.js';
-import { downloadCloudMedia, resolveCloudMediaCell, type ResolvedCloudMedia } from './cloud-media.js';
-import { resolveGoogleDriveMedia } from './google-drive-media.js';
+import { downloadCloudMedia, refreshCloudMedia, resolveCloudMediaCell, type ResolvedCloudMedia } from './cloud-media.js';
 import { deleteMediaVersioned, listMedia, reorderMedia, saveImageVersioned } from './media.js';
 import { commitContentEdit } from './content-versioning.js';
 
@@ -48,7 +47,7 @@ type ExistingSourcePost = {
 type MediaPreviewItem = {
   source: string;
   path: string;
-  provider: string;
+  provider: ResolvedCloudMedia['provider'];
   connectorId: string;
   fileId: string;
   fileName: string;
@@ -299,8 +298,11 @@ async function prepareDownloads(preview: GoogleSheetsCloudMediaPreview): Promise
       if (!normalized || !row.mediaPreview?.managed || !['NEW', 'UPDATE'].includes(row.classification)) continue;
       const files: DownloadPlan['files'] = [];
       for (const item of row.mediaPreview.items) {
-        const resolved: ResolvedCloudMedia = {
-          provider: 'google_drive',
+        if (item.provider !== 'google_drive' && item.provider !== 'yandex_disk') {
+          throw new Error(`Unsupported cloud media provider: ${item.provider}`);
+        }
+        const resolved = {
+          provider: item.provider,
           connectorId: item.connectorId,
           connectorName: item.source,
           path: item.path,
@@ -309,10 +311,10 @@ async function prepareDownloads(preview: GoogleSheetsCloudMediaPreview): Promise
           mimeType: item.mimeType,
           sizeBytes: item.sizeBytes,
           revision: item.revision
-        };
+        } as ResolvedCloudMedia;
         const downloaded = await downloadCloudMedia(resolved);
         await validateDownloadedImage(downloaded.tempPath);
-        const after = await resolveGoogleDriveMedia(resolved.connectorId, resolved.path);
+        const after = await refreshCloudMedia(resolved);
         if (after.fileId !== resolved.fileId || after.revision !== resolved.revision || after.sizeBytes !== resolved.sizeBytes) {
           await downloaded.cleanup();
           throw new Error(`Cloud media changed after preview: ${item.source}/${item.path}`);

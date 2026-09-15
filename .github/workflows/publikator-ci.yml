@@ -179,6 +179,9 @@ jobs:
       - name: CP2-006A Google Drive media binding
         run: node scripts/cp2-006a-google-drive-media-e2e.mjs
 
+      - name: CP2-006B Yandex Disk media binding
+        run: node scripts/cp2-006b-yandex-disk-media-e2e.mjs
+
       - name: CX3-012 operator quick start workflow
         run: node scripts/cx3-012-operator-quick-start-e2e.mjs
 
