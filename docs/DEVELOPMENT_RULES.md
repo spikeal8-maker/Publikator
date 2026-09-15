@@ -8,9 +8,10 @@
 
 1. [`VNEXT_TECHNICAL_SPEC.md`](VNEXT_TECHNICAL_SPEC.md)
 2. [`ARCHITECTURE.md`](ARCHITECTURE.md)
-3. соответствующий продуктовый документ Pipeline / Experience / Editorial.
+3. для user-facing UI, routes, кнопок, подсказок, источников и автоматизации — [`CANONICAL_OPERATOR_UI_FUNCTIONAL_SPEC.md`](CANONICAL_OPERATOR_UI_FUNCTIONAL_SPEC.md)
+4. соответствующий продуктовый документ Pipeline / Experience / Editorial.
 
-При противоречии главным является `VNEXT_TECHNICAL_SPEC.md`.
+При противоречии главным является `VNEXT_TECHNICAL_SPEC.md`. Канонический UI-документ задаёт продуктовый/operator contract, но не может ослаблять domain, publication-safety, concurrency, migration или security invariants более высокого уровня.
 
 Coding agent не имеет права «додумать архитектуру», если нормативное ТЗ задаёт решение.
 
