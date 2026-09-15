@@ -38,9 +38,10 @@ for (const route of routes) assert.ok(ui.includes(`'${route}'`), `route metadata
 for (const behavior of ['uiContentFilters', 'uiProjectsPage', 'uiSchedulePage', 'uiJournalFilters', 'uiWrapTables', 'uiDecorateSocialCards', 'ui-nav-open']) {
   assert.ok(ui.includes(behavior), `shared enhancement missing ${behavior}`);
 }
-for (const behavior of ['uiPolishStatuses', 'uiPolishCalendar', 'uiPolishLibrary', 'uiPolishSources', 'uiPolishTemplates', 'uiPolishPostEditor']) {
+for (const behavior of ['uiSetText', 'uiPolishStatuses', 'uiPolishCalendar', 'uiPolishLibrary', 'uiPolishSources', 'uiPolishTemplates', 'uiPolishPostEditor']) {
   assert.ok(polish.includes(behavior), `page polish missing ${behavior}`);
 }
+assert.ok(polish.includes('node.textContent !== value'), 'DOM copy updates must be idempotent under MutationObserver');
 assert.ok(polish.includes("preserveContentStatus = window.location.pathname === '/content'"), 'content filter must retain raw semantic status');
 assert.ok(polish.includes("badge.classList.add('ui-internal-status')"), 'content rows must retain a hidden semantic badge');
 assert.ok(polish.includes('ui-human-status'), 'content rows must expose a human status badge');
@@ -62,6 +63,7 @@ console.log(JSON.stringify({
   humanizedOperatorLanguage: true,
   structuredPostEditor: true,
   semanticStatusFiltering: true,
+  idempotentDomPolish: true,
   legacyPageEnhancements: ['content-filter', 'projects-summary', 'schedule-weekdays', 'journal-filter'],
   existingProductWorkflowsPreserved: true
 }));
