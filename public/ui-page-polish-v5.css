@@ -31,6 +31,8 @@
 }
 .ui-post-form > .full:has(.media-list) > strong,
 .ui-post-form > .full:has(.target-picker) > strong { display: block; margin-bottom: 9px; font-size: 13px; }
+.ui-internal-status { display: none !important; }
+.ui-human-status { display: inline-flex; vertical-align: middle; }
 
 html[data-page="templates"] .operator-empty {
   min-height: 190px;
