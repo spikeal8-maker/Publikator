@@ -1,0 +1,16 @@
+.gs-live-section { margin-top: 18px; }
+.gs-connect-form { margin: 14px 0 18px; border: 1px solid var(--border, #d7dce4); border-radius: 14px; padding: 16px; background: var(--surface, #fff); }
+.gs-connect-form textarea { min-height: 190px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+.gs-connector { border: 1px solid var(--border, #d7dce4); border-radius: 14px; padding: 14px; background: var(--surface, #fff); margin-top: 12px; }
+.gs-connector-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.gs-connector-head > div { min-width: 0; display: grid; gap: 4px; }
+.gs-connector-head span { color: var(--text-secondary, #52606d); overflow-wrap: anywhere; }
+.gs-connector-meta { margin: 9px 0 12px; font-size: 12px; color: var(--text-secondary, #52606d); overflow-wrap: anywhere; }
+.gs-result { margin-top: 12px; }
+.gs-summary { display: grid; grid-template-columns: repeat(6,minmax(0,1fr)); gap: 8px; margin: 12px 0; }
+.gs-summary > div { border: 1px solid var(--border, #d7dce4); border-radius: 10px; padding: 9px; background: var(--bg, #f6f7f9); display: grid; gap: 2px; }
+.gs-summary strong { font-size: 18px; }
+.gs-summary span { font-size: 11px; color: var(--text-secondary, #52606d); }
+.gs-connect-form .operator-secret-note code, .gs-connector code { user-select: all; }
+@media (max-width: 900px) { .gs-summary { grid-template-columns: repeat(3,minmax(0,1fr)); } }
+@media (max-width: 620px) { .gs-summary { grid-template-columns: repeat(2,minmax(0,1fr)); } .gs-connector-head { flex-direction: column; } }
