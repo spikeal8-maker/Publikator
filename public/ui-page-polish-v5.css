@@ -1,0 +1,59 @@
+.ui-editor-section-title {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin-top: 7px;
+  padding: 13px 0 8px;
+  border-top: 1px solid var(--border);
+}
+.ui-editor-section-title:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
+.ui-editor-section-title > span {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  border-radius: 9px;
+  background: var(--accent-soft);
+  color: #284eb9;
+  font-size: 12px;
+  font-weight: 850;
+}
+.ui-editor-section-title > div { display: grid; gap: 1px; }
+.ui-editor-section-title strong { font-size: 14px; color: var(--text-primary); }
+.ui-editor-section-title small { font-size: 11px; color: var(--text-secondary); font-weight: 500; }
+.ui-post-form > .full:has(.media-list),
+.ui-post-form > .full:has(.target-picker) {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-muted);
+}
+.ui-post-form > .full:has(.media-list) > strong,
+.ui-post-form > .full:has(.target-picker) > strong { display: block; margin-bottom: 9px; font-size: 13px; }
+
+html[data-page="templates"] .operator-empty {
+  min-height: 190px;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: linear-gradient(180deg, #fff, #fafbfc);
+  font-size: 14px;
+  line-height: 1.55;
+}
+html[data-page="sources"] .operator-source-layout > .operator-section:first-child { min-height: 430px; }
+html[data-page="socials"] .operator-platform-card { min-height: 155px; }
+html[data-page="socials"] .operator-platform-card button { margin-top: auto; }
+
+html[data-page="projects"] #view .table td:first-child strong { font-size: 14px; }
+html[data-page="schedule"] #view .table td:nth-child(3) { font-variant-numeric: tabular-nums; font-weight: 750; }
+html[data-page="journal"] #view .table td:first-child { white-space: nowrap; }
+html[data-page="content"] #view .table td:first-child { min-width: 280px; }
+html[data-page="content"] #view .table td:first-child strong { font-size: 14px; }
+html[data-page="content"] #view .table td:first-child .small { margin-top: 3px; line-height: 1.4; max-width: 560px; }
+
+@media (max-width: 620px) {
+  .ui-editor-section-title { margin-left: 0; margin-right: 0; }
+  .ui-post-form > .full:has(.media-list),
+  .ui-post-form > .full:has(.target-picker) { padding: 12px; }
+}
