@@ -39,12 +39,13 @@ For a normal implementation task read only:
 1. this `AGENTS.md`;
 2. the GitHub issue/checkpoint being implemented;
 3. the relevant section(s) of `docs/VNEXT_TECHNICAL_SPEC.md`;
-4. `docs/DEVELOPMENT_RULES.md` only for invariants touched by the change;
-5. the minimum source/test files needed for that checkpoint.
+4. for any user-facing page, route, button, hint, source workflow or automation behavior: `docs/CANONICAL_OPERATOR_UI_FUNCTIONAL_SPEC.md`;
+5. `docs/DEVELOPMENT_RULES.md` only for invariants touched by the change;
+6. the minimum source/test files needed for that checkpoint.
 
 Use search before opening large files. Do not repeatedly reread unchanged documentation in the same task.
 
-Document precedence is defined by `docs/VNEXT_TECHNICAL_SPEC.md`.
+Document precedence is defined by `docs/VNEXT_TECHNICAL_SPEC.md`. `docs/CANONICAL_OPERATOR_UI_FUNCTIONAL_SPEC.md` is the canonical product/operator contract for UI and automation where it does not conflict with the higher-level domain, safety or architecture invariants.
 
 ## 2. Unit of work
 
