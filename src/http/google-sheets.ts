@@ -1,0 +1,79 @@
+import type { FastifyInstance } from 'fastify';
+import {
+  applyGoogleSheetsConnector,
+  createGoogleSheetsConnector,
+  inspectGoogleSpreadsheet,
+  listGoogleSheetsConnectors,
+  previewGoogleSheetsConnector,
+  testGoogleSheetsConnector
+} from '../google-sheets.js';
+import { beginExclusiveRuntimeMaintenance } from '../runtime-gate.js';
+
+function bodyObject(body: unknown): Record<string, unknown> {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('Ожидается JSON-объект');
+  return body as Record<string, unknown>;
+}
+
+export async function registerGoogleSheetsRoutes(app: FastifyInstance): Promise<void> {
+  app.get('/api/google-sheets/connectors', async () => ({ connectors: listGoogleSheetsConnectors() }));
+
+  app.post('/api/google-sheets/inspect', async (request, reply) => {
+    try {
+      const body = bodyObject(request.body);
+      return await inspectGoogleSpreadsheet(body.credentials, body.spreadsheetId);
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post('/api/google-sheets/connectors', async (request, reply) => {
+    try {
+      const body = bodyObject(request.body);
+      const connector = await createGoogleSheetsConnector({
+        name: String(body.name ?? ''),
+        spreadsheetId: body.spreadsheetId,
+        sheetName: body.sheetName,
+        writeBack: body.writeBack === true,
+        credentials: body.credentials
+      });
+      return reply.code(201).send({ connector });
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post('/api/google-sheets/connectors/:id/test', async (request, reply) => {
+    try {
+      const params = request.params as { id: string };
+      return await testGoogleSheetsConnector(params.id);
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post('/api/google-sheets/connectors/:id/preview', async (request, reply) => {
+    try {
+      const params = request.params as { id: string };
+      return await previewGoogleSheetsConnector(params.id);
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post('/api/google-sheets/connectors/:id/apply', async (request, reply) => {
+    let release: (() => void) | null = null;
+    try {
+      const params = request.params as { id: string };
+      const body = bodyObject(request.body);
+      if (body.confirm !== 'IMPORT') return reply.code(400).send({ error: 'Нужно явное confirm=IMPORT' });
+      const previewSha = String(body.previewSha ?? '').trim().toLowerCase();
+      if (!/^[a-f0-9]{64}$/.test(previewSha)) return reply.code(400).send({ error: 'Нужен SHA-256 из Google Sheets preview' });
+      release = beginExclusiveRuntimeMaintenance('google-sheets import');
+      return { ok: true, ...(await applyGoogleSheetsConnector(params.id, previewSha)) };
+    } catch (error) {
+      return reply.code(409).send({ error: error instanceof Error ? error.message : String(error) });
+    } finally {
+      release?.();
+    }
+  });
+}

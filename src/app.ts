@@ -23,6 +23,7 @@ import { registerPlatformPreviewRoutes } from './http/platform-previews.js';
 import { registerEditorialDashboardRoutes } from './http/editorial-dashboard.js';
 import { registerVideoMediaRoutes } from './http/video-media.js';
 import { registerPublicationUnitRoutes } from './http/publication-units.js';
+import { registerGoogleSheetsRoutes } from './http/google-sheets.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -51,6 +52,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await registerBackupBundleRoutes(app);
   await registerContentPlanRoutes(app);
   await registerContentPlanV3Routes(app);
+  await registerGoogleSheetsRoutes(app);
   await registerDiagnosticsRoutes(app);
   await registerReleaseGateRoutes(app);
 

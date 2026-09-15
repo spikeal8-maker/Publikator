@@ -173,6 +173,9 @@ jobs:
       - name: Content plan v3 idempotency and conflict contract
         run: node scripts/content-plan-v3-e2e.mjs
 
+      - name: CP2-005 Google Sheets connector
+        run: node scripts/cp2-005-google-sheets-e2e.mjs
+
       - name: CX3-012 operator quick start workflow
         run: node scripts/cx3-012-operator-quick-start-e2e.mjs
 
