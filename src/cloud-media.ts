@@ -3,11 +3,18 @@ import { parseCloudMediaReferences, type CloudMediaReference } from './cloud-med
 import {
   downloadGoogleDriveMedia,
   resolveGoogleDriveMedia,
-  type DownloadedCloudMedia,
+  type DownloadedCloudMedia as DownloadedGoogleDriveMedia,
   type ResolvedGoogleDriveMedia
 } from './google-drive-media.js';
+import {
+  downloadYandexDiskMedia,
+  resolveYandexDiskMedia,
+  type DownloadedYandexDiskMedia,
+  type ResolvedYandexDiskMedia
+} from './yandex-disk-media.js';
 
-export type ResolvedCloudMedia = ResolvedGoogleDriveMedia;
+export type ResolvedCloudMedia = ResolvedGoogleDriveMedia | ResolvedYandexDiskMedia;
+export type DownloadedCloudMedia = DownloadedGoogleDriveMedia | DownloadedYandexDiskMedia;
 export type CloudMediaPreview = {
   managed: boolean;
   references: CloudMediaReference[];
@@ -23,7 +30,6 @@ function connectorBySource(source: string): ConnectorLookup {
   if (rows.length > 1) throw new Error(`Cloud media source name is ambiguous: ${source}`);
   return rows[0]!;
 }
-
 export async function resolveCloudMediaCell(cell: unknown): Promise<CloudMediaPreview> {
   const parsed = parseCloudMediaReferences(cell);
   if (!parsed.managed) return { managed: false, references: [], resolved: [] };
@@ -34,15 +40,29 @@ export async function resolveCloudMediaCell(cell: unknown): Promise<CloudMediaPr
       resolved.push(await resolveGoogleDriveMedia(connector.id, reference.path));
       continue;
     }
-    throw new Error(`Cloud media provider is not implemented in CP2-006A: ${connector.type}`);
+    if (connector.type === 'yandex_disk') {
+      resolved.push(await resolveYandexDiskMedia(connector.id, reference.path));
+      continue;
+    }
+    throw new Error(`Cloud media provider is not implemented: ${connector.type}`);
   }
-  const videoCount = resolved.filter((item) => item.mimeType === 'video/mp4').length;
-  if (videoCount > 0) throw new Error('Google Drive video media binding is not enabled in CP2-006A; use image files for this checkpoint');
-  if (resolved.some((item) => !item.mimeType.startsWith('image/'))) throw new Error('CP2-006A cloud media binding supports image files only');
+  if (resolved.some((item) => item.mimeType === 'video/mp4')) {
+    throw new Error('Cloud video media binding is not enabled yet; use image files');
+  }
+  if (resolved.some((item) => !item.mimeType.startsWith('image/'))) {
+    throw new Error('Cloud media binding currently supports image files only');
+  }
   return { managed: true, references: parsed.references, resolved };
+}
+
+export async function refreshCloudMedia(resolved: ResolvedCloudMedia): Promise<ResolvedCloudMedia> {
+  if (resolved.provider === 'google_drive') return resolveGoogleDriveMedia(resolved.connectorId, resolved.path);
+  if (resolved.provider === 'yandex_disk') return resolveYandexDiskMedia(resolved.connectorId, resolved.path);
+  throw new Error(`Unsupported cloud media provider: ${(resolved as any).provider}`);
 }
 
 export async function downloadCloudMedia(resolved: ResolvedCloudMedia): Promise<DownloadedCloudMedia> {
   if (resolved.provider === 'google_drive') return downloadGoogleDriveMedia(resolved);
+  if (resolved.provider === 'yandex_disk') return downloadYandexDiskMedia(resolved);
   throw new Error(`Unsupported cloud media provider: ${(resolved as any).provider}`);
 }
