@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 
-const [index, css, ui, polishCss, polish, operator, calendar, library, dashboard] = await Promise.all([
+const [index, app, css, ui, polishCss, polish, operator, calendar, library, dashboard] = await Promise.all([
   fs.readFile(new URL('../public/index.html', import.meta.url), 'utf8'),
+  fs.readFile(new URL('../public/app.js', import.meta.url), 'utf8'),
   fs.readFile(new URL('../public/ui-v5.css', import.meta.url), 'utf8'),
   fs.readFile(new URL('../public/ui-v5.js', import.meta.url), 'utf8'),
   fs.readFile(new URL('../public/ui-page-polish-v5.css', import.meta.url), 'utf8'),
@@ -24,6 +25,9 @@ for (const asset of ['/ui-v5.css', '/ui-page-polish-v5.css', '/ui-v5.js', '/ui-p
 }
 assert.ok(index.indexOf('/ui-v5.css') > index.indexOf('/operator-pages-v4.css'), 'unified CSS must load after feature CSS');
 assert.ok(index.indexOf('/ui-page-polish-v5.js') > index.indexOf('/ui-v5.js'), 'page polish must load after shared UI behavior');
+
+assert.ok(!app.includes("await loadProjects(); await render('dashboard');"), 'bootstrap/login must not overwrite the routed page with dashboard');
+assert.ok(operator.includes('operatorRouteWhenVisible'), 'operator router must own initial route rendering');
 
 for (const token of ['--bg:', '--surface:', '--text-primary:', '--text-secondary:', '--border:', '--accent:', '--success:', '--warning:', '--danger:']) {
   assert.ok(css.includes(token), `missing semantic token ${token}`);

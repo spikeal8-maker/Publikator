@@ -21,14 +21,14 @@ function showApp() { login.classList.add('hidden'); app.classList.remove('hidden
 function modal(html) { const el=document.createElement('div'); el.className='modal'; el.innerHTML=`<div class="modal-card">${html}</div>`; el.addEventListener('click',e=>{if(e.target===el)el.remove()}); document.body.append(el); return el; }
 
 async function bootstrap() {
-  try { await api('/api/dashboard'); showApp(); await loadProjects(); await render('dashboard'); } catch { showLogin(); }
+  try { await api('/api/dashboard'); showApp(); await loadProjects(); } catch { showLogin(); }
 }
 async function loadProjects(){ projects=await api('/api/projects'); }
 
 document.querySelector('#login-form').addEventListener('submit', async e => {
   e.preventDefault();
   document.querySelector('#login-error').textContent='';
-  try { await api('/api/auth/login',{method:'POST',body:JSON.stringify({password:document.querySelector('#password').value})}); showApp(); await loadProjects(); await render('dashboard'); }
+  try { await api('/api/auth/login',{method:'POST',body:JSON.stringify({password:document.querySelector('#password').value})}); showApp(); await loadProjects(); }
   catch(err){ document.querySelector('#login-error').textContent=err.message; }
 });
 document.querySelector('#logout').addEventListener('click', async()=>{ await api('/api/auth/logout',{method:'POST'}).catch(()=>{}); showLogin(); });
