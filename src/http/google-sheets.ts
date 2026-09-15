@@ -1,12 +1,14 @@
 import type { FastifyInstance } from 'fastify';
 import {
-  applyGoogleSheetsConnector,
   createGoogleSheetsConnector,
   inspectGoogleSpreadsheet,
   listGoogleSheetsConnectors,
-  previewGoogleSheetsConnector,
   testGoogleSheetsConnector
 } from '../google-sheets.js';
+import {
+  applyGoogleSheetsCloudMedia,
+  previewGoogleSheetsCloudMedia
+} from '../google-sheets-cloud-media.js';
 import { beginExclusiveRuntimeMaintenance } from '../runtime-gate.js';
 
 function bodyObject(body: unknown): Record<string, unknown> {
@@ -54,7 +56,7 @@ export async function registerGoogleSheetsRoutes(app: FastifyInstance): Promise<
   app.post('/api/google-sheets/connectors/:id/preview', async (request, reply) => {
     try {
       const params = request.params as { id: string };
-      return await previewGoogleSheetsConnector(params.id);
+      return await previewGoogleSheetsCloudMedia(params.id);
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }
@@ -68,8 +70,10 @@ export async function registerGoogleSheetsRoutes(app: FastifyInstance): Promise<
       if (body.confirm !== 'IMPORT') return reply.code(400).send({ error: 'Нужно явное confirm=IMPORT' });
       const previewSha = String(body.previewSha ?? '').trim().toLowerCase();
       if (!/^[a-f0-9]{64}$/.test(previewSha)) return reply.code(400).send({ error: 'Нужен SHA-256 из Google Sheets preview' });
+      const mediaPreviewSha = body.mediaPreviewSha == null ? null : String(body.mediaPreviewSha).trim().toLowerCase();
+      if (mediaPreviewSha && !/^[a-f0-9]{64}$/.test(mediaPreviewSha)) return reply.code(400).send({ error: 'Некорректный SHA-256 cloud media preview' });
       release = beginExclusiveRuntimeMaintenance('google-sheets import');
-      return { ok: true, ...(await applyGoogleSheetsConnector(params.id, previewSha)) };
+      return { ok: true, ...(await applyGoogleSheetsCloudMedia(params.id, previewSha, mediaPreviewSha)) };
     } catch (error) {
       return reply.code(409).send({ error: error instanceof Error ? error.message : String(error) });
     } finally {
