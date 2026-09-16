@@ -37,6 +37,7 @@ export type GoogleSheetsConfig = {
   serviceAccountEmail: string;
   pollingEnabled: boolean;
   pollIntervalMinutes: number;
+  autoApplyEnabled: boolean;
 };
 
 type ConnectorRow = {
@@ -101,7 +102,8 @@ function normalizeConfig(value: unknown, serviceAccountEmail?: string): GoogleSh
     writeBack: row.writeBack === true,
     serviceAccountEmail: serviceAccountEmail ?? String(row.serviceAccountEmail ?? '').trim(),
     pollingEnabled: row.pollingEnabled === true,
-    pollIntervalMinutes: normalizePollInterval(row.pollIntervalMinutes)
+    pollIntervalMinutes: normalizePollInterval(row.pollIntervalMinutes),
+    autoApplyEnabled: row.autoApplyEnabled === true
   };
 }
 
@@ -219,6 +221,7 @@ export async function createGoogleSheetsConnector(params: {
   writeBack?: boolean;
   pollingEnabled?: boolean;
   pollIntervalMinutes?: unknown;
+  autoApplyEnabled?: boolean;
   credentials: unknown;
 }): Promise<GoogleSheetsConnector> {
   const credentials = normalizeCredentials(params.credentials);
@@ -230,7 +233,8 @@ export async function createGoogleSheetsConnector(params: {
     sheetName,
     writeBack: params.writeBack === true,
     pollingEnabled: params.pollingEnabled === true,
-    pollIntervalMinutes: params.pollIntervalMinutes ?? 15
+    pollIntervalMinutes: params.pollIntervalMinutes ?? 15,
+    autoApplyEnabled: params.autoApplyEnabled === true
   }, credentials.client_email);
   const created = createIngestionConnector({
     type: 'google_sheets',
@@ -241,10 +245,10 @@ export async function createGoogleSheetsConnector(params: {
   return { ...created, config };
 }
 
-export function updateGoogleSheetsPolling(connectorId: string, params: { enabled: boolean; intervalMinutes: unknown }): GoogleSheetsConnector {
+export function updateGoogleSheetsPolling(connectorId: string, params: { enabled: boolean; intervalMinutes: unknown; autoApplyEnabled?: boolean }): GoogleSheetsConnector {
   const row = connectorRow(connectorId, false);
   const current = normalizeConfig(JSON.parse(row.config_json));
-  const config = { ...current, pollingEnabled: params.enabled, pollIntervalMinutes: normalizePollInterval(params.intervalMinutes) };
+  const config = { ...current, pollingEnabled: params.enabled, pollIntervalMinutes: normalizePollInterval(params.intervalMinutes), autoApplyEnabled: typeof params.autoApplyEnabled === 'boolean' ? params.autoApplyEnabled : current.autoApplyEnabled };
   db.prepare('UPDATE ingestion_connectors SET config_json=?,updated_at=? WHERE id=?').run(JSON.stringify(config), nowIso(), connectorId);
   return connectorMetadata(connectorRow(connectorId, false));
 }
@@ -419,13 +423,15 @@ async function writeBack(connectorId: string, config: GoogleSheetsConfig, creden
   if (!response.ok) throw new Error(`Google Sheets status write-back failed (HTTP ${response.status})`);
 }
 
-export async function applyGoogleSheetsConnector(connectorId: string, expectedSnapshotSha256: string): Promise<{
+export async function applyGoogleSheetsValues(connectorId: string, expectedSnapshotSha256: string, values: unknown[][]): Promise<{
   created: number; updated: number; unchanged: number; archived: number; trashed: number; postIds: string[];
   sourceSnapshotSha256: string;
   writeBack: { attempted: boolean; ok: boolean; error: string | null };
 }> {
   if (!/^[a-f0-9]{64}$/i.test(expectedSnapshotSha256)) throw new Error('A preview SHA-256 is required');
-  const { config, credentials, values } = await sheetValues(connectorId);
+  const row = connectorRow(connectorId);
+  const config = normalizeConfig(JSON.parse(row.config_json));
+  const credentials = readIngestionConnectorCredentials(connectorId);
   const validation = await previewFromValues(connectorId, values);
   if (validation.fileSha256 !== expectedSnapshotSha256.toLowerCase()) throw new Error('Google Sheet changed after preview; preview again before apply');
   if (!validation.canApply) throw new Error('Google Sheets preview contains ERROR/CONFLICT');
@@ -449,4 +455,9 @@ export async function applyGoogleSheetsConnector(connectorId: string, expectedSn
     }
   }
   return { ...result, sourceSnapshotSha256: validation.fileSha256, writeBack: writeBackResult };
+}
+
+export async function applyGoogleSheetsConnector(connectorId: string, expectedSnapshotSha256: string) {
+  const { values } = await sheetValues(connectorId);
+  return applyGoogleSheetsValues(connectorId, expectedSnapshotSha256, values);
 }

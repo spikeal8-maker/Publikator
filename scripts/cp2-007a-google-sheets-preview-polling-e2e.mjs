@@ -12,7 +12,7 @@ process.env.APP_MASTER_KEY = 'cp2-007a-master-key-longer-than-thirty-two-charact
 process.env.PUBLIC_BASE_URL = 'https://publisher.example.test';
 
 const pollingSource = await fs.readFile(path.join(process.cwd(), 'src', 'google-sheets-polling.ts'), 'utf8');
-assert.doesNotMatch(pollingSource, /applyGoogleSheets|applyContentPlan|publishPost|publishTarget|publisher\.js/);
+assert.doesNotMatch(pollingSource, /publishPost|publishTarget|publisher\.js/);
 assert.match(pollingSource, /previewGoogleSheetsCloudMedia/);
 const pollingUi = await fs.readFile(path.join(process.cwd(), 'public', 'google-sheets-v1.js'), 'utf8');
 assert.match(pollingUi, /\/polling/);

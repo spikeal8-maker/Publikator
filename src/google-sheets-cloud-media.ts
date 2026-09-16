@@ -13,7 +13,7 @@ import {
 } from './content-plan-v3.js';
 import { readIngestionConnectorCredentials } from './integration-security.js';
 import {
-  applyGoogleSheetsConnector,
+  applyGoogleSheetsValues,
   previewGoogleSheetsValues,
   type GoogleSheetsPreview
 } from './google-sheets.js';
@@ -414,7 +414,7 @@ async function writeBack(connectorId: string, cfg: SheetConfig, credentials: Rec
 }
 
 export async function applyGoogleSheetsCloudMedia(connectorId: string, expectedSnapshotSha256: string, expectedMediaSnapshotSha256?: string | null): Promise<
-  Awaited<ReturnType<typeof applyGoogleSheetsConnector>> | {
+  Awaited<ReturnType<typeof applyGoogleSheetsValues>> | {
     created: number; updated: number; unchanged: number; archived: number; trashed: number; postIds: string[];
     sourceSnapshotSha256: string; mediaSnapshotSha256: string | null;
     media: { managedRows: number; syncedRows: number };
@@ -424,7 +424,7 @@ export async function applyGoogleSheetsCloudMedia(connectorId: string, expectedS
   if (!/^[a-f0-9]{64}$/i.test(expectedSnapshotSha256)) throw new Error('A preview SHA-256 is required');
   if (!expectedMediaSnapshotSha256) {
     const { values } = await sheetValues(connectorId);
-    if (!hasCloudMediaInput(values)) return applyGoogleSheetsConnector(connectorId, expectedSnapshotSha256);
+    if (!hasCloudMediaInput(values)) return applyGoogleSheetsValues(connectorId, expectedSnapshotSha256, values);
     throw new Error('Cloud media preview SHA-256 is required; preview again before apply');
   }
   const { config: cfg, credentials, values } = await sheetValues(connectorId);
