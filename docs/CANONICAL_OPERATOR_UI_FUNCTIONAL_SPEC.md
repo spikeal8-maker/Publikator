@@ -1126,6 +1126,20 @@ Default:
 
 # 11.4 Write-back в Google Sheets
 
+### CP2-008A — фактический результат публикации
+
+При включённом write-back входные колонки остаются A:U. Publikator владеет служебными колонками V:AD:
+
+- V:Y — результат Preview/Apply импорта;
+- Z `publication_status`;
+- AA `editorial_stage`;
+- AB `published_at`;
+- AC `external_urls` — JSON по подтверждённым внешним результатам;
+- AD `publication_error`.
+
+Publication write-back MUST быть идемпотентным и best-effort: ошибка Google Sheets не меняет канонический статус уже выполненной публикации и не запускает повтор внешнего publish.
+
+
 Optional write-back MAY содержать:
 
 - publikator id;
