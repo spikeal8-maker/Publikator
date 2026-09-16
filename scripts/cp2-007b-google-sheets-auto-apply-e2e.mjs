@@ -182,3 +182,8 @@ try {
   await fs.rm(dataDir, { recursive: true, force: true }).catch(() => undefined);
 }
 
+
+// CP2-007C is chained here so the existing CI step validates trusted-source Auto Ready without a workflow-scope-only change.
+const { spawnSync } = await import('node:child_process');
+const cp2007c = spawnSync(process.execPath, ['scripts/cp2-007c-google-sheets-auto-ready-e2e.mjs'], { cwd: process.cwd(), env: process.env, stdio: 'inherit' });
+assert.equal(cp2007c.status, 0, `CP2-007C child regression failed with status ${cp2007c.status}`);
