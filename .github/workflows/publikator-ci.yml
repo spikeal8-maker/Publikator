@@ -197,6 +197,9 @@ jobs:
       - name: CP2-007D Google Sheets scheduled publication chain
         run: node scripts/cp2-007d-google-sheets-scheduled-publish-e2e.mjs
 
+      - name: CP2-008A Google Sheets publication result write-back
+        run: node scripts/cp2-008a-google-sheets-publication-writeback-e2e.mjs
+
       - name: CX3-012 operator quick start workflow
         run: node scripts/cx3-012-operator-quick-start-e2e.mjs
 
