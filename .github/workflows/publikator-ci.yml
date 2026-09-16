@@ -188,6 +188,9 @@ jobs:
       - name: CP2-007A Google Sheets Preview-only polling
         run: node scripts/cp2-007a-google-sheets-preview-polling-e2e.mjs
 
+      - name: CP2-007B Google Sheets safe Auto Apply
+        run: node scripts/cp2-007b-google-sheets-auto-apply-e2e.mjs
+
       - name: CX3-012 operator quick start workflow
         run: node scripts/cx3-012-operator-quick-start-e2e.mjs
 

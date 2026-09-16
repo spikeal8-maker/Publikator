@@ -19,3 +19,4 @@
 .gs-polling select { min-width: 92px; }
 .gs-poll-meta { flex: 1 1 100%; font-size: 11px; color: var(--text-secondary, #52606d); }
 @media (max-width: 620px) { .gs-polling > label, .gs-polling .gs-poll-save { width: 100%; } .gs-polling select { flex: 1; } }
+.gs-auto-apply-label { flex: 1 1 100%; }

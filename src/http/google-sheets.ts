@@ -42,6 +42,7 @@ export async function registerGoogleSheetsRoutes(app: FastifyInstance): Promise<
         writeBack: body.writeBack === true,
         pollingEnabled: body.pollingEnabled === true,
         pollIntervalMinutes: body.pollIntervalMinutes ?? 15,
+        autoApplyEnabled: body.autoApplyEnabled === true,
         credentials: body.credentials
       });
       return reply.code(201).send({ connector });
@@ -55,7 +56,7 @@ export async function registerGoogleSheetsRoutes(app: FastifyInstance): Promise<
       const params = request.params as { id: string };
       const body = bodyObject(request.body);
       if (typeof body.enabled !== 'boolean') return reply.code(400).send({ error: 'enabled must be boolean' });
-      const connector = updateGoogleSheetsPolling(params.id, { enabled: body.enabled, intervalMinutes: body.intervalMinutes });
+      const connector = updateGoogleSheetsPolling(params.id, { enabled: body.enabled, intervalMinutes: body.intervalMinutes, autoApplyEnabled: Object.prototype.hasOwnProperty.call(body, 'autoApplyEnabled') ? body.autoApplyEnabled === true : undefined });
       return { connector, polling: googleSheetsPollingStatus(connector) };
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
