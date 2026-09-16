@@ -12,6 +12,7 @@ import {
 } from '../google-sheets-cloud-media.js';
 import { beginExclusiveRuntimeMaintenance } from '../runtime-gate.js';
 import { googleSheetsPollingStatus } from '../google-sheets-polling.js';
+import { googleSheetsPublicationWriteBackTick } from '../google-sheets-publication-writeback.js';
 
 function bodyObject(body: unknown): Record<string, unknown> {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('Ожидается JSON-объект');
@@ -61,6 +62,15 @@ export async function registerGoogleSheetsRoutes(app: FastifyInstance): Promise<
       return { connector, polling: googleSheetsPollingStatus(connector) };
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post('/api/google-sheets/connectors/:id/publication-writeback', async (request, reply) => {
+    try {
+      const params = request.params as { id: string };
+      return await googleSheetsPublicationWriteBackTick(params.id);
+    } catch (error) {
+      return reply.code(409).send({ error: error instanceof Error ? error.message : String(error) });
     }
   });
 

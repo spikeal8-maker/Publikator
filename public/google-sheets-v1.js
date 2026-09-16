@@ -76,7 +76,7 @@ function connectorCard(connector) {
   return `<article class="gs-connector" data-gs-id="${gsEsc(connector.id)}">
     <div class="gs-connector-head">
       <div><strong>${gsEsc(connector.name)}</strong><span>${gsEsc(connector.config.spreadsheetId)} · ${gsEsc(connector.config.sheetName)}</span></div>
-      <span class="badge">${connector.config.writeBack ? 'import + status write-back' : 'import only'}</span>
+      <span class="badge">${connector.config.writeBack ? 'import + publication write-back' : 'import only'}</span>
     </div>
     <div class="gs-connector-meta">Service account: <code>${gsEsc(connector.config.serviceAccountEmail)}</code></div>
     <div class="gs-polling">
@@ -91,6 +91,7 @@ function connectorCard(connector) {
       <button class="secondary gs-test" type="button">Проверить</button>
       <button class="primary gs-preview" type="button">Preview sync</button>
       <button class="secondary gs-apply" type="button" ${preview?.canApply ? '' : 'disabled'}>Import new/changed rows</button>
+      ${connector.config.writeBack ? '<button class="secondary gs-publication-writeback" type="button">Записать статусы сейчас</button>' : ''}
     </div>
     <div class="gs-result">${preview ? `<div class="operator-result ${preview.canApply ? 'ok' : 'error'}"><strong>${preview.canApply ? 'Preview готов.' : 'Apply заблокирован.'}</strong> Sheet SHA: <code>${gsEsc(preview.sourceSnapshotSha256)}</code></div>${gsSummary(preview.summary)}${gsPreviewRows(preview)}` : ''}</div>
   </article>`;
@@ -125,6 +126,18 @@ async function loadGoogleConnectors(host) {
       out.innerHTML = `<div class="operator-result error">${gsEsc(error instanceof Error ? error.message : String(error))}</div>`;
       button.disabled = false;
     }
+  }));
+  list.querySelectorAll('.gs-publication-writeback').forEach((button) => button.addEventListener('click', async () => {
+    const card = button.closest('.gs-connector');
+    const out = card.querySelector('.gs-result');
+    button.disabled = true;
+    out.innerHTML = '<div class="operator-result">Записываю актуальные статусы публикаций в Google Sheets…</div>';
+    try {
+      const result = await googleSheetsApi(`/api/google-sheets/connectors/${encodeURIComponent(card.dataset.gsId)}/publication-writeback`, { method: 'POST', body: '{}' });
+      out.innerHTML = `<div class="operator-result ok"><strong>Статусы синхронизированы.</strong> Записано: ${Number(result.written || 0)}, ошибок: ${Number(result.failed || 0)}.</div>`;
+    } catch (error) {
+      out.innerHTML = `<div class="operator-result error">${gsEsc(error instanceof Error ? error.message : String(error))}</div>`;
+    } finally { button.disabled = false; }
   }));
   list.querySelectorAll('.gs-test').forEach((button) => button.addEventListener('click', async () => {
     const card = button.closest('.gs-connector');
@@ -187,7 +200,7 @@ function renderGoogleConnectForm(host) {
       <div id="gs-share-hint" class="operator-secret-note">Вставьте JSON — здесь появится email, которому нужно открыть доступ к таблице.</div>
       <div class="row-actions full"><button id="gs-inspect" class="secondary" type="button">1. Проверить таблицу и получить листы</button></div>
       <label id="gs-sheet-wrap" class="full hidden">Лист<select name="sheetName"></select></label>
-      <label id="gs-writeback-wrap" class="target-check hidden"><input name="writeBack" type="checkbox"> Записывать служебный результат в V:Y</label>
+      <label id="gs-writeback-wrap" class="target-check hidden"><input name="writeBack" type="checkbox"> Записывать результат импорта и публикации обратно в таблицу (V:AD)</label>
       <div id="gs-connect-result" class="full"></div>
       <div class="row-actions full"><button id="gs-save" class="primary" type="submit" disabled>2. Сохранить подключение</button></div>
     </form>

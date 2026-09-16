@@ -8,6 +8,7 @@ const { cleanupVideoTemp } = await import('./video-media.js');
 const { buildApp } = await import('./app.js');
 const { schedulerTick } = await import('./scheduler.js');
 const { googleSheetsPollingTick } = await import('./google-sheets-polling.js');
+const { googleSheetsPublicationWriteBackTick } = await import('./google-sheets-publication-writeback.js');
 
 migrate();
 await cleanupVideoTemp();
@@ -18,8 +19,13 @@ const interval = setInterval(() => {
 }, config.schedulerIntervalMs);
 interval.unref();
 
-const sourcePollingInterval = setInterval(() => {
-  googleSheetsPollingTick().catch((error) => app.log.error(error, 'Google Sheets polling tick failed'));
+const sourcePollingInterval = setInterval(async () => {
+  try {
+    await googleSheetsPollingTick();
+    await googleSheetsPublicationWriteBackTick();
+  } catch (error) {
+    app.log.error(error, 'Google Sheets automation tick failed');
+  }
 }, 60_000);
 sourcePollingInterval.unref();
 

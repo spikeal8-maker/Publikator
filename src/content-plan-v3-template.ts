@@ -87,7 +87,8 @@ const INSTRUCTION_ROWS = [
   ['workflow','2','external_id должен быть стабильным; source_revision меняйте при каждом смысловом изменении.','',''],
   ['workflow','3','Сначала Preview, потом Apply; Preview не меняет канонические данные.','',''],
   ['workflow','4','media заполняется только в Google Sheets для Google Drive/Яндекс Диск; прямой XLSX import оставляет media пустым.','',''],
-  ['workflow','5','MANUAL = ручно; AT = точное время; QUEUE = автоматическая очередь.','','']
+  ['workflow','5','MANUAL = ручно; AT = точное время; QUEUE = автоматическая очередь.','',''],
+  ['workflow','6','При включённом Google Sheets write-back Publikator заполняет служебные колонки V:AD; не используйте их как входные данные.','V:Y = импорт; Z:AD = результат публикации','']
 ];
 
 export async function createCanonicalContentPlanV3Template(): Promise<Buffer> {
