@@ -21,6 +21,7 @@ const WRITE_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
 const SOURCE_TYPE = 'google_sheets';
 const MAX_SHEET_ROWS = 10_000;
 const REQUEST_TIMEOUT_MS = 15_000;
+const POLL_INTERVAL_MINUTES = new Set([5, 15, 30, 60]);
 
 type ServiceAccountCredentials = {
   type: 'service_account';
@@ -34,6 +35,8 @@ export type GoogleSheetsConfig = {
   sheetName: string;
   writeBack: boolean;
   serviceAccountEmail: string;
+  pollingEnabled: boolean;
+  pollIntervalMinutes: number;
 };
 
 type ConnectorRow = {
@@ -84,13 +87,21 @@ function normalizeSheetName(value: unknown): string {
   return name;
 }
 
+function normalizePollInterval(value: unknown): number {
+  const interval = Number(value ?? 15);
+  if (!Number.isInteger(interval) || !POLL_INTERVAL_MINUTES.has(interval)) throw new Error('pollIntervalMinutes must be 5, 15, 30 or 60');
+  return interval;
+}
+
 function normalizeConfig(value: unknown, serviceAccountEmail?: string): GoogleSheetsConfig {
   const row = asRecord(value, 'Google Sheets config');
   return {
     spreadsheetId: normalizeSpreadsheetId(row.spreadsheetId),
     sheetName: normalizeSheetName(row.sheetName),
     writeBack: row.writeBack === true,
-    serviceAccountEmail: serviceAccountEmail ?? String(row.serviceAccountEmail ?? '').trim()
+    serviceAccountEmail: serviceAccountEmail ?? String(row.serviceAccountEmail ?? '').trim(),
+    pollingEnabled: row.pollingEnabled === true,
+    pollIntervalMinutes: normalizePollInterval(row.pollIntervalMinutes)
   };
 }
 
@@ -206,6 +217,8 @@ export async function createGoogleSheetsConnector(params: {
   spreadsheetId: unknown;
   sheetName: unknown;
   writeBack?: boolean;
+  pollingEnabled?: boolean;
+  pollIntervalMinutes?: unknown;
   credentials: unknown;
 }): Promise<GoogleSheetsConnector> {
   const credentials = normalizeCredentials(params.credentials);
@@ -215,7 +228,9 @@ export async function createGoogleSheetsConnector(params: {
   const config = normalizeConfig({
     spreadsheetId: params.spreadsheetId,
     sheetName,
-    writeBack: params.writeBack === true
+    writeBack: params.writeBack === true,
+    pollingEnabled: params.pollingEnabled === true,
+    pollIntervalMinutes: params.pollIntervalMinutes ?? 15
   }, credentials.client_email);
   const created = createIngestionConnector({
     type: 'google_sheets',
@@ -224,6 +239,14 @@ export async function createGoogleSheetsConnector(params: {
     credentials
   });
   return { ...created, config };
+}
+
+export function updateGoogleSheetsPolling(connectorId: string, params: { enabled: boolean; intervalMinutes: unknown }): GoogleSheetsConnector {
+  const row = connectorRow(connectorId, false);
+  const current = normalizeConfig(JSON.parse(row.config_json));
+  const config = { ...current, pollingEnabled: params.enabled, pollIntervalMinutes: normalizePollInterval(params.intervalMinutes) };
+  db.prepare('UPDATE ingestion_connectors SET config_json=?,updated_at=? WHERE id=?').run(JSON.stringify(config), nowIso(), connectorId);
+  return connectorMetadata(connectorRow(connectorId, false));
 }
 
 export async function testGoogleSheetsConnector(connectorId: string): Promise<GoogleSheetInspection & { sheetName: string; writeBack: boolean }> {
@@ -334,8 +357,9 @@ async function previewFromValues(connectorId: string, values: unknown[][]): Prom
   return reclassifyForGoogleSheets(base, connectorId);
 }
 
-export async function previewGoogleSheetsConnector(connectorId: string): Promise<GoogleSheetsPreview> {
-  const { config, values } = await sheetValues(connectorId);
+export async function previewGoogleSheetsValues(connectorId: string, values: unknown[][]): Promise<GoogleSheetsPreview> {
+  const row = connectorRow(connectorId);
+  const config = normalizeConfig(JSON.parse(row.config_json));
   const validation = await previewFromValues(connectorId, values);
   return {
     ...validation,
@@ -344,6 +368,11 @@ export async function previewGoogleSheetsConnector(connectorId: string): Promise
     sheetName: config.sheetName,
     sourceSnapshotSha256: validation.fileSha256
   };
+}
+
+export async function previewGoogleSheetsConnector(connectorId: string): Promise<GoogleSheetsPreview> {
+  const { values } = await sheetValues(connectorId);
+  return previewGoogleSheetsValues(connectorId, values);
 }
 
 function forceNewRowsToGoogleSource(validation: V3Validation, connectorId: string, resultPostIds: string[]): void {
