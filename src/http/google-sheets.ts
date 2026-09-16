@@ -3,13 +3,15 @@ import {
   createGoogleSheetsConnector,
   inspectGoogleSpreadsheet,
   listGoogleSheetsConnectors,
-  testGoogleSheetsConnector
+  testGoogleSheetsConnector,
+  updateGoogleSheetsPolling
 } from '../google-sheets.js';
 import {
   applyGoogleSheetsCloudMedia,
   previewGoogleSheetsCloudMedia
 } from '../google-sheets-cloud-media.js';
 import { beginExclusiveRuntimeMaintenance } from '../runtime-gate.js';
+import { googleSheetsPollingStatus } from '../google-sheets-polling.js';
 
 function bodyObject(body: unknown): Record<string, unknown> {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('Ожидается JSON-объект');
@@ -17,7 +19,9 @@ function bodyObject(body: unknown): Record<string, unknown> {
 }
 
 export async function registerGoogleSheetsRoutes(app: FastifyInstance): Promise<void> {
-  app.get('/api/google-sheets/connectors', async () => ({ connectors: listGoogleSheetsConnectors() }));
+  app.get('/api/google-sheets/connectors', async () => ({
+    connectors: listGoogleSheetsConnectors().map((connector) => ({ ...connector, polling: googleSheetsPollingStatus(connector) }))
+  }));
 
   app.post('/api/google-sheets/inspect', async (request, reply) => {
     try {
@@ -36,9 +40,23 @@ export async function registerGoogleSheetsRoutes(app: FastifyInstance): Promise<
         spreadsheetId: body.spreadsheetId,
         sheetName: body.sheetName,
         writeBack: body.writeBack === true,
+        pollingEnabled: body.pollingEnabled === true,
+        pollIntervalMinutes: body.pollIntervalMinutes ?? 15,
         credentials: body.credentials
       });
       return reply.code(201).send({ connector });
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.put('/api/google-sheets/connectors/:id/polling', async (request, reply) => {
+    try {
+      const params = request.params as { id: string };
+      const body = bodyObject(request.body);
+      if (typeof body.enabled !== 'boolean') return reply.code(400).send({ error: 'enabled must be boolean' });
+      const connector = updateGoogleSheetsPolling(params.id, { enabled: body.enabled, intervalMinutes: body.intervalMinutes });
+      return { connector, polling: googleSheetsPollingStatus(connector) };
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }

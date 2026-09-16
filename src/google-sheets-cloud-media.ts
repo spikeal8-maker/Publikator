@@ -14,7 +14,7 @@ import {
 import { readIngestionConnectorCredentials } from './integration-security.js';
 import {
   applyGoogleSheetsConnector,
-  previewGoogleSheetsConnector,
+  previewGoogleSheetsValues,
   type GoogleSheetsPreview
 } from './google-sheets.js';
 import {
@@ -277,7 +277,7 @@ async function previewFromValues(connectorId: string, configValue: SheetConfig, 
 
 export async function previewGoogleSheetsCloudMedia(connectorId: string): Promise<GoogleSheetsCloudMediaPreview | GoogleSheetsPreview> {
   const { config: cfg, values } = await sheetValues(connectorId);
-  if (!hasCloudMediaInput(values)) return previewGoogleSheetsConnector(connectorId);
+  if (!hasCloudMediaInput(values)) return previewGoogleSheetsValues(connectorId, values);
   return previewFromValues(connectorId, cfg, values);
 }
 

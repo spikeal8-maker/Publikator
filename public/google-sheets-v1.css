@@ -14,3 +14,8 @@
 .gs-connect-form .operator-secret-note code, .gs-connector code { user-select: all; }
 @media (max-width: 900px) { .gs-summary { grid-template-columns: repeat(3,minmax(0,1fr)); } }
 @media (max-width: 620px) { .gs-summary { grid-template-columns: repeat(2,minmax(0,1fr)); } .gs-connector-head { flex-direction: column; } }
+.gs-polling { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 12px; padding: 10px; border: 1px solid var(--border, #d7dce4); border-radius: 10px; background: var(--bg, #f6f7f9); }
+.gs-polling > label { display: inline-flex; align-items: center; gap: 7px; margin: 0; font-size: 12px; }
+.gs-polling select { min-width: 92px; }
+.gs-poll-meta { flex: 1 1 100%; font-size: 11px; color: var(--text-secondary, #52606d); }
+@media (max-width: 620px) { .gs-polling > label, .gs-polling .gs-poll-save { width: 100%; } .gs-polling select { flex: 1; } }

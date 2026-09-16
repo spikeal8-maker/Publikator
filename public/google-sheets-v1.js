@@ -44,6 +44,25 @@ function serviceAccountIdentity(text) {
   }
 }
 
+function gsDate(value) {
+  if (!value) return '\u2014';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString('ru-RU');
+}
+
+function gsPollingMeta(polling = {}) {
+  const summary = polling.lastSummary || {};
+  const changes = Number(summary.newRows || 0) + Number(summary.updateRows || 0);
+  const issues = Number(summary.conflicts || 0) + Number(summary.errors || 0);
+  const result = polling.lastResult === 'failed'
+    ? `\u043e\u0448\u0438\u0431\u043a\u0430: ${gsEsc(polling.lastError || 'unknown')}`
+    : polling.lastResult === 'success'
+      ? `\u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u0439: ${changes}, \u043f\u0440\u043e\u0431\u043b\u0435\u043c: ${issues}`
+      : '\u0435\u0449\u0451 \u043d\u0435 \u0437\u0430\u043f\u0443\u0441\u043a\u0430\u043b\u0430\u0441\u044c';
+  const next = polling.nextDueAt ? ` \u00b7 \u0441\u043b\u0435\u0434\u0443\u044e\u0449\u0430\u044f: ${gsEsc(gsDate(polling.nextDueAt))}` : '';
+  return `\u041f\u043e\u0441\u043b\u0435\u0434\u043d\u044f\u044f \u0430\u0432\u0442\u043e\u043f\u0440\u043e\u0432\u0435\u0440\u043a\u0430: ${gsEsc(gsDate(polling.lastAttemptAt))} \u00b7 ${result}${next}`;
+}
+
 function connectorCard(connector) {
   const preview = googlePreviewByConnector.get(connector.id);
   return `<article class="gs-connector" data-gs-id="${gsEsc(connector.id)}">
@@ -52,6 +71,12 @@ function connectorCard(connector) {
       <span class="badge">${connector.config.writeBack ? 'import + status write-back' : 'import only'}</span>
     </div>
     <div class="gs-connector-meta">Service account: <code>${gsEsc(connector.config.serviceAccountEmail)}</code></div>
+    <div class="gs-polling">
+      <label class="target-check"><input class="gs-poll-enabled" type="checkbox" ${connector.config.pollingEnabled ? 'checked' : ''}> \u0410\u0432\u0442\u043e\u043f\u0440\u043e\u0432\u0435\u0440\u043a\u0430 \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u0439</label>
+      <label>\u0418\u043d\u0442\u0435\u0440\u0432\u0430\u043b <select class="gs-poll-interval">${[5,15,30,60].map((value) => `<option value="${value}" ${Number(connector.config.pollIntervalMinutes || 15) === value ? 'selected' : ''}>${value} \u043c\u0438\u043d</option>`).join('')}</select></label>
+      <button class="secondary gs-poll-save" type="button">\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u0430\u0432\u0442\u043e\u043c\u0430\u0442\u0438\u0437\u0430\u0446\u0438\u044e</button>
+      <span class="gs-poll-meta">${gsPollingMeta(connector.polling)}</span>
+    </div>
     <div class="row-actions">
       <button class="secondary gs-test" type="button">Проверить</button>
       <button class="primary gs-preview" type="button">Preview sync</button>
@@ -66,6 +91,23 @@ async function loadGoogleConnectors(host) {
   const connectors = data.connectors || [];
   const list = host.querySelector('#gs-connectors-list');
   list.innerHTML = connectors.length ? connectors.map(connectorCard).join('') : '<div class="operator-empty">Google Sheets ещё не подключён.</div>';
+  list.querySelectorAll('.gs-poll-save').forEach((button) => button.addEventListener('click', async () => {
+    const card = button.closest('.gs-connector');
+    const out = card.querySelector('.gs-result');
+    const enabled = Boolean(card.querySelector('.gs-poll-enabled')?.checked);
+    const intervalMinutes = Number(card.querySelector('.gs-poll-interval')?.value || 15);
+    button.disabled = true;
+    out.innerHTML = '<div class="operator-result">\u0421\u043e\u0445\u0440\u0430\u043d\u044f\u044e \u043f\u0430\u0440\u0430\u043c\u0435\u0442\u0440\u044b \u0430\u0432\u0442\u043e\u043f\u0440\u043e\u0432\u0435\u0440\u043a\u0438\u2026</div>';
+    try {
+      await googleSheetsApi(`/api/google-sheets/connectors/${encodeURIComponent(card.dataset.gsId)}/polling`, {
+        method: 'PUT', body: JSON.stringify({ enabled, intervalMinutes })
+      });
+      await loadGoogleConnectors(host);
+    } catch (error) {
+      out.innerHTML = `<div class="operator-result error">${gsEsc(error instanceof Error ? error.message : String(error))}</div>`;
+      button.disabled = false;
+    }
+  }));
   list.querySelectorAll('.gs-test').forEach((button) => button.addEventListener('click', async () => {
     const card = button.closest('.gs-connector');
     const out = card.querySelector('.gs-result');
