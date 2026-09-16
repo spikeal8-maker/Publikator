@@ -38,6 +38,7 @@ export type GoogleSheetsConfig = {
   pollingEnabled: boolean;
   pollIntervalMinutes: number;
   autoApplyEnabled: boolean;
+  autoReadyEnabled: boolean;
 };
 
 type ConnectorRow = {
@@ -103,7 +104,8 @@ function normalizeConfig(value: unknown, serviceAccountEmail?: string): GoogleSh
     serviceAccountEmail: serviceAccountEmail ?? String(row.serviceAccountEmail ?? '').trim(),
     pollingEnabled: row.pollingEnabled === true,
     pollIntervalMinutes: normalizePollInterval(row.pollIntervalMinutes),
-    autoApplyEnabled: row.autoApplyEnabled === true
+    autoApplyEnabled: row.autoApplyEnabled === true,
+    autoReadyEnabled: row.autoReadyEnabled === true
   };
 }
 
@@ -222,6 +224,7 @@ export async function createGoogleSheetsConnector(params: {
   pollingEnabled?: boolean;
   pollIntervalMinutes?: unknown;
   autoApplyEnabled?: boolean;
+  autoReadyEnabled?: boolean;
   credentials: unknown;
 }): Promise<GoogleSheetsConnector> {
   const credentials = normalizeCredentials(params.credentials);
@@ -234,8 +237,10 @@ export async function createGoogleSheetsConnector(params: {
     writeBack: params.writeBack === true,
     pollingEnabled: params.pollingEnabled === true,
     pollIntervalMinutes: params.pollIntervalMinutes ?? 15,
-    autoApplyEnabled: params.autoApplyEnabled === true
+    autoApplyEnabled: params.autoApplyEnabled === true,
+    autoReadyEnabled: params.autoReadyEnabled === true
   }, credentials.client_email);
+  if (config.autoReadyEnabled && !config.autoApplyEnabled) throw new Error('autoReadyEnabled requires autoApplyEnabled');
   const created = createIngestionConnector({
     type: 'google_sheets',
     name: params.name,
@@ -245,10 +250,14 @@ export async function createGoogleSheetsConnector(params: {
   return { ...created, config };
 }
 
-export function updateGoogleSheetsPolling(connectorId: string, params: { enabled: boolean; intervalMinutes: unknown; autoApplyEnabled?: boolean }): GoogleSheetsConnector {
+export function updateGoogleSheetsPolling(connectorId: string, params: { enabled: boolean; intervalMinutes: unknown; autoApplyEnabled?: boolean; autoReadyEnabled?: boolean }): GoogleSheetsConnector {
   const row = connectorRow(connectorId, false);
   const current = normalizeConfig(JSON.parse(row.config_json));
-  const config = { ...current, pollingEnabled: params.enabled, pollIntervalMinutes: normalizePollInterval(params.intervalMinutes), autoApplyEnabled: typeof params.autoApplyEnabled === 'boolean' ? params.autoApplyEnabled : current.autoApplyEnabled };
+  const autoApplyEnabled = typeof params.autoApplyEnabled === 'boolean' ? params.autoApplyEnabled : current.autoApplyEnabled;
+  let autoReadyEnabled = typeof params.autoReadyEnabled === 'boolean' ? params.autoReadyEnabled : current.autoReadyEnabled;
+  if (!autoApplyEnabled) autoReadyEnabled = false;
+  if (params.autoReadyEnabled === true && !autoApplyEnabled) throw new Error('autoReadyEnabled requires autoApplyEnabled');
+  const config = { ...current, pollingEnabled: params.enabled, pollIntervalMinutes: normalizePollInterval(params.intervalMinutes), autoApplyEnabled, autoReadyEnabled };
   db.prepare('UPDATE ingestion_connectors SET config_json=?,updated_at=? WHERE id=?').run(JSON.stringify(config), nowIso(), connectorId);
   return connectorMetadata(connectorRow(connectorId, false));
 }

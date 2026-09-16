@@ -1078,7 +1078,8 @@ poll source
 → если snapshot стабилен и нет blocking conflict/error
 → optional auto-Apply безопасных NEW/UPDATE
 → создать/обновить только editable content
-→ оставить publication lifecycle в допустимом состоянии
+→ optional Trusted-source Auto Ready через тот же immutable revision + platform preflight gate
+→ при любом READY-block оставить материал DRAFT и записать причину
 → отдельная publication automation работает только с READY content
 ```
 
@@ -1088,7 +1089,24 @@ poll source
 
 Auto-Apply MAY создавать/обновлять DRAFT/редактируемый content согласно import contract, но не должен обходить review/preflight/READY.
 
-Автоматический перевод DRAFT → READY является отдельной approval-policy функцией и не должен появляться в UI до отдельного нормативного checkpoint/ADR.
+## Trusted-source Auto Ready — CP2-007C
+
+Auto Ready является отдельной approval-policy функцией и MAY быть включён только явно для доверенного Google Sheets connector.
+
+Обязательные invariants:
+
+- default: OFF;
+- требует включённый Auto Apply;
+- работает только после успешного Auto Apply без `CONFLICT/ERROR`;
+- `imported_content_version` должен совпадать с `content_version`;
+- обязательны media и хотя бы одна активная выбранная площадка;
+- создаётся immutable content revision;
+- выполняется тот же platform capability/preflight, что при ручной кнопке «Готово»;
+- при любом отказе материал остаётся `DRAFT`, причина фиксируется в журнале;
+- Auto Ready не вызывает publisher и не является внешней публикацией.
+
+Изменение ранее READY материала через source сначала инвалидирует approval и возвращает материал в DRAFT; новая ревизия должна заново пройти Auto Ready gate.
+
 
 ## Настройки source automation
 
@@ -1097,11 +1115,12 @@ Auto-Apply MAY создавать/обновлять DRAFT/редактируе�
 - При безопасных изменениях:
   - Только уведомить
   - Автоматически применить новые/изменённые editable строки
+- Trusted-source Auto Ready: on/off; доступен только при включённом Auto Apply
 - При конфликте:
   - Остановиться и уведомить
 
 Default:
-> Только уведомить
+> Только уведомить; Auto Apply OFF; Auto Ready OFF
 
 ---
 

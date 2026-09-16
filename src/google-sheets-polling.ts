@@ -2,6 +2,7 @@ import { db, event } from './db.js';
 import { beginMaintenance, maintenanceState } from './runtime-gate.js';
 import { listGoogleSheetsConnectors, type GoogleSheetsConnector } from './google-sheets.js';
 import { applyGoogleSheetsCloudMedia, previewGoogleSheetsCloudMedia } from './google-sheets-cloud-media.js';
+import { autoReadyGoogleSheetsPost } from './google-sheets-auto-ready.js';
 
 const POLL_OK = 'google_sheets.poll_preview_succeeded';
 const POLL_FAILED = 'google_sheets.poll_preview_failed';
@@ -14,8 +15,9 @@ type PollEventData = {
   sourceSnapshotSha256?: string;
   mediaSnapshotSha256?: string | null;
   error?: string;
-  stage?: 'preview' | 'apply';
+  stage?: 'preview' | 'apply' | 'ready';
   autoApply?: { attempted: boolean; ok: boolean | null; created: number; updated: number; unchanged: number; error: string | null };
+  autoReady?: { attempted: boolean; ready: number; blocked: number; skipped: number };
 };
 
 type PollEventRow = {
@@ -35,6 +37,7 @@ export type GoogleSheetsPollingStatus = {
   lastCanApply: boolean | null;
   nextDueAt: string | null;
   lastAutoApply: PollEventData['autoApply'] | null;
+  lastAutoReady: PollEventData['autoReady'] | null;
 };
 
 function eventData(row: PollEventRow | undefined): PollEventData {
@@ -71,7 +74,8 @@ export function googleSheetsPollingStatus(connector: GoogleSheetsConnector): Goo
     lastSummary: data.summary ?? null,
     lastCanApply: typeof data.canApply === 'boolean' ? data.canApply : null,
     nextDueAt,
-    lastAutoApply: data.autoApply ?? null
+    lastAutoApply: data.autoApply ?? null,
+    lastAutoReady: data.autoReady ?? null
   };
 }
 
@@ -91,10 +95,11 @@ export async function googleSheetsPollingTick(at: Date = new Date()): Promise<{
   warnings: number;
   errors: number;
   autoAppliedRuns: number;
+  autoReadyPosts: number;
 }> {
-  if (pollRunning || maintenanceState().active) return { skipped: true, checked: 0, due: 0, previews: 0, warnings: 0, errors: 0, autoAppliedRuns: 0 };
+  if (pollRunning || maintenanceState().active) return { skipped: true, checked: 0, due: 0, previews: 0, warnings: 0, errors: 0, autoAppliedRuns: 0, autoReadyPosts: 0 };
   pollRunning = true;
-  const report = { skipped: false, checked: 0, due: 0, previews: 0, warnings: 0, errors: 0, autoAppliedRuns: 0 };
+  const report = { skipped: false, checked: 0, due: 0, previews: 0, warnings: 0, errors: 0, autoAppliedRuns: 0, autoReadyPosts: 0 };
   try {
     const connectors = listGoogleSheetsConnectors().filter((connector) => connector.enabled && connector.config.pollingEnabled);
     report.checked = connectors.length;
@@ -106,8 +111,9 @@ export async function googleSheetsPollingTick(at: Date = new Date()): Promise<{
       let canApply: boolean | undefined;
       let sourceSnapshotSha256: string | undefined;
       let mediaSnapshotSha256: string | null = null;
-      let stage: 'preview' | 'apply' = 'preview';
+      let stage: 'preview' | 'apply' | 'ready' = 'preview';
       let autoApply = { attempted: false, ok: null as boolean | null, created: 0, updated: 0, unchanged: 0, error: null as string | null };
+      let autoReady = { attempted: false, ready: 0, blocked: 0, skipped: 0 };
       try {
         const preview = await previewGoogleSheetsCloudMedia(connector.id);
         report.previews += 1;
@@ -135,19 +141,38 @@ export async function googleSheetsPollingTick(at: Date = new Date()): Promise<{
               error: null
             };
             report.autoAppliedRuns += 1;
+
+            if (connector.config.autoReadyEnabled) {
+              stage = 'ready';
+              autoReady.attempted = true;
+              for (const postId of applied.postIds) {
+                const ready = autoReadyGoogleSheetsPost(postId);
+                if (ready.outcome === 'ready') {
+                  autoReady.ready += 1;
+                  report.autoReadyPosts += 1;
+                } else if (ready.outcome === 'blocked') autoReady.blocked += 1;
+                else autoReady.skipped += 1;
+              }
+              if (autoReady.blocked > 0) report.warnings += 1;
+            }
           } finally {
             release?.();
           }
         }
 
+        const attention = blocked || autoReady.blocked > 0;
         event({
-          level: blocked ? 'warning' : 'info',
+          level: attention ? 'warning' : 'info',
           type: POLL_OK,
           message: blocked
             ? `Google Sheets preview requires attention: ${connector.name}`
-            : autoApply.ok === true
-              ? `Google Sheets safe changes auto-applied: ${connector.name}`
-              : `Google Sheets preview completed: ${connector.name}`,
+            : autoReady.attempted && autoReady.blocked > 0
+              ? `Google Sheets changes imported; Auto Ready blocked for ${autoReady.blocked} post(s): ${connector.name}`
+              : autoReady.ready > 0
+                ? `Google Sheets changes imported and ${autoReady.ready} post(s) passed Auto Ready: ${connector.name}`
+                : autoApply.ok === true
+                  ? `Google Sheets safe changes auto-applied: ${connector.name}`
+                  : `Google Sheets preview completed: ${connector.name}`,
           data: {
             connectorId: connector.id,
             intervalMinutes: connector.config.pollIntervalMinutes,
@@ -156,7 +181,8 @@ export async function googleSheetsPollingTick(at: Date = new Date()): Promise<{
             sourceSnapshotSha256: preview.sourceSnapshotSha256,
             mediaSnapshotSha256,
             stage,
-            autoApply
+            autoApply,
+            autoReady
           }
         });
       } catch (error) {
@@ -166,7 +192,7 @@ export async function googleSheetsPollingTick(at: Date = new Date()): Promise<{
         event({
           level: 'error',
           type: POLL_FAILED,
-          message: `Google Sheets ${stage === 'apply' ? 'auto-apply' : 'preview poll'} failed: ${connector.name}: ${message}`,
+          message: `Google Sheets ${stage === 'apply' ? 'auto-apply' : stage === 'ready' ? 'auto-ready' : 'preview poll'} failed: ${connector.name}: ${message}`,
           data: {
             connectorId: connector.id,
             intervalMinutes: connector.config.pollIntervalMinutes,
@@ -176,7 +202,8 @@ export async function googleSheetsPollingTick(at: Date = new Date()): Promise<{
             mediaSnapshotSha256,
             error: message,
             stage,
-            autoApply
+            autoApply,
+            autoReady
           }
         });
       }
