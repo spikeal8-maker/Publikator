@@ -27,84 +27,95 @@ try {
   const { db, migrate, nowIso } = await import('../dist/db.js');
   migrate();
   const now = nowIso();
-  db.prepare("INSERT INTO social_accounts (id,platform,name,credentials_encrypted,enabled,created_at,updated_at) VALUES ('tg-template','telegram','Template Telegram','test',1,?,?)").run(now, now);
-  db.prepare("INSERT INTO social_accounts (id,platform,name,credentials_encrypted,enabled,created_at,updated_at) VALUES ('vk-template','vk','Template VK','test',1,?,?)").run(now, now);
+  db.prepare("INSERT INTO social_accounts (id,platform,name,credentials_encrypted,enabled,created_at,updated_at) VALUES ('tg-template','telegram','Основной Telegram','test',1,?,?)").run(now, now);
+  db.prepare("INSERT INTO social_accounts (id,platform,name,credentials_encrypted,enabled,created_at,updated_at) VALUES ('vk-template','vk','Школа VK','test',1,?,?)").run(now, now);
   const { createIngestionConnector } = await import('../dist/integration-security.js');
-  createIngestionConnector({ type: 'google_drive', name: 'Drive Photos', config: { rootFolderId: 'root-drive', rootFolderName: 'Drive Root' }, credentials: { test: 'drive' } });
-  createIngestionConnector({ type: 'yandex_disk', name: 'Yandex Photos', config: { rootPath: 'disk:/Publikator', rootFolderName: 'Yandex Root' }, credentials: { test: 'yandex' } });
-  const { CONTENT_PLAN_V3_COLUMNS } = await import('../dist/content-plan-v3.js');
+  createIngestionConnector({ type: 'google_drive', name: 'ASA Media', config: { rootFolderId: 'root-drive', rootFolderName: 'Drive Root' }, credentials: { test: 'drive' } });
+  createIngestionConnector({ type: 'yandex_disk', name: 'Yandex Media', config: { rootPath: 'disk:/Publikator', rootFolderName: 'Yandex Root' }, credentials: { test: 'yandex' } });
+
+  const { CONTENT_PLAN_V3_COLUMNS, CONTENT_PLAN_V3_RU_COLUMNS, parseContentPlanV3, validateContentPlanV3 } = await import('../dist/content-plan-v3.js');
   const { createCanonicalContentPlanV3Template } = await import('../dist/content-plan-v3-template.js');
   const { parseCloudMediaReferences } = await import('../dist/cloud-media-reference.js');
   const template = await createCanonicalContentPlanV3Template();
-  assert.ok(template.byteLength > 1000, 'template is unexpectedly small');
+  assert.ok(template.byteLength > 1500, 'template is unexpectedly small');
 
   const workbook = await loadWorkbookStream(fromBuffer(template));
   try {
-    assert.deepEqual(workbook.sheetNames, ['Posts', 'Lists', 'Instructions', 'Examples']);
-    const posts = await sheetRows(workbook, 'Posts');
-    assert.equal(posts.length, 1, 'Posts must contain header only');
-    assert.deepEqual(posts[0], [...CONTENT_PLAN_V3_COLUMNS]);
+    assert.deepEqual(workbook.sheetNames, ['Как пользоваться','Публикации','Справочники','Примеры','Описание полей']);
+    const help = await sheetRows(workbook, 'Как пользоваться');
+    assert.match(help[0][0], /Publikator/i);
+    assert.deepEqual(help[1], ['Шаг','Что сделать','Пример','Важно']);
+    assert.ok(help.some((row) => /telegram:Основной Telegram/.test(row.join(' '))));
+    assert.ok(help.some((row) => /ASA Media\|lesson-01\.jpg/.test(row.join(' '))));
+    assert.ok(help.some((row) => /Preview/.test(row.join(' '))));
 
-    const lists = await sheetRows(workbook, 'Lists');
-    assert.deepEqual(lists[0], ['project_slug','account_platform','account_name','cloud_media_source','cloud_media_provider','publication_kind','content_format','schedule_mode','action','template_key']);
-    assert.ok(lists.some((row) => row.includes('FEED')));
-    assert.ok(lists.some((row) => row.includes('IMAGE')));
-    assert.ok(lists.some((row) => row.includes('MANUAL')));
-    assert.ok(lists.some((row) => row.includes('AT')));
-    assert.ok(lists.some((row) => row.includes('QUEUE')));
-    assert.ok(lists.some((row) => row.includes('Template Telegram')));
-    assert.ok(lists.some((row) => row.includes('Template VK')));
-    assert.ok(lists.some((row) => row.includes('Drive Photos') && row.includes('google_drive')));
-    assert.ok(lists.some((row) => row.includes('Yandex Photos') && row.includes('yandex_disk')));
-    const instructions = await sheetRows(workbook, 'Instructions');
-    assert.deepEqual(instructions[0], ['section','name_or_step','guidance','allowed_or_format','example_or_note']);
-    assert.ok(instructions.some((row) => row[0] === 'workflow' && /Posts/.test(row[2])));
-    const columnRows = instructions.filter((row) => row[0] === 'column');
-    assert.equal(columnRows.length, CONTENT_PLAN_V3_COLUMNS.length);
-    assert.deepEqual(columnRows.map((row) => row[1]), [...CONTENT_PLAN_V3_COLUMNS]);
-    const mediaInstruction = columnRows.find((row) => row[1] === 'media');
-    assert.match(mediaInstruction.join(' '), /Google Drive\/Yandex Disk/i);
-    assert.match(mediaInstruction.join(' '), /direct XLSX import/i);
+    const posts = await sheetRows(workbook, 'Публикации');
+    assert.equal(posts.length, 1, 'Публикации must contain header only');
+    assert.deepEqual(posts[0], [...CONTENT_PLAN_V3_RU_COLUMNS]);
 
-    const examples = await sheetRows(workbook, 'Examples');
+    const lists = await sheetRows(workbook, 'Справочники');
+    assert.deepEqual(lists[0], ['Проект','Платформа','Подключение','Источник медиа','Тип источника','Тип публикации','Формат','Режим публикации','Действие']);
+    assert.ok(lists.some((row) => row.includes('Основной Telegram')));
+    assert.ok(lists.some((row) => row.includes('Школа VK')));
+    assert.ok(lists.some((row) => row.includes('ASA Media') && row.includes('Google Drive')));
+    assert.ok(lists.some((row) => row.includes('Yandex Media') && row.includes('Яндекс Диск')));
+
+    const examples = await sheetRows(workbook, 'Примеры');
     assert.equal(examples.length, 7);
-    assert.deepEqual(examples[0], [...CONTENT_PLAN_V3_COLUMNS]);
+    assert.deepEqual(examples[0], [...CONTENT_PLAN_V3_RU_COLUMNS]);
     assert.equal(examples[1][5], 'Ручная публикация');
-    assert.equal(examples[3][5], 'Яндекс Диск изображение');
-    const mediaIndex = CONTENT_PLAN_V3_COLUMNS.indexOf('media');
-    const scheduleIndex = CONTENT_PLAN_V3_COLUMNS.indexOf('schedule_mode');
-    const timezoneIndex = CONTENT_PLAN_V3_COLUMNS.indexOf('timezone');
+    assert.equal(examples[3][5], 'Изображение из Яндекс Диска');
+    const mediaIndex = CONTENT_PLAN_V3_RU_COLUMNS.indexOf('Медиа');
     const drive = parseCloudMediaReferences(examples[2][mediaIndex]);
     assert.equal(drive.managed, true);
-    assert.equal(drive.references[0].source, 'Drive Photos');
-    assert.equal(drive.references[0].path, 'lesson-01.jpg');
+    assert.deepEqual(drive.references[0], { source: 'ASA Media', path: 'lesson-01.jpg' });
     const yandex = parseCloudMediaReferences(examples[3][mediaIndex]);
     assert.equal(yandex.managed, true);
-    assert.equal(yandex.references[0].source, 'Yandex Photos');
-    assert.equal(yandex.references[0].path, 'september/post-02.jpg');
-    assert.equal(examples[4][scheduleIndex], 'AT');
-    assert.equal(examples[4][timezoneIndex], 'Europe/Moscow');
-    assert.equal(examples[5][scheduleIndex], 'QUEUE');
-    const targets = JSON.parse(examples[6][CONTENT_PLAN_V3_COLUMNS.indexOf('targets')]);
-    assert.deepEqual(targets, [
-      { platform: 'telegram', name: 'Template Telegram' },
-      { platform: 'vk', name: 'Template VK' }
-    ].sort((a,b) => `${a.platform}/${a.name}`.localeCompare(`${b.platform}/${b.name}`)));
-    assert.equal(JSON.stringify(examples).includes(String.fromCharCode(92) + 'u04'), false, 'template must contain readable Cyrillic, not literal unicode escapes');
+    assert.deepEqual(yandex.references[0], { source: 'Yandex Media', path: 'september/post-02.jpg' });
+    const multiple = parseCloudMediaReferences('ASA Media|one.jpg; Yandex Media|folder/two.jpg');
+    assert.equal(multiple.references.length, 2);
 
-    const smokePath = path.join(dataDir, 'template-filled-smoke.xlsx');
+    const fieldGuide = await sheetRows(workbook, 'Описание полей');
+    assert.deepEqual(fieldGuide[0], ['Поле','Когда нужно','Что вводить','Допустимые значения / пример','Техническое имя']);
+    assert.equal(fieldGuide.length, CONTENT_PLAN_V3_COLUMNS.length + 1);
+    assert.deepEqual(fieldGuide.slice(1).map((row) => row[4]), [...CONTENT_PLAN_V3_COLUMNS]);
+    const targetsGuide = fieldGuide.find((row) => row[0] === 'Площадки');
+    assert.match(targetsGuide.join(' '), /telegram:Имя/);
+    const mediaGuide = fieldGuide.find((row) => row[0] === 'Медиа');
+    assert.match(mediaGuide.join(' '), /Источник\|путь/);
+    assert.equal(JSON.stringify([help, lists, examples, fieldGuide]).includes(String.fromCharCode(92) + 'u04'), false, 'template must contain readable Cyrillic');
+    const smokePath = path.join(dataDir, 'template-human-smoke.xlsx');
     const smokeBook = await createWriteOnlyWorkbook(toFile(smokePath));
-    const smokeSheet = await smokeBook.addWorksheet('Posts');
-    await smokeSheet.appendRow(posts[0]);
+    const intro = await smokeBook.addWorksheet('Как пользоваться');
+    await intro.appendRow(['Этот лист не является импортом']);
+    await intro.close();
+    const smokeSheet = await smokeBook.addWorksheet('Публикации');
+    await smokeSheet.appendRow([...CONTENT_PLAN_V3_RU_COLUMNS]);
     await smokeSheet.appendRow(examples[1]);
+    await smokeSheet.appendRow(examples[6]);
     await smokeSheet.close();
     await smokeBook.finalize();
-    const { parseContentPlanV3, validateContentPlanV3 } = await import('../dist/content-plan-v3.js');
     const smokeBuffer = await fs.readFile(smokePath);
-    const smokeParsed = await parseContentPlanV3('template-filled-smoke.xlsx', smokeBuffer);
-    const smokeValidation = await validateContentPlanV3(smokeParsed, 'template-smoke');
+    const smokeParsed = await parseContentPlanV3('template-human-smoke.xlsx', smokeBuffer);
+    const smokeValidation = await validateContentPlanV3(smokeParsed, 'template-human-smoke');
     assert.equal(smokeValidation.canApply, true, JSON.stringify(smokeValidation));
+    assert.equal(smokeValidation.rows.length, 2);
     assert.equal(smokeValidation.rows[0].classification, 'NEW');
+    assert.equal(smokeValidation.rows[1].classification, 'NEW');
+    assert.deepEqual(smokeValidation.rows[1].normalized.targets.map((target) => target.accountId).sort(), ['tg-template','vk-template']);
+
+    const machinePath = path.join(dataDir, 'template-machine-smoke.xlsx');
+    const machineBook = await createWriteOnlyWorkbook(toFile(machinePath));
+    const machineSheet = await machineBook.addWorksheet('Posts');
+    await machineSheet.appendRow([...CONTENT_PLAN_V3_COLUMNS]);
+    await machineSheet.appendRow(examples[1]);
+    await machineSheet.close();
+    await machineBook.finalize();
+    const machineBuffer = await fs.readFile(machinePath);
+    const machineParsed = await parseContentPlanV3('template-machine-smoke.xlsx', machineBuffer);
+    const machineValidation = await validateContentPlanV3(machineParsed, 'template-machine-smoke');
+    assert.equal(machineValidation.canApply, true, JSON.stringify(machineValidation));
+    assert.equal(machineValidation.rows[0].classification, 'NEW');
   } finally {
     await workbook.close();
   }
@@ -118,15 +129,25 @@ try {
   const schema = await app.inject({ method: 'GET', url: '/api/content-plan/v3/schema', headers: { cookie } });
   assert.equal(schema.statusCode, 200, schema.body);
   assert.deepEqual(schema.json().columns, [...CONTENT_PLAN_V3_COLUMNS]);
-  assert.equal(schema.json().foundationLimits.media.directFileImport, 'leave empty');
-  assert.match(schema.json().foundationLimits.media.googleSheets, /Google Drive\/Yandex Disk/);
-
+  assert.deepEqual(schema.json().russianColumns, [...CONTENT_PLAN_V3_RU_COLUMNS]);
+  assert.match(schema.json().humanInput.targets, /telegram:/);
+  assert.match(schema.json().humanInput.media, /Cloud Source\|/);
   const endpoint = await app.inject({ method: 'GET', url: '/api/content-plan/v3/template.xlsx', headers: { cookie } });
   assert.equal(endpoint.statusCode, 200, endpoint.body);
   assert.match(String(endpoint.headers['content-type']), /spreadsheetml\.sheet/);
   assert.equal(endpoint.headers['content-disposition'], 'attachment; filename="publikator-content-plan-v3-template.xlsx"');
   await app.close();
-  console.log('CP2-006C canonical source template: PASS');
+
+  console.log(JSON.stringify({
+    ok: true,
+    checkpoint: 'UX-SHEETS-001',
+    russianOperatorTemplate: true,
+    russianHeaderAliases: true,
+    machineHeadersBackwardCompatible: true,
+    shortTargets: true,
+    shortCloudMedia: true,
+    humanFirstSheet: true
+  }, null, 2));
 } finally {
   await fs.rm(dataDir, { recursive: true, force: true }).catch(() => undefined);
 }

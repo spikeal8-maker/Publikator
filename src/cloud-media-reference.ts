@@ -37,9 +37,21 @@ export function parseCloudMediaReferences(cell: unknown): ParsedCloudMediaRefere
   const text = String(cell ?? '').trim();
   if (!text) return { managed: false, references: [] };
   let value: unknown;
-  try { value = JSON.parse(text); }
-  catch { throw new Error('media must be a JSON array like [{"source":"ASA Media","path":"lesson.jpg"}]'); }
-  if (!Array.isArray(value)) throw new Error('media must be a JSON array');
+  if (text.startsWith('[')) {
+    try { value = JSON.parse(text); }
+    catch { throw new Error('media must be valid JSON or Source|folder/file.jpg; Source|file2.jpg'); }
+  } else {
+    value = text.split(';').map((token) => token.trim()).filter(Boolean).map((token) => {
+      const pipe = token.indexOf('|');
+      const slash = token.indexOf('/');
+      const separator = pipe > 0 ? pipe : slash;
+      if (separator <= 0 || separator === token.length - 1) {
+        throw new Error('media short form must be Source|folder/file.jpg');
+      }
+      return { source: token.slice(0, separator).trim(), path: token.slice(separator + 1).trim() };
+    });
+  }
+  if (!Array.isArray(value)) throw new Error('media must be a JSON array or Source|path list');
   if (value.length > MAX_REFERENCES) throw new Error(`media supports at most ${MAX_REFERENCES} references per row`);
   const seen = new Set<string>();
   const references: CloudMediaReference[] = value.map((item, index) => {
