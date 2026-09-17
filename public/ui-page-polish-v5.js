@@ -105,28 +105,6 @@ function uiPolishTemplates(root = document) {
   uiSetText(page.querySelector('.operator-empty'), 'Шаблоны пока не включены. До их появления создавайте и дублируйте материалы через раздел «Контент».');
 }
 
-function uiPolishSources(root = document) {
-  if (window.location.pathname !== '/sources') return;
-  const sourceInput = root.querySelector('#operator-source-id');
-  if (sourceInput) {
-    const label = sourceInput.closest('label');
-    if (label && label.dataset.uiCopy !== '1') {
-      label.dataset.uiCopy = '1';
-      const first = [...label.childNodes].find((node) => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
-      if (first && first.textContent !== 'Название набора ') first.textContent = 'Название набора ';
-      uiSetText(label.querySelector('.operator-field-help'), 'Например: social-plan. Оставляйте одно название для повторных версий одной и той же таблицы.');
-    }
-  }
-  root.querySelectorAll('.operator-section h3').forEach((heading) => {
-    if (/Excel\s*\/\s*CSV/i.test(heading.textContent)) uiSetText(heading, 'Таблица Excel / CSV');
-  });
-  root.querySelectorAll('.operator-section > p').forEach((paragraph) => {
-    if (paragraph.textContent.includes('Preview') && paragraph.textContent.includes('Apply')) uiSetText(paragraph, 'Сначала выберите файл и нажмите «Проверить». Импорт станет доступен только после успешной проверки этого же файла.');
-  });
-  uiSetText(root.querySelector('#operator-source-preview'), '1. Проверить таблицу');
-  uiSetText(root.querySelector('#operator-source-apply'), '2. Импортировать');
-}
-
 function uiSetLabelText(label, value) {
   if (!label) return;
   const node = [...label.childNodes].find((item) => item.nodeType === Node.TEXT_NODE && item.textContent.trim());
@@ -207,19 +185,6 @@ function uiPolishSocials(root = document) {
   uiSetText(root.querySelector('.operator-platform-card[data-platform="instagram"] span'), 'Публикация в профессиональный аккаунт Instagram.');
 }
 
-function uiRefineSources(root = document) {
-  if (window.location.pathname !== '/sources') return;
-  uiSetText(root.querySelector('.operator-page > .operator-page-head p'), 'Загружайте контент пачками из Excel или CSV. Повторная версия того же набора обновит строки вместо создания дублей.');
-  const aside = root.querySelector('.operator-source-layout > aside.operator-section');
-  if (!aside) return;
-  uiSetText(aside.querySelector('h3'), 'Другие источники');
-  uiSetText(aside.querySelector(':scope > p'), 'Здесь появятся дополнительные подключения по мере готовности.');
-  const cards = aside.querySelectorAll('.operator-connector-card');
-  if (cards[0]) { uiSetText(cards[0].querySelector('strong'), 'Excel / CSV'); uiSetText(cards[0].querySelector('span'), 'Работает сейчас. Повторная загрузка обновляет существующие строки без дублей.'); }
-  if (cards[1]) { uiSetText(cards[1].querySelector('strong'), 'Google Sheets'); uiSetText(cards[1].querySelector('span'), 'Пока не подключено. Будет отдельной интеграцией с таблицей.'); }
-  if (cards[2]) { uiSetText(cards[2].querySelector('strong'), 'Google Drive / Яндекс Диск'); uiSetText(cards[2].querySelector('span'), 'Пока не подключено. Здесь появится выбор медиафайлов из облака.'); }
-}
-
 function uiPolishScheduleModal(root = document) {
   const form = root.querySelector('#slot-form');
   if (!form || form.dataset.uiCopy === '1') return;
@@ -249,12 +214,10 @@ function uiPolishAll() {
   uiPolishLibrary(view);
   uiPolishContent(view);
   uiPolishTemplates(view);
-  uiPolishSources(view);
   uiPolishPostEditor(document);
   uiPolishPlatformCards(view);
   uiPolishOverview(view);
   uiPolishSocials(view);
-  uiRefineSources(view);
   uiPolishScheduleModal(document);
   uiPolishLibraryRoles(view);
 }
