@@ -183,6 +183,19 @@ try {
   assert.equal(missingMediaSha.statusCode, 409, missingMediaSha.body);
   assert.match(missingMediaSha.json().error, /cloud media.*preview/i);
 
+  db.exec(`CREATE TRIGGER safety_001_force_media_failure BEFORE INSERT ON media
+    BEGIN SELECT RAISE(ABORT,'forced atomic media failure'); END;`);
+  const failedAtomicApply = await request('POST', `/api/google-sheets/connectors/${sheetConnector.id}/apply`, {
+    confirm: 'IMPORT', previewSha: preview1.json().sourceSnapshotSha256, mediaPreviewSha: preview1.json().mediaSnapshotSha256
+  });
+  assert.equal(failedAtomicApply.statusCode, 409, failedAtomicApply.body);
+  assert.match(failedAtomicApply.json().error, /forced atomic media failure/i);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM posts WHERE source_type='google_sheets'").get().count, 0, 'failed cloud apply must roll back base post');
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM media').get().count, 0, 'failed cloud apply must roll back media rows');
+  const stagedAfterFailure = await fs.readdir(path.join(dataDir, 'media'), { recursive: true }).catch(() => []);
+  assert.equal(stagedAfterFailure.filter((name) => String(name).endsWith('.jpg')).length, 0, 'failed cloud apply must remove staged files');
+  db.exec('DROP TRIGGER safety_001_force_media_failure');
+
   const apply1 = await request('POST', `/api/google-sheets/connectors/${sheetConnector.id}/apply`, {
     confirm: 'IMPORT', previewSha: preview1.json().sourceSnapshotSha256, mediaPreviewSha: preview1.json().mediaSnapshotSha256
   });

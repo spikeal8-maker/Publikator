@@ -30,7 +30,7 @@ export type V3Classification = 'NEW' | 'UPDATE' | 'UNCHANGED' | 'CONFLICT' | 'AR
 
 type ResolvedAccount = { accountId: string; platform: Platform; name: string };
 type V3Action = 'UPSERT' | 'ARCHIVE' | 'TRASH_REQUEST';
-type V3Normalized = {
+export type V3Normalized = {
   rowNumber: number;
   externalId: string;
   sourceRevision: string;
@@ -58,6 +58,17 @@ export type V3Validation = {
   canApply: boolean;
   summary: { totalRows: number; newRows: number; updateRows: number; unchangedRows: number; conflicts: number; requests: number; errors: number };
   rows: V3ValidationRow[];
+};
+
+export type ApplyContentPlanV3RowContext = {
+  row: V3Normalized;
+  postId: string;
+  classification: V3Classification;
+};
+export type ApplyContentPlanV3Options = {
+  sourceTypeOverride?: string;
+  newPostIds?: ReadonlyMap<string, string>;
+  afterRow?: (context: ApplyContentPlanV3RowContext) => void;
 };
 
 type ExistingSourcePost = {
@@ -425,7 +436,10 @@ function applyOverrides(postId: string, targets: ResolvedAccount[], overrides: A
   for (const override of overrides) update.run(override.text, nowIso(), postId, override.accountId);
 }
 
-export function applyContentPlanV3(validation: V3Validation): { created: number; updated: number; unchanged: number; archived: number; trashed: number; postIds: string[] } {
+export function applyContentPlanV3(
+  validation: V3Validation,
+  options: ApplyContentPlanV3Options = {}
+): { created: number; updated: number; unchanged: number; archived: number; trashed: number; postIds: string[] } {
   if (!validation.canApply) throw new Error('Schema 3 preview contains ERROR/CONFLICT');
   const batch = id('batch');
   const postIds: string[] = [];
@@ -444,15 +458,15 @@ export function applyContentPlanV3(validation: V3Validation): { created: number;
       if (row.classification === 'UNCHANGED') {
         unchanged += 1;
         if (row.postId) {
-          db.prepare(`UPDATE posts SET source_revision=?,source_payload_hash=?,source_batch_id=?,imported_at=? WHERE id=?`)
-            .run(row.sourceRevision, row.payloadHash, batch, now, row.postId);
+          db.prepare(`UPDATE posts SET source_type=COALESCE(?,source_type),source_revision=?,source_payload_hash=?,source_batch_id=?,imported_at=? WHERE id=?`)
+            .run(options.sourceTypeOverride ?? null, row.sourceRevision, row.payloadHash, batch, now, row.postId);
         }
         continue;
       }
 
       if (row.classification === 'NEW') {
         if (!row.projectId) throw new Error('NEW row lost projectId after preview');
-        const postId = id('post');
+        const postId = options.newPostIds?.get(row.externalId) ?? id('post');
         postIds.push(postId);
         created += 1;
         db.prepare(`INSERT INTO posts (
@@ -460,22 +474,26 @@ export function applyContentPlanV3(validation: V3Validation): { created: number;
           source_type,source_ref,source_revision,source_payload_hash,source_batch_id,imported_at,imported_content_version,created_at,updated_at
         ) VALUES (?,?,?,?, 'DRAFT','DRAFT',?,?,?,?,1,NULL,?,?,?,?,?,?,1,?,?)`).run(
           postId, row.projectId, row.title, row.body, row.scheduleMode, row.scheduledAt, row.scheduledAt, row.scheduleTimezone,
-          SOURCE_TYPE, ref, row.sourceRevision, row.payloadHash, batch, now, now, now
+          options.sourceTypeOverride ?? SOURCE_TYPE, ref, row.sourceRevision, row.payloadHash, batch, now, now, now
         );
         applyOverrides(postId, row.targets, row.overrides);
+        options.afterRow?.({ row, postId, classification: row.classification });
+        const finalVersion = Number((db.prepare('SELECT content_version FROM posts WHERE id=?').get(postId) as { content_version: number }).content_version);
+        db.prepare('UPDATE posts SET imported_content_version=? WHERE id=?').run(finalVersion, postId);
         continue;
       }
 
       const postId = row.postId!;
       postIds.push(postId);
       if (row.importedContentVersion === null) throw new Error('Import binding is missing imported_content_version');
-      const edit = commitContentEdit(postId, row.importedContentVersion, () => {
+      commitContentEdit(postId, row.importedContentVersion, () => {
         if (row.classification === 'UPDATE') {
           if (!row.projectId) throw new Error('UPDATE row lost projectId after preview');
           db.prepare('UPDATE posts SET project_id=?,title=?,body=?,schedule_mode=?,scheduled_at=?,scheduled_at_utc=?,schedule_timezone=? WHERE id=?')
             .run(row.projectId, row.title, row.body, row.scheduleMode, row.scheduledAt, row.scheduledAt, row.scheduleTimezone, postId);
         }
       });
+
 
       if (row.classification === 'UPDATE') {
         applyOverrides(postId, row.targets, row.overrides);
@@ -488,8 +506,10 @@ export function applyContentPlanV3(validation: V3Validation): { created: number;
         trashed += 1;
       }
 
-      db.prepare(`UPDATE posts SET source_revision=?,source_payload_hash=?,source_batch_id=?,imported_at=?,imported_content_version=? WHERE id=?`)
-        .run(row.sourceRevision, row.payloadHash, batch, now, edit.contentVersion, postId);
+      options.afterRow?.({ row, postId, classification: row.classification });
+      const finalVersion = Number((db.prepare('SELECT content_version FROM posts WHERE id=?').get(postId) as { content_version: number }).content_version);
+      db.prepare(`UPDATE posts SET source_type=COALESCE(?,source_type),source_revision=?,source_payload_hash=?,source_batch_id=?,imported_at=?,imported_content_version=? WHERE id=?`)
+        .run(options.sourceTypeOverride ?? null, row.sourceRevision, row.payloadHash, batch, now, finalVersion, postId);
     }
   });
 
