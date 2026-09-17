@@ -16,6 +16,11 @@ export const CONTENT_PLAN_V3_COLUMNS = [
   'publication_kind', 'content_format', 'schedule_mode', 'scheduled_at', 'timezone', 'targets',
   'telegram_body', 'vk_body', 'max_body', 'instagram_body', 'media', 'tags', 'source_note', 'source_revision'
 ] as const;
+export const CONTENT_PLAN_V3_RU_COLUMNS = [
+  'Версия', 'ID публикации', 'Действие', 'Проект', 'Шаблон', 'Название', 'Текст',
+  'Тип публикации', 'Формат', 'Режим публикации', 'Дата и время', 'Часовой пояс', 'Площадки',
+  'Текст Telegram', 'Текст VK', 'Текст MAX', 'Текст Instagram', 'Медиа', 'Теги', 'Заметка', 'Ревизия'
+] as const;
 export const MAX_CONTENT_PLAN_V3_ROWS = 10_000;
 export const MAX_CONTENT_PLAN_V3_BYTES = 20 * 1024 * 1024;
 
@@ -94,8 +99,14 @@ function sha256Text(value: string): string {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
 
+const CONTENT_PLAN_V3_HEADER_ALIASES = new Map<string, string>([
+  ...CONTENT_PLAN_V3_COLUMNS.map((column) => [column.toLowerCase(), column] as const),
+  ...CONTENT_PLAN_V3_RU_COLUMNS.map((column, index) => [column.toLowerCase(), CONTENT_PLAN_V3_COLUMNS[index]!] as const)
+]);
+
 function normalizedHeader(value: string): string {
-  return value.trim().toLowerCase();
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, ' ');
+  return CONTENT_PLAN_V3_HEADER_ALIASES.get(normalized) ?? normalized;
 }
 
 function cellString(value: unknown): string {
@@ -167,7 +178,7 @@ function matrixRows(matrix: string[][]): V3ParsedRow[] {
 async function parseXlsx(buffer: Buffer): Promise<V3ParsedRow[]> {
   const workbook = await loadWorkbookStream(fromBuffer(buffer));
   try {
-    const name = workbook.sheetNames[0];
+    const name = workbook.sheetNames.find((candidate: string) => ['posts', 'публикации'].includes(candidate.trim().toLowerCase())) ?? workbook.sheetNames[0];
     if (!name) throw new Error('XLSX has no sheets');
     const sheet = workbook.openWorksheet(name);
     const matrix: string[][] = [];
@@ -199,10 +210,23 @@ export async function parseContentPlanV3(filename: string, buffer: Buffer): Prom
 type AccountRow = { id: string; platform: Platform; name: string; enabled: number };
 
 function parseTargets(value: string, accounts: AccountRow[], errors: string[]): ResolvedAccount[] {
-  if (!value.trim()) return [];
+  const text = value.trim();
+  if (!text) return [];
   let raw: unknown;
-  try { raw = JSON.parse(value); } catch { errors.push('targets: invalid JSON'); return []; }
-  if (!Array.isArray(raw)) { errors.push('targets: JSON array required'); return []; }
+  if (text.startsWith('[')) {
+    try { raw = JSON.parse(text); } catch { errors.push('targets: invalid JSON'); return []; }
+  } else {
+    raw = text.split(';').map((token) => token.trim()).filter(Boolean).map((token) => {
+      const separator = token.indexOf(':');
+      if (separator <= 0 || separator === token.length - 1) return null;
+      return { platform: token.slice(0, separator).trim(), name: token.slice(separator + 1).trim() };
+    });
+    if ((raw as unknown[]).some((item) => item === null)) {
+      errors.push('targets: use platform:name; platform:name or JSON array');
+      return [];
+    }
+  }
+  if (!Array.isArray(raw)) { errors.push('targets: JSON array or platform:name list required'); return []; }
 
   const resolved: ResolvedAccount[] = [];
   const selectedIds = new Set<string>();
