@@ -1,8 +1,9 @@
 import fs from 'node:fs/promises';
 import crypto from 'node:crypto';
+import path from 'node:path';
 import sharp from 'sharp';
 import { config } from './config.js';
-import { db, event, nowIso } from './db.js';
+import { db, event, id, nowIso } from './db.js';
 import {
   CONTENT_PLAN_V3_COLUMNS,
   applyContentPlanV3,
@@ -23,7 +24,7 @@ import {
   googleServiceAccountAccessToken
 } from './google-service-account.js';
 import { downloadCloudMedia, refreshCloudMedia, resolveCloudMediaCell, type ResolvedCloudMedia } from './cloud-media.js';
-import { deleteMediaVersioned, listMedia, reorderMedia, saveImageVersioned } from './media.js';
+import { listMedia, type MediaRow } from './media.js';
 import { commitContentEdit } from './content-versioning.js';
 
 const GOOGLE_SHEETS_ROOT = 'https://sheets.googleapis.com/v4/spreadsheets';
@@ -281,13 +282,47 @@ export async function previewGoogleSheetsCloudMedia(connectorId: string): Promis
   return previewFromValues(connectorId, cfg, values);
 }
 
-async function validateDownloadedImage(tempPath: string): Promise<void> {
+type PreparedCloudImage = {
+  data: Buffer;
+  width: number;
+  height: number;
+  sha256: string;
+};
+type StagedMediaFile = {
+  mediaId: string;
+  originalName: string;
+  relativePath: string;
+  absolutePath: string;
+  sizeBytes: number;
+  width: number;
+  height: number;
+  sha256: string;
+};
+type AtomicMediaPlan = {
+  rowNumber: number;
+  externalId: string;
+  postId: string;
+  replace: boolean;
+  staged: StagedMediaFile[];
+  previous: MediaRow[];
+};
+
+async function prepareDownloadedImage(tempPath: string): Promise<PreparedCloudImage> {
   const source = sharp(tempPath, { failOn: 'error' }).rotate();
   const metadata = await source.metadata();
   if (!metadata.width || !metadata.height) throw new Error('Cloud media file is not a valid image');
-  if (metadata.width > MAX_IMAGE_DIMENSION || metadata.height > MAX_IMAGE_DIMENSION) throw new Error(`Cloud image exceeds ${MAX_IMAGE_DIMENSION}×${MAX_IMAGE_DIMENSION}`);
-  const normalized = await source.flatten({ background: '#ffffff' }).jpeg({ quality: 92, mozjpeg: true }).toBuffer();
-  if (normalized.byteLength > config.maxImageBytes) throw new Error(`Normalized cloud image exceeds ${config.maxImageBytes} bytes`);
+  if (metadata.width > MAX_IMAGE_DIMENSION || metadata.height > MAX_IMAGE_DIMENSION) {
+    throw new Error(`Cloud image exceeds ${MAX_IMAGE_DIMENSION}×${MAX_IMAGE_DIMENSION}`);
+  }
+  const result = await source.flatten({ background: '#ffffff' }).jpeg({ quality: 92, mozjpeg: true })
+    .toBuffer({ resolveWithObject: true });
+  if (result.data.byteLength > config.maxImageBytes) throw new Error(`Normalized cloud image exceeds ${config.maxImageBytes} bytes`);
+  return {
+    data: result.data,
+    width: result.info.width,
+    height: result.info.height,
+    sha256: crypto.createHash('sha256').update(result.data).digest('hex')
+  };
 }
 
 async function prepareDownloads(preview: GoogleSheetsCloudMediaPreview): Promise<DownloadPlan[]> {
@@ -298,22 +333,11 @@ async function prepareDownloads(preview: GoogleSheetsCloudMediaPreview): Promise
       if (!normalized || !row.mediaPreview?.managed || !['NEW', 'UPDATE'].includes(row.classification)) continue;
       const files: DownloadPlan['files'] = [];
       for (const item of row.mediaPreview.items) {
-        if (item.provider !== 'google_drive' && item.provider !== 'yandex_disk') {
-          throw new Error(`Unsupported cloud media provider: ${item.provider}`);
-        }
-        const resolved = {
-          provider: item.provider,
-          connectorId: item.connectorId,
-          connectorName: item.source,
-          path: item.path,
-          fileId: item.fileId,
-          fileName: item.fileName,
-          mimeType: item.mimeType,
-          sizeBytes: item.sizeBytes,
-          revision: item.revision
-        } as ResolvedCloudMedia;
+        if (item.provider !== 'google_drive' && item.provider !== 'yandex_disk') throw new Error(`Unsupported cloud media provider: ${item.provider}`);
+        const resolved = { provider: item.provider, connectorId: item.connectorId, connectorName: item.source, path: item.path,
+          fileId: item.fileId, fileName: item.fileName, mimeType: item.mimeType, sizeBytes: item.sizeBytes, revision: item.revision } as ResolvedCloudMedia;
         const downloaded = await downloadCloudMedia(resolved);
-        await validateDownloadedImage(downloaded.tempPath);
+        await prepareDownloadedImage(downloaded.tempPath);
         const after = await refreshCloudMedia(resolved);
         if (after.fileId !== resolved.fileId || after.revision !== resolved.revision || after.sizeBytes !== resolved.sizeBytes) {
           await downloaded.cleanup();
@@ -330,63 +354,85 @@ async function prepareDownloads(preview: GoogleSheetsCloudMediaPreview): Promise
   }
 }
 
-function forceGoogleSource(preview: GoogleSheetsCloudMediaPreview, postIds: string[]): void {
-  const refs = new Set(preview.rows.filter((row) => row.normalized).map((row) => sourceRef(preview.connectorId, (row.normalized as any).externalId)));
-  for (const postId of postIds) {
-    const row = db.prepare('SELECT source_ref,source_type FROM posts WHERE id=?').get(postId) as { source_ref: string | null; source_type: string | null } | undefined;
-    if (row?.source_type === 'content-plan-v3' && row.source_ref && refs.has(row.source_ref)) {
-      db.prepare("UPDATE posts SET source_type='google_sheets' WHERE id=?").run(postId);
-    }
+async function stageAtomicMediaPlans(
+  preview: GoogleSheetsCloudMediaPreview,
+  downloads: DownloadPlan[]
+): Promise<{ plans: AtomicMediaPlan[]; newPostIds: Map<string, string> }> {
+  const newPostIds = new Map<string, string>();
+  for (const row of preview.rows) {
+    const normalized: any = row.normalized;
+    if (normalized && row.classification === 'NEW' && row.mediaPreview?.managed) newPostIds.set(normalized.externalId, id('post'));
   }
-}
-
-function postForExternalId(connectorId: string, externalId: string): { id: string; content_version: number } {
-  const post = db.prepare("SELECT id,content_version FROM posts WHERE source_type='google_sheets' AND source_ref=?")
-    .get(sourceRef(connectorId, externalId)) as { id: string; content_version: number } | undefined;
-  if (!post) throw new Error(`Imported Google Sheets post not found: ${externalId}`);
-  return post;
-}
-
-async function syncImagePlan(postId: string, files: DownloadPlan['files']): Promise<number> {
-  let version = (db.prepare('SELECT content_version FROM posts WHERE id=?').get(postId) as { content_version: number }).content_version;
-  const desiredIds: string[] = [];
-  const beforeIds = new Set(listMedia(postId).map((row) => row.id));
-  const addedIds: string[] = [];
+  const downloadByRow = new Map(downloads.map((plan) => [plan.rowNumber, plan]));
+  const plans: AtomicMediaPlan[] = [];
   try {
-    for (const file of files) {
-      const buffer = await fs.readFile(file.tempPath);
-      const saved = await saveImageVersioned(postId, file.resolved.fileName, buffer, version);
-      version = saved.contentVersion;
-      desiredIds.push(saved.media.id);
-      if (!beforeIds.has(saved.media.id)) addedIds.push(saved.media.id);
+    for (const row of preview.rows) {
+      const normalized: any = row.normalized;
+      if (!normalized || !row.mediaPreview?.managed || !['NEW', 'UPDATE'].includes(row.classification)) continue;
+      const postId = normalized.postId || newPostIds.get(normalized.externalId);
+      if (!postId) throw new Error(`Cloud media staging lost post identity: ${normalized.externalId}`);
+      const download = downloadByRow.get(row.rowNumber) ?? { rowNumber: row.rowNumber, postExternalId: normalized.externalId, managed: true, files: [] };
+      const prepared: Array<{ file: DownloadPlan['files'][number]; image: PreparedCloudImage }> = [];
+      for (const file of download.files) prepared.push({ file, image: await prepareDownloadedImage(file.tempPath) });
+      const previous = normalized.postId ? listMedia(postId) : [];
+      const same = previous.length === prepared.length && previous.every((media, index) =>
+        media.mime_type === 'image/jpeg' && media.sha256 === prepared[index]?.image.sha256);
+      const staged: StagedMediaFile[] = [];
+      if (!same) {
+        await fs.mkdir(path.join(config.mediaDir, postId), { recursive: true });
+        for (const item of prepared) {
+          const mediaId = id('med');
+          const relativePath = path.posix.join(postId, `${mediaId}.jpg`);
+          const absolutePath = path.join(config.mediaDir, relativePath);
+          await fs.writeFile(absolutePath, item.image.data, { flag: 'wx' });
+          staged.push({ mediaId, originalName: item.file.resolved.fileName, relativePath, absolutePath,
+            sizeBytes: item.image.data.byteLength, width: item.image.width, height: item.image.height, sha256: item.image.sha256 });
+        }
+      }
+      plans.push({ rowNumber: row.rowNumber, externalId: normalized.externalId, postId, replace: !same, staged, previous });
     }
+    return { plans, newPostIds };
   } catch (error) {
-    for (const mediaId of addedIds.reverse()) {
-      try {
-        const current = db.prepare('SELECT content_version FROM posts WHERE id=?').get(postId) as { content_version: number };
-        await deleteMediaVersioned(mediaId, current.content_version);
-      } catch { /* preserve the original error; next preview remains non-authoritative */ }
-    }
+    await Promise.all(plans.flatMap((plan) => plan.staged.map((file) => fs.rm(file.absolutePath, { force: true })))).catch(() => undefined);
     throw error;
   }
-
-  const desired = new Set(desiredIds);
-  while (true) {
-    const current = listMedia(postId);
-    const extra = current.find((item) => item.mime_type.startsWith('video/') && !desired.has(item.id))
-      ?? current.find((item) => !desired.has(item.id));
-    if (!extra) break;
-    const result = await deleteMediaVersioned(extra.id, version);
-    version = result.contentVersion;
-  }
-
-  const ordered = listMedia(postId).map((row) => row.id);
-  if (ordered.length !== desiredIds.length || ordered.some((id, index) => id !== desiredIds[index])) {
-    const committed = commitContentEdit(postId, version, () => reorderMedia(postId, desiredIds));
-    version = committed.contentVersion;
-  }
-  return version;
 }
+
+function applyAtomicMediaPlan(plan: AtomicMediaPlan): void {
+  if (!plan.replace) return;
+  const current = db.prepare('SELECT content_version FROM posts WHERE id=?').get(plan.postId) as { content_version: number } | undefined;
+  if (!current) throw new Error(`Cloud media post disappeared during apply: ${plan.externalId}`);
+  commitContentEdit(plan.postId, current.content_version, () => {
+    db.prepare('DELETE FROM media WHERE post_id=?').run(plan.postId);
+    const createdAt = nowIso();
+    const insert = db.prepare(`INSERT INTO media
+      (id,post_id,original_name,relative_path,mime_type,size_bytes,width,height,sha256,created_at,sort_order)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?)`);
+    plan.staged.forEach((file, index) => insert.run(
+      file.mediaId, plan.postId, file.originalName, file.relativePath, 'image/jpeg', file.sizeBytes,
+      file.width, file.height, file.sha256, createdAt, index
+    ));
+    const format = plan.staged.length > 1 ? 'CAROUSEL' : 'IMAGE';
+    db.prepare("UPDATE posts SET publication_kind='FEED',content_format=? WHERE id=?").run(format, plan.postId);
+  });
+}
+
+async function cleanupStagedFiles(plans: AtomicMediaPlan[]): Promise<void> {
+  await Promise.all(plans.flatMap((plan) => plan.staged.map((file) => fs.rm(file.absolutePath, { force: true })))).catch(() => undefined);
+}
+
+async function cleanupPreviousFiles(plans: AtomicMediaPlan[], connectorId: string): Promise<void> {
+  for (const plan of plans.filter((item) => item.replace)) {
+    for (const media of plan.previous) {
+      try { await fs.rm(path.join(config.mediaDir, media.relative_path), { force: true }); }
+      catch (error) {
+        event({ level: 'warning', type: 'cloud_media.orphan_cleanup_failed', message: error instanceof Error ? error.message : String(error),
+          data: { connectorId, postId: plan.postId, mediaId: media.id, relativePath: media.relative_path } });
+      }
+    }
+  }
+}
+
 
 async function writeBack(connectorId: string, cfg: SheetConfig, credentials: Record<string, unknown>, preview: GoogleSheetsCloudMediaPreview): Promise<void> {
   if (!cfg.writeBack) return;
@@ -438,32 +484,35 @@ export async function applyGoogleSheetsCloudMedia(connectorId: string, expectedS
   if (!preview.canApply) throw new Error('Google Sheets preview contains ERROR/CONFLICT');
 
   const downloads = await prepareDownloads(preview);
+  let atomicPlans: AtomicMediaPlan[] = [];
   let result: ReturnType<typeof applyContentPlanV3>;
   let syncedRows = 0;
+  let committed = false;
   try {
-    result = applyContentPlanV3(preview);
-    forceGoogleSource(preview, result.postIds);
-    const planByRow = new Map(downloads.map((plan) => [plan.rowNumber, plan]));
-    for (const row of preview.rows) {
-      const normalized: any = row.normalized;
-      if (!normalized || !row.mediaPreview?.managed || !['NEW', 'UPDATE'].includes(row.classification)) continue;
-      const post = postForExternalId(connectorId, normalized.externalId);
-      const plan = planByRow.get(row.rowNumber) ?? { rowNumber: row.rowNumber, postExternalId: normalized.externalId, managed: true, files: [] };
-      try {
-        const finalVersion = await syncImagePlan(post.id, plan.files);
-        db.prepare('UPDATE posts SET imported_content_version=? WHERE id=?').run(finalVersion, post.id);
-        syncedRows += 1;
-      } catch (error) {
-        const current = db.prepare('SELECT content_version FROM posts WHERE id=?').get(post.id) as { content_version: number };
-        db.prepare('UPDATE posts SET source_revision=NULL,source_payload_hash=NULL,imported_content_version=? WHERE id=?')
-          .run(current.content_version, post.id);
-        event({ level: 'error', postId: post.id, type: 'cloud_media.apply_failed', message: error instanceof Error ? error.message : String(error), data: { connectorId, externalId: normalized.externalId } });
-        throw error;
+    const staged = await stageAtomicMediaPlans(preview, downloads);
+    atomicPlans = staged.plans;
+    const mediaByExternalId = new Map(atomicPlans.map((plan) => [plan.externalId, plan]));
+    result = applyContentPlanV3(preview, {
+      sourceTypeOverride: 'google_sheets',
+      newPostIds: staged.newPostIds,
+      afterRow: ({ row, postId, classification }) => {
+        if (!['NEW', 'UPDATE'].includes(classification)) return;
+        const plan = mediaByExternalId.get(row.externalId);
+        if (!plan) return;
+        if (plan.postId !== postId) throw new Error(`Cloud media post identity changed during apply: ${row.externalId}`);
+        applyAtomicMediaPlan(plan);
       }
-    }
+    });
+    syncedRows = atomicPlans.length;
+    committed = true;
+  } catch (error) {
+    await cleanupStagedFiles(atomicPlans);
+    event({ level: 'error', type: 'cloud_media.apply_failed', message: error instanceof Error ? error.message : String(error), data: { connectorId } });
+    throw error;
   } finally {
     await Promise.all(downloads.flatMap((plan) => plan.files.map((file) => file.cleanup()))).catch(() => undefined);
   }
+  if (committed) await cleanupPreviousFiles(atomicPlans, connectorId);
 
   event({
     type: 'google_sheets.cloud_media_applied',
