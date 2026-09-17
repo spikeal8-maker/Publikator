@@ -58,6 +58,11 @@ try {
   }
   assert.match(sourcesText, /Google Sheets/, 'Google Sheets live source section is missing');
   assert.match(sourcesText, /Google Drive \/ Яндекс Диск/, 'cloud media source card is missing');
+  await page.goto(`${base}/content`, { waitUntil: 'domcontentloaded' });
+  await page.locator('#app').waitFor({ state: 'visible' });
+  await page.goto(`${base}/sources`, { waitUntil: 'domcontentloaded' });
+  await page.locator('#operator-google-sheets-live').waitFor({ state: 'visible' });
+  assert.equal(await page.locator('#operator-google-sheets-live').count(), 1, 'Google Sheets live section must mount exactly once after route re-entry');
 
   await page.goto(`${base}/overview`, { waitUntil: 'domcontentloaded' });
   await page.locator('#app').waitFor({ state: 'visible' });

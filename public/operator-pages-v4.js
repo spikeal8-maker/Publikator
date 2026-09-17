@@ -310,6 +310,7 @@ async function operatorRenderCustom(path, updateHistory = true) {
   operatorSetActive(path);
   operatorView.innerHTML = '<div class="muted">Загрузка…</div>';
   await CUSTOM_ROUTES.get(path)();
+  window.dispatchEvent(new CustomEvent('publikator:operator-route-rendered', { detail: { path } }));
 }
 function operatorGo(path, replace = false) {
   const normalized = operatorNormalizePath(path);

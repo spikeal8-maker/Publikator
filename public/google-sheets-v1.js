@@ -295,6 +295,7 @@ async function mountGoogleSheets() {
   }
 }
 
-const googleSheetsObserver = new MutationObserver(() => mountGoogleSheets().catch(() => {}));
-googleSheetsObserver.observe(document.body, { childList: true, subtree: true });
+window.addEventListener('publikator:operator-route-rendered', (event) => {
+  if (event instanceof CustomEvent && event.detail?.path === '/sources') mountGoogleSheets().catch(() => {});
+});
 setTimeout(() => mountGoogleSheets().catch(() => {}), 0);

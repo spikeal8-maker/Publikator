@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const [index, app, css, ui, polishCss, polish, operator, calendar, library, dashboard] = await Promise.all([
+const [index, app, css, ui, polishCss, polish, operator, googleSheets, calendar, library, dashboard] = await Promise.all([
   fs.readFile(new URL('../public/index.html', import.meta.url), 'utf8'),
   fs.readFile(new URL('../public/app.js', import.meta.url), 'utf8'),
   fs.readFile(new URL('../public/ui-v5.css', import.meta.url), 'utf8'),
@@ -11,6 +11,7 @@ const [index, app, css, ui, polishCss, polish, operator, calendar, library, dash
   fs.readFile(new URL('../public/ui-page-polish-v5.css', import.meta.url), 'utf8'),
   fs.readFile(new URL('../public/ui-page-polish-v5.js', import.meta.url), 'utf8'),
   fs.readFile(new URL('../public/operator-pages-v4.js', import.meta.url), 'utf8'),
+  fs.readFile(new URL('../public/google-sheets-v1.js', import.meta.url), 'utf8'),
   fs.readFile(new URL('../public/calendar-v3.js', import.meta.url), 'utf8'),
   fs.readFile(new URL('../public/content-library-v3.js', import.meta.url), 'utf8'),
   fs.readFile(new URL('../public/dashboard-v3.js', import.meta.url), 'utf8')
@@ -68,6 +69,9 @@ assert.ok(!polish.includes('uiPolishSources'), 'Sources copy must no longer be o
 assert.ok(!polish.includes('uiRefineSources'), 'Sources cards must no longer be rewritten by page polish');
 assert.ok(!operator.includes('Connector в текущем backend ещё не реализован'), 'Sources renderer must not claim Google Sheets is unavailable');
 assert.ok(!operator.includes('Cloud media connectors пока не включены'), 'Sources renderer must not claim cloud media is unavailable');
+assert.ok(operator.includes('publikator:operator-route-rendered'), 'operator router must emit explicit route-rendered event');
+assert.ok(googleSheets.includes("addEventListener('publikator:operator-route-rendered'"), 'Google Sheets must mount from explicit route event');
+assert.ok(!googleSheets.includes('new MutationObserver'), 'Google Sheets must not scan the whole DOM with MutationObserver');
 assert.ok(calendar.includes("['month','week','day','agenda']"), 'calendar modes were lost');
 assert.ok(library.includes("['stories','Stories']"), 'story library filter was lost');
 assert.ok(library.includes("['shorts','Shorts']"), 'shorts library filter was lost');
