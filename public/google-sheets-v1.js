@@ -76,9 +76,9 @@ function connectorCard(connector) {
   return `<article class="gs-connector" data-gs-id="${gsEsc(connector.id)}">
     <div class="gs-connector-head">
       <div><strong>${gsEsc(connector.name)}</strong><span>${gsEsc(connector.config.spreadsheetId)} · ${gsEsc(connector.config.sheetName)}</span></div>
-      <span class="badge">${connector.config.writeBack ? 'import + publication write-back' : 'import only'}</span>
+      <span class="badge">${connector.config.writeBack ? 'Импорт + статусы публикаций' : 'Только импорт'}</span>
     </div>
-    <div class="gs-connector-meta">Service account: <code>${gsEsc(connector.config.serviceAccountEmail)}</code></div>
+    <div class="gs-connector-meta">Сервисный аккаунт: <code>${gsEsc(connector.config.serviceAccountEmail)}</code></div>
     <div class="gs-polling">
       <label class="target-check"><input class="gs-poll-enabled" type="checkbox" ${connector.config.pollingEnabled ? 'checked' : ''}> \u0410\u0432\u0442\u043e\u043f\u0440\u043e\u0432\u0435\u0440\u043a\u0430 \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u0439</label>
       <label>\u0418\u043d\u0442\u0435\u0440\u0432\u0430\u043b <select class="gs-poll-interval">${[5,15,30,60].map((value) => `<option value="${value}" ${Number(connector.config.pollIntervalMinutes || 15) === value ? 'selected' : ''}>${value} \u043c\u0438\u043d</option>`).join('')}</select></label>
@@ -89,11 +89,11 @@ function connectorCard(connector) {
     </div>
     <div class="row-actions">
       <button class="secondary gs-test" type="button">Проверить</button>
-      <button class="primary gs-preview" type="button">Preview sync</button>
-      <button class="secondary gs-apply" type="button" ${preview?.canApply ? '' : 'disabled'}>Import new/changed rows</button>
+      <button class="primary gs-preview" type="button">Посмотреть изменения</button>
+      <button class="secondary gs-apply" type="button" ${preview?.canApply ? '' : 'disabled'}>Импортировать изменения</button>
       ${connector.config.writeBack ? '<button class="secondary gs-publication-writeback" type="button">Записать статусы сейчас</button>' : ''}
     </div>
-    <div class="gs-result">${preview ? `<div class="operator-result ${preview.canApply ? 'ok' : 'error'}"><strong>${preview.canApply ? 'Preview готов.' : 'Apply заблокирован.'}</strong> Sheet SHA: <code>${gsEsc(preview.sourceSnapshotSha256)}</code></div>${gsSummary(preview.summary)}${gsPreviewRows(preview)}` : ''}</div>
+    <div class="gs-result">${preview ? `<div class="operator-result ${preview.canApply ? 'ok' : 'error'}"><strong>${preview.canApply ? 'Предпросмотр готов.' : 'Импорт заблокирован.'}</strong> Sheet SHA: <code>${gsEsc(preview.sourceSnapshotSha256)}</code></div>${gsSummary(preview.summary)}${gsPreviewRows(preview)}` : ''}</div>
   </article>`;
 }
 
@@ -278,12 +278,12 @@ async function mountGoogleSheets() {
     const cards = [...layout.querySelectorAll('.operator-connector-card')];
     const card = cards.find((item) => item.querySelector('strong')?.textContent?.trim() === 'Google Sheets');
     if (card) {
-      card.innerHTML = '<strong>Google Sheets</strong><span>Реальный one-way connector: Preview → Import new/changed rows → DRAFT.</span><button id="gs-open-connect" class="secondary" type="button">Подключить</button>';
+      card.innerHTML = '<strong>Google Sheets</strong><span>Рабочее подключение: проверить изменения → импортировать новые/изменённые строки → черновики.</span><button id="gs-open-connect" class="secondary" type="button">Подключить</button>';
     }
     const host = document.createElement('section');
     host.id = 'operator-google-sheets-live';
     host.className = 'operator-section gs-live-section';
-    host.innerHTML = `<div class="operator-page-head"><div><h3>Google Sheets</h3><p>Publikator читает schema v3 из выбранного листа. Google Sheets остаётся источником, а после Apply каноническое состояние живёт в Publikator.</p></div><a class="button-link secondary" href="/api/content-plan/v3/template.xlsx" download>Скачать XLSX шаблон</a></div><div id="gs-connect-form-host"></div><div id="gs-connectors-list"><div class="muted">Загрузка connectors…</div></div>`;
+    host.innerHTML = `<div class="operator-page-head"><div><h3>Google Sheets</h3><p>Publikator читает лист «Публикации», показывает изменения до импорта и сохраняет канонические данные внутри Publikator.</p></div><a class="button-link secondary" href="/api/content-plan/v3/template.xlsx" download>Скачать XLSX шаблон</a></div><div id="gs-connect-form-host"></div><div id="gs-connectors-list"><div class="muted">Загрузка connectors…</div></div>`;
     layout.after(host);
     card?.querySelector('#gs-open-connect')?.addEventListener('click', () => renderGoogleConnectForm(host));
     await loadGoogleConnectors(host);

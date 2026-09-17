@@ -50,6 +50,15 @@ try {
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert.ok(overflow <= 1, `${route} desktop body overflow: ${overflow}px`);
   }
+  await page.goto(`${base}/sources`, { waitUntil: 'domcontentloaded' });
+  await page.locator('#operator-google-sheets-live').waitFor({ state: 'visible' });
+  const sourcesText = await page.locator('#view').innerText();
+  for (const stale of ['Пока не подключено', 'backend ещё не реализован', 'Cloud media connectors пока не включены']) {
+    assert.ok(!sourcesText.includes(stale), `stale Sources copy is visible: ${stale}`);
+  }
+  assert.match(sourcesText, /Google Sheets/, 'Google Sheets live source section is missing');
+  assert.match(sourcesText, /Google Drive \/ Яндекс Диск/, 'cloud media source card is missing');
+
   await page.goto(`${base}/overview`, { waitUntil: 'domcontentloaded' });
   await page.locator('#app').waitFor({ state: 'visible' });
   await page.locator('[data-route="/calendar"]').click();

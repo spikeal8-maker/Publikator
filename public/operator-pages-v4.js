@@ -241,19 +241,19 @@ async function renderSourcesPage() {
     operatorSourcePreview = null;
     operatorSourcePreviewId = '';
     operatorView.innerHTML = `<div class="operator-page">
-      <div class="operator-page-head"><div><h2>Источники / Интеграции</h2><p>Массовый контент загружается здесь. Один и тот же ID источника связывает повторные версии таблицы: новые строки создаются, изменённые обновляются, одинаковые не дублируются.</p></div></div>
+      <div class="operator-page-head"><div><h2>Источники / Интеграции</h2><p>Загружайте контент пачками из Excel/CSV или подключайте Google Sheets. Повторная версия одного набора обновляет строки вместо создания дублей.</p></div></div>
       <div class="operator-source-layout">
-        <section class="operator-section"><h3>Excel / CSV · schema v${Number(schema.version || 3)}</h3><p>Скачайте шаблон, заполните строки, затем сначала выполните Preview. Apply доступен только после успешной проверки этого же файла.</p>
-          <div class="operator-form"><label class="full">ID источника<input id="operator-source-id" value="${operatorEsc(savedSourceId)}" pattern="[A-Za-z0-9._:-]{1,128}" required><span class="operator-field-help">Например: asa-social-plan. Не меняйте его между версиями одной таблицы.</span></label></div>
+        <section class="operator-section"><h3>Таблица Excel / CSV</h3><p>Скачайте русский шаблон, заполните лист «Публикации», затем сначала проверьте файл. Импорт станет доступен только после успешной проверки этой же версии.</p>
+          <div class="operator-form"><label class="full">Название набора<input id="operator-source-id" value="${operatorEsc(savedSourceId)}" pattern="[A-Za-z0-9._:-]{1,128}" required><span class="operator-field-help">Например: social-plan. Используйте одно название для повторных версий одной и той же таблицы.</span></label></div>
           <div class="operator-actions" style="margin:14px 0"><a class="button-link secondary" href="/api/content-plan/v3/template.xlsx" download>Скачать шаблон XLSX</a></div>
           <label class="operator-drop"><input id="operator-source-file" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"><strong>Выбрать CSV / XLSX</strong><span id="operator-source-file-name">Файл не выбран</span></label>
-          <div class="operator-actions" style="margin-top:14px"><button id="operator-source-preview" class="primary" type="button" disabled>1. Проверить Preview</button><button id="operator-source-apply" class="secondary" type="button" disabled>2. Применить</button></div>
+          <div class="operator-actions" style="margin-top:14px"><button id="operator-source-preview" class="primary" type="button" disabled>1. Проверить таблицу</button><button id="operator-source-apply" class="secondary" type="button" disabled>2. Импортировать</button></div>
           <div id="operator-source-result"></div>
         </section>
-        <aside class="operator-section"><h3>Подключаемые источники</h3><p>Здесь показываются только реальные интеграции, без имитации.</p>
-          <div class="operator-connector-card"><strong>Файл XLSX / CSV</strong><span>Работает сейчас: schema v3, preview/apply, idempotent source identity.</span></div>
-          <div class="operator-connector-card" style="margin-top:10px"><strong>Google Sheets</strong><span>Connector в текущем backend ещё не реализован. Эта страница его не подменяет загрузкой файла.</span></div>
-          <div class="operator-connector-card" style="margin-top:10px"><strong>Google Drive / Яндекс Диск</strong><span>Cloud media connectors пока не включены.</span></div>
+        <aside class="operator-section"><h3>Подключения</h3><p>Здесь показаны доступные способы загрузки контента и внешних медиа.</p>
+          <div class="operator-connector-card"><strong>Excel / CSV</strong><span>Работает. Повторная загрузка обновляет существующие строки без дублей.</span></div>
+          <div class="operator-connector-card" style="margin-top:10px"><strong>Google Sheets</strong><span>Подключение и автоматизация доступны ниже на этой странице.</span></div>
+          <div class="operator-connector-card" style="margin-top:10px"><strong>Google Drive / Яндекс Диск</strong><span>Поддерживаются как источники изображений для Google Sheets; файлы после импорта сохраняются локально в Publikator.</span></div>
         </aside>
       </div>
     </div>`;

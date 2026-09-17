@@ -48,7 +48,7 @@ for (const route of routes) assert.ok(ui.includes(`'${route}'`), `route metadata
 for (const behavior of ['uiContentFilters', 'uiProjectsPage', 'uiSchedulePage', 'uiJournalFilters', 'uiWrapTables', 'uiDecorateSocialCards', 'ui-nav-open']) {
   assert.ok(ui.includes(behavior), `shared enhancement missing ${behavior}`);
 }
-for (const behavior of ['uiSetText', 'uiSetLabelText', 'uiPolishStatuses', 'uiPolishCalendar', 'uiPolishLibrary', 'uiPolishSources', 'uiPolishTemplates', 'uiPolishPostEditor', 'uiPolishOverview', 'uiPolishSocials', 'uiRefineSources', 'uiPolishScheduleModal', 'uiPolishLibraryRoles']) {
+for (const behavior of ['uiSetText', 'uiSetLabelText', 'uiPolishStatuses', 'uiPolishCalendar', 'uiPolishLibrary', 'uiPolishTemplates', 'uiPolishPostEditor', 'uiPolishOverview', 'uiPolishSocials', 'uiPolishScheduleModal', 'uiPolishLibraryRoles']) {
   assert.ok(polish.includes(behavior), `page polish missing ${behavior}`);
 }
 assert.ok(polish.includes('node.textContent !== value'), 'DOM copy updates must be idempotent under MutationObserver');
@@ -64,6 +64,10 @@ assert.ok(ui.includes('+ Добавить время'), 'schedule action must us
 assert.ok(operator.includes("'/api/accounts/test'"), 'social connection verification must remain real API-backed');
 assert.ok(operator.includes('/api/content-plan/v3/import/preview?sourceId='), 'source preview must remain schema-v3 backed');
 assert.ok(operator.includes('/api/content-plan/v3/import/apply?sourceId='), 'source apply must remain schema-v3 backed');
+assert.ok(!polish.includes('uiPolishSources'), 'Sources copy must no longer be owned by MutationObserver polish');
+assert.ok(!polish.includes('uiRefineSources'), 'Sources cards must no longer be rewritten by page polish');
+assert.ok(!operator.includes('Connector в текущем backend ещё не реализован'), 'Sources renderer must not claim Google Sheets is unavailable');
+assert.ok(!operator.includes('Cloud media connectors пока не включены'), 'Sources renderer must not claim cloud media is unavailable');
 assert.ok(calendar.includes("['month','week','day','agenda']"), 'calendar modes were lost');
 assert.ok(library.includes("['stories','Stories']"), 'story library filter was lost');
 assert.ok(library.includes("['shorts','Shorts']"), 'shorts library filter was lost');
