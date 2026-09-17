@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const [index, app, css, ui, polishCss, polish, operator, calendar, library, dashboard] = await Promise.all([
   fs.readFile(new URL('../public/index.html', import.meta.url), 'utf8'),
@@ -80,3 +82,8 @@ console.log(JSON.stringify({
   legacyPageEnhancements: ['content-filter', 'projects-summary', 'schedule-weekdays', 'journal-filter'],
   existingProductWorkflowsPreserved: true
 }));
+
+const browserAcceptance = spawnSync(process.execPath, [fileURLToPath(new URL('./browser-operator-acceptance-e2e.mjs', import.meta.url))], {
+  stdio: 'inherit'
+});
+assert.equal(browserAcceptance.status, 0, 'real browser operator acceptance failed');

@@ -12,7 +12,8 @@
     "start": "node dist/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "live:video:accept": "node dist/cli/live-video-acceptance.js",
-    "live:instagram-short:accept": "node dist/cli/live-instagram-short-acceptance.js"
+    "live:instagram-short:accept": "node dist/cli/live-instagram-short-acceptance.js",
+    "test:browser": "node scripts/browser-operator-acceptance-e2e.mjs"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.0",
@@ -27,6 +28,7 @@
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.0.0",
+    "playwright-core": "1.55.0",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0"
   }
