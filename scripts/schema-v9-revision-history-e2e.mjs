@@ -82,7 +82,8 @@ legacy.pragma('user_version = 8');
 const publishedBefore = legacy.prepare('SELECT * FROM posts WHERE id=?').get('published');
 legacy.close();
 
-const { db, migrate, DATABASE_SCHEMA_VERSION } = await import('../dist/db.js');
+const { db, migrate } = await import('../dist/db.js');
+const { DATABASE_SCHEMA_VERSION } = await import('../dist/schema.js');
 migrate();
 try {
   assert.equal(DATABASE_SCHEMA_VERSION, 9);
