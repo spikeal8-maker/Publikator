@@ -1,4 +1,5 @@
 name: One-shot FE-006A preflight
+# retry focused browser subprocess after isolated route-loop flake
 
 on:
   push:
