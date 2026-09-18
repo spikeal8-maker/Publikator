@@ -217,27 +217,9 @@ try {
   assert.equal(await contentInspector.locator('.inspector-edit').count(), 1, 'Content Inspector edit action missing');
   await contentInspector.locator('.inspector-edit').click();
   await contentInspector.waitFor({ state: 'detached', timeout: 5000 });
-  await page.waitForTimeout(500);
-  const existingEditorSnapshot = await page.evaluate(() => {
-    const form = document.querySelector('#post-form');
-    const modal = form?.closest('.modal');
-    const modalCard = form?.closest('.modal-card');
-    return {
-      formCount: document.querySelectorAll('#post-form').length,
-      modalCount: document.querySelectorAll('.modal').length,
-      connected: Boolean(form?.isConnected),
-      display: form ? getComputedStyle(form).display : null,
-      visibility: form ? getComputedStyle(form).visibility : null,
-      rect: form ? { width: form.getBoundingClientRect().width, height: form.getBoundingClientRect().height } : null,
-      modalDisplay: modal ? getComputedStyle(modal).display : null,
-      modalCardDisplay: modalCard ? getComputedStyle(modalCard).display : null,
-      v04Enhanced: form?.dataset.v04Enhanced || null,
-      videoAuthoringEnhanced: form?.dataset.videoAuthoringEnhanced || null,
-      workspaceCount: form?.querySelectorAll('.platform-workspace').length || 0,
-      errorText: modalCard?.querySelector('#post-error')?.textContent || ''
-    };
-  });
-  throw new Error(`FE007_EXISTING_EDITOR_SNAPSHOT ${JSON.stringify(existingEditorSnapshot)}`);
+
+  postForm = page.locator('#post-form');
+  await postForm.waitFor({ state: 'visible', timeout: 5000 });
   const existingPostModal = postForm.locator('xpath=ancestor::div[contains(@class,"modal-card")]');
   await existingPostModal.locator('.platform-workspace').waitFor({ state: 'visible', timeout: 5000 });
   const existingSections = await existingPostModal.locator('.ui-editor-section-title strong').allTextContents();
