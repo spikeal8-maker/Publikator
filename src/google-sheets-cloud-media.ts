@@ -402,7 +402,7 @@ function applyAtomicMediaPlan(plan: AtomicMediaPlan): void {
   if (!plan.replace) return;
   const current = db.prepare('SELECT content_version FROM posts WHERE id=?').get(plan.postId) as { content_version: number } | undefined;
   if (!current) throw new Error(`Cloud media post disappeared during apply: ${plan.externalId}`);
-  commitContentEdit(plan.postId, current.content_version, () => {
+  commitContentEdit(plan.postId, current.content_version, 'google_sheets', () => {
     db.prepare('DELETE FROM media WHERE post_id=?').run(plan.postId);
     const createdAt = nowIso();
     const insert = db.prepare(`INSERT INTO media
@@ -493,6 +493,7 @@ export async function applyGoogleSheetsCloudMedia(connectorId: string, expectedS
     atomicPlans = staged.plans;
     const mediaByExternalId = new Map(atomicPlans.map((plan) => [plan.externalId, plan]));
     result = applyContentPlanV3(preview, {
+      actorSource: 'google_sheets',
       sourceTypeOverride: 'google_sheets',
       newPostIds: staged.newPostIds,
       afterRow: ({ row, postId, classification }) => {
