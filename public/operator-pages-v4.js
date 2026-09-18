@@ -33,7 +33,7 @@ const OPERATOR_PLATFORM = {
   telegram: { label: 'Telegram', note: 'Бот публикует в конкретный канал или чат.' },
   vk: { label: 'VK', note: 'Публикация идёт на стену конкретной группы.' },
   max: { label: 'MAX', note: 'Бот публикует в конкретный чат или канал.' },
-  instagram: { label: 'Instagram', note: 'Professional account через Meta Graph API.' }
+  instagram: { label: 'Instagram', note: 'Публикация в профессиональный аккаунт Instagram.' }
 };
 
 function telegramDestination(value) {
@@ -132,8 +132,8 @@ async function renderSocialsPage() {
   try {
     const accounts = await operatorApi('/api/accounts');
     operatorView.innerHTML = `<div class="operator-page">
-      <div class="operator-page-head"><div><h2>Соцсети</h2><p>Здесь подключаются реальные площадки. Сначала Publikator проверяет токен и конкретное назначение, и только после успешной проверки позволяет сохранить подключение.</p></div></div>
-      <div class="operator-platform-grid">${Object.entries(OPERATOR_PLATFORM).map(([key, meta]) => `<div class="operator-platform-card"><strong>${meta.label}</strong><span>${meta.note}</span><button class="secondary operator-add-platform" type="button" data-platform="${key}">Подключить</button></div>`).join('')}</div>
+      <div class="operator-page-head"><div><h2>Соцсети</h2><p>Подключите площадку, проверьте токен и укажите конкретный канал, группу или чат. Сохранить можно только проверенное подключение.</p></div></div>
+      <div class="operator-platform-grid">${Object.entries(OPERATOR_PLATFORM).map(([key, meta]) => `<div class="operator-platform-card" data-platform="${key}"><strong>${meta.label}</strong><span>${meta.note}</span><button class="secondary operator-add-platform" type="button" data-platform="${key}">Подключить</button></div>`).join('')}</div>
       <div id="operator-social-connect"></div>
       <section class="operator-section"><h3>Подключённые площадки</h3><p>«Проверить» ничего не публикует: только подтверждает учётную запись и назначение.</p>
         <div class="operator-connection-list">${accounts.length ? accounts.map((account) => `<div class="operator-connection" data-account-id="${operatorEsc(account.id)}"><span class="operator-platform-badge">${operatorEsc(account.platform)}</span><div class="operator-connection-main"><strong>${operatorEsc(account.name)}</strong><span>${account.enabled ? 'Включено' : 'Отключено'} · назначение можно подтвердить кнопкой «Проверить»</span><div class="operator-account-result"></div></div><div class="operator-connection-actions"><button class="secondary operator-test-account" type="button">Проверить</button><button class="secondary operator-toggle-account" type="button" data-enabled="${account.enabled ? '1' : '0'}">${account.enabled ? 'Отключить' : 'Включить'}</button></div></div>`).join('') : '<div class="operator-empty">Пока нет ни одного подключения. Выберите площадку выше.</div>'}</div>
