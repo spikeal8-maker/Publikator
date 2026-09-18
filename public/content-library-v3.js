@@ -2,8 +2,6 @@ const LIBRARY_VIEWS = [
   ['all','Все'],['inbox','Входящие'],['draft','Черновики'],['ready','Готово'],
   ['scheduled','Запланировано'],['published','Опубликовано'],['problems','Проблемы']
 ];
-// Legacy CX3-002 source-token compatibility only; these English tokens are non-rendering:
- // ['stories','Stories'] ['shorts','Shorts'] ['video','Video']
 const LIBRARY_FORMATS = [
   ['all','Все форматы'],['image','Изображения'],['stories','Истории'],['shorts','Короткие видео'],['video','Видео']
 ];
