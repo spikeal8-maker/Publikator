@@ -293,10 +293,10 @@ function targetDiff(before: RevisionTargetSnapshot[], after: RevisionTargetSnaps
   const current = new Map(after.map((item) => [item.accountId, item]));
   const added = [...current.entries()]
     .filter(([accountId]) => !previous.has(accountId))
-    .map(([accountId, value]) => ({ accountId, ...value }));
+    .map(([, value]) => ({ ...value }));
   const removed = [...previous.entries()]
     .filter(([accountId]) => !current.has(accountId))
-    .map(([accountId, value]) => ({ accountId, ...value }));
+    .map(([, value]) => ({ ...value }));
   const changed = [...previous.entries()]
     .filter(([accountId, value]) => current.has(accountId) && targetSemantic(value) !== targetSemantic(current.get(accountId)!))
     .map(([accountId, value]) => ({ accountId, before: value, after: current.get(accountId)! }));
