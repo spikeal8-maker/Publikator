@@ -232,14 +232,6 @@ try {
   assert.equal(await existingPostModal.locator('.platform-editor-card').count(), 1, 'existing editor target enhancement missing');
   await postForm.locator('#close-modal').click();
   await page.locator('#post-form').waitFor({ state: 'detached' });
-  const existingPostModal = postForm.locator('xpath=ancestor::div[contains(@class,"modal-card")]');
-  await existingPostModal.locator('.platform-workspace').waitFor({ state: 'visible' });
-  const existingSections = await existingPostModal.locator('.ui-editor-section-title strong').allTextContents();
-  for (const section of ['Основное', 'Медиа', 'Площадки']) assert.ok(existingSections.includes(section), `existing editor section missing: ${section}`);
-  assert.equal(await postForm.locator('#media-file').count(), 1, 'existing editor media enhancement missing');
-  assert.equal(await existingPostModal.locator('.platform-editor-card').count(), 1, 'existing editor target enhancement missing');
-  await postForm.locator('#close-modal').click();
-  await page.locator('#post-form').waitFor({ state: 'detached' });
 
   await page.goto(`${base}/calendar`, { waitUntil: 'domcontentloaded' });
   await page.locator('#app').waitFor({ state: 'visible' });
