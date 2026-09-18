@@ -5,7 +5,7 @@ import { createWriteOnlyWorkbook, loadWorkbookStream } from '@office-kit/xlsx/st
 import { fromBuffer, toFile } from '@office-kit/xlsx/node';
 import { config } from './config.js';
 import { db, event, id, nowIso, type Platform } from './db.js';
-import { commitContentEdit } from './content-versioning.js';
+import { commitContentEdit, createInitialContentRevision, type RevisionActorSource } from './content-versioning.js';
 import { ensureTargets, setTargetSelection } from './publisher.js';
 import { spreadsheetSafeText } from './ingestion-security.js';
 import { normalizeIanaTimezone, resolveExactSchedule, resolveLocalSchedule } from './schedule-time.js';
@@ -71,6 +71,7 @@ export type ApplyContentPlanV3RowContext = {
   classification: V3Classification;
 };
 export type ApplyContentPlanV3Options = {
+  actorSource: RevisionActorSource;
   sourceTypeOverride?: string;
   newPostIds?: ReadonlyMap<string, string>;
   afterRow?: (context: ApplyContentPlanV3RowContext) => void;
@@ -462,7 +463,7 @@ function applyOverrides(postId: string, targets: ResolvedAccount[], overrides: A
 
 export function applyContentPlanV3(
   validation: V3Validation,
-  options: ApplyContentPlanV3Options = {}
+  options: ApplyContentPlanV3Options
 ): { created: number; updated: number; unchanged: number; archived: number; trashed: number; postIds: string[] } {
   if (!validation.canApply) throw new Error('Schema 3 preview contains ERROR/CONFLICT');
   const batch = id('batch');
@@ -501,6 +502,7 @@ export function applyContentPlanV3(
           options.sourceTypeOverride ?? SOURCE_TYPE, ref, row.sourceRevision, row.payloadHash, batch, now, now, now
         );
         applyOverrides(postId, row.targets, row.overrides);
+        createInitialContentRevision(postId, options.actorSource);
         options.afterRow?.({ row, postId, classification: row.classification });
         const finalVersion = Number((db.prepare('SELECT content_version FROM posts WHERE id=?').get(postId) as { content_version: number }).content_version);
         db.prepare('UPDATE posts SET imported_content_version=? WHERE id=?').run(finalVersion, postId);
@@ -510,23 +512,25 @@ export function applyContentPlanV3(
       const postId = row.postId!;
       postIds.push(postId);
       if (row.importedContentVersion === null) throw new Error('Import binding is missing imported_content_version');
-      commitContentEdit(postId, row.importedContentVersion, () => {
+      const outcome = row.classification === 'ARCHIVE_REQUEST'
+        ? { editorialStage: 'ARCHIVED' as const, allowInactive: true }
+        : row.classification === 'TRASH_REQUEST'
+          ? { editorialStage: 'TRASHED' as const, allowInactive: true }
+          : undefined;
+      commitContentEdit(postId, row.importedContentVersion, options.actorSource, () => {
         if (row.classification === 'UPDATE') {
           if (!row.projectId) throw new Error('UPDATE row lost projectId after preview');
           db.prepare('UPDATE posts SET project_id=?,title=?,body=?,schedule_mode=?,scheduled_at=?,scheduled_at_utc=?,schedule_timezone=? WHERE id=?')
             .run(row.projectId, row.title, row.body, row.scheduleMode, row.scheduledAt, row.scheduledAt, row.scheduleTimezone, postId);
+          applyOverrides(postId, row.targets, row.overrides);
         }
-      });
-
+      }, outcome);
 
       if (row.classification === 'UPDATE') {
-        applyOverrides(postId, row.targets, row.overrides);
         updated += 1;
       } else if (row.classification === 'ARCHIVE_REQUEST') {
-        db.prepare("UPDATE posts SET editorial_stage='ARCHIVED' WHERE id=?").run(postId);
         archived += 1;
       } else if (row.classification === 'TRASH_REQUEST') {
-        db.prepare("UPDATE posts SET editorial_stage='TRASHED' WHERE id=?").run(postId);
         trashed += 1;
       }
 
