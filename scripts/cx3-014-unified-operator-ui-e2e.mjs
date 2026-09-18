@@ -116,6 +116,46 @@ assert.ok(!dashboardItemSource.includes("item.publication_kind || 'FEED'"), 'das
 assert.ok(!polish.includes('uiPolishOverview'), 'overview copy and format must no longer be owned by ui-page-polish-v5.js');
 assert.ok(index.includes('data-route="/overview"') && ui.includes("'/overview'"), '/overview must remain a registered route');
 
+const libraryViewLabels = {
+  all: 'Все',
+  inbox: 'Входящие',
+  draft: 'Черновики',
+  ready: 'Готово',
+  scheduled: 'Запланировано',
+  published: 'Опубликовано',
+  problems: 'Проблемы'
+};
+for (const [key, label] of Object.entries(libraryViewLabels)) {
+  assert.ok(library.includes(`['${key}','${label}']`), `LIBRARY_VIEWS must own final label ${key} -> ${label}`);
+}
+const libraryFormatLabels = {
+  all: 'Все форматы',
+  image: 'Изображения',
+  stories: 'Истории',
+  shorts: 'Короткие видео',
+  video: 'Видео'
+};
+for (const [key, label] of Object.entries(libraryFormatLabels)) {
+  assert.ok(library.includes(`['${key}','${label}']`), `LIBRARY_FORMATS must own final label ${key} -> ${label}`);
+}
+const libraryToolbarStart = library.indexOf('function libraryToolbar(');
+const libraryToolbarEnd = library.indexOf('function libraryPager(', libraryToolbarStart);
+assert.ok(libraryToolbarStart >= 0 && libraryToolbarEnd > libraryToolbarStart, 'libraryToolbar source boundary missing');
+const libraryToolbarSource = library.slice(libraryToolbarStart, libraryToolbarEnd);
+assert.ok(libraryToolbarSource.includes('data-layout="grid" type="button">Карточки</button>'), 'libraryToolbar must own final grid label');
+assert.ok(libraryToolbarSource.includes('data-layout="list" type="button">Таблица</button>'), 'libraryToolbar must own final list label');
+
+const polishLibraryStart = polish.indexOf('function uiPolishLibrary(');
+const polishLibraryEnd = polish.indexOf('function uiPolishContent(', polishLibraryStart);
+assert.ok(polishLibraryStart >= 0 && polishLibraryEnd > polishLibraryStart, 'uiPolishLibrary source boundary missing');
+const polishLibrarySource = polish.slice(polishLibraryStart, polishLibraryEnd);
+assert.ok(!polishLibrarySource.includes('data-library-view'), 'uiPolishLibrary must not own Library view control labels');
+assert.ok(!polishLibrarySource.includes('data-layout'), 'uiPolishLibrary must not own Library layout control labels');
+assert.ok(!polishLibrarySource.includes('#library-format'), 'uiPolishLibrary must not own Library format option labels');
+assert.ok(polishLibrarySource.includes('.library-meta'), 'uiPolishLibrary must retain Library meta processing for the next checkpoint');
+assert.ok(polishLibrarySource.includes('UI_FORMAT_LABEL'), 'uiPolishLibrary must retain UI_FORMAT_LABEL meta formatting');
+assert.ok(polishLibrarySource.includes('UI_SOURCE_LABEL'), 'uiPolishLibrary must retain UI_SOURCE_LABEL source formatting');
+
 assert.ok(operator.includes("'/api/accounts/test'"), 'social connection verification must remain real API-backed');
 assert.ok(operator.includes('/api/content-plan/v3/import/preview?sourceId='), 'source preview must remain schema-v3 backed');
 assert.ok(operator.includes('/api/content-plan/v3/import/apply?sourceId='), 'source apply must remain schema-v3 backed');
@@ -127,8 +167,8 @@ assert.ok(operator.includes('publikator:operator-route-rendered'), 'operator rou
 assert.ok(googleSheets.includes("addEventListener('publikator:operator-route-rendered'"), 'Google Sheets must mount from explicit route event');
 assert.ok(!googleSheets.includes('new MutationObserver'), 'Google Sheets must not scan the whole DOM with MutationObserver');
 assert.ok(calendar.includes("['month','week','day','agenda']"), 'calendar modes were lost');
-assert.ok(library.includes("['stories','Stories']"), 'story library filter was lost');
-assert.ok(library.includes("['shorts','Shorts']"), 'shorts library filter was lost');
+assert.ok(library.includes("['stories','Истории']"), 'story library filter was lost');
+assert.ok(library.includes("['shorts','Короткие видео']"), 'shorts library filter was lost');
 assert.ok(dashboard.includes('/api/editorial-dashboard'), 'editorial dashboard API integration was lost');
 
 console.log(JSON.stringify({
