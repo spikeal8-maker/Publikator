@@ -1,3 +1,5 @@
+import { statusLabel } from './presentation-labels.js';
+
 const EDITORIAL_VIEWS = {
   active: { label: 'Активные', api: '/api/editorial/posts?view=active' },
   archive: { label: 'Архив', api: '/api/editorial/posts?view=archive' },
@@ -26,7 +28,8 @@ async function editorialRequest(url, options = {}) {
 }
 
 function editorialBadge(value) {
-  return `<span class="badge ${editorialEscape(value)}">${editorialEscape(value)}</span>`;
+  const raw = String(value ?? '');
+  return `<span class="badge ${editorialEscape(raw)}" data-raw-status="${editorialEscape(raw)}" data-presentation-owner="editorial">${editorialEscape(statusLabel(raw))}</span>`;
 }
 
 function formatEditorialTime(value) {

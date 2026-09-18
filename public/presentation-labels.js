@@ -35,6 +35,12 @@ export const SOURCE_LABELS = Object.freeze({
   google_sheets: 'Google Sheets'
 });
 
+export const SCHEDULE_MODE_LABELS = Object.freeze({
+  MANUAL: 'Вручную',
+  QUEUE: 'Очередь',
+  AT: 'По времени'
+});
+
 export function statusLabel(value) {
   const raw = String(value ?? '');
   return STATUS_LABELS[raw] || raw;
@@ -50,4 +56,9 @@ export function publicationFormatLabel(publicationKind, contentFormat) {
 export function sourceLabel(value) {
   const raw = String(value ?? '');
   return SOURCE_LABELS[raw] || raw;
+}
+
+export function scheduleModeLabel(value) {
+  const raw = String(value ?? '');
+  return SCHEDULE_MODE_LABELS[raw] || raw;
 }

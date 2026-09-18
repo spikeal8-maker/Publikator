@@ -1,3 +1,5 @@
+import { statusLabel } from './presentation-labels.js';
+
 const googlePreviewByConnector = new Map();
 let googleSheetsMountBusy = false;
 
@@ -31,7 +33,7 @@ function gsPreviewRows(validation) {
   if (!rows.length) return '<div class="muted">В таблице нет строк для preview.</div>';
   return `<div class="operator-preview-table"><table class="table"><thead><tr><th>Строка</th><th>Результат</th><th>Материал</th><th>Проект</th><th>Что исправить</th></tr></thead><tbody>${rows.map((row) => {
     const normalized = row.normalized;
-    return `<tr><td>${Number(row.rowNumber || 0)}</td><td><span class="operator-classification ${gsEsc(row.classification)}">${gsEsc(row.classification)}</span></td><td>${normalized ? gsEsc(normalized.title) : '—'}</td><td>${normalized ? gsEsc(normalized.project) : '—'}</td><td class="small error">${gsEsc((row.errors || []).join('; '))}</td></tr>`;
+    return `<tr><td>${Number(row.rowNumber || 0)}</td><td><span class="operator-classification ${gsEsc(row.classification)}" data-raw-classification="${gsEsc(row.classification)}">${gsEsc(statusLabel(row.classification))}</span></td><td>${normalized ? gsEsc(normalized.title) : '—'}</td><td>${normalized ? gsEsc(normalized.project) : '—'}</td><td class="small error">${gsEsc((row.errors || []).join('; '))}</td></tr>`;
   }).join('')}</tbody></table></div>`;
 }
 

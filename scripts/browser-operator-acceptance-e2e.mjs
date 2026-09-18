@@ -11,7 +11,7 @@ process.env.ADMIN_PASSWORD = 'browser-acceptance-password';
 process.env.APP_MASTER_KEY = 'browser-acceptance-master-key-longer-than-thirty-two-characters';
 process.env.PUBLIC_BASE_URL = 'http://127.0.0.1:18087';
 
-const { db, migrate } = await import('../dist/db.js');
+const { db, migrate, id, nowIso } = await import('../dist/db.js');
 const { buildApp } = await import('../dist/app.js');
 migrate();
 const app = await buildApp();
@@ -58,6 +58,58 @@ await createLibraryPresentationFixture(libraryFixtureStoryTitle, {
   status: 'DRAFT'
 });
 
+async function createContentFixture(title, {
+  scheduleMode = 'MANUAL',
+  scheduledAtLocal = null,
+  scheduleTimezone = 'UTC',
+  status = 'DRAFT',
+  editorialStage = 'IDEA',
+  sourceType = 'manual'
+} = {}) {
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/posts',
+    headers: { cookie: fixtureCookie },
+    payload: {
+      projectId: fixtureProjectId,
+      title,
+      body: `${title} body`,
+      scheduleMode,
+      ...(scheduledAtLocal ? { scheduledAtLocal, scheduleTimezone } : {})
+    }
+  });
+  assert.equal(response.statusCode, 201, response.body);
+  const post = response.json();
+  db.prepare('UPDATE posts SET source_type=?,editorial_stage=?,status=? WHERE id=?')
+    .run(sourceType, editorialStage, status, post.id);
+  return post;
+}
+
+const contentDraftTitle = 'Browser Content Draft Manual';
+const contentReadyTitle = 'Browser Content Ready Queue';
+const contentFailedTitle = 'Browser Content Failed Manual';
+const contentDraft = await createContentFixture(contentDraftTitle, { scheduleMode: 'MANUAL', status: 'DRAFT', editorialStage: 'IN_REVIEW' });
+await createContentFixture(contentReadyTitle, { scheduleMode: 'QUEUE', status: 'READY', editorialStage: 'APPROVED' });
+await createContentFixture(contentFailedTitle, { scheduleMode: 'MANUAL', status: 'FAILED', editorialStage: 'APPROVED' });
+
+const editorAccountId = id('acc');
+db.prepare(`INSERT INTO social_accounts (id,platform,name,credentials_encrypted,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)`)
+  .run(editorAccountId, 'telegram', 'Browser editor channel', 'fixture', nowIso(), nowIso());
+db.prepare(`INSERT INTO post_targets (id,post_id,account_id,enabled,state,attempts,updated_at) VALUES (?,?,?,1,'PENDING',0,?)`)
+  .run(id('target'), contentDraft.id, editorAccountId, nowIso());
+
+const calendarFixtureTitle = 'Browser Calendar Presentation';
+const calendarWhen = new Date(Date.now() + 60 * 60 * 1000);
+const calendarScheduledAtLocal = calendarWhen.toISOString().slice(0, 16);
+const calendarFixture = await createContentFixture(calendarFixtureTitle, {
+  scheduleMode: 'AT',
+  scheduledAtLocal: calendarScheduledAtLocal,
+  scheduleTimezone: 'UTC',
+  status: 'READY',
+  editorialStage: 'IN_REVIEW',
+  sourceType: 'google_sheets'
+});
+
 await app.listen({ host: '127.0.0.1', port: 18087 });
 
 const base = 'http://127.0.0.1:18087';
@@ -93,6 +145,117 @@ try {
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert.ok(overflow <= 1, `${route} desktop body overflow: ${overflow}px`);
   }
+
+  await page.goto(`${base}/content`, { waitUntil: 'domcontentloaded' });
+  await page.locator('#app').waitFor({ state: 'visible' });
+  await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Контент');
+  await page.locator('#ui-content-filter').waitFor({ state: 'visible' });
+
+  const contentRow = (title) => page.locator('#view table.table tbody tr').filter({ hasText: title });
+  const draftRow = contentRow(contentDraftTitle);
+  const readyRow = contentRow(contentReadyTitle);
+  const failedRow = contentRow(contentFailedTitle);
+  for (const row of [draftRow, readyRow, failedRow]) assert.equal(await row.count(), 1, 'seeded Content fixture must render once');
+
+  const verifyContentRow = async (row, visibleStatus, rawStatus, visibleSchedule, rawSchedule) => {
+    const statusBadge = row.locator('td').nth(4).locator('.badge');
+    const scheduleCell = row.locator('td').nth(3);
+    assert.equal((await statusBadge.textContent())?.trim(), visibleStatus);
+    assert.equal(await statusBadge.getAttribute('data-raw-status'), rawStatus);
+    assert.equal((await scheduleCell.textContent())?.trim(), visibleSchedule);
+    assert.equal(await scheduleCell.getAttribute('data-raw-schedule'), rawSchedule);
+    const visibleText = await row.innerText();
+    assert.ok(!visibleText.includes(rawStatus), `Content row exposes raw status: ${rawStatus}`);
+    assert.ok(!visibleText.includes(rawSchedule), `Content row exposes raw schedule mode: ${rawSchedule}`);
+  };
+  await verifyContentRow(draftRow, 'Черновик', 'DRAFT', 'Вручную', 'MANUAL');
+  await verifyContentRow(readyRow, 'Готово', 'READY', 'Очередь', 'QUEUE');
+  await verifyContentRow(failedRow, 'Ошибка', 'FAILED', 'Вручную', 'MANUAL');
+
+  const filterStatus = async (status) => {
+    await page.locator(`#ui-content-filter [data-status="${status}"]`).click();
+    await page.waitForFunction((selected) => document.querySelector(`#ui-content-filter [data-status="${selected}"]`)?.classList.contains('active'), status);
+  };
+  await filterStatus('DRAFT');
+  assert.equal(await draftRow.isVisible(), true);
+  assert.equal(await readyRow.isVisible(), false);
+  assert.equal(await failedRow.isVisible(), false);
+  await filterStatus('READY');
+  assert.equal(await draftRow.isVisible(), false);
+  assert.equal(await readyRow.isVisible(), true);
+  await filterStatus('PROBLEM');
+  assert.equal(await failedRow.isVisible(), true);
+  assert.equal(await readyRow.isVisible(), false);
+  await filterStatus('ALL');
+  assert.equal(await draftRow.isVisible(), true);
+  assert.equal(await readyRow.isVisible(), true);
+  assert.equal(await failedRow.isVisible(), true);
+
+  await page.locator('#new-post').click();
+  let postForm = page.locator('#post-form');
+  await postForm.waitFor({ state: 'visible' });
+  const newPostModal = postForm.locator('xpath=ancestor::div[contains(@class,"modal-card")]');
+  assert.equal((await newPostModal.locator('h2').textContent())?.trim(), 'Новая публикация');
+  const newSections = await newPostModal.locator('.ui-editor-section-title strong').allTextContents();
+  assert.ok(newSections.includes('Основное'));
+  assert.ok(newSections.includes('После сохранения'));
+  assert.match((await postForm.locator('label:has(select[name="scheduleMode"])').innerText()).trim(), /^Когда публиковать/);
+  const scheduledLabel = postForm.locator('label:has(input[name="scheduledAt"])');
+  assert.match((await scheduledLabel.innerText()).trim(), /^Дата и время публикации/);
+  assert.equal(await postForm.locator('select[name="scheduleMode"]').inputValue(), 'MANUAL');
+  assert.equal(await scheduledLabel.isHidden(), true);
+  await postForm.locator('select[name="scheduleMode"]').selectOption('AT');
+  assert.equal(await scheduledLabel.isVisible(), true);
+  await postForm.locator('select[name="scheduleMode"]').selectOption('QUEUE');
+  assert.equal(await scheduledLabel.isHidden(), true);
+  await postForm.locator('#close-modal').click();
+  await page.locator('#post-form').waitFor({ state: 'detached' });
+
+  await draftRow.locator('.open-post').click();
+  const contentInspector = page.locator('.editorial-inspector-overlay');
+  await contentInspector.waitFor({ state: 'visible', timeout: 5000 });
+  assert.equal(await contentInspector.locator('.inspector-edit').count(), 1, 'Content Inspector edit action missing');
+  await contentInspector.locator('.inspector-edit').click();
+  await contentInspector.waitFor({ state: 'detached', timeout: 5000 });
+
+  postForm = page.locator('#post-form');
+  await postForm.waitFor({ state: 'visible', timeout: 5000 });
+  const existingPostModal = postForm.locator('xpath=ancestor::div[contains(@class,"modal-card")]');
+  await existingPostModal.locator('.platform-workspace').waitFor({ state: 'visible', timeout: 5000 });
+  const existingSections = await existingPostModal.locator('.ui-editor-section-title strong').allTextContents();
+  for (const section of ['Основное', 'Медиа', 'Площадки']) assert.ok(existingSections.includes(section), `existing editor section missing: ${section}`);
+  assert.equal(await postForm.locator('#media-file').count(), 1, 'existing editor media enhancement missing');
+  assert.equal(await existingPostModal.locator('.platform-editor-card').count(), 1, 'existing editor target enhancement missing');
+  await postForm.locator('#close-modal').click();
+  await page.locator('#post-form').waitFor({ state: 'detached', timeout: 5000 });
+
+  await page.goto(`${base}/calendar`, { waitUntil: 'domcontentloaded' });
+  await page.locator('#app').waitFor({ state: 'visible' });
+  await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Календарь');
+  await page.locator('.calendar-shell').waitFor({ state: 'visible' });
+  assert.equal((await page.locator('[data-calendar-mode="agenda"]').textContent())?.trim(), 'Список');
+  assert.match((await page.locator('.calendar-toolbar').innerText()), /Часовой пояс:/);
+  let calendarFixtureCard = page.locator(`[data-calendar-post="${calendarFixture.id}"]`);
+  await calendarFixtureCard.waitFor({ state: 'visible' });
+  let calendarFixtureText = await calendarFixtureCard.innerText();
+  assert.ok(calendarFixtureText.includes('Google Sheets'));
+  assert.ok(calendarFixtureText.includes('Готово'));
+  assert.equal(await calendarFixtureCard.locator('[data-raw-status="READY"]').count(), 1);
+  for (const raw of ['google_sheets', 'READY', 'schedule', 'display', 'Agenda']) assert.ok(!calendarFixtureText.includes(raw), `Calendar exposes technical presentation: ${raw}`);
+
+  await page.locator('[data-calendar-mode="agenda"]').click();
+  await page.waitForFunction((id) => document.querySelector(`.calendar-list-card[data-calendar-post="${id}"]`) !== null, calendarFixture.id);
+  calendarFixtureCard = page.locator(`.calendar-list-card[data-calendar-post="${calendarFixture.id}"]`);
+  calendarFixtureText = await calendarFixtureCard.innerText();
+  for (const expected of ['Google Sheets', 'На проверке', 'Готово']) assert.ok(calendarFixtureText.includes(expected), `Calendar list presentation missing: ${expected}`);
+  assert.equal(await calendarFixtureCard.locator('[data-raw-status="IN_REVIEW"]').count(), 1);
+  assert.equal(await calendarFixtureCard.locator('[data-raw-status="READY"]').count(), 1);
+  for (const raw of ['google_sheets', 'IN_REVIEW', 'READY', 'schedule', 'display', 'Agenda']) assert.ok(!calendarFixtureText.includes(raw), `Calendar list exposes technical presentation: ${raw}`);
+
+  await page.locator('[data-calendar-mode="month"]').click();
+  await page.waitForFunction((id) => document.querySelector(`.calendar-card[data-calendar-post="${id}"]`) !== null, calendarFixture.id);
+  calendarFixtureCard = page.locator(`.calendar-card[data-calendar-post="${calendarFixture.id}"]`);
+  assert.ok((await calendarFixtureCard.innerText()).includes('Google Sheets'), 'Calendar presentation must survive mode rerender');
 
   await page.goto(`${base}/library`, { waitUntil: 'domcontentloaded' });
   await page.locator('#app').waitFor({ state: 'visible' });
@@ -247,6 +410,10 @@ try {
     overviewRendererOwnership: true,
     libraryControlsOwnership: true,
     libraryPresentationOwnership: true,
+    contentPresentationOwnership: true,
+    postEditorScaffoldOwnership: true,
+    calendarPresentationOwnership: true,
+    legacyPagePolishRemoved: true,
     noBodyOverflow: true,
     pageErrors: 0
   }, null, 2));
