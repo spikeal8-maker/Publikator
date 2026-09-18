@@ -32,7 +32,7 @@ export async function registerMediaOrderRoutes(app: FastifyInstance): Promise<vo
 
     try {
       const version = expectedContentVersion(request, body);
-      const committed = commitContentEdit(params.postId, version, () => reorderMedia(params.postId, body.mediaIds as string[]));
+      const committed = commitContentEdit(params.postId, version, 'manual', () => reorderMedia(params.postId, body.mediaIds as string[]));
       event({ postId: params.postId, type: 'media_reordered', message: 'Порядок изображений изменён', data: { mediaIds: body.mediaIds, contentVersion: committed.contentVersion } });
       return { ok: true, contentVersion: committed.contentVersion, media: committed.value };
     } catch (error) {
