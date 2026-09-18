@@ -145,6 +145,9 @@ jobs:
       - name: Telegram adapter safety
         run: node scripts/telegram-adapter-e2e.mjs
 
+      - name: CX3-010C Telegram Story Sequence recovery
+        run: node scripts/cx3-010c-story-sequence-e2e.mjs
+
       - name: VK adapter safety
         run: node scripts/vk-adapter-e2e.mjs
 
