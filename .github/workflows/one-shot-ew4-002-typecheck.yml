@@ -1,0 +1,26 @@
+name: One-shot EW4-002 typecheck
+
+on:
+  push:
+    branches:
+      - ew4-002/revision-history-ux
+
+concurrency:
+  group: ew4-002-typecheck
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22.23.2
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm run build
