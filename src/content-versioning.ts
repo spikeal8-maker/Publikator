@@ -81,6 +81,7 @@ export type ContentEditOutcome = {
   status?: 'DRAFT' | 'READY' | 'FAILED';
   editorialStage?: EditorialStage;
   restoredFromRevisionId?: string | null;
+  allowInactive?: boolean;
 };
 
 function getPost(postId: string): VersionedPostRow {
@@ -255,7 +256,12 @@ export function commitContentEdit<T>(
   outcome: ContentEditOutcome = {}
 ): { contentVersion: number; value: T; revision: ContentRevisionRow } {
   const transaction = db.transaction(() => {
-    assertContentVersion(postId, expectedContentVersion);
+    const current = getPost(postId);
+    if (!outcome.allowInactive) ensureEditable(current);
+    else if (!EDITABLE_POST_STATUSES.has(current.status)) throw new ContentImmutableError('Нельзя менять lifecycle после начала публикации');
+    if (current.content_version !== expectedContentVersion) {
+      throw new ContentConflictError(`Версия поста изменилась: ожидалась ${expectedContentVersion}, текущая ${current.content_version}`);
+    }
     const value = mutate();
     const nextStatus = outcome.status ?? 'DRAFT';
     const nextStage = outcome.editorialStage ?? 'DRAFT';
