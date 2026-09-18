@@ -121,6 +121,20 @@ PR body must contain these compact sections:
 
 Update the GitHub issue checklist when the checkpoint acceptance is actually satisfied.
 
+### Branch and tracking hygiene
+
+Checkpoint branches are temporary working refs, not long-lived documentation.
+
+After a PR is merged:
+
+- delete its head branch unless it is an explicitly long-lived lane such as `main` or `release/*`;
+- never continue new checkpoint work on a previously merged branch;
+- close superseded checkpoint/tracking issues when their authoritative parent issue already carries the current state;
+- remove temporary focused workflow files after their regression is folded into the canonical Acceptance workflow;
+- do not keep obsolete status/roadmap notes when their facts have been incorporated into the current normative docs.
+
+If repository auto-delete is disabled, branch deletion remains an explicit post-merge housekeeping action.
+
 ## 7. Stop conditions
 
 Do not silently broaden scope when any of these occurs:
