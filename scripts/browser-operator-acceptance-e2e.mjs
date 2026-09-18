@@ -219,29 +219,47 @@ try {
   await contentInspector.waitFor({ state: 'detached' });
   await page.evaluate((postId) => {
     window.__fe007EditorError = null;
+    window.__fe007EditorRemovals = [];
+    if (!window.__fe007RemoveInstrumented) {
+      window.__fe007RemoveInstrumented = true;
+      const originalRemove = Element.prototype.remove;
+      Element.prototype.remove = function (...args) {
+        if (this.matches?.('.modal') || this.querySelector?.('#post-form')) {
+          window.__fe007EditorRemovals.push({ kind: 'remove', className: this.className, stack: new Error().stack });
+        }
+        return originalRemove.apply(this, args);
+      };
+      const originalRemoveChild = Node.prototype.removeChild;
+      Node.prototype.removeChild = function (child) {
+        if (child?.matches?.('.modal') || child?.querySelector?.('#post-form')) {
+          window.__fe007EditorRemovals.push({ kind: 'removeChild', className: child.className, stack: new Error().stack });
+        }
+        return originalRemoveChild.call(this, child);
+      };
+    }
     const button = [...document.querySelectorAll('.open-post')].find((node) => node.dataset.id === postId);
     if (!button || typeof button.onclick !== 'function') throw new Error('existing Content row editor handler missing');
     Promise.resolve(button.onclick()).catch((error) => { window.__fe007EditorError = String(error?.stack || error); });
   }, contentDraft.id);
-  await page.waitForFunction(() => document.querySelector('#post-form') || window.__fe007EditorError, null, { timeout: 5000 });
-  const editorLaunchError = await page.evaluate(() => window.__fe007EditorError);
-  assert.equal(editorLaunchError, null, `existing Content editor launch failed: ${editorLaunchError}`);
-  postForm = page.locator('#post-form');
-  await postForm.waitFor({ state: 'visible' });
-  const existingPostModal = postForm.locator('xpath=ancestor::div[contains(@class,"modal-card")]');
-  await page.waitForTimeout(700);
-  const existingEnhancementDiagnostic = await postForm.evaluate((form) => ({
-    v04Enhanced: form.dataset.v04Enhanced || null,
-    videoAuthoringEnhanced: form.dataset.videoAuthoringEnhanced || null,
-    workspaceCount: form.querySelectorAll('.platform-workspace').length,
-    errorText: form.closest('.modal-card')?.querySelector('#post-error')?.textContent || '',
-    actionCount: form.querySelectorAll('.row-actions.full').length,
-    mediaInputCount: form.querySelectorAll('#media-file').length,
-    targetCount: form.querySelectorAll('input[name="accountId"]').length
-  }));
-  if (existingEnhancementDiagnostic.workspaceCount !== 1) {
-    throw new Error(`FE007_ENHANCEMENT_DIAGNOSTIC ${JSON.stringify(existingEnhancementDiagnostic)}`);
+  await page.waitForTimeout(1200);
+  const existingEditorState = await page.evaluate(() => {
+    const form = document.querySelector('#post-form');
+    return {
+      launchError: window.__fe007EditorError,
+      removals: window.__fe007EditorRemovals,
+      formCount: document.querySelectorAll('#post-form').length,
+      modalCount: document.querySelectorAll('.modal').length,
+      v04Enhanced: form?.dataset.v04Enhanced || null,
+      videoAuthoringEnhanced: form?.dataset.videoAuthoringEnhanced || null,
+      workspaceCount: form?.querySelectorAll('.platform-workspace').length || 0,
+      errorText: form?.closest('.modal-card')?.querySelector('#post-error')?.textContent || ''
+    };
+  });
+  if (existingEditorState.formCount !== 1 || existingEditorState.workspaceCount !== 1) {
+    throw new Error(`FE007_EDITOR_LIFECYCLE_DIAGNOSTIC ${JSON.stringify(existingEditorState)}`);
   }
+  postForm = page.locator('#post-form');
+  const existingPostModal = postForm.locator('xpath=ancestor::div[contains(@class,"modal-card")]');
   await existingPostModal.locator('.platform-workspace').waitFor({ state: 'visible' });
   const existingSections = await existingPostModal.locator('.ui-editor-section-title strong').allTextContents();
   for (const section of ['Основное', 'Медиа', 'Площадки']) assert.ok(existingSections.includes(section), `existing editor section missing: ${section}`);
