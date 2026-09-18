@@ -146,8 +146,8 @@ function uiContentFilters() {
     let visible = 0;
     for (const row of rows) {
       if (row.querySelector('td[colspan]')) continue;
-      const badge = row.querySelector('.badge')?.textContent.trim().toUpperCase() || '';
-      const matchStatus = status === 'ALL' || badge === status || (status === 'PROBLEM' && ['FAILED','PARTIAL','RECOVERY_NEEDED','RETRY'].includes(badge));
+      const rawStatus = row.querySelector('.badge')?.dataset.rawStatus || '';
+      const matchStatus = status === 'ALL' || rawStatus === status || (status === 'PROBLEM' && ['FAILED','PARTIAL','RECOVERY_NEEDED','RETRY'].includes(rawStatus));
       const matchSearch = !query || row.textContent.toLowerCase().includes(query);
       row.hidden = !(matchStatus && matchSearch);
       if (!row.hidden) visible += 1;
