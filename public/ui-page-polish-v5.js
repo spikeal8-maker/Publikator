@@ -163,19 +163,6 @@ function uiPolishOverview(root = document) {
   });
 }
 
-function uiPolishScheduleModal(root = document) {
-  const form = root.querySelector('#slot-form');
-  if (!form || form.dataset.uiCopy === '1') return;
-  form.dataset.uiCopy = '1';
-  uiSetText(form.closest('.modal-card')?.querySelector('h2'), 'Новое время публикации');
-  const timezone = form.querySelector('[name="timezone"]')?.closest('label');
-  if (timezone) {
-    const text = [...timezone.childNodes].find((node) => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
-    if (text) text.textContent = 'Часовой пояс ';
-  }
-  uiSetText(form.querySelector('button.primary'), 'Добавить');
-}
-
 function uiPolishLibraryRoles(root = document) {
   if (window.location.pathname !== '/library') return;
   root.querySelectorAll('.library-badges, .library-table tbody td:nth-child(7)').forEach((group) => {
@@ -193,7 +180,6 @@ function uiPolishAll() {
   uiPolishContent(view);
   uiPolishPostEditor(document);
   uiPolishOverview(view);
-  uiPolishScheduleModal(document);
   uiPolishLibraryRoles(view);
 }
 

@@ -49,7 +49,7 @@ for (const route of routes) assert.ok(ui.includes(`'${route}'`), `route metadata
 for (const behavior of ['uiContentFilters', 'uiProjectsPage', 'uiSchedulePage', 'uiJournalFilters', 'uiWrapTables', 'uiDecorateSocialCards', 'ui-nav-open']) {
   assert.ok(ui.includes(behavior), `shared enhancement missing ${behavior}`);
 }
-for (const behavior of ['uiSetText', 'uiSetLabelText', 'uiPolishStatuses', 'uiPolishCalendar', 'uiPolishLibrary', 'uiPolishPostEditor', 'uiPolishOverview', 'uiPolishScheduleModal', 'uiPolishLibraryRoles']) {
+for (const behavior of ['uiSetText', 'uiSetLabelText', 'uiPolishStatuses', 'uiPolishCalendar', 'uiPolishLibrary', 'uiPolishPostEditor', 'uiPolishOverview', 'uiPolishLibraryRoles']) {
   assert.ok(polish.includes(behavior), `page polish missing ${behavior}`);
 }
 assert.ok(polish.includes('node.textContent !== value'), 'DOM copy updates must be idempotent under MutationObserver');
@@ -77,6 +77,17 @@ assert.ok(operator.includes('class="operator-platform-card" data-platform="${key
 assert.ok(!polish.includes('uiPolishSocials'), 'socials copy must no longer be owned by ui-page-polish-v5.js');
 assert.ok(!polish.includes('uiPolishPlatformCards'), 'platform card identity must no longer be owned by ui-page-polish-v5.js');
 assert.ok(operator.includes("['/socials', renderSocialsPage]"), '/socials must remain registered to renderSocialsPage');
+
+const slotEditorStart = app.indexOf('function slotEditor()');
+const slotEditorEnd = app.indexOf('async function events()', slotEditorStart);
+assert.ok(slotEditorStart >= 0 && slotEditorEnd > slotEditorStart, 'slotEditor source boundary missing');
+const slotEditorSource = app.slice(slotEditorStart, slotEditorEnd);
+assert.ok(slotEditorSource.includes('<h2>Новое время публикации</h2>'), 'final schedule modal title must be owned by slotEditor');
+assert.ok(slotEditorSource.includes('<label>Часовой пояс<input name="timezone" value="Europe/Moscow">'), 'final timezone label must be owned by slotEditor');
+assert.ok(slotEditorSource.includes('<button class="primary">Добавить</button>'), 'final schedule modal primary action must be owned by slotEditor');
+assert.ok(!polish.includes('uiPolishScheduleModal'), 'schedule modal copy must no longer be owned by ui-page-polish-v5.js');
+assert.ok(slotEditorSource.includes('id="slot-form"'), '#slot-form must remain in slotEditor');
+assert.ok(slotEditorSource.includes("api('/api/schedules',{method:'POST'"), 'schedule POST must remain in slotEditor');
 
 assert.ok(operator.includes("'/api/accounts/test'"), 'social connection verification must remain real API-backed');
 assert.ok(operator.includes('/api/content-plan/v3/import/preview?sourceId='), 'source preview must remain schema-v3 backed');

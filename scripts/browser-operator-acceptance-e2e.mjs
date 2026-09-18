@@ -50,6 +50,19 @@ try {
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert.ok(overflow <= 1, `${route} desktop body overflow: ${overflow}px`);
   }
+
+  await page.goto(`${base}/schedule`, { waitUntil: 'domcontentloaded' });
+  await page.locator('#app').waitFor({ state: 'visible' });
+  await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Расписание');
+  await page.locator('#new-slot').click();
+  const slotForm = page.locator('#slot-form');
+  await slotForm.waitFor({ state: 'visible' });
+  assert.equal((await slotForm.locator('xpath=ancestor::div[contains(@class,"modal-card")]//h2').textContent())?.trim(), 'Новое время публикации', 'schedule modal heading mismatch');
+  assert.equal((await slotForm.locator('label:has([name="timezone"])').innerText()).trim(), 'Часовой пояс', 'schedule timezone label mismatch');
+  assert.equal((await slotForm.locator('button.primary').textContent())?.trim(), 'Добавить', 'schedule primary action mismatch');
+  await slotForm.locator('#close-modal').click();
+  await page.locator('#slot-form').waitFor({ state: 'detached' });
+
   await page.goto(`${base}/sources`, { waitUntil: 'domcontentloaded' });
   await page.locator('#operator-google-sheets-live').waitFor({ state: 'visible' });
   const sourcesText = await page.locator('#view').innerText();
@@ -99,6 +112,7 @@ try {
     mobileRoutes: 6,
     directRouteLogin: true,
     browserHistory: true,
+    scheduleModalOwnership: true,
     noBodyOverflow: true,
     pageErrors: 0
   }, null, 2));
