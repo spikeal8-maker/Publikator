@@ -120,13 +120,19 @@ const routes = new Map([
   ['/journal', 'Журнал'], ['/backups', 'Резервные копии'], ['/diagnostics', 'Диагностика']
 ]);
 let browser;
+let browserStage = 'bootstrap';
+let browserWatchdog;
 try {
   browser = await chromium.launch({ channel: 'chrome', headless: true });
+  browserWatchdog = setTimeout(() => {
+    throw new Error(`FE007_BROWSER_WATCHDOG stage=${browserStage}`);
+  }, 60000);
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const page = await context.newPage();
   const pageErrors = [];
   page.on('pageerror', (error) => pageErrors.push(String(error?.stack || error)));
 
+  browserStage = 'calendar-presentation';
   await page.goto(`${base}/calendar`, { waitUntil: 'domcontentloaded' });
   await page.locator('#login').waitFor({ state: 'visible' });
   assert.equal(new URL(page.url()).pathname, '/calendar', 'direct route must survive unauthenticated bootstrap');
@@ -136,6 +142,7 @@ try {
   await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Календарь');
   assert.equal(new URL(page.url()).pathname, '/calendar', 'login must return to requested route');
 
+  browserStage = 'desktop-routes';
   for (const [route, title] of routes) {
     await page.goto(`${base}${route}`, { waitUntil: 'domcontentloaded' });
     await page.locator('#app').waitFor({ state: 'visible' });
@@ -146,6 +153,7 @@ try {
     assert.ok(overflow <= 1, `${route} desktop body overflow: ${overflow}px`);
   }
 
+  browserStage = 'content-presentation';
   await page.goto(`${base}/content`, { waitUntil: 'domcontentloaded' });
   await page.locator('#app').waitFor({ state: 'visible' });
   await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Контент');
@@ -211,6 +219,7 @@ try {
   await postForm.locator('#close-modal').click();
   await page.locator('#post-form').waitFor({ state: 'detached' });
 
+  browserStage = 'existing-editor';
   await draftRow.locator('.open-post').click();
   const contentInspector = page.locator('.editorial-inspector-overlay');
   await contentInspector.waitFor({ state: 'visible' });
@@ -296,6 +305,7 @@ try {
   calendarFixtureCard = page.locator(`.calendar-card[data-calendar-post="${calendarFixture.id}"]`);
   assert.ok((await calendarFixtureCard.innerText()).includes('Google Sheets'), 'Calendar presentation must survive mode rerender');
 
+  browserStage = 'library-presentation';
   await page.goto(`${base}/library`, { waitUntil: 'domcontentloaded' });
   await page.locator('#app').waitFor({ state: 'visible' });
   await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Библиотека');
@@ -375,6 +385,7 @@ try {
   assert.equal(await storyCard.count(), 1, 'Library story fixture must render once');
   assert.ok((await storyCard.innerText()).includes('Серия историй'), 'Library second format mapping missing');
 
+  browserStage = 'overview-presentation';
   await page.goto(`${base}/overview`, { waitUntil: 'domcontentloaded' });
   await page.locator('#app').waitFor({ state: 'visible' });
   await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Обзор');
@@ -423,6 +434,7 @@ try {
   await page.waitForURL('**/content');
   assert.equal((await page.locator('#page-title').textContent())?.trim(), 'Контент');
 
+  browserStage = 'mobile-routes';
   await page.setViewportSize({ width: 390, height: 844 });
   for (const route of ['/overview','/calendar','/content','/library','/socials','/sources']) {
     await page.goto(`${base}${route}`, { waitUntil: 'domcontentloaded' });
@@ -436,6 +448,7 @@ try {
     assert.ok(metrics.bodyOverflow <= 1, `${route} mobile body overflow: ${metrics.bodyOverflow}px`);
   }
 
+  browserStage = 'finalize';
   assert.deepEqual(pageErrors, [], `browser page errors:\n${pageErrors.join('\n')}`);
   await context.close();
   console.log(JSON.stringify({
@@ -457,6 +470,7 @@ try {
     pageErrors: 0
   }, null, 2));
 } finally {
+  if (browserWatchdog) clearTimeout(browserWatchdog);
   if (browser) await browser.close().catch(() => undefined);
   await app.close().catch(() => undefined);
   db.close();
