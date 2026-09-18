@@ -84,6 +84,23 @@ export type ContentEditOutcome = {
   allowInactive?: boolean;
 };
 
+export type WorkingContentSnapshot = {
+  postId: string;
+  contentVersion: number;
+  title: string;
+  body: string;
+  editorialStage: EditorialStage;
+  scheduleMode: 'MANUAL' | 'AT' | 'QUEUE';
+  scheduledAt: string | null;
+  scheduledAtUtc: string | null;
+  scheduleTimezone: string | null;
+  publicationKind: 'FEED' | 'SHORT' | 'STORY';
+  contentFormat: string;
+  targets: RevisionTargetSnapshot[];
+  media: MediaRow[];
+  contentMedia: RevisionContentMediaSnapshot[];
+};
+
 function getPost(postId: string): VersionedPostRow {
   const row = db.prepare(`SELECT id,status,editorial_stage,content_version,ready_revision_id,
       title,body,schedule_mode,scheduled_at,scheduled_at_utc,schedule_timezone,publication_kind,content_format
@@ -163,6 +180,26 @@ function contentMediaSnapshot(postId: string): RevisionContentMediaSnapshot[] {
   }));
 }
 
+export function currentContentSnapshot(postId: string): WorkingContentSnapshot {
+  const post = getPost(postId);
+  return {
+    postId,
+    contentVersion: post.content_version,
+    title: post.title,
+    body: post.body,
+    editorialStage: post.editorial_stage,
+    scheduleMode: post.schedule_mode,
+    scheduledAt: post.scheduled_at,
+    scheduledAtUtc: post.scheduled_at_utc,
+    scheduleTimezone: post.schedule_timezone,
+    publicationKind: post.publication_kind,
+    contentFormat: post.content_format,
+    targets: targetSnapshot(postId),
+    media: db.prepare('SELECT * FROM media WHERE post_id=? ORDER BY sort_order,created_at').all(postId) as MediaRow[],
+    contentMedia: contentMediaSnapshot(postId)
+  };
+}
+
 function snapshotCurrentContentRevision(
   postId: string,
   expectedContentVersion: number,
@@ -179,10 +216,10 @@ function snapshotCurrentContentRevision(
     if (!source || source.post_id !== postId) throw new Error('restored_from_revision_id должен принадлежать тому же посту');
   }
 
-  const targetsJson = JSON.stringify(targetSnapshot(postId));
-  const media = db.prepare('SELECT * FROM media WHERE post_id=? ORDER BY sort_order,created_at').all(postId) as MediaRow[];
-  const mediaJson = JSON.stringify(media);
-  const contentMediaJson = JSON.stringify(contentMediaSnapshot(postId));
+  const snapshot = currentContentSnapshot(postId);
+  const targetsJson = JSON.stringify(snapshot.targets);
+  const mediaJson = JSON.stringify(snapshot.media);
+  const contentMediaJson = JSON.stringify(snapshot.contentMedia);
 
   const existing = db.prepare('SELECT * FROM content_revisions WHERE post_id=? AND content_version=?')
     .get(postId, expectedContentVersion) as ContentRevisionRow | undefined;
