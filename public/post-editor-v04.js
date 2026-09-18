@@ -335,10 +335,6 @@ document.addEventListener('click', (event) => {
   if (target?.closest('#new-post')) activePostId = null;
 }, true);
 
-document.addEventListener('publikator:open-post-editor', (event) => {
-  if (event instanceof CustomEvent && event.detail?.postId) activePostId = String(event.detail.postId);
-});
-
 const observer = new MutationObserver(() => tryEnhanceVisibleEditor());
 observer.observe(document.body, { childList: true, subtree: true });
 tryEnhanceVisibleEditor();
