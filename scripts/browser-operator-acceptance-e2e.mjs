@@ -220,25 +220,10 @@ try {
   await page.evaluate((postId) => {
     const button = [...document.querySelectorAll('.open-post')].find((node) => node.dataset.id === postId);
     if (!button || typeof button.onclick !== 'function') throw new Error('existing Content row editor handler missing');
-    button.onclick();
+    void button.onclick();
   }, contentDraft.id);
-  await page.waitForTimeout(500);
-  const directEditorDiagnostic = await page.evaluate(() => {
-    const form = document.querySelector('#post-form');
-    const modal = form?.closest('.modal');
-    return {
-      formCount: document.querySelectorAll('#post-form').length,
-      modalCount: document.querySelectorAll('.modal').length,
-      formConnected: Boolean(form?.isConnected),
-      formDisplay: form ? getComputedStyle(form).display : null,
-      formVisibility: form ? getComputedStyle(form).visibility : null,
-      formRect: form ? { width: form.getBoundingClientRect().width, height: form.getBoundingClientRect().height } : null,
-      modalConnected: Boolean(modal?.isConnected),
-      modalDisplay: modal ? getComputedStyle(modal).display : null,
-      bodyTextHasTitle: document.body.innerText.includes('Browser Content Draft Manual')
-    };
-  });
-  throw new Error(`FE007_DIRECT_EDITOR_DIAGNOSTIC ${JSON.stringify(directEditorDiagnostic)}`);
+  postForm = page.locator('#post-form');
+  await postForm.waitFor({ state: 'visible' });
   const existingPostModal = postForm.locator('xpath=ancestor::div[contains(@class,"modal-card")]');
   await existingPostModal.locator('.platform-workspace').waitFor({ state: 'visible' });
   const existingSections = await existingPostModal.locator('.ui-editor-section-title strong').allTextContents();
