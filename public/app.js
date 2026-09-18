@@ -34,10 +34,6 @@ document.querySelector('#login-form').addEventListener('submit', async e => {
   catch(err){ document.querySelector('#login-error').textContent=err.message; }
 });
 document.querySelector('#logout').addEventListener('click', async()=>{ await api('/api/auth/logout',{method:'POST'}).catch(()=>{}); showLogin(); });
-document.addEventListener('publikator:open-post-editor', (event) => {
-  const postId = event instanceof CustomEvent ? String(event.detail?.postId || '') : '';
-  if (postId) postEditor(postId);
-});
 document.querySelectorAll('.nav[data-view]').forEach(btn=>btn.addEventListener('click',async()=>{ document.querySelectorAll('.nav').forEach(x=>x.classList.remove('active')); btn.classList.add('active'); await render(btn.dataset.view); }));
 
 async function render(name){
