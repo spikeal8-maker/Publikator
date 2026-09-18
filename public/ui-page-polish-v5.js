@@ -1,12 +1,6 @@
-const UI_STATUS_LABEL = {
-  DRAFT: 'Черновик', READY: 'Готово', PUBLISHING: 'Публикуется', PUBLISHED: 'Опубликовано',
-  PARTIAL: 'Частично', FAILED: 'Ошибка', RETRY: 'Повтор', RECOVERY_NEEDED: 'Восстановление',
-  IDEA: 'Идея', IN_REVIEW: 'На проверке', APPROVED: 'Одобрено',
-  NEW: 'Новая', UPDATE: 'Изменена', UNCHANGED: 'Без изменений', CONFLICT: 'Конфликт', ERROR: 'Ошибка'
-};
+import { STATUS_LABELS, statusLabel } from './presentation-labels.js';
+
 const UI_SCHEDULE_LABEL = { MANUAL: 'Вручную', QUEUE: 'Очередь', AT: 'По времени' };
-const UI_SOURCE_LABEL = { manual: 'Вручную', ai: 'ИИ', api: 'API', bundle: 'Пакет', sheets: 'Таблица' };
-const UI_FORMAT_LABEL = { 'FEED / IMAGE': 'Пост · Изображение', 'FEED / VIDEO': 'Пост · Видео', 'SHORT / VERTICAL_VIDEO': 'Короткое видео', 'STORY / IMAGE': 'История · Изображение', 'STORY / VIDEO': 'История · Видео', 'STORY / STORY_SEQUENCE': 'Серия историй' };
 let uiPolishTimer = null;
 
 function uiSetText(node, value) {
@@ -16,15 +10,16 @@ function uiSetText(node, value) {
 function uiPolishStatuses(root = document) {
   const preserveContentStatus = window.location.pathname === '/content';
   root.querySelectorAll('.badge').forEach((badge) => {
+    if (badge.dataset.presentationOwner === 'library') return;
     const raw = badge.dataset.rawStatus || badge.textContent.trim();
-    if (!badge.dataset.rawStatus && UI_STATUS_LABEL[raw]) badge.dataset.rawStatus = raw;
+    if (!badge.dataset.rawStatus && STATUS_LABELS[raw]) badge.dataset.rawStatus = raw;
     const key = badge.dataset.rawStatus;
-    if (key && UI_STATUS_LABEL[key] && !preserveContentStatus) uiSetText(badge, UI_STATUS_LABEL[key]);
+    if (key && STATUS_LABELS[key] && !preserveContentStatus) uiSetText(badge, statusLabel(key));
   });
   root.querySelectorAll('.operator-classification').forEach((chip) => {
     const raw = chip.dataset.rawClassification || chip.textContent.trim();
-    if (!chip.dataset.rawClassification && UI_STATUS_LABEL[raw]) chip.dataset.rawClassification = raw;
-    if (chip.dataset.rawClassification) uiSetText(chip, UI_STATUS_LABEL[chip.dataset.rawClassification] || chip.dataset.rawClassification);
+    if (!chip.dataset.rawClassification && STATUS_LABELS[raw]) chip.dataset.rawClassification = raw;
+    if (chip.dataset.rawClassification) uiSetText(chip, statusLabel(chip.dataset.rawClassification));
   });
 }
 
@@ -38,21 +33,9 @@ function uiPolishCalendar(root = document) {
   root.querySelectorAll('.calendar-source').forEach((node) => {
     let text = node.textContent;
     text = text.replace(/\bmanual\b/gi, 'вручную').replace(/\bsource:\s*/gi, 'Источник: ');
-    for (const [raw, label] of Object.entries(UI_STATUS_LABEL)) text = text.replace(new RegExp(`\\b${raw}\\b`, 'g'), label);
+    for (const [raw, label] of Object.entries(STATUS_LABELS)) text = text.replace(new RegExp(`\\b${raw}\\b`, 'g'), label);
     text = text.replace(/schedule\s+/gi, 'план: ').replace(/display\s+/gi, 'просмотр: ');
     uiSetText(node, text);
-  });
-}
-
-function uiPolishLibrary(root = document) {
-  root.querySelectorAll('.library-meta').forEach((node) => {
-    let text = node.textContent;
-    for (const [raw, label] of Object.entries(UI_FORMAT_LABEL)) text = text.replace(raw, label);
-    uiSetText(node, text);
-    const match = node.textContent.match(/source:\s*([^·]+)/i);
-    if (!match) return;
-    const raw = match[1].trim().toLowerCase();
-    uiSetText(node, node.textContent.replace(/source:\s*[^·]+/i, `Источник: ${UI_SOURCE_LABEL[raw] || match[1].trim()}`));
   });
 }
 
@@ -70,7 +53,7 @@ function uiPolishContent(root = document) {
     const badge = row.querySelector('.badge');
     if (!badge) return;
     const rawStatus = badge.dataset.rawStatus || badge.textContent.trim();
-    if (!UI_STATUS_LABEL[rawStatus]) return;
+    if (!STATUS_LABELS[rawStatus]) return;
     if (!badge.dataset.rawStatus) badge.dataset.rawStatus = rawStatus;
     badge.classList.add('ui-internal-status');
     let visible = badge.nextElementSibling;
@@ -79,7 +62,7 @@ function uiPolishContent(root = document) {
       visible.className = `badge ui-human-status ${rawStatus}`;
       badge.after(visible);
     }
-    uiSetText(visible, UI_STATUS_LABEL[rawStatus]);
+    uiSetText(visible, statusLabel(rawStatus));
   });
 }
 
@@ -138,23 +121,12 @@ function uiPolishPostEditor(root = document) {
   });
 }
 
-function uiPolishLibraryRoles(root = document) {
-  if (window.location.pathname !== '/library') return;
-  root.querySelectorAll('.library-badges, .library-table tbody td:nth-child(7)').forEach((group) => {
-    const badges = group.querySelectorAll('.badge');
-    if (badges[0]?.dataset.rawStatus) uiSetText(badges[0], `Контент · ${UI_STATUS_LABEL[badges[0].dataset.rawStatus] || badges[0].dataset.rawStatus}`);
-    if (badges[1]?.dataset.rawStatus) uiSetText(badges[1], `Публикация · ${UI_STATUS_LABEL[badges[1].dataset.rawStatus] || badges[1].dataset.rawStatus}`);
-  });
-}
-
 function uiPolishAll() {
   const view = document.querySelector('#view') || document;
   uiPolishStatuses(view);
   uiPolishCalendar(view);
-  uiPolishLibrary(view);
   uiPolishContent(view);
   uiPolishPostEditor(document);
-  uiPolishLibraryRoles(view);
 }
 
 function uiQueuePolish() {
