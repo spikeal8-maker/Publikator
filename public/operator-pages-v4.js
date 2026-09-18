@@ -278,7 +278,7 @@ async function renderSourcesPage() {
 
 function renderTemplatesPage() {
   operatorTitle.textContent = 'Шаблоны';
-  operatorView.innerHTML = `<div class="operator-page"><div class="operator-page-head"><div><h2>Шаблоны</h2><p>Раздел предусмотрен продуктовой моделью, но backend Template/Snippet в текущей реализации ещё не создан. Publikator не будет имитировать шаблоны в браузере.</p></div></div><div class="operator-empty">Сейчас создавайте и редактируйте материалы в разделе «Контент». После появления серверной сущности Template этот раздел станет рабочим без переноса данных.</div><div class="operator-actions"><button id="operator-template-content" class="primary" type="button">Открыть контент</button></div></div>`;
+  operatorView.innerHTML = `<div class="operator-page"><div class="operator-page-head"><div><h2>Шаблоны</h2><p>Здесь будут храниться повторно используемые заготовки текста, структуры и настроек публикации.</p></div></div><div class="operator-empty">Шаблоны пока не включены. До их появления создавайте и дублируйте материалы через раздел «Контент».</div><div class="operator-actions"><button id="operator-template-content" class="primary" type="button">Открыть контент</button></div></div>`;
   document.querySelector('#operator-template-content').onclick = () => operatorGo('/content');
 }
 

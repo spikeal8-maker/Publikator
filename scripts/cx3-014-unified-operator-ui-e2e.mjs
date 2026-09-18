@@ -49,7 +49,7 @@ for (const route of routes) assert.ok(ui.includes(`'${route}'`), `route metadata
 for (const behavior of ['uiContentFilters', 'uiProjectsPage', 'uiSchedulePage', 'uiJournalFilters', 'uiWrapTables', 'uiDecorateSocialCards', 'ui-nav-open']) {
   assert.ok(ui.includes(behavior), `shared enhancement missing ${behavior}`);
 }
-for (const behavior of ['uiSetText', 'uiSetLabelText', 'uiPolishStatuses', 'uiPolishCalendar', 'uiPolishLibrary', 'uiPolishTemplates', 'uiPolishPostEditor', 'uiPolishOverview', 'uiPolishSocials', 'uiPolishScheduleModal', 'uiPolishLibraryRoles']) {
+for (const behavior of ['uiSetText', 'uiSetLabelText', 'uiPolishStatuses', 'uiPolishCalendar', 'uiPolishLibrary', 'uiPolishPostEditor', 'uiPolishOverview', 'uiPolishSocials', 'uiPolishScheduleModal', 'uiPolishLibraryRoles']) {
   assert.ok(polish.includes(behavior), `page polish missing ${behavior}`);
 }
 assert.ok(polish.includes('node.textContent !== value'), 'DOM copy updates must be idempotent under MutationObserver');
@@ -61,6 +61,13 @@ assert.ok(polish.includes('Дата и время публикации'), 'techn
 assert.ok(polish.includes("modeSelect.value !== 'AT'"), 'scheduled datetime must hide outside timed mode');
 assert.ok(ui.includes('Автоматические публикации'), 'schedule page must use operator language');
 assert.ok(ui.includes('+ Добавить время'), 'schedule action must use operator language');
+
+const templatesDescription = 'Здесь будут храниться повторно используемые заготовки текста, структуры и настроек публикации.';
+const templatesEmptyState = 'Шаблоны пока не включены. До их появления создавайте и дублируйте материалы через раздел «Контент».';
+assert.ok(operator.includes(templatesDescription), 'final templates description must be owned by operator-pages-v4.js');
+assert.ok(operator.includes(templatesEmptyState), 'final templates empty state must be owned by operator-pages-v4.js');
+assert.ok(!polish.includes('uiPolishTemplates'), 'templates copy must no longer be owned by ui-page-polish-v5.js');
+assert.ok(operator.includes("['/templates', renderTemplatesPage]"), '/templates must remain registered to renderTemplatesPage');
 
 assert.ok(operator.includes("'/api/accounts/test'"), 'social connection verification must remain real API-backed');
 assert.ok(operator.includes('/api/content-plan/v3/import/preview?sourceId='), 'source preview must remain schema-v3 backed');
