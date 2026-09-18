@@ -215,8 +215,19 @@ try {
   const contentInspector = page.locator('.editorial-inspector-overlay');
   await contentInspector.waitFor({ state: 'visible' });
   await contentInspector.locator('.inspector-edit').click();
-  postForm = page.locator('#post-form');
-  await postForm.waitFor({ state: 'visible' });
+  await page.waitForTimeout(500);
+  const editorDiagnostic = await page.evaluate(() => ({
+    formCount: document.querySelectorAll('#post-form').length,
+    modalCount: document.querySelectorAll('.modal').length,
+    modalCards: [...document.querySelectorAll('.modal-card')].map((node) => ({
+      classes: node.className,
+      text: node.textContent?.slice(0, 180),
+      form: Boolean(node.querySelector('#post-form'))
+    })),
+    openPostIds: [...document.querySelectorAll('.open-post')].map((node) => node.dataset.id),
+    bodyHasFixtureTitle: document.body.innerText.includes('Browser Content Draft Manual')
+  }));
+  throw new Error(`FE007_EDITOR_DIAGNOSTIC ${JSON.stringify(editorDiagnostic)}`);
   const existingPostModal = postForm.locator('xpath=ancestor::div[contains(@class,"modal-card")]');
   await existingPostModal.locator('.platform-workspace').waitFor({ state: 'visible' });
   const existingSections = await existingPostModal.locator('.ui-editor-section-title strong').allTextContents();
