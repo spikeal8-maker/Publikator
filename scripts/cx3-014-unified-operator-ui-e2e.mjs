@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const [index, app, css, ui, polishCss, polish, operator, googleSheets, calendar, library, dashboard] = await Promise.all([
+const [index, app, css, ui, polishCss, polish, operator, googleSheets, calendar, library, dashboard, presentation] = await Promise.all([
   fs.readFile(new URL('../public/index.html', import.meta.url), 'utf8'),
   fs.readFile(new URL('../public/app.js', import.meta.url), 'utf8'),
   fs.readFile(new URL('../public/ui-v5.css', import.meta.url), 'utf8'),
@@ -14,7 +14,8 @@ const [index, app, css, ui, polishCss, polish, operator, googleSheets, calendar,
   fs.readFile(new URL('../public/google-sheets-v1.js', import.meta.url), 'utf8'),
   fs.readFile(new URL('../public/calendar-v3.js', import.meta.url), 'utf8'),
   fs.readFile(new URL('../public/content-library-v3.js', import.meta.url), 'utf8'),
-  fs.readFile(new URL('../public/dashboard-v3.js', import.meta.url), 'utf8')
+  fs.readFile(new URL('../public/dashboard-v3.js', import.meta.url), 'utf8'),
+  fs.readFile(new URL('../public/presentation-labels.js', import.meta.url), 'utf8')
 ]);
 
 const routes = [
@@ -49,7 +50,7 @@ for (const route of routes) assert.ok(ui.includes(`'${route}'`), `route metadata
 for (const behavior of ['uiContentFilters', 'uiProjectsPage', 'uiSchedulePage', 'uiJournalFilters', 'uiWrapTables', 'uiDecorateSocialCards', 'ui-nav-open']) {
   assert.ok(ui.includes(behavior), `shared enhancement missing ${behavior}`);
 }
-for (const behavior of ['uiSetText', 'uiSetLabelText', 'uiPolishStatuses', 'uiPolishCalendar', 'uiPolishLibrary', 'uiPolishPostEditor', 'uiPolishLibraryRoles']) {
+for (const behavior of ['uiSetText', 'uiSetLabelText', 'uiPolishStatuses', 'uiPolishCalendar', 'uiPolishPostEditor']) {
   assert.ok(polish.includes(behavior), `page polish missing ${behavior}`);
 }
 assert.ok(polish.includes('node.textContent !== value'), 'DOM copy updates must be idempotent under MutationObserver');
@@ -91,28 +92,10 @@ assert.ok(slotEditorSource.includes("api('/api/schedules',{method:'POST'"), 'sch
 
 const overviewProblemsNote = 'ошибки и публикации, требующие проверки';
 assert.ok(dashboard.includes(`dashboardMetric('Проблемы', data.metrics.problems, '${overviewProblemsNote}'`), 'final Problems metric note must be owned by dashboard-v3.js');
-const dashboardFormatLabels = {
-  'FEED / IMAGE': 'Пост · Изображение',
-  'FEED / VIDEO': 'Пост · Видео',
-  'SHORT / VERTICAL_VIDEO': 'Короткое видео',
-  'STORY / IMAGE': 'История · Изображение',
-  'STORY / VIDEO': 'История · Видео',
-  'STORY / STORY_SEQUENCE': 'Серия историй'
-};
-for (const [key, label] of Object.entries(dashboardFormatLabels)) {
-  assert.ok(dashboard.includes(`'${key}': '${label}'`), `dashboard-owned format mapping missing ${key} -> ${label}`);
-}
-const dashboardFormatStart = dashboard.indexOf('function dashboardFormat(');
-const dashboardFormatEnd = dashboard.indexOf('function dashboardThumbnail(', dashboardFormatStart);
-assert.ok(dashboardFormatStart >= 0 && dashboardFormatEnd > dashboardFormatStart, 'dashboardFormat source boundary missing');
-const dashboardFormatSource = dashboard.slice(dashboardFormatStart, dashboardFormatEnd);
-assert.ok(dashboardFormatSource.includes('return DASHBOARD_FORMAT_LABEL[key] || key;'), 'dashboardFormat must preserve raw KIND / FORMAT as fallback');
-const dashboardItemStart = dashboard.indexOf('function dashboardItem(');
-const dashboardItemEnd = dashboard.indexOf('function dashboardList(', dashboardItemStart);
-assert.ok(dashboardItemStart >= 0 && dashboardItemEnd > dashboardItemStart, 'dashboardItem source boundary missing');
-const dashboardItemSource = dashboard.slice(dashboardItemStart, dashboardItemEnd);
-assert.ok(dashboardItemSource.includes('dashboardFormat(item.publication_kind, item.content_format)'), 'dashboardItem must use dashboard-owned formatter');
-assert.ok(!dashboardItemSource.includes("item.publication_kind || 'FEED'"), 'dashboardItem must not render raw publication kind directly');
+assert.ok(dashboard.includes("import { publicationFormatLabel } from './presentation-labels.js';"), 'Dashboard must reuse shared publication format labels');
+assert.ok(dashboard.includes('publicationFormatLabel(item.publication_kind, item.content_format)'), 'Dashboard item must use shared publication format formatter');
+assert.ok(!dashboard.includes('DASHBOARD_FORMAT_LABEL'), 'Dashboard must not duplicate shared publication format mapping');
+assert.ok(!dashboard.includes('function dashboardFormat('), 'Dashboard must not keep a parallel format helper');
 assert.ok(!polish.includes('uiPolishOverview'), 'overview copy and format must no longer be owned by ui-page-polish-v5.js');
 assert.ok(index.includes('data-route="/overview"') && ui.includes("'/overview'"), '/overview must remain a registered route');
 
@@ -145,16 +128,29 @@ const libraryToolbarSource = library.slice(libraryToolbarStart, libraryToolbarEn
 assert.ok(libraryToolbarSource.includes('data-layout="grid" type="button">Карточки</button>'), 'libraryToolbar must own final grid label');
 assert.ok(libraryToolbarSource.includes('data-layout="list" type="button">Таблица</button>'), 'libraryToolbar must own final list label');
 
-const polishLibraryStart = polish.indexOf('function uiPolishLibrary(');
-const polishLibraryEnd = polish.indexOf('function uiPolishContent(', polishLibraryStart);
-assert.ok(polishLibraryStart >= 0 && polishLibraryEnd > polishLibraryStart, 'uiPolishLibrary source boundary missing');
-const polishLibrarySource = polish.slice(polishLibraryStart, polishLibraryEnd);
-assert.ok(!polishLibrarySource.includes('data-library-view'), 'uiPolishLibrary must not own Library view control labels');
-assert.ok(!polishLibrarySource.includes('data-layout'), 'uiPolishLibrary must not own Library layout control labels');
-assert.ok(!polishLibrarySource.includes('#library-format'), 'uiPolishLibrary must not own Library format option labels');
-assert.ok(polishLibrarySource.includes('.library-meta'), 'uiPolishLibrary must retain Library meta processing for the next checkpoint');
-assert.ok(polishLibrarySource.includes('UI_FORMAT_LABEL'), 'uiPolishLibrary must retain UI_FORMAT_LABEL meta formatting');
-assert.ok(polishLibrarySource.includes('UI_SOURCE_LABEL'), 'uiPolishLibrary must retain UI_SOURCE_LABEL source formatting');
+assert.ok(presentation.includes('export const STATUS_LABELS'), 'shared status mapping must exist');
+assert.ok(presentation.includes('export const PUBLICATION_FORMAT_LABELS'), 'shared publication format mapping must exist');
+assert.ok(presentation.includes('export const SOURCE_LABELS'), 'shared source mapping must exist');
+for (const forbidden of ['document.', 'window.', 'MutationObserver', 'setInterval(', 'querySelector(', 'addEventListener(']) {
+  assert.ok(!presentation.includes(forbidden), `presentation-labels.js must stay pure: ${forbidden}`);
+}
+assert.ok(library.includes("import { publicationFormatLabel, sourceLabel, statusLabel } from './presentation-labels.js';"), 'Library must import shared presentation helpers');
+assert.ok(library.includes('publicationFormatLabel(item.publication_kind, item.content_format)'), 'Library format must use shared formatter');
+assert.ok(library.includes("sourceLabel(item.source_type||'manual')"), 'Library source must use shared formatter');
+assert.ok(library.includes('data-presentation-owner="library"'), 'Library badge ownership marker missing');
+assert.ok(library.includes('data-raw-status="${libEsc(raw)}"'), 'Library badge raw status marker missing');
+assert.ok(library.includes("libBadge(item.editorial_stage,'Контент')"), 'Library must render content role status');
+assert.ok(library.includes("libBadge(item.status,'Публикация')"), 'Library must render publication role status');
+assert.ok(!polish.includes('function uiPolishLibrary('), 'uiPolishLibrary must be removed');
+assert.ok(!polish.includes('function uiPolishLibraryRoles('), 'uiPolishLibraryRoles must be removed');
+assert.ok(!polish.includes('UI_SOURCE_LABEL'), 'Library source mapping must be removed from polish');
+assert.ok(!polish.includes('UI_FORMAT_LABEL'), 'Library format mapping must be removed from polish');
+assert.ok(!polish.includes('.library-meta'), 'polish must not traverse Library meta');
+assert.ok(!polish.includes('.library-badges'), 'polish must not traverse Library badges');
+assert.ok(!polish.includes('.library-table'), 'polish must not traverse Library table');
+assert.ok(polish.includes("import { STATUS_LABELS, statusLabel } from './presentation-labels.js';"), 'polish must import shared status contract');
+assert.ok(!polish.includes('const UI_STATUS_LABEL'), 'polish must not duplicate status mapping');
+assert.ok(polish.includes("badge.dataset.presentationOwner === 'library'"), 'global status polish must guard Library-owned badges');
 
 assert.ok(operator.includes("'/api/accounts/test'"), 'social connection verification must remain real API-backed');
 assert.ok(operator.includes('/api/content-plan/v3/import/preview?sourceId='), 'source preview must remain schema-v3 backed');
