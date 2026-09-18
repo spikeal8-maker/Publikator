@@ -7,6 +7,7 @@ const EDITORIAL_VIEWS = {
 };
 
 let editorialView = 'active';
+let bypassInspectorOnce = false;
 let enhancementBusy = false;
 
 function editorialEscape(value = '') {
@@ -157,7 +158,10 @@ async function refreshEditorialCollection() {
 }
 
 function legacyEditor(postId) {
-  document.dispatchEvent(new CustomEvent('publikator:open-post-editor', { detail: { postId } }));
+  const button = [...document.querySelectorAll('.open-post')].find((item) => item.dataset.id === postId);
+  if (!button) throw new Error('Сначала вернитесь в «Активные», чтобы редактировать пост');
+  bypassInspectorOnce = true;
+  button.click();
 }
 
 async function openContentInspector(postId) {
@@ -240,6 +244,10 @@ document.addEventListener('click', (event) => {
   const target = event.target instanceof Element ? event.target : null;
   const button = target?.closest('.open-post');
   if (!button?.dataset.id) return;
+  if (bypassInspectorOnce) {
+    bypassInspectorOnce = false;
+    return;
+  }
   event.preventDefault();
   event.stopImmediatePropagation();
   openContentInspector(button.dataset.id).catch(showEditorialPageError);
