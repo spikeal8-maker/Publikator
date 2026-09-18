@@ -1,6 +1,6 @@
 # Publikator 1.0.0 — release notes draft
 
-Текущий кандидат: **`1.0.0-rc.1`**.
+Текущий кандидат: **`1.0.0-rc.4`** (`v1.0.0-rc.4`, commit `095e289e503a79a21fa877f6afb2d300b87b4a21`).
 
 Этот документ станет release notes стабильного `v1.0.0` только после четырёх реальных platform `LIVE PASS`, post-acceptance backup/restore и зелёного `Publikator CI / Acceptance` на том же commit.
 
@@ -181,4 +181,4 @@ Publikator CI / Acceptance PASS
 
 ## Release procedure
 
-Перед финальным `v1.0.0` выполнить [`LIVE_INTEGRATION_CHECKLIST.md`](LIVE_INTEGRATION_CHECKLIST.md). Пока хотя бы один пункт release gate не выполнен, `1.0.0-rc.1` остаётся release candidate и stable tag не создаётся.
+Перед финальным `v1.0.0` выполнить [`LIVE_INTEGRATION_CHECKLIST.md`](LIVE_INTEGRATION_CHECKLIST.md). Пока хотя бы один пункт release gate не выполнен, `1.0.0-rc.4` остаётся release candidate и stable tag не создаётся.
