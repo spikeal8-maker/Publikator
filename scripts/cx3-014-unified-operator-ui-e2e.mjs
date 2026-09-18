@@ -49,7 +49,7 @@ for (const route of routes) assert.ok(ui.includes(`'${route}'`), `route metadata
 for (const behavior of ['uiContentFilters', 'uiProjectsPage', 'uiSchedulePage', 'uiJournalFilters', 'uiWrapTables', 'uiDecorateSocialCards', 'ui-nav-open']) {
   assert.ok(ui.includes(behavior), `shared enhancement missing ${behavior}`);
 }
-for (const behavior of ['uiSetText', 'uiSetLabelText', 'uiPolishStatuses', 'uiPolishCalendar', 'uiPolishLibrary', 'uiPolishPostEditor', 'uiPolishOverview', 'uiPolishSocials', 'uiPolishScheduleModal', 'uiPolishLibraryRoles']) {
+for (const behavior of ['uiSetText', 'uiSetLabelText', 'uiPolishStatuses', 'uiPolishCalendar', 'uiPolishLibrary', 'uiPolishPostEditor', 'uiPolishOverview', 'uiPolishScheduleModal', 'uiPolishLibraryRoles']) {
   assert.ok(polish.includes(behavior), `page polish missing ${behavior}`);
 }
 assert.ok(polish.includes('node.textContent !== value'), 'DOM copy updates must be idempotent under MutationObserver');
@@ -68,6 +68,15 @@ assert.ok(operator.includes(templatesDescription), 'final templates description 
 assert.ok(operator.includes(templatesEmptyState), 'final templates empty state must be owned by operator-pages-v4.js');
 assert.ok(!polish.includes('uiPolishTemplates'), 'templates copy must no longer be owned by ui-page-polish-v5.js');
 assert.ok(operator.includes("['/templates', renderTemplatesPage]"), '/templates must remain registered to renderTemplatesPage');
+
+const socialsDescription = 'Подключите площадку, проверьте токен и укажите конкретный канал, группу или чат. Сохранить можно только проверенное подключение.';
+const instagramNote = "instagram: { label: 'Instagram', note: 'Публикация в профессиональный аккаунт Instagram.' }";
+assert.ok(operator.includes(socialsDescription), 'final socials description must be owned by operator-pages-v4.js');
+assert.ok(operator.includes(instagramNote), 'final Instagram note must be owned by OPERATOR_PLATFORM');
+assert.ok(operator.includes('class="operator-platform-card" data-platform="${key}"'), 'socials renderer must assign data-platform directly to each platform card');
+assert.ok(!polish.includes('uiPolishSocials'), 'socials copy must no longer be owned by ui-page-polish-v5.js');
+assert.ok(!polish.includes('uiPolishPlatformCards'), 'platform card identity must no longer be owned by ui-page-polish-v5.js');
+assert.ok(operator.includes("['/socials', renderSocialsPage]"), '/socials must remain registered to renderSocialsPage');
 
 assert.ok(operator.includes("'/api/accounts/test'"), 'social connection verification must remain real API-backed');
 assert.ok(operator.includes('/api/content-plan/v3/import/preview?sourceId='), 'source preview must remain schema-v3 backed');
