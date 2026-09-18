@@ -5,7 +5,8 @@ import { db, event, nowIso } from './db.js';
 import {
   ContentConflictError,
   ContentImmutableError,
-  ContentNotFoundError
+  ContentNotFoundError,
+  commitContentEdit
 } from './content-versioning.js';
 
 export type EditorialStage = 'IDEA' | 'DRAFT' | 'IN_REVIEW' | 'APPROVED' | 'ARCHIVED' | 'TRASHED';
@@ -49,20 +50,20 @@ function futureTransition(
   if (!FUTURE_STATUSES.has(post.status)) {
     throw new ContentImmutableError('Операция доступна только для ещё не опубликованного поста');
   }
-  const updated = db.prepare(`UPDATE posts
-    SET editorial_stage=?,status='DRAFT',ready_revision_id=NULL,
-        content_version=content_version+1,updated_at=?
-    WHERE id=? AND content_version=? AND status IN ('DRAFT','READY','FAILED')`)
-    .run(nextStage, nowIso(), post.id, expectedContentVersion);
-  if (updated.changes !== 1) throw new ContentConflictError('Пост уже изменён другим запросом');
-  const nextVersion = expectedContentVersion + 1;
+  const committed = commitContentEdit(
+    post.id,
+    expectedContentVersion,
+    'manual',
+    () => undefined,
+    { editorialStage: nextStage, status: 'DRAFT', allowInactive: true }
+  );
   event({
     postId: post.id,
     type: eventType,
     message,
-    data: { previousStage: post.editorial_stage, previousStatus: post.status, contentVersion: nextVersion }
+    data: { previousStage: post.editorial_stage, previousStatus: post.status, contentVersion: committed.contentVersion }
   });
-  return { contentVersion: nextVersion, editorialStage: nextStage, status: 'DRAFT' };
+  return { contentVersion: committed.contentVersion, editorialStage: nextStage, status: 'DRAFT' };
 }
 
 export function archivePost(postId: string, expectedContentVersion: number): LifecycleResult {
