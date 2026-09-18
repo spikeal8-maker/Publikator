@@ -45,19 +45,6 @@ function uiPolishCalendar(root = document) {
 }
 
 function uiPolishLibrary(root = document) {
-  root.querySelectorAll('[data-library-view]').forEach((button) => {
-    const labels = { all: 'Все', inbox: 'Входящие', draft: 'Черновики', ready: 'Готово', scheduled: 'Запланировано', published: 'Опубликовано', problems: 'Проблемы' };
-    if (labels[button.dataset.libraryView]) uiSetText(button, labels[button.dataset.libraryView]);
-  });
-  root.querySelectorAll('[data-layout]').forEach((button) => {
-    if (button.dataset.layout === 'grid') uiSetText(button, 'Карточки');
-    if (button.dataset.layout === 'list') uiSetText(button, 'Таблица');
-  });
-  const format = root.querySelector('#library-format');
-  if (format) {
-    const labels = { all: 'Все форматы', image: 'Изображения', stories: 'Истории', shorts: 'Короткие видео', video: 'Видео' };
-    [...format.options].forEach((option) => { if (labels[option.value]) uiSetText(option, labels[option.value]); });
-  }
   root.querySelectorAll('.library-meta').forEach((node) => {
     let text = node.textContent;
     for (const [raw, label] of Object.entries(UI_FORMAT_LABEL)) text = text.replace(raw, label);
