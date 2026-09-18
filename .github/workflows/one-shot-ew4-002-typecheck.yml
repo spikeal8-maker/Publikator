@@ -36,3 +36,17 @@ jobs:
         run: node scripts/content-plan-v3-e2e.mjs
       - name: Google Sheets provenance
         run: node scripts/cp2-005-google-sheets-e2e.mjs
+
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22.23.2
+      - run: npm ci --no-audit --no-fund
+      - name: Build
+        run: npm run build
+      - name: Browser acceptance
+        run: npm run test:browser
