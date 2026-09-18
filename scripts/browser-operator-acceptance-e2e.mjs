@@ -120,19 +120,13 @@ const routes = new Map([
   ['/journal', 'Журнал'], ['/backups', 'Резервные копии'], ['/diagnostics', 'Диагностика']
 ]);
 let browser;
-let browserStage = 'bootstrap';
-let browserWatchdog;
 try {
   browser = await chromium.launch({ channel: 'chrome', headless: true });
-  browserWatchdog = setTimeout(() => {
-    throw new Error(`FE007_BROWSER_WATCHDOG stage=${browserStage}`);
-  }, 60000);
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const page = await context.newPage();
   const pageErrors = [];
   page.on('pageerror', (error) => pageErrors.push(String(error?.stack || error)));
 
-  browserStage = 'calendar-presentation';
   await page.goto(`${base}/calendar`, { waitUntil: 'domcontentloaded' });
   await page.locator('#login').waitFor({ state: 'visible' });
   assert.equal(new URL(page.url()).pathname, '/calendar', 'direct route must survive unauthenticated bootstrap');
@@ -142,7 +136,6 @@ try {
   await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Календарь');
   assert.equal(new URL(page.url()).pathname, '/calendar', 'login must return to requested route');
 
-  browserStage = 'desktop-routes';
   for (const [route, title] of routes) {
     await page.goto(`${base}${route}`, { waitUntil: 'domcontentloaded' });
     await page.locator('#app').waitFor({ state: 'visible' });
@@ -153,7 +146,6 @@ try {
     assert.ok(overflow <= 1, `${route} desktop body overflow: ${overflow}px`);
   }
 
-  browserStage = 'content-presentation';
   await page.goto(`${base}/content`, { waitUntil: 'domcontentloaded' });
   await page.locator('#app').waitFor({ state: 'visible' });
   await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Контент');
@@ -219,63 +211,23 @@ try {
   await postForm.locator('#close-modal').click();
   await page.locator('#post-form').waitFor({ state: 'detached' });
 
-  browserStage = 'existing-editor';
   await draftRow.locator('.open-post').click();
   const contentInspector = page.locator('.editorial-inspector-overlay');
-  await contentInspector.waitFor({ state: 'visible' });
+  await contentInspector.waitFor({ state: 'visible', timeout: 5000 });
   assert.equal(await contentInspector.locator('.inspector-edit').count(), 1, 'Content Inspector edit action missing');
-  await contentInspector.locator('.inspector-close').click();
-  await contentInspector.waitFor({ state: 'detached' });
-  await page.evaluate((postId) => {
-    window.__fe007EditorError = null;
-    window.__fe007EditorRemovals = [];
-    if (!window.__fe007RemoveInstrumented) {
-      window.__fe007RemoveInstrumented = true;
-      const originalRemove = Element.prototype.remove;
-      Element.prototype.remove = function (...args) {
-        if (this.matches?.('.modal') || this.querySelector?.('#post-form')) {
-          window.__fe007EditorRemovals.push({ kind: 'remove', className: this.className, stack: new Error().stack });
-        }
-        return originalRemove.apply(this, args);
-      };
-      const originalRemoveChild = Node.prototype.removeChild;
-      Node.prototype.removeChild = function (child) {
-        if (child?.matches?.('.modal') || child?.querySelector?.('#post-form')) {
-          window.__fe007EditorRemovals.push({ kind: 'removeChild', className: child.className, stack: new Error().stack });
-        }
-        return originalRemoveChild.call(this, child);
-      };
-    }
-    const button = [...document.querySelectorAll('.open-post')].find((node) => node.dataset.id === postId);
-    if (!button || typeof button.onclick !== 'function') throw new Error('existing Content row editor handler missing');
-    Promise.resolve(button.onclick()).catch((error) => { window.__fe007EditorError = String(error?.stack || error); });
-  }, contentDraft.id);
-  await page.waitForTimeout(1200);
-  const existingEditorState = await page.evaluate(() => {
-    const form = document.querySelector('#post-form');
-    return {
-      launchError: window.__fe007EditorError,
-      removals: window.__fe007EditorRemovals,
-      formCount: document.querySelectorAll('#post-form').length,
-      modalCount: document.querySelectorAll('.modal').length,
-      v04Enhanced: form?.dataset.v04Enhanced || null,
-      videoAuthoringEnhanced: form?.dataset.videoAuthoringEnhanced || null,
-      workspaceCount: form?.querySelectorAll('.platform-workspace').length || 0,
-      errorText: form?.closest('.modal-card')?.querySelector('#post-error')?.textContent || ''
-    };
-  });
-  if (existingEditorState.formCount !== 1 || existingEditorState.workspaceCount !== 1) {
-    throw new Error(`FE007_EDITOR_LIFECYCLE_DIAGNOSTIC ${JSON.stringify(existingEditorState)}`);
-  }
+  await contentInspector.locator('.inspector-edit').click();
+  await contentInspector.waitFor({ state: 'detached', timeout: 5000 });
+
   postForm = page.locator('#post-form');
+  await postForm.waitFor({ state: 'visible', timeout: 5000 });
   const existingPostModal = postForm.locator('xpath=ancestor::div[contains(@class,"modal-card")]');
-  await existingPostModal.locator('.platform-workspace').waitFor({ state: 'visible' });
+  await existingPostModal.locator('.platform-workspace').waitFor({ state: 'visible', timeout: 5000 });
   const existingSections = await existingPostModal.locator('.ui-editor-section-title strong').allTextContents();
   for (const section of ['Основное', 'Медиа', 'Площадки']) assert.ok(existingSections.includes(section), `existing editor section missing: ${section}`);
   assert.equal(await postForm.locator('#media-file').count(), 1, 'existing editor media enhancement missing');
   assert.equal(await existingPostModal.locator('.platform-editor-card').count(), 1, 'existing editor target enhancement missing');
   await postForm.locator('#close-modal').click();
-  await page.locator('#post-form').waitFor({ state: 'detached' });
+  await page.locator('#post-form').waitFor({ state: 'detached', timeout: 5000 });
 
   await page.goto(`${base}/calendar`, { waitUntil: 'domcontentloaded' });
   await page.locator('#app').waitFor({ state: 'visible' });
@@ -305,7 +257,6 @@ try {
   calendarFixtureCard = page.locator(`.calendar-card[data-calendar-post="${calendarFixture.id}"]`);
   assert.ok((await calendarFixtureCard.innerText()).includes('Google Sheets'), 'Calendar presentation must survive mode rerender');
 
-  browserStage = 'library-presentation';
   await page.goto(`${base}/library`, { waitUntil: 'domcontentloaded' });
   await page.locator('#app').waitFor({ state: 'visible' });
   await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Библиотека');
@@ -385,7 +336,6 @@ try {
   assert.equal(await storyCard.count(), 1, 'Library story fixture must render once');
   assert.ok((await storyCard.innerText()).includes('Серия историй'), 'Library second format mapping missing');
 
-  browserStage = 'overview-presentation';
   await page.goto(`${base}/overview`, { waitUntil: 'domcontentloaded' });
   await page.locator('#app').waitFor({ state: 'visible' });
   await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Обзор');
@@ -434,7 +384,6 @@ try {
   await page.waitForURL('**/content');
   assert.equal((await page.locator('#page-title').textContent())?.trim(), 'Контент');
 
-  browserStage = 'mobile-routes';
   await page.setViewportSize({ width: 390, height: 844 });
   for (const route of ['/overview','/calendar','/content','/library','/socials','/sources']) {
     await page.goto(`${base}${route}`, { waitUntil: 'domcontentloaded' });
@@ -448,7 +397,6 @@ try {
     assert.ok(metrics.bodyOverflow <= 1, `${route} mobile body overflow: ${metrics.bodyOverflow}px`);
   }
 
-  browserStage = 'finalize';
   assert.deepEqual(pageErrors, [], `browser page errors:\n${pageErrors.join('\n')}`);
   await context.close();
   console.log(JSON.stringify({
@@ -470,7 +418,6 @@ try {
     pageErrors: 0
   }, null, 2));
 } finally {
-  if (browserWatchdog) clearTimeout(browserWatchdog);
   if (browser) await browser.close().catch(() => undefined);
   await app.close().catch(() => undefined);
   db.close();
