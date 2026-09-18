@@ -171,10 +171,12 @@ function syncPlatformPreviews(form, post) {
     const warning = card.querySelector('.platform-warning');
     if (!warning) return;
     if (!items.length) {
-      warning.textContent = 'Добавьте медиа — без него READY запрещён.';
+      const message = 'Добавьте медиа — без него READY запрещён.';
+      if (warning.textContent !== message) warning.textContent = message;
       warning.classList.remove('hidden');
     } else if (first?.isVideo) {
-      warning.textContent = 'Видео сохранено. Возможность отправки на эту площадку проверяется capability preflight перед READY.';
+      const message = 'Видео сохранено. Возможность отправки на эту площадку проверяется capability preflight перед READY.';
+      if (warning.textContent !== message) warning.textContent = message;
       warning.classList.remove('hidden');
     }
   });
