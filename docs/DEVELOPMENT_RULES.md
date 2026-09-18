@@ -45,6 +45,8 @@ Release fix, сделанный в `release/1.0`, при необходимос�
 
 Stable `v1.0.0` выпускается из release line после live acceptance, не из случайного текущего `main`.
 
+Checkpoint/feature branches считаются временными. После merge их head-ветки удаляются; повторное использование merged branch для нового checkpoint запрещено. Долгоживущие исключения — только явно определённые lanes (`main`, `release/*`) и активные ещё не merged branches.
+
 ---
 
 # 3. Запрещено без ADR
