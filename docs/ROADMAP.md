@@ -294,42 +294,42 @@ Publikator уже прошёл маленькие additive milestones вмест
 
 ---
 
-# 6. Current implementation status and remaining order
+# 6. Текущее состояние и оставшийся порядок разработки
 
-Reconciled: **2026-09-18**, after merge of PR #88.
+Сверено: **18.09.2026**, после merge PR #88.
 
-The following foundation/product work is already implemented and MUST NOT be recreated as a new parallel layer:
+Следующие foundation/product-этапы уже реализованы и **не должны создаваться заново параллельными слоями**:
 
-- CONTENT-M0 / schemas 4–7;
-- EW4-001 safe lifecycle + Content Inspector;
-- CX3-001…CX3-014 visual/calendar/library/rich-media/operator foundations;
-- schema 8 rich-media model;
-- FEED/VIDEO adapter implementations for Telegram/VK/MAX/Instagram, still live-gated;
-- Telegram Story image/video/sequence implementation, still live-gated;
-- Instagram Short/Reel implementation, still live-gated;
-- Google Sheets connector and automation lane #72/#79–#85;
-- Google Drive and Yandex Disk image binding;
-- real browser operator acceptance added by #86;
-- frontend Sources consolidation started by #87/#88.
+- CONTENT-M0 / schema 4–7;
+- EW4-001 — безопасный lifecycle + Content Inspector;
+- CX3-001…CX3-014 — календарь, библиотека, rich-media foundation и единый operator UI;
+- schema 8 — rich-media model;
+- реализации FEED/VIDEO для Telegram/VK/MAX/Instagram, пока live-gated;
+- Telegram Story image/video/sequence, пока live-gated;
+- Instagram Short/Reel, пока live-gated;
+- Google Sheets connector и automation lane #72/#79–#85;
+- Google Drive и Яндекс Диск для image binding;
+- настоящий browser acceptance из #86;
+- начатая консолидация Sources UI из #87/#88.
 
-Checkpoint names `CP2-007A…D` and `CP2-008A` used by the merged Google Sheets lane do **not** mean the original CP2-007 AI producer or CP2-008 Advanced ingest milestones are complete. Issue #26 is authoritative for that reconciliation.
+Идентификаторы `CP2-007A…D` и `CP2-008A`, использованные в merged Google Sheets lane, **не означают**, что исходные milestones CP2-007 AI producer и CP2-008 Advanced ingest завершены. Для этого reconciliation главным является issue #26.
 
-## Remaining recommended order
+## Оставшийся рекомендуемый порядок
 
-1. **Frontend consolidation** — remove remaining post-render/MutationObserver ownership where a route/component can own its markup directly. Do not introduce another `ui-vN-polish` layer. Preserve the real browser gate.
-2. **EW4-002 Revision history UX** — view/diff/restore immutable revisions for unpublished content.
-3. **EW4-003 Canonical rich text editor** — structured AST + plain fallback.
-4. **EW4-004 Platform compilers** — Telegram/MAX/VK/Instagram compilation + downgrade diagnostics.
-5. **EW4-005/006 Defaults + Templates/Snippets** — project defaults and snapshot semantics.
-6. **EW4-007 Calendar editing** — drag/drop, create-from-slot, quick edit and optimistic-conflict handling.
-7. **CP2-003 ZIP Content Bundle** — deterministic media binding and 100-post/150-media acceptance.
-8. **CP2-004 + EW4-009 Integration API v1** — complete product contract on the existing hashed/scoped API-key security foundation.
-9. **CP2-006 completion** — cloud video ingestion and browser-proven connector management UI.
-10. **CP2-007 AI Content Profile / producer** — AI produces DRAFT through the Integration API; no direct social bypass.
-11. **CP2-008 Advanced ingest** — embedded XLSX images / Google Sheets `IMAGE()` and explicitly bounded advanced source behavior.
-12. **EW4-010 + Pipeline mass acceptance + live capability enablement** — close the remaining product acceptance only after the above contracts are complete.
+1. **Frontend consolidation** — убирать оставшиеся post-render/MutationObserver-слои там, где route/component может сам владеть разметкой. Не создавать новый `ui-vN-polish`. Сохранять реальный browser gate.
+2. **EW4-002 Revision history UX** — просмотр, diff и restore immutable revisions для ещё не опубликованного контента.
+3. **EW4-003 Canonical rich text editor** — структурированный AST + plain-text fallback.
+4. **EW4-004 Platform compilers** — Telegram/MAX/VK/Instagram + downgrade diagnostics.
+5. **EW4-005/006 Defaults + Templates/Snippets** — project defaults и snapshot semantics шаблонов.
+6. **EW4-007 Calendar editing** — drag/drop, create-from-slot, quick edit и optimistic-conflict handling.
+7. **CP2-003 ZIP Content Bundle** — детерминированная media binding и acceptance на 100 posts / 150 media.
+8. **CP2-004 + EW4-009 Integration API v1** — полный product contract поверх уже существующей hashed/scoped API-key security foundation.
+9. **Завершение CP2-006** — cloud video ingest и browser-proven UI управления connectors.
+10. **CP2-007 AI Content Profile / producer** — AI создаёт DRAFT только через Integration API; прямой AI→social bypass запрещён.
+11. **CP2-008 Advanced ingest** — embedded images в XLSX, Google Sheets `IMAGE()` и явно ограниченные advanced-source сценарии.
+12. **EW4-010 + Pipeline mass acceptance + live capability enablement** — финальная product acceptance после закрытия контрактов выше.
 
-V1 release acceptance remains a separate track in issue #12 and `release/1.0`; it does not redefine the vNext implementation order.
+V1 live acceptance ведётся отдельно в issue #12 и ветке `release/1.0`; он не переопределяет порядок vNext-разработки.
 
 ---
 
