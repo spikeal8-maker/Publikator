@@ -15,6 +15,49 @@ const { db, migrate } = await import('../dist/db.js');
 const { buildApp } = await import('../dist/app.js');
 migrate();
 const app = await buildApp();
+
+const fixtureLogin = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { password: process.env.ADMIN_PASSWORD } });
+assert.equal(fixtureLogin.statusCode, 200, fixtureLogin.body);
+const fixtureCookie = String(fixtureLogin.headers['set-cookie']).split(';')[0];
+const fixtureProjectId = db.prepare('SELECT id FROM projects ORDER BY created_at LIMIT 1').get()?.id;
+assert.ok(fixtureProjectId, 'browser Library fixture project missing');
+
+async function createLibraryPresentationFixture(title, { publicationKind, contentFormat, sourceType, editorialStage, status }) {
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/posts',
+    headers: { cookie: fixtureCookie },
+    payload: {
+      projectId: fixtureProjectId,
+      title,
+      body: `${title} body`,
+      scheduleMode: 'MANUAL'
+    }
+  });
+  assert.equal(response.statusCode, 201, response.body);
+  const post = response.json();
+  db.prepare('UPDATE posts SET publication_kind=?,content_format=?,source_type=?,editorial_stage=?,status=? WHERE id=?')
+    .run(publicationKind, contentFormat, sourceType, editorialStage, status, post.id);
+  return post.id;
+}
+
+const libraryFixtureATitle = 'Browser Library Presentation A';
+const libraryFixtureAId = await createLibraryPresentationFixture(libraryFixtureATitle, {
+  publicationKind: 'FEED',
+  contentFormat: 'IMAGE',
+  sourceType: 'google_sheets',
+  editorialStage: 'IN_REVIEW',
+  status: 'DRAFT'
+});
+const libraryFixtureStoryTitle = 'Browser Library Story Sequence';
+await createLibraryPresentationFixture(libraryFixtureStoryTitle, {
+  publicationKind: 'STORY',
+  contentFormat: 'STORY_SEQUENCE',
+  sourceType: 'manual',
+  editorialStage: 'IDEA',
+  status: 'DRAFT'
+});
+
 await app.listen({ host: '127.0.0.1', port: 18087 });
 
 const base = 'http://127.0.0.1:18087';
@@ -79,6 +122,56 @@ try {
   for (const [key, label] of Object.entries(libraryFormatLabels)) {
     assert.equal((await page.locator(`#library-format option[value="${key}"]`).textContent())?.trim(), label, `Library format label mismatch for ${key}`);
   }
+
+  const searchLibrary = async (title, selector) => {
+    await page.locator('#library-search').fill(title);
+    await page.locator('#library-search').press('Enter');
+    await page.waitForFunction(({ expectedTitle, expectedSelector }) => {
+      return [...document.querySelectorAll(expectedSelector)].some((node) => node.textContent?.includes(expectedTitle));
+    }, { expectedTitle: title, expectedSelector: selector });
+  };
+
+  await searchLibrary(libraryFixtureATitle, '.library-card');
+  let fixtureCard = page.locator('.library-card').filter({ hasText: libraryFixtureATitle });
+  assert.equal(await fixtureCard.count(), 1, 'Library presentation fixture A must render once in grid');
+  let fixtureText = await fixtureCard.innerText();
+  for (const expected of ['Пост · Изображение', 'Источник: Google Sheets', 'Контент · На проверке', 'Публикация · Черновик']) {
+    assert.ok(fixtureText.includes(expected), `Library grid fixture missing: ${expected}`);
+  }
+  for (const forbidden of ['FEED / IMAGE', 'source:', 'google_sheets', 'IN_REVIEW', 'DRAFT']) {
+    assert.ok(!fixtureText.includes(forbidden), `Library grid fixture exposes raw presentation text: ${forbidden}`);
+  }
+  const gridContentBadge = fixtureCard.locator('.badge[data-status-role="Контент"]');
+  const gridPublicationBadge = fixtureCard.locator('.badge[data-status-role="Публикация"]');
+  assert.equal(await gridContentBadge.getAttribute('data-raw-status'), 'IN_REVIEW');
+  assert.equal(await gridPublicationBadge.getAttribute('data-raw-status'), 'DRAFT');
+  assert.equal(await gridContentBadge.getAttribute('data-presentation-owner'), 'library');
+  assert.equal(await gridPublicationBadge.getAttribute('data-presentation-owner'), 'library');
+
+  await page.locator('[data-layout="list"]').click();
+  await page.waitForFunction((title) => [...document.querySelectorAll('.library-table tbody tr')].some((row) => row.textContent?.includes(title)), libraryFixtureATitle);
+  const fixtureRow = page.locator('.library-table tbody tr').filter({ hasText: libraryFixtureATitle });
+  assert.equal(await fixtureRow.count(), 1, 'Library presentation fixture A must render once in table');
+  const fixtureCells = fixtureRow.locator('td');
+  assert.equal((await fixtureCells.nth(5).textContent())?.trim(), 'Пост · Изображение');
+  assert.equal((await fixtureCells.nth(7).textContent())?.trim(), 'Google Sheets');
+  const tableStatusText = (await fixtureCells.nth(6).innerText()).trim();
+  assert.ok(tableStatusText.includes('Контент · На проверке'));
+  assert.ok(tableStatusText.includes('Публикация · Черновик'));
+  assert.equal(await fixtureRow.locator('.badge[data-status-role="Контент"]').getAttribute('data-raw-status'), 'IN_REVIEW');
+  assert.equal(await fixtureRow.locator('.badge[data-status-role="Публикация"]').getAttribute('data-raw-status'), 'DRAFT');
+
+  await page.locator('[data-layout="grid"]').click();
+  await page.waitForFunction((id) => document.querySelector(`[data-library-select="${id}"]`)?.closest('.library-card') !== null, libraryFixtureAId);
+  fixtureCard = page.locator('.library-card').filter({ hasText: libraryFixtureATitle });
+  fixtureText = await fixtureCard.innerText();
+  assert.ok(fixtureText.includes('Контент · На проверке'), 'Library grid ownership must survive list-to-grid rerender');
+  assert.ok(fixtureText.includes('Публикация · Черновик'), 'Library publication role must survive list-to-grid rerender');
+
+  await searchLibrary(libraryFixtureStoryTitle, '.library-card');
+  const storyCard = page.locator('.library-card').filter({ hasText: libraryFixtureStoryTitle });
+  assert.equal(await storyCard.count(), 1, 'Library story fixture must render once');
+  assert.ok((await storyCard.innerText()).includes('Серия историй'), 'Library second format mapping missing');
 
   await page.goto(`${base}/overview`, { waitUntil: 'domcontentloaded' });
   await page.locator('#app').waitFor({ state: 'visible' });
@@ -153,6 +246,7 @@ try {
     scheduleModalOwnership: true,
     overviewRendererOwnership: true,
     libraryControlsOwnership: true,
+    libraryPresentationOwnership: true,
     noBodyOverflow: true,
     pageErrors: 0
   }, null, 2));

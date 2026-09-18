@@ -1,3 +1,5 @@
+import { publicationFormatLabel, statusLabel } from './presentation-labels.js';
+
 const dashboardView = document.querySelector('#view');
 const dashboardTitle = document.querySelector('#page-title');
 const dashboardApp = document.querySelector('#app');
@@ -25,24 +27,24 @@ function localDashboardWindow() {
   return { todayFrom: todayFrom.toISOString(), todayTo: todayTo.toISOString(), weekTo: weekTo.toISOString() };
 }
 
-const STATUS_META = {
-  DRAFT: ['✎', 'Черновик', 'neutral'],
-  READY: ['✓', 'Готово', 'warning'],
-  PUBLISHING: ['↗', 'Публикуется', 'info'],
-  PUBLISHED: ['✓', 'Опубликовано', 'success'],
-  PARTIAL: ['◐', 'Частично', 'danger'],
-  FAILED: ['!', 'Ошибка', 'danger'],
-  RETRY: ['↻', 'Повтор', 'warning'],
-  RECOVERY_NEEDED: ['!', 'Нужно восстановление', 'danger'],
-  IDEA: ['○', 'Идея', 'neutral'],
-  IN_REVIEW: ['◌', 'На проверке', 'info'],
-  APPROVED: ['✓', 'Одобрено', 'success']
+const STATUS_VISUAL = {
+  DRAFT: ['✎', 'neutral'],
+  READY: ['✓', 'warning'],
+  PUBLISHING: ['↗', 'info'],
+  PUBLISHED: ['✓', 'success'],
+  PARTIAL: ['◐', 'danger'],
+  FAILED: ['!', 'danger'],
+  RETRY: ['↻', 'warning'],
+  RECOVERY_NEEDED: ['!', 'danger'],
+  IDEA: ['○', 'neutral'],
+  IN_REVIEW: ['◌', 'info'],
+  APPROVED: ['✓', 'success']
 };
 
 function dashboardStatus(value) {
   const key = String(value || 'DRAFT');
-  const [icon, label, tone] = STATUS_META[key] || ['•', key, 'neutral'];
-  return `<span class="status-chip" data-tone="${tone}"><span aria-hidden="true">${icon}</span>${dashboardEscape(label)}</span>`;
+  const [icon, tone] = STATUS_VISUAL[key] || ['•', 'neutral'];
+  return `<span class="status-chip" data-tone="${tone}"><span aria-hidden="true">${icon}</span>${dashboardEscape(statusLabel(key))}</span>`;
 }
 
 function dashboardTime(value) {
@@ -55,22 +57,6 @@ function dashboardPlatforms(value) {
   return String(value || '').split(',').map((item) => item.trim()).filter(Boolean).join(' · ') || 'Площадки не выбраны';
 }
 
-const DASHBOARD_FORMAT_LABEL = {
-  'FEED / IMAGE': 'Пост · Изображение',
-  'FEED / VIDEO': 'Пост · Видео',
-  'SHORT / VERTICAL_VIDEO': 'Короткое видео',
-  'STORY / IMAGE': 'История · Изображение',
-  'STORY / VIDEO': 'История · Видео',
-  'STORY / STORY_SEQUENCE': 'Серия историй'
-};
-
-function dashboardFormat(publicationKind, contentFormat) {
-  const kind = String(publicationKind || 'FEED');
-  const format = String(contentFormat || 'IMAGE');
-  const key = `${kind} / ${format}`;
-  return DASHBOARD_FORMAT_LABEL[key] || key;
-}
-
 function dashboardThumbnail(item) {
   return item.thumbnail_path
     ? `<img class="dashboard-v3-thumb" src="/public-media/${dashboardEscape(item.thumbnail_path)}" alt="">`
@@ -81,7 +67,7 @@ function dashboardItem(item, badgeValue = item.status) {
   return `<button type="button" class="dashboard-v3-item" data-post-id="${dashboardEscape(item.id)}">
     ${dashboardThumbnail(item)}
     <span class="dashboard-v3-item-main"><strong>${dashboardEscape(item.title)}</strong><span class="dashboard-v3-meta">${dashboardEscape(item.project_name)} · ${dashboardTime(item.scheduled_at_utc)} · ${dashboardEscape(dashboardPlatforms(item.platforms))}</span></span>
-    <span class="dashboard-v3-item-side">${dashboardStatus(badgeValue)}<span class="dashboard-v3-meta">${dashboardEscape(dashboardFormat(item.publication_kind, item.content_format))}</span></span>
+    <span class="dashboard-v3-item-side">${dashboardStatus(badgeValue)}<span class="dashboard-v3-meta">${dashboardEscape(publicationFormatLabel(item.publication_kind, item.content_format))}</span></span>
   </button>`;
 }
 

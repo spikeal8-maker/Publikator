@@ -1,3 +1,5 @@
+import { publicationFormatLabel, sourceLabel, statusLabel } from './presentation-labels.js';
+
 const LIBRARY_VIEWS = [
   ['all','Все'],['inbox','Входящие'],['draft','Черновики'],['ready','Готово'],
   ['scheduled','Запланировано'],['published','Опубликовано'],['problems','Проблемы']
@@ -16,16 +18,16 @@ const librarySelected = new Set();
 
 function libEsc(value=''){return String(value).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));}
 async function libApi(url){const r=await fetch(url,{credentials:'same-origin'});const b=await r.json().catch(()=>({}));if(!r.ok)throw new Error(b?.error||`HTTP ${r.status}`);return b;}
-function libBadge(value){return `<span class="badge ${libEsc(value)}">${libEsc(value)}</span>`;}
+function libBadge(value, role){const raw=String(value||'');return `<span class="badge ${libEsc(raw)}" data-raw-status="${libEsc(raw)}" data-presentation-owner="library" data-status-role="${libEsc(role)}">${libEsc(role)} · ${libEsc(statusLabel(raw))}</span>`;}
 function libTime(item){
   if(item.schedule_mode==='AT'&&item.scheduled_at_utc){const d=new Date(item.scheduled_at_utc);return `${d.toLocaleString()} · ${item.schedule_timezone||'UTC'}`;}
   if(item.schedule_mode==='QUEUE')return 'Очередь';
   return 'Вручную';
 }
 function libPlatforms(item){return item.platforms?.length?item.platforms.join(' · '):'без площадки';}
-function libSource(item){return item.source_type||'manual';}
+function libSource(item){return sourceLabel(item.source_type||'manual');}
 function libThumb(item){return item.thumbnail_path?`<img src="/public-media/${libEsc(item.thumbnail_path)}" alt="">`:'<span class="library-no-thumb">Нет медиа</span>';}
-function libFormat(item){return `${item.publication_kind||'FEED'} / ${item.content_format||'IMAGE'}`;}
+function libFormat(item){return publicationFormatLabel(item.publication_kind, item.content_format);}
 function libChecked(id){return librarySelected.has(id)?'checked':'';}
 
 function gridItem(item){return `<article class="library-card ${Number(item.problem_count)>0?'has-problem':''}">
@@ -34,8 +36,8 @@ function gridItem(item){return `<article class="library-card ${Number(item.probl
     <span class="library-card-media">${libThumb(item)}</span>
     <span class="library-card-copy"><span class="library-project">${libEsc(item.project_name)}</span><strong>${libEsc(item.title)}</strong>
       <span class="library-meta">${libEsc(libTime(item))}</span><span class="library-meta">${libEsc(libPlatforms(item))}</span>
-      <span class="library-meta">${libEsc(libFormat(item))} · source: ${libEsc(libSource(item))}</span>
-      <span class="library-badges">${libBadge(item.editorial_stage)} ${libBadge(item.status)}${Number(item.problem_count)>0?` <span class="library-problem">${item.problem_count} проблем</span>`:''}</span>
+      <span class="library-meta">${libEsc(libFormat(item))} · Источник: ${libEsc(libSource(item))}</span>
+      <span class="library-badges">${libBadge(item.editorial_stage,'Контент')} ${libBadge(item.status,'Публикация')}${Number(item.problem_count)>0?` <span class="library-problem">${item.problem_count} проблем</span>`:''}</span>
     </span>
   </button>
 </article>`;}
@@ -45,7 +47,7 @@ function listRow(item){return `<tr class="${Number(item.problem_count)>0?'has-pr
   <td><span class="library-list-thumb">${libThumb(item)}</span></td>
   <td><button type="button" class="library-open library-title-button open-post" data-id="${libEsc(item.id)}"><strong>${libEsc(item.title)}</strong><span>${libEsc(item.project_name)}</span></button></td>
   <td>${libEsc(libTime(item))}</td><td>${libEsc(libPlatforms(item))}</td><td>${libEsc(libFormat(item))}</td>
-  <td>${libBadge(item.editorial_stage)} ${libBadge(item.status)}</td><td>${libEsc(libSource(item))}</td>
+  <td>${libBadge(item.editorial_stage,'Контент')} ${libBadge(item.status,'Публикация')}</td><td>${libEsc(libSource(item))}</td>
 </tr>`;}
 
 function libraryContent(data){
