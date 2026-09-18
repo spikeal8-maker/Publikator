@@ -118,11 +118,6 @@ async function fixtureApi(method, url, payload, expected = 200) {
   return response.json();
 }
 
-const revisionAccountId = id('acc');
-const revisionNow = nowIso();
-db.prepare(`INSERT INTO social_accounts (id,platform,name,credentials_encrypted,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)`)
-  .run(revisionAccountId, 'telegram', 'Browser revision channel', 'fixture', revisionNow, revisionNow);
-
 const revisionHistoryTitle = 'Browser Revision History';
 const revisionPost = await fixtureApi('POST', '/api/posts', {
   projectId: fixtureProjectId,
@@ -143,7 +138,7 @@ const revisionV2 = await fixtureApi('PATCH', `/api/posts/${revisionPost.id}`, {
 });
 assert.equal(revisionV2.contentVersion, 2);
 const revisionPostView = await fixtureApi('GET', `/api/posts/${revisionPost.id}`);
-const revisionTarget = revisionPostView.targets.find((target) => target.account_id === revisionAccountId);
+const revisionTarget = revisionPostView.targets.find((target) => target.account_id === editorAccountId);
 assert.ok(revisionTarget);
 const revisionV3 = await fixtureApi('PATCH', `/api/posts/${revisionPost.id}/targets/${revisionTarget.id}/text`, {
   text: 'Revision target override',
