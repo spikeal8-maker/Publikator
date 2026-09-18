@@ -94,7 +94,7 @@ assert.equal(backwards.statusCode, 400, backwards.body);
 const html = await fs.readFile(path.join(process.cwd(), 'public', 'index.html'), 'utf8');
 const frontend = await fs.readFile(path.join(process.cwd(), 'public', 'calendar-v3.js'), 'utf8');
 for (const required of ['id="calendar-nav"', '/calendar-v3.css', '/calendar-v3.js']) assert.match(html, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-for (const required of ["month:'Месяц'", "week:'Неделя'", "day:'День'", "agenda:'Agenda'", "className='open-post'", 'CALENDAR_DISPLAY_TIMEZONE']) assert.ok(frontend.includes(required), required);
+for (const required of ["month:'Месяц'", "week:'Неделя'", "day:'День'", "agenda:'Список'", "className='open-post'", 'CALENDAR_DISPLAY_TIMEZONE']) assert.ok(frontend.includes(required), required);
 
 const restartAcceptance = spawnSync(process.execPath, ['scripts/cx3-009-restart-persistence-e2e.mjs'], {
   cwd: process.cwd(),
