@@ -151,13 +151,6 @@ function uiPolishPostEditor(root = document) {
   });
 }
 
-function uiPolishPlatformCards(root = document) {
-  root.querySelectorAll('.operator-platform-card').forEach((card) => {
-    const trigger = card.querySelector('[data-platform]');
-    if (trigger?.dataset.platform && card.dataset.platform !== trigger.dataset.platform) card.dataset.platform = trigger.dataset.platform;
-  });
-}
-
 function uiPolishOverview(root = document) {
   if (window.location.pathname !== '/overview') return;
   root.querySelectorAll('.dashboard-v3-metric').forEach((metric) => {
@@ -168,12 +161,6 @@ function uiPolishOverview(root = document) {
     const key = node.textContent.trim();
     if (UI_FORMAT_LABEL[key]) uiSetText(node, UI_FORMAT_LABEL[key]);
   });
-}
-
-function uiPolishSocials(root = document) {
-  if (window.location.pathname !== '/socials') return;
-  uiSetText(root.querySelector('.operator-page > .operator-page-head p'), 'Подключите площадку, проверьте токен и укажите конкретный канал, группу или чат. Сохранить можно только проверенное подключение.');
-  uiSetText(root.querySelector('.operator-platform-card[data-platform="instagram"] span'), 'Публикация в профессиональный аккаунт Instagram.');
 }
 
 function uiPolishScheduleModal(root = document) {
@@ -205,9 +192,7 @@ function uiPolishAll() {
   uiPolishLibrary(view);
   uiPolishContent(view);
   uiPolishPostEditor(document);
-  uiPolishPlatformCards(view);
   uiPolishOverview(view);
-  uiPolishSocials(view);
   uiPolishScheduleModal(document);
   uiPolishLibraryRoles(view);
 }
