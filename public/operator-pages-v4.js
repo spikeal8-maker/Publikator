@@ -1,3 +1,5 @@
+import { statusLabel } from './presentation-labels.js';
+
 const operatorView = document.querySelector('#view');
 const operatorTitle = document.querySelector('#page-title');
 const operatorApp = document.querySelector('#app');
@@ -174,7 +176,7 @@ function sourcePreviewRows(validation) {
   if (!rows.length) return '';
   return `<div class="operator-preview-table"><table class="table"><thead><tr><th>Строка</th><th>Результат</th><th>Материал</th><th>Проект</th><th>Площадки</th><th>Что исправить</th></tr></thead><tbody>${rows.map((row) => {
     const normalized = row.normalized;
-    return `<tr><td>${Number(row.rowNumber || 0)}</td><td><span class="operator-classification ${operatorEsc(row.classification)}">${operatorEsc(row.classification)}</span></td><td>${normalized ? operatorEsc(normalized.title) : '—'}</td><td>${normalized ? operatorEsc(normalized.project) : '—'}</td><td>${normalized ? operatorEsc((normalized.targets || []).map((target) => `${target.platform}: ${target.name}`).join(', ') || '—') : '—'}</td><td class="small error">${operatorEsc((row.errors || []).join('; '))}</td></tr>`;
+    return `<tr><td>${Number(row.rowNumber || 0)}</td><td><span class="operator-classification ${operatorEsc(row.classification)}" data-raw-classification="${operatorEsc(row.classification)}">${operatorEsc(statusLabel(row.classification))}</span></td><td>${normalized ? operatorEsc(normalized.title) : '—'}</td><td>${normalized ? operatorEsc(normalized.project) : '—'}</td><td>${normalized ? operatorEsc((normalized.targets || []).map((target) => `${target.platform}: ${target.name}`).join(', ') || '—') : '—'}</td><td class="small error">${operatorEsc((row.errors || []).join('; '))}</td></tr>`;
   }).join('')}</tbody></table></div>`;
 }
 
