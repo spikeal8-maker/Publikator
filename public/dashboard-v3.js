@@ -1,4 +1,4 @@
-import { publicationFormatLabel } from './presentation-labels.js';
+import { publicationFormatLabel, statusLabel } from './presentation-labels.js';
 
 const dashboardView = document.querySelector('#view');
 const dashboardTitle = document.querySelector('#page-title');
@@ -27,24 +27,24 @@ function localDashboardWindow() {
   return { todayFrom: todayFrom.toISOString(), todayTo: todayTo.toISOString(), weekTo: weekTo.toISOString() };
 }
 
-const STATUS_META = {
-  DRAFT: ['✎', 'Черновик', 'neutral'],
-  READY: ['✓', 'Готово', 'warning'],
-  PUBLISHING: ['↗', 'Публикуется', 'info'],
-  PUBLISHED: ['✓', 'Опубликовано', 'success'],
-  PARTIAL: ['◐', 'Частично', 'danger'],
-  FAILED: ['!', 'Ошибка', 'danger'],
-  RETRY: ['↻', 'Повтор', 'warning'],
-  RECOVERY_NEEDED: ['!', 'Нужно восстановление', 'danger'],
-  IDEA: ['○', 'Идея', 'neutral'],
-  IN_REVIEW: ['◌', 'На проверке', 'info'],
-  APPROVED: ['✓', 'Одобрено', 'success']
+const STATUS_VISUAL = {
+  DRAFT: ['✎', 'neutral'],
+  READY: ['✓', 'warning'],
+  PUBLISHING: ['↗', 'info'],
+  PUBLISHED: ['✓', 'success'],
+  PARTIAL: ['◐', 'danger'],
+  FAILED: ['!', 'danger'],
+  RETRY: ['↻', 'warning'],
+  RECOVERY_NEEDED: ['!', 'danger'],
+  IDEA: ['○', 'neutral'],
+  IN_REVIEW: ['◌', 'info'],
+  APPROVED: ['✓', 'success']
 };
 
 function dashboardStatus(value) {
   const key = String(value || 'DRAFT');
-  const [icon, label, tone] = STATUS_META[key] || ['•', key, 'neutral'];
-  return `<span class="status-chip" data-tone="${tone}"><span aria-hidden="true">${icon}</span>${dashboardEscape(label)}</span>`;
+  const [icon, tone] = STATUS_VISUAL[key] || ['•', 'neutral'];
+  return `<span class="status-chip" data-tone="${tone}"><span aria-hidden="true">${icon}</span>${dashboardEscape(statusLabel(key))}</span>`;
 }
 
 function dashboardTime(value) {
