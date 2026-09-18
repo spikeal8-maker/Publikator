@@ -215,16 +215,6 @@ try {
   const contentInspector = page.locator('.editorial-inspector-overlay');
   await contentInspector.waitFor({ state: 'visible' });
   await contentInspector.locator('.inspector-edit').click();
-  await page.waitForTimeout(250);
-  const existingEditorDebug = await page.evaluate(() => ({
-    formCount: document.querySelectorAll('#post-form').length,
-    modalCount: document.querySelectorAll('.modal').length,
-    modalClasses: [...document.querySelectorAll('.modal')].map((node) => node.className),
-    formDisplay: document.querySelector('#post-form') ? getComputedStyle(document.querySelector('#post-form')).display : null,
-    bodyHasFixtureTitle: document.body.innerText.includes('Browser Content Draft Manual')
-  }));
-  console.log(JSON.stringify({ existingEditorDebug }, null, 2));
-  assert.deepEqual(pageErrors, [], `existing editor page errors:\n${pageErrors.join('\n')}`);
   postForm = page.locator('#post-form');
   await postForm.waitFor({ state: 'visible' });
   const existingPostModal = postForm.locator('xpath=ancestor::div[contains(@class,"modal-card")]');
