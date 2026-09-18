@@ -218,10 +218,14 @@ try {
   await contentInspector.locator('.inspector-close').click();
   await contentInspector.waitFor({ state: 'detached' });
   await page.evaluate((postId) => {
+    window.__fe007EditorError = null;
     const button = [...document.querySelectorAll('.open-post')].find((node) => node.dataset.id === postId);
     if (!button || typeof button.onclick !== 'function') throw new Error('existing Content row editor handler missing');
-    void button.onclick();
+    Promise.resolve(button.onclick()).catch((error) => { window.__fe007EditorError = String(error?.stack || error); });
   }, contentDraft.id);
+  await page.waitForFunction(() => document.querySelector('#post-form') || window.__fe007EditorError, null, { timeout: 5000 });
+  const editorLaunchError = await page.evaluate(() => window.__fe007EditorError);
+  assert.equal(editorLaunchError, null, `existing Content editor launch failed: ${editorLaunchError}`);
   postForm = page.locator('#post-form');
   await postForm.waitFor({ state: 'visible' });
   const existingPostModal = postForm.locator('xpath=ancestor::div[contains(@class,"modal-card")]');
