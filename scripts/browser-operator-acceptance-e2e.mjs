@@ -212,6 +212,9 @@ try {
   await page.locator('#post-form').waitFor({ state: 'detached' });
 
   await draftRow.locator('.open-post').click();
+  const contentInspector = page.locator('.editorial-inspector-overlay');
+  await contentInspector.waitFor({ state: 'visible' });
+  await contentInspector.locator('.inspector-edit').click();
   postForm = page.locator('#post-form');
   await postForm.waitFor({ state: 'visible' });
   const existingPostModal = postForm.locator('xpath=ancestor::div[contains(@class,"modal-card")]');
