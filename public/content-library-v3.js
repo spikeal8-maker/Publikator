@@ -1,9 +1,9 @@
 const LIBRARY_VIEWS = [
-  ['all','Все'],['inbox','Inbox'],['draft','Черновики'],['ready','Ready'],
+  ['all','Все'],['inbox','Входящие'],['draft','Черновики'],['ready','Готово'],
   ['scheduled','Запланировано'],['published','Опубликовано'],['problems','Проблемы']
 ];
 const LIBRARY_FORMATS = [
-  ['all','Все форматы'],['image','Изображения'],['stories','Stories'],['shorts','Shorts'],['video','Video']
+  ['all','Все форматы'],['image','Изображения'],['stories','Истории'],['shorts','Короткие видео'],['video','Видео']
 ];
 
 let libraryView = 'all';
@@ -57,7 +57,7 @@ function libraryContent(data){
 function libraryToolbar(data){
   return `<div class="library-topbar">
     <form id="library-search-form" class="library-search"><input id="library-search" value="${libEsc(librarySearch)}" placeholder="Поиск по заголовку, тексту, проекту, источнику"><button class="secondary">Найти</button></form>
-    <div class="row-actions"><button id="library-new" class="primary" type="button">+ Новый пост</button><button class="secondary library-layout ${libraryLayout==='grid'?'active':''}" data-layout="grid" type="button">Grid</button><button class="secondary library-layout ${libraryLayout==='list'?'active':''}" data-layout="list" type="button">List</button></div>
+    <div class="row-actions"><button id="library-new" class="primary" type="button">+ Новый пост</button><button class="secondary library-layout ${libraryLayout==='grid'?'active':''}" data-layout="grid" type="button">Карточки</button><button class="secondary library-layout ${libraryLayout==='list'?'active':''}" data-layout="list" type="button">Таблица</button></div>
   </div>
   <div class="library-filter-row"><div class="library-view-tabs">${LIBRARY_VIEWS.map(([key,label])=>`<button type="button" class="secondary library-view ${libraryView===key?'active':''}" data-library-view="${key}">${label}</button>`).join('')}</div>
     <label class="library-format">Формат <select id="library-format">${LIBRARY_FORMATS.map(([key,label])=>`<option value="${key}" ${libraryFormat===key?'selected':''}>${label}</option>`).join('')}</select></label>

@@ -106,7 +106,7 @@ for (const url of ['/api/content-library?view=nope', '/api/content-library?forma
 const html = await fs.readFile(path.join(process.cwd(), 'public', 'index.html'), 'utf8');
 const frontend = await fs.readFile(path.join(process.cwd(), 'public', 'content-library-v3.js'), 'utf8');
 for (const required of ['id="content-library-nav"', '/content-library-v3.css', '/content-library-v3.js']) assert.ok(html.includes(required), required);
-for (const required of ['libraryLayout', 'librarySelected', "['all','Все']", "['problems','Проблемы']", "['stories','Stories']", "['shorts','Shorts']", "['video','Video']", 'libraryPageSize', 'library-open open-post']) assert.ok(frontend.includes(required), required);
+for (const required of ['libraryLayout', 'librarySelected', "['all','Все']", "['problems','Проблемы']", "['stories','Истории']", "['shorts','Короткие видео']", "['video','Видео']", 'libraryPageSize', 'library-open open-post']) assert.ok(frontend.includes(required), required);
 
 console.log(JSON.stringify({ ok: true, checkpoint: 'CX3-002', totalActive: allBody.total, pagination: true, views: true, formatFilters: true, search: true, gridList: true, bulkSelection: true, inspectorReuse: true }, null, 2));
 await app.close();

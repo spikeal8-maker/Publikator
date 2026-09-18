@@ -51,6 +51,35 @@ try {
     assert.ok(overflow <= 1, `${route} desktop body overflow: ${overflow}px`);
   }
 
+  await page.goto(`${base}/library`, { waitUntil: 'domcontentloaded' });
+  await page.locator('#app').waitFor({ state: 'visible' });
+  await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Библиотека');
+  await page.locator('.content-library').waitFor({ state: 'visible' });
+  const libraryViewLabels = {
+    all: 'Все',
+    inbox: 'Входящие',
+    draft: 'Черновики',
+    ready: 'Готово',
+    scheduled: 'Запланировано',
+    published: 'Опубликовано',
+    problems: 'Проблемы'
+  };
+  for (const [key, label] of Object.entries(libraryViewLabels)) {
+    assert.equal((await page.locator(`[data-library-view="${key}"]`).textContent())?.trim(), label, `Library view label mismatch for ${key}`);
+  }
+  assert.equal((await page.locator('[data-layout="grid"]').textContent())?.trim(), 'Карточки', 'Library grid layout label mismatch');
+  assert.equal((await page.locator('[data-layout="list"]').textContent())?.trim(), 'Таблица', 'Library list layout label mismatch');
+  const libraryFormatLabels = {
+    all: 'Все форматы',
+    image: 'Изображения',
+    stories: 'Истории',
+    shorts: 'Короткие видео',
+    video: 'Видео'
+  };
+  for (const [key, label] of Object.entries(libraryFormatLabels)) {
+    assert.equal((await page.locator(`#library-format option[value="${key}"]`).textContent())?.trim(), label, `Library format label mismatch for ${key}`);
+  }
+
   await page.goto(`${base}/overview`, { waitUntil: 'domcontentloaded' });
   await page.locator('#app').waitFor({ state: 'visible' });
   await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Обзор');
@@ -123,6 +152,7 @@ try {
     browserHistory: true,
     scheduleModalOwnership: true,
     overviewRendererOwnership: true,
+    libraryControlsOwnership: true,
     noBodyOverflow: true,
     pageErrors: 0
   }, null, 2));
