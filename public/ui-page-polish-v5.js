@@ -151,18 +151,6 @@ function uiPolishPostEditor(root = document) {
   });
 }
 
-function uiPolishOverview(root = document) {
-  if (window.location.pathname !== '/overview') return;
-  root.querySelectorAll('.dashboard-v3-metric').forEach((metric) => {
-    const label = metric.querySelector('div')?.textContent.trim();
-    if (label === 'Проблемы') uiSetText(metric.querySelector('span'), 'ошибки и публикации, требующие проверки');
-  });
-  root.querySelectorAll('.dashboard-v3-item-side .dashboard-v3-meta').forEach((node) => {
-    const key = node.textContent.trim();
-    if (UI_FORMAT_LABEL[key]) uiSetText(node, UI_FORMAT_LABEL[key]);
-  });
-}
-
 function uiPolishLibraryRoles(root = document) {
   if (window.location.pathname !== '/library') return;
   root.querySelectorAll('.library-badges, .library-table tbody td:nth-child(7)').forEach((group) => {
@@ -179,7 +167,6 @@ function uiPolishAll() {
   uiPolishLibrary(view);
   uiPolishContent(view);
   uiPolishPostEditor(document);
-  uiPolishOverview(view);
   uiPolishLibraryRoles(view);
 }
 
