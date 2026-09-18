@@ -157,15 +157,10 @@ function lockPublishedEditor(form, post, section) {
     .forEach((element) => { element.disabled = true; });
 }
 
-function enhanceScheduleField(form, post) {
-  const mode = form.querySelector('select[name="scheduleMode"]');
+function hydrateScheduledAt(form, post) {
   const input = form.querySelector('input[name="scheduledAt"]');
-  if (!mode || !input) return;
-  const label = input.closest('label');
+  if (!input) return;
   if (post.schedule_mode === 'AT' && post.scheduled_at && !input.value) input.value = localDateTimeValue(post.scheduled_at);
-  const sync = () => label?.classList.toggle('hidden', mode.value !== 'AT');
-  mode.addEventListener('change', sync);
-  sync();
 }
 
 function editorContentVersion(form) {
@@ -244,7 +239,7 @@ async function enhancePostEditor(form, postId) {
 
   const modalCard = form.closest('.modal-card');
   modalCard?.classList.add('post-editor-modal');
-  enhanceScheduleField(form, post);
+  hydrateScheduledAt(form, post);
 
   const actions = form.querySelector('.row-actions.full');
   if (!actions) return;
