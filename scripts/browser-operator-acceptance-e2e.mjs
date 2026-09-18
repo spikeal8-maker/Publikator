@@ -12,6 +12,8 @@ process.env.APP_MASTER_KEY = 'browser-acceptance-master-key-longer-than-thirty-t
 process.env.PUBLIC_BASE_URL = 'http://127.0.0.1:18087';
 
 const { db, migrate, id, nowIso } = await import('../dist/db.js');
+const sharp = (await import('sharp')).default;
+const { saveImageVersioned } = await import('../dist/media.js');
 const { buildApp } = await import('../dist/app.js');
 migrate();
 const app = await buildApp();
@@ -109,6 +111,89 @@ const calendarFixture = await createContentFixture(calendarFixtureTitle, {
   editorialStage: 'IN_REVIEW',
   sourceType: 'google_sheets'
 });
+
+async function fixtureApi(method, url, payload, expected = 200) {
+  const response = await app.inject({ method, url, headers: { cookie: fixtureCookie }, ...(payload === undefined ? {} : { payload }) });
+  assert.equal(response.statusCode, expected, `fixture ${method} ${url}: ${response.body}`);
+  return response.json();
+}
+
+const revisionAccountId = id('acc');
+const revisionNow = nowIso();
+db.prepare(`INSERT INTO social_accounts (id,platform,name,credentials_encrypted,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)`)
+  .run(revisionAccountId, 'telegram', 'Browser revision channel', 'fixture', revisionNow, revisionNow);
+
+const revisionHistoryTitle = 'Browser Revision History';
+const revisionPost = await fixtureApi('POST', '/api/posts', {
+  projectId: fixtureProjectId,
+  title: revisionHistoryTitle,
+  body: 'Revision body A',
+  scheduleMode: 'MANUAL'
+}, 201);
+const revisionV1 = db.prepare('SELECT id FROM content_revisions WHERE post_id=? AND content_version=1').get(revisionPost.id);
+assert.ok(revisionV1);
+
+const revisionV2 = await fixtureApi('PATCH', `/api/posts/${revisionPost.id}`, {
+  title: revisionHistoryTitle,
+  body: 'Revision body B',
+  scheduleMode: 'AT',
+  scheduledAt: '2026-12-11T10:15:00.000Z',
+  scheduleTimezone: 'UTC',
+  expectedContentVersion: 1
+});
+assert.equal(revisionV2.contentVersion, 2);
+const revisionPostView = await fixtureApi('GET', `/api/posts/${revisionPost.id}`);
+const revisionTarget = revisionPostView.targets.find((target) => target.account_id === revisionAccountId);
+assert.ok(revisionTarget);
+const revisionV3 = await fixtureApi('PATCH', `/api/posts/${revisionPost.id}/targets/${revisionTarget.id}/text`, {
+  text: 'Revision target override',
+  expectedContentVersion: 2
+});
+assert.equal(revisionV3.contentVersion, 3);
+assert.deepEqual(
+  db.prepare('SELECT content_version FROM content_revisions WHERE post_id=? ORDER BY content_version').all(revisionPost.id).map((row) => row.content_version),
+  [1,2,3]
+);
+
+const staleRevisionRestore = await fixtureApi('POST', `/api/posts/${revisionPost.id}/revisions/${revisionV1.id}/restore`, {
+  expectedContentVersion: 2
+}, 409);
+assert.equal(staleRevisionRestore.code, 'REVISION_CONFLICT');
+
+const mediaBlockedPost = await fixtureApi('POST', '/api/posts', {
+  projectId: fixtureProjectId,
+  title: 'Browser Revision Media Block',
+  body: 'Media revision body',
+  scheduleMode: 'MANUAL'
+}, 201);
+const mediaBlockedRevision = db.prepare('SELECT id FROM content_revisions WHERE post_id=? AND content_version=1').get(mediaBlockedPost.id);
+const mediaBytes = await sharp({ create: { width: 24, height: 24, channels: 3, background: { r: 70, g: 90, b: 110 } } }).jpeg().toBuffer();
+await saveImageVersioned(mediaBlockedPost.id, 'history.jpg', mediaBytes, 1);
+const readableMediaDiff = await fixtureApi('GET', `/api/posts/${mediaBlockedPost.id}/revisions/${mediaBlockedRevision.id}/diff`);
+assert.equal(readableMediaDiff.restoreCompatibility.code, 'REVISION_MEDIA_INCOMPATIBLE');
+const mediaBlockedRestore = await fixtureApi('POST', `/api/posts/${mediaBlockedPost.id}/revisions/${mediaBlockedRevision.id}/restore`, {
+  expectedContentVersion: 2
+}, 409);
+assert.equal(mediaBlockedRestore.code, 'REVISION_MEDIA_INCOMPATIBLE');
+
+const publishedHistoryPost = await fixtureApi('POST', '/api/posts', {
+  projectId: fixtureProjectId,
+  title: 'Browser Revision Published',
+  body: 'Published history A',
+  scheduleMode: 'MANUAL'
+}, 201);
+const publishedRevision = db.prepare('SELECT id FROM content_revisions WHERE post_id=? AND content_version=1').get(publishedHistoryPost.id);
+await fixtureApi('PATCH', `/api/posts/${publishedHistoryPost.id}`, {
+  body: 'Published history B',
+  expectedContentVersion: 1
+});
+db.prepare("UPDATE posts SET status='PUBLISHED',editorial_stage='APPROVED' WHERE id=?").run(publishedHistoryPost.id);
+const publishedReadableDiff = await fixtureApi('GET', `/api/posts/${publishedHistoryPost.id}/revisions/${publishedRevision.id}/diff`);
+assert.equal(publishedReadableDiff.restoreCompatibility.code, 'REVISION_PUBLISHED_IMMUTABLE');
+const publishedBlockedRestore = await fixtureApi('POST', `/api/posts/${publishedHistoryPost.id}/revisions/${publishedRevision.id}/restore`, {
+  expectedContentVersion: 2
+}, 409);
+assert.equal(publishedBlockedRestore.code, 'REVISION_PUBLISHED_IMMUTABLE');
 
 await app.listen({ host: '127.0.0.1', port: 18087 });
 
@@ -228,6 +313,56 @@ try {
   assert.equal(await existingPostModal.locator('.platform-editor-card').count(), 1, 'existing editor target enhancement missing');
   await postForm.locator('#close-modal').click();
   await page.locator('#post-form').waitFor({ state: 'detached', timeout: 5000 });
+
+  const revisionRow = contentRow(revisionHistoryTitle);
+  assert.equal(await revisionRow.count(), 1, 'Revision History browser fixture must render once');
+  await revisionRow.locator('.open-post').click();
+  let revisionInspector = page.locator('.editorial-inspector-overlay');
+  await revisionInspector.waitFor({ state: 'visible', timeout: 5000 });
+  assert.equal((await revisionInspector.locator('.inspector-history').textContent())?.trim(), 'История изменений');
+  await revisionInspector.locator('.inspector-history').click();
+
+  let historyOverlay = page.locator('.revision-history-overlay');
+  await historyOverlay.waitFor({ state: 'visible', timeout: 5000 });
+  assert.equal((await historyOverlay.locator('h2').textContent())?.trim(), 'История изменений');
+  assert.equal(await historyOverlay.locator('.revision-history-item').count(), 3);
+  await historyOverlay.locator('.revision-history-item').filter({ hasText: 'Версия 1' }).click();
+  const revisionDetail = historyOverlay.locator('.revision-detail');
+  await revisionDetail.waitFor({ state: 'visible', timeout: 5000 });
+  const detailText = await revisionDetail.innerText();
+  for (const expected of ['Текст', 'Публикация', 'Площадки', 'Медиа', 'Revision body A', 'Revision body B', 'Вручную', 'По времени', 'Revision target override']) {
+    assert.ok(detailText.includes(expected), `Revision History detail missing: ${expected}`);
+  }
+  assert.equal(await revisionDetail.locator('.revision-restore').count(), 1, 'safe historical revision must expose Restore');
+  page.once('dialog', (dialog) => dialog.accept());
+  await revisionDetail.locator('.revision-restore').click();
+  await historyOverlay.waitFor({ state: 'detached', timeout: 5000 });
+
+  revisionInspector = page.locator('.editorial-inspector-overlay');
+  await revisionInspector.waitFor({ state: 'visible', timeout: 5000 });
+  const restoredView = await fixtureApi('GET', `/api/posts/${revisionPost.id}`);
+  assert.equal(restoredView.content_version, 4);
+  assert.equal(restoredView.body, 'Revision body A');
+  assert.equal(restoredView.status, 'DRAFT');
+  assert.equal(restoredView.editorial_stage, 'DRAFT');
+  assert.equal(restoredView.ready_revision_id, null);
+  const restoredRevisionRow = db.prepare('SELECT content_version,actor_source,restored_from_revision_id FROM content_revisions WHERE post_id=? ORDER BY content_version DESC LIMIT 1').get(revisionPost.id);
+  assert.deepEqual(restoredRevisionRow, {
+    content_version: 4,
+    actor_source: 'manual_restore',
+    restored_from_revision_id: revisionV1.id
+  });
+
+  await revisionInspector.locator('.inspector-history').click();
+  historyOverlay = page.locator('.revision-history-overlay');
+  await historyOverlay.waitFor({ state: 'visible', timeout: 5000 });
+  const newestHistory = historyOverlay.locator('.revision-history-item').first();
+  assert.match((await newestHistory.innerText()), /Версия 4/);
+  assert.match((await newestHistory.innerText()), /восстановлена из версии 1/);
+  await historyOverlay.locator('.revision-history-close').click();
+  await historyOverlay.waitFor({ state: 'detached', timeout: 5000 });
+  await revisionInspector.locator('.inspector-close').click();
+  await revisionInspector.waitFor({ state: 'detached', timeout: 5000 });
 
   await page.goto(`${base}/calendar`, { waitUntil: 'domcontentloaded' });
   await page.locator('#app').waitFor({ state: 'visible' });
@@ -414,6 +549,7 @@ try {
     postEditorScaffoldOwnership: true,
     calendarPresentationOwnership: true,
     legacyPagePolishRemoved: true,
+    revisionHistoryUx: true,
     noBodyOverflow: true,
     pageErrors: 0
   }, null, 2));
