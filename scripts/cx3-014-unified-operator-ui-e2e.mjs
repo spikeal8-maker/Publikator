@@ -92,10 +92,12 @@ assert.ok(slotEditorSource.includes("api('/api/schedules',{method:'POST'"), 'sch
 
 const overviewProblemsNote = 'ошибки и публикации, требующие проверки';
 assert.ok(dashboard.includes(`dashboardMetric('Проблемы', data.metrics.problems, '${overviewProblemsNote}'`), 'final Problems metric note must be owned by dashboard-v3.js');
-assert.ok(dashboard.includes("import { publicationFormatLabel } from './presentation-labels.js';"), 'Dashboard must reuse shared publication format labels');
+assert.ok(dashboard.includes("import { publicationFormatLabel, statusLabel } from './presentation-labels.js';"), 'Dashboard must reuse shared presentation labels');
 assert.ok(dashboard.includes('publicationFormatLabel(item.publication_kind, item.content_format)'), 'Dashboard item must use shared publication format formatter');
 assert.ok(!dashboard.includes('DASHBOARD_FORMAT_LABEL'), 'Dashboard must not duplicate shared publication format mapping');
 assert.ok(!dashboard.includes('function dashboardFormat('), 'Dashboard must not keep a parallel format helper');
+assert.ok(!dashboard.includes('const STATUS_META'), 'Dashboard must not duplicate shared status labels');
+assert.ok(dashboard.includes('dashboardEscape(statusLabel(key))'), 'Dashboard status copy must use shared status helper');
 assert.ok(!polish.includes('uiPolishOverview'), 'overview copy and format must no longer be owned by ui-page-polish-v5.js');
 assert.ok(index.includes('data-route="/overview"') && ui.includes("'/overview'"), '/overview must remain a registered route');
 
