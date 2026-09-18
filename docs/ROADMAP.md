@@ -294,33 +294,42 @@ Publikator уже прошёл маленькие additive milestones вмест
 
 ---
 
-# 6. Recommended feature order
+# 6. Текущее состояние и оставшийся порядок разработки
 
-После принятого M0 foundation:
+Сверено: **18.09.2026**, после merge PR #88.
 
-```text
-1. Safe Trash/Restore + Content Inspector on existing image posts
-2. Visual Calendar shell on canonical schema-7 scheduling
-3. Canonical rich text + Telegram/VK/MAX/Instagram compilers using TargetRendition
-4. Content Plan schema-3 UX + downloadable template
-5. ZIP Content Bundle using M0-004 security guards
-6. Integration API v1 using existing hashed/scoped API-key foundation
-7. Project defaults/templates/target options
-8. Video metadata/player/poster pipeline
-9. Story/Short product model using existing PublicationUnit recovery
-10. Google Sheets connector
-11. Google Drive connector
-12. Яндекс Диск connector
-13. AI producer/content profile
-14. platform-specific video/story/short adapters
-```
+Следующие foundation/product-этапы уже реализованы и **не должны создаваться заново параллельными слоями**:
 
-Причина порядка:
+- CONTENT-M0 / schema 4–7;
+- EW4-001 — безопасный lifecycle + Content Inspector;
+- CX3-001…CX3-014 — календарь, библиотека, rich-media foundation и единый operator UI;
+- schema 8 — rich-media model;
+- реализации FEED/VIDEO для Telegram/VK/MAX/Instagram, пока live-gated;
+- Telegram Story image/video/sequence, пока live-gated;
+- Instagram Short/Reel, пока live-gated;
+- Google Sheets connector и automation lane #72/#79–#85;
+- Google Drive и Яндекс Диск для image binding;
+- настоящий browser acceptance из #86;
+- начатая консолидация Sources UI из #87/#88.
 
-- сначала canonical state/concurrency;
-- затем usable visual shell;
-- затем import/API;
-- затем expensive rich media/platform expansion.
+Идентификаторы `CP2-007A…D` и `CP2-008A`, использованные в merged Google Sheets lane, **не означают**, что исходные milestones CP2-007 AI producer и CP2-008 Advanced ingest завершены. Для этого reconciliation главным является issue #26.
+
+## Оставшийся рекомендуемый порядок
+
+1. **Frontend consolidation** — убирать оставшиеся post-render/MutationObserver-слои там, где route/component может сам владеть разметкой. Не создавать новый `ui-vN-polish`. Сохранять реальный browser gate.
+2. **EW4-002 Revision history UX** — просмотр, diff и restore immutable revisions для ещё не опубликованного контента.
+3. **EW4-003 Canonical rich text editor** — структурированный AST + plain-text fallback.
+4. **EW4-004 Platform compilers** — Telegram/MAX/VK/Instagram + downgrade diagnostics.
+5. **EW4-005/006 Defaults + Templates/Snippets** — project defaults и snapshot semantics шаблонов.
+6. **EW4-007 Calendar editing** — drag/drop, create-from-slot, quick edit и optimistic-conflict handling.
+7. **CP2-003 ZIP Content Bundle** — детерминированная media binding и acceptance на 100 posts / 150 media.
+8. **CP2-004 + EW4-009 Integration API v1** — полный product contract поверх уже существующей hashed/scoped API-key security foundation.
+9. **Завершение CP2-006** — cloud video ingest и browser-proven UI управления connectors.
+10. **CP2-007 AI Content Profile / producer** — AI создаёт DRAFT только через Integration API; прямой AI→social bypass запрещён.
+11. **CP2-008 Advanced ingest** — embedded images в XLSX, Google Sheets `IMAGE()` и явно ограниченные advanced-source сценарии.
+12. **EW4-010 + Pipeline mass acceptance + live capability enablement** — финальная product acceptance после закрытия контрактов выше.
+
+V1 live acceptance ведётся отдельно в issue #12 и ветке `release/1.0`; он не переопределяет порядок vNext-разработки.
 
 ---
 
