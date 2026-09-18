@@ -12,6 +12,7 @@ process.env.PUBLIC_BASE_URL = 'https://publisher.example.test';
 
 const { db, migrate, id, nowIso } = await import('../dist/db.js');
 const { buildApp } = await import('../dist/app.js');
+const { publicationFormatLabel, sourceLabel, statusLabel } = await import('../public/presentation-labels.js');
 migrate();
 const app = await buildApp();
 await app.ready();
@@ -107,6 +108,26 @@ const html = await fs.readFile(path.join(process.cwd(), 'public', 'index.html'),
 const frontend = await fs.readFile(path.join(process.cwd(), 'public', 'content-library-v3.js'), 'utf8');
 for (const required of ['id="content-library-nav"', '/content-library-v3.css', '/content-library-v3.js']) assert.ok(html.includes(required), required);
 for (const required of ['libraryLayout', 'librarySelected', "['all','Все']", "['problems','Проблемы']", "['stories','Истории']", "['shorts','Короткие видео']", "['video','Видео']", 'libraryPageSize', 'library-open open-post']) assert.ok(frontend.includes(required), required);
+
+assert.equal(publicationFormatLabel('FEED', 'IMAGE'), 'Пост · Изображение');
+assert.equal(publicationFormatLabel('STORY', 'STORY_SEQUENCE'), 'Серия историй');
+assert.equal(publicationFormatLabel('FUTURE_KIND', 'FUTURE_FORMAT'), 'FUTURE_KIND / FUTURE_FORMAT');
+assert.equal(sourceLabel('manual'), 'Вручную');
+assert.equal(sourceLabel('google_sheets'), 'Google Sheets');
+assert.equal(sourceLabel('future_source'), 'future_source');
+assert.equal(statusLabel('IN_REVIEW'), 'На проверке');
+assert.equal(statusLabel('DRAFT'), 'Черновик');
+assert.equal(statusLabel('FUTURE_STATUS'), 'FUTURE_STATUS');
+
+assert.ok(frontend.includes("from './presentation-labels.js'"), 'Library must import shared presentation helpers');
+assert.ok(frontend.includes("function libFormat(item){return publicationFormatLabel(item.publication_kind, item.content_format);}"), 'Library format must use shared helper');
+assert.ok(frontend.includes("function libSource(item){return sourceLabel(item.source_type||'manual');}"), 'Library source must use shared helper');
+assert.ok(frontend.includes('data-presentation-owner="library"'), 'Library badges must declare presentation ownership');
+assert.ok(frontend.includes('data-raw-status="${libEsc(raw)}"'), 'Library badges must preserve raw status');
+assert.ok(frontend.includes("libBadge(item.editorial_stage,'Контент')"), 'Library grid/table must render content-role status');
+assert.ok(frontend.includes("libBadge(item.status,'Публикация')"), 'Library grid/table must render publication-role status');
+assert.ok(frontend.includes(' · Источник: ${libEsc(libSource(item))}'), 'Library grid must render final source prefix');
+assert.ok(!frontend.includes(' · source: '), 'Library must not render legacy source prefix');
 
 console.log(JSON.stringify({ ok: true, checkpoint: 'CX3-002', totalActive: allBody.total, pagination: true, views: true, formatFilters: true, search: true, gridList: true, bulkSelection: true, inspectorReuse: true }, null, 2));
 await app.close();
