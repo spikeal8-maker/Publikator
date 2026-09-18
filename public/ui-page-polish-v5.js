@@ -96,15 +96,6 @@ function uiPolishContent(root = document) {
   });
 }
 
-function uiPolishTemplates(root = document) {
-  if (window.location.pathname !== '/templates') return;
-  const page = root.querySelector('.operator-page');
-  if (!page || page.dataset.uiCopy === '1') return;
-  page.dataset.uiCopy = '1';
-  uiSetText(page.querySelector('.operator-page-head p'), 'Здесь будут храниться повторно используемые заготовки текста, структуры и настроек публикации.');
-  uiSetText(page.querySelector('.operator-empty'), 'Шаблоны пока не включены. До их появления создавайте и дублируйте материалы через раздел «Контент».');
-}
-
 function uiSetLabelText(label, value) {
   if (!label) return;
   const node = [...label.childNodes].find((item) => item.nodeType === Node.TEXT_NODE && item.textContent.trim());
@@ -213,7 +204,6 @@ function uiPolishAll() {
   uiPolishCalendar(view);
   uiPolishLibrary(view);
   uiPolishContent(view);
-  uiPolishTemplates(view);
   uiPolishPostEditor(document);
   uiPolishPlatformCards(view);
   uiPolishOverview(view);
