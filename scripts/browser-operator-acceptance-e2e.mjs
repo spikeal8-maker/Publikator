@@ -320,6 +320,7 @@ try {
   let historyOverlay = page.locator('.revision-history-overlay');
   await historyOverlay.waitFor({ state: 'visible', timeout: 5000 });
   assert.equal((await historyOverlay.locator('h2').textContent())?.trim(), 'История изменений');
+  await page.waitForFunction(() => document.querySelectorAll('.revision-history-overlay .revision-history-item').length === 3);
   assert.equal(await historyOverlay.locator('.revision-history-item').count(), 3);
   await historyOverlay.locator('.revision-history-item').filter({ hasText: 'Версия 1' }).click();
   const revisionDetail = historyOverlay.locator('.revision-detail');
