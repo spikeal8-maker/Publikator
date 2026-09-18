@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const [index, app, css, ui, operator, googleSheets, calendar, library, dashboard, presentation, editorial, postEditor] = await Promise.all([
+const [index, app, css, ui, operator, googleSheets, calendar, library, dashboard, presentation, editorial, postEditor, videoAuthoring] = await Promise.all([
   fs.readFile(new URL('../public/index.html', import.meta.url), 'utf8'),
   fs.readFile(new URL('../public/app.js', import.meta.url), 'utf8'),
   fs.readFile(new URL('../public/ui-v5.css', import.meta.url), 'utf8'),
@@ -15,7 +15,8 @@ const [index, app, css, ui, operator, googleSheets, calendar, library, dashboard
   fs.readFile(new URL('../public/dashboard-v3.js', import.meta.url), 'utf8'),
   fs.readFile(new URL('../public/presentation-labels.js', import.meta.url), 'utf8'),
   fs.readFile(new URL('../public/editorial-v4.js', import.meta.url), 'utf8'),
-  fs.readFile(new URL('../public/post-editor-v04.js', import.meta.url), 'utf8')
+  fs.readFile(new URL('../public/post-editor-v04.js', import.meta.url), 'utf8'),
+  fs.readFile(new URL('../public/video-authoring-v3.js', import.meta.url), 'utf8')
 ]);
 
 for (const removed of ['../public/ui-page-polish-v5.js', '../public/ui-page-polish-v5.css']) {
@@ -73,7 +74,7 @@ for (const forbidden of ['document.', 'window.', 'MutationObserver', 'setInterva
   assert.ok(!presentation.includes(forbidden), `presentation-labels.js must stay pure: ${forbidden}`);
 }
 
-const runtimeSources = [app, ui, operator, googleSheets, calendar, library, dashboard, editorial, postEditor].join('\n');
+const runtimeSources = [app, ui, operator, googleSheets, calendar, library, dashboard, editorial, postEditor, videoAuthoring].join('\n');
 for (const legacy of ['uiPolishStatuses', 'uiPolishCalendar', 'uiPolishContent', 'uiPolishPostEditor', 'uiPolishAll', 'uiQueuePolish']) {
   assert.ok(!runtimeSources.includes(legacy), `legacy page-polish function leaked into runtime: ${legacy}`);
 }
@@ -111,6 +112,8 @@ assert.ok(app.includes("mode.value!=='AT'"), 'post editor scaffold must own date
 assert.ok(postEditor.includes('function hydrateScheduledAt(form, post)'), 'existing AT posts must hydrate local datetime');
 assert.ok(!postEditor.includes('function enhanceScheduleField'), 'post-editor enhancement must not own datetime visibility');
 assert.ok(!postEditor.includes("mode.addEventListener('change'"), 'post-editor enhancement must not register duplicate schedule visibility listener');
+assert.ok(videoAuthoring.includes("if (warning.textContent !== message) warning.textContent = message;"), 'video authoring observer text updates must remain idempotent');
+assert.ok(videoAuthoring.includes('const observer = new MutationObserver(() => tryEnhanceVisibleEditor());'), 'video authoring feature observer contract changed unexpectedly');
 
 assert.ok(calendar.includes("import { sourceLabel, statusLabel } from './presentation-labels.js';"), 'Calendar must use shared presentation helpers');
 assert.ok(calendar.includes("agenda:'Список'"), 'Calendar agenda mode must render Список');
