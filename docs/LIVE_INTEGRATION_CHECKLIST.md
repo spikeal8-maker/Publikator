@@ -2,22 +2,23 @@
 
 Этот checklist используется только для **реальной** проверки Telegram, VK, MAX и Instagram перед выпуском `v1.0.0`. Mock/E2E и зелёный CI не заменяют внешний API acceptance.
 
-Текущий release candidate: **`1.0.0-rc.1`**. SQLite schema: **v3**.
+Текущий release candidate: **`1.0.0-rc.4`**. Release tag: **`v1.0.0-rc.4`**. Release commit: **`095e289e503a79a21fa877f6afb2d300b87b4a21`**. SQLite schema: **v3**.
 
 ## 1. Зафиксировать release build
 
 Перед любыми live-публикациями:
 
 ```bash
-git checkout main
-git pull --ff-only
+git fetch --tags --prune
+git checkout --detach v1.0.0-rc.4
 export BUILD_SHA="$(git rev-parse HEAD)"
+test "$BUILD_SHA" = "095e289e503a79a21fa877f6afb2d300b87b4a21"
 echo "$BUILD_SHA"
 docker compose build --no-cache
 docker compose up -d
 ```
 
-Нельзя менять код, lockfile или Dockerfile после начала acceptance. Если код изменился — четыре live PASS аннулируются и тестирование начинается заново на новом SHA.
+Live acceptance V1 проводится только на неизменённом `v1.0.0-rc.4` / `095e289e503a79a21fa877f6afb2d300b87b4a21`. Ветка `main` является vNext и для V1 acceptance не используется. Нельзя менять код, lockfile или Dockerfile после начала acceptance. Если release-код изменился и выпускается новый RC — четыре live PASS аннулируются и тестирование начинается заново на новом release SHA.
 
 В production Publikator берёт release identity из встроенного `IMAGE_BUILD_SHA` / OCI `org.opencontainers.image.revision`. Runtime-переменная `APP_BUILD_SHA` не используется как доказательство release build.
 
