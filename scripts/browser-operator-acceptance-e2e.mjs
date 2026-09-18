@@ -51,6 +51,15 @@ try {
     assert.ok(overflow <= 1, `${route} desktop body overflow: ${overflow}px`);
   }
 
+  await page.goto(`${base}/overview`, { waitUntil: 'domcontentloaded' });
+  await page.locator('#app').waitFor({ state: 'visible' });
+  await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Обзор');
+  await page.locator('.dashboard-v3-root').waitFor({ state: 'visible' });
+  const problemsMetric = page.locator('.dashboard-v3-metric').filter({ hasText: /^Проблемы/ });
+  assert.equal(await problemsMetric.count(), 1, 'Problems metric must render exactly once');
+  assert.equal((await problemsMetric.locator('span').textContent())?.trim(), 'ошибки и публикации, требующие проверки', 'Problems metric note mismatch');
+  assert.equal(await page.getByText('ошибки и recovery-состояния', { exact: true }).count(), 0, 'legacy Problems metric note must not be visible');
+
   await page.goto(`${base}/schedule`, { waitUntil: 'domcontentloaded' });
   await page.locator('#app').waitFor({ state: 'visible' });
   await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Расписание');
@@ -113,6 +122,7 @@ try {
     directRouteLogin: true,
     browserHistory: true,
     scheduleModalOwnership: true,
+    overviewRendererOwnership: true,
     noBodyOverflow: true,
     pageErrors: 0
   }, null, 2));
