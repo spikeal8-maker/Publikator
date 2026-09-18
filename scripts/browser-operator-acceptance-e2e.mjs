@@ -225,6 +225,19 @@ try {
   postForm = page.locator('#post-form');
   await postForm.waitFor({ state: 'visible' });
   const existingPostModal = postForm.locator('xpath=ancestor::div[contains(@class,"modal-card")]');
+  await page.waitForTimeout(700);
+  const existingEnhancementDiagnostic = await postForm.evaluate((form) => ({
+    v04Enhanced: form.dataset.v04Enhanced || null,
+    videoAuthoringEnhanced: form.dataset.videoAuthoringEnhanced || null,
+    workspaceCount: form.querySelectorAll('.platform-workspace').length,
+    errorText: form.closest('.modal-card')?.querySelector('#post-error')?.textContent || '',
+    actionCount: form.querySelectorAll('.row-actions.full').length,
+    mediaInputCount: form.querySelectorAll('#media-file').length,
+    targetCount: form.querySelectorAll('input[name="accountId"]').length
+  }));
+  if (existingEnhancementDiagnostic.workspaceCount !== 1) {
+    throw new Error(`FE007_ENHANCEMENT_DIAGNOSTIC ${JSON.stringify(existingEnhancementDiagnostic)}`);
+  }
   await existingPostModal.locator('.platform-workspace').waitFor({ state: 'visible' });
   const existingSections = await existingPostModal.locator('.ui-editor-section-title strong').allTextContents();
   for (const section of ['Основное', 'Медиа', 'Площадки']) assert.ok(existingSections.includes(section), `existing editor section missing: ${section}`);
