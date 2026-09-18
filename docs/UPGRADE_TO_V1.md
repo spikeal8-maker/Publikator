@@ -1,4 +1,4 @@
-# Upgrade to Publikator 1.0.0-rc.1
+# Upgrade to Publikator 1.0.0-rc.4
 
 Этот документ описывает переход существующей установки на текущий release candidate перед live acceptance.
 
@@ -31,11 +31,12 @@ reverse-proxy configuration
 
 Если используется reverse proxy, определить его реальный IP/CIDR для `TRUST_PROXY`. Не использовать wildcard trust.
 
-## 3. Получить 1.0.0-rc.1
+## 3. Получить 1.0.0-rc.4
 
 ```bash
-git checkout main
-git pull --ff-only
+git fetch --tags --prune
+git checkout --detach v1.0.0-rc.4
+test "$(git rev-parse HEAD)" = "095e289e503a79a21fa877f6afb2d300b87b4a21"
 git rev-parse HEAD
 ```
 
@@ -126,7 +127,7 @@ Schema v3 добавляет уникальность schedule slots:
 
 Открыть **Диагностика** и проверить:
 
-- version = `1.0.0-rc.1`;
+- version = `1.0.0-rc.4`;
 - schema = `3`;
 - SQLite `quick_check = ok`;
 - WAL;
