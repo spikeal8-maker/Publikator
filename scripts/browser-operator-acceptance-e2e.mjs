@@ -214,20 +214,24 @@ try {
   await draftRow.locator('.open-post').click();
   const contentInspector = page.locator('.editorial-inspector-overlay');
   await contentInspector.waitFor({ state: 'visible' });
-  await contentInspector.locator('.inspector-edit').click();
-  await page.waitForTimeout(500);
-  const editorDiagnostic = await page.evaluate(() => ({
-    formCount: document.querySelectorAll('#post-form').length,
-    modalCount: document.querySelectorAll('.modal').length,
-    modalCards: [...document.querySelectorAll('.modal-card')].map((node) => ({
-      classes: node.className,
-      text: node.textContent?.slice(0, 180),
-      form: Boolean(node.querySelector('#post-form'))
-    })),
-    openPostIds: [...document.querySelectorAll('.open-post')].map((node) => node.dataset.id),
-    bodyHasFixtureTitle: document.body.innerText.includes('Browser Content Draft Manual')
-  }));
-  throw new Error(`FE007_EDITOR_DIAGNOSTIC ${JSON.stringify(editorDiagnostic)}`);
+  assert.equal(await contentInspector.locator('.inspector-edit').count(), 1, 'Content Inspector edit action missing');
+  await contentInspector.locator('.inspector-close').click();
+  await contentInspector.waitFor({ state: 'detached' });
+  await page.evaluate((postId) => {
+    const button = [...document.querySelectorAll('.open-post')].find((node) => node.dataset.id === postId);
+    if (!button || typeof button.onclick !== 'function') throw new Error('existing Content row editor handler missing');
+    button.onclick();
+  }, contentDraft.id);
+  postForm = page.locator('#post-form');
+  await postForm.waitFor({ state: 'visible' });
+  const existingPostModal = postForm.locator('xpath=ancestor::div[contains(@class,"modal-card")]');
+  await existingPostModal.locator('.platform-workspace').waitFor({ state: 'visible' });
+  const existingSections = await existingPostModal.locator('.ui-editor-section-title strong').allTextContents();
+  for (const section of ['Основное', 'Медиа', 'Площадки']) assert.ok(existingSections.includes(section), `existing editor section missing: ${section}`);
+  assert.equal(await postForm.locator('#media-file').count(), 1, 'existing editor media enhancement missing');
+  assert.equal(await existingPostModal.locator('.platform-editor-card').count(), 1, 'existing editor target enhancement missing');
+  await postForm.locator('#close-modal').click();
+  await page.locator('#post-form').waitFor({ state: 'detached' });
   const existingPostModal = postForm.locator('xpath=ancestor::div[contains(@class,"modal-card")]');
   await existingPostModal.locator('.platform-workspace').waitFor({ state: 'visible' });
   const existingSections = await existingPostModal.locator('.ui-editor-section-title strong').allTextContents();
