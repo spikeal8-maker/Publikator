@@ -68,6 +68,7 @@ globalThis.fetch = async (input, init = {}) => {
 
 try {
   const { db, id, migrate, nowIso } = await import('../dist/db.js');
+  const { commitContentEdit } = await import('../dist/content-versioning.js');
   const { buildApp } = await import('../dist/app.js');
   migrate();
   let project = db.prepare('SELECT id,slug FROM projects ORDER BY created_at LIMIT 1').get();
@@ -143,6 +144,10 @@ try {
   assert.equal(post.body, 'Body changed before apply');
   assert.deepEqual(JSON.parse(post.source_ref), [`gs:${connector.id}`, 'sheet-001']);
   assert.equal(post.source_revision, 'rev-2');
+  assert.deepEqual(
+    db.prepare('SELECT content_version,actor_source FROM content_revisions WHERE post_id=? ORDER BY content_version').all(post.id),
+    [{ content_version: 1, actor_source: 'google_sheets' }]
+  );
   assert.ok(writeBackBodies.at(-1).data.some((item) => item.range.includes('V1:Y1')));
   assert.ok(writeBackBodies.at(-1).data.some((item) => item.range.includes('V2:Y2')));
 
@@ -158,6 +163,13 @@ try {
   assert.equal(updateApply.json().updated, 1);
   post = db.prepare('SELECT * FROM posts WHERE id=?').get(post.id);
   assert.equal(post.body, 'Body v3');
+  assert.deepEqual(
+    db.prepare('SELECT content_version,actor_source FROM content_revisions WHERE post_id=? ORDER BY content_version').all(post.id),
+    [
+      { content_version: 1, actor_source: 'google_sheets' },
+      { content_version: 2, actor_source: 'google_sheets' }
+    ]
+  );
   assert.equal(db.prepare("SELECT COUNT(*) AS count FROM posts WHERE source_type='google_sheets'").get().count, 1, 'update must not duplicate');
 
   writeBackFailure = true;
@@ -176,7 +188,9 @@ try {
   assert.equal(db.prepare("SELECT COUNT(*) AS count FROM posts WHERE source_type='google_sheets'").get().count, 2);
   writeBackFailure = false;
 
-  db.prepare('UPDATE posts SET body=?,content_version=content_version+1 WHERE id=?').run('Manual local edit', post.id);
+  commitContentEdit(post.id, post.content_version, 'manual', () => {
+    db.prepare('UPDATE posts SET body=? WHERE id=?').run('Manual local edit', post.id);
+  });
   sheetValues = [header, row('sheet-001', 'From Google', 'Body from Sheet after local edit', 'rev-4')];
   const conflict = await request('POST', `/api/google-sheets/connectors/${connector.id}/preview`, {});
   assert.equal(conflict.statusCode, 200, conflict.body);
