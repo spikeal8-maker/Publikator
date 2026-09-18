@@ -49,7 +49,7 @@ for (const route of routes) assert.ok(ui.includes(`'${route}'`), `route metadata
 for (const behavior of ['uiContentFilters', 'uiProjectsPage', 'uiSchedulePage', 'uiJournalFilters', 'uiWrapTables', 'uiDecorateSocialCards', 'ui-nav-open']) {
   assert.ok(ui.includes(behavior), `shared enhancement missing ${behavior}`);
 }
-for (const behavior of ['uiSetText', 'uiSetLabelText', 'uiPolishStatuses', 'uiPolishCalendar', 'uiPolishLibrary', 'uiPolishPostEditor', 'uiPolishOverview', 'uiPolishLibraryRoles']) {
+for (const behavior of ['uiSetText', 'uiSetLabelText', 'uiPolishStatuses', 'uiPolishCalendar', 'uiPolishLibrary', 'uiPolishPostEditor', 'uiPolishLibraryRoles']) {
   assert.ok(polish.includes(behavior), `page polish missing ${behavior}`);
 }
 assert.ok(polish.includes('node.textContent !== value'), 'DOM copy updates must be idempotent under MutationObserver');
@@ -88,6 +88,33 @@ assert.ok(slotEditorSource.includes('<button class="primary">Добавить</b
 assert.ok(!polish.includes('uiPolishScheduleModal'), 'schedule modal copy must no longer be owned by ui-page-polish-v5.js');
 assert.ok(slotEditorSource.includes('id="slot-form"'), '#slot-form must remain in slotEditor');
 assert.ok(slotEditorSource.includes("api('/api/schedules',{method:'POST'"), 'schedule POST must remain in slotEditor');
+
+const overviewProblemsNote = 'ошибки и публикации, требующие проверки';
+assert.ok(dashboard.includes(`dashboardMetric('Проблемы', data.metrics.problems, '${overviewProblemsNote}'`), 'final Problems metric note must be owned by dashboard-v3.js');
+const dashboardFormatLabels = {
+  'FEED / IMAGE': 'Пост · Изображение',
+  'FEED / VIDEO': 'Пост · Видео',
+  'SHORT / VERTICAL_VIDEO': 'Короткое видео',
+  'STORY / IMAGE': 'История · Изображение',
+  'STORY / VIDEO': 'История · Видео',
+  'STORY / STORY_SEQUENCE': 'Серия историй'
+};
+for (const [key, label] of Object.entries(dashboardFormatLabels)) {
+  assert.ok(dashboard.includes(`'${key}': '${label}'`), `dashboard-owned format mapping missing ${key} -> ${label}`);
+}
+const dashboardFormatStart = dashboard.indexOf('function dashboardFormat(');
+const dashboardFormatEnd = dashboard.indexOf('function dashboardThumbnail(', dashboardFormatStart);
+assert.ok(dashboardFormatStart >= 0 && dashboardFormatEnd > dashboardFormatStart, 'dashboardFormat source boundary missing');
+const dashboardFormatSource = dashboard.slice(dashboardFormatStart, dashboardFormatEnd);
+assert.ok(dashboardFormatSource.includes('return DASHBOARD_FORMAT_LABEL[key] || key;'), 'dashboardFormat must preserve raw KIND / FORMAT as fallback');
+const dashboardItemStart = dashboard.indexOf('function dashboardItem(');
+const dashboardItemEnd = dashboard.indexOf('function dashboardList(', dashboardItemStart);
+assert.ok(dashboardItemStart >= 0 && dashboardItemEnd > dashboardItemStart, 'dashboardItem source boundary missing');
+const dashboardItemSource = dashboard.slice(dashboardItemStart, dashboardItemEnd);
+assert.ok(dashboardItemSource.includes('dashboardFormat(item.publication_kind, item.content_format)'), 'dashboardItem must use dashboard-owned formatter');
+assert.ok(!dashboardItemSource.includes("item.publication_kind || 'FEED'"), 'dashboardItem must not render raw publication kind directly');
+assert.ok(!polish.includes('uiPolishOverview'), 'overview copy and format must no longer be owned by ui-page-polish-v5.js');
+assert.ok(index.includes('data-route="/overview"') && ui.includes("'/overview'"), '/overview must remain a registered route');
 
 assert.ok(operator.includes("'/api/accounts/test'"), 'social connection verification must remain real API-backed');
 assert.ok(operator.includes('/api/content-plan/v3/import/preview?sourceId='), 'source preview must remain schema-v3 backed');
