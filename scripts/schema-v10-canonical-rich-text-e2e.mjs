@@ -117,8 +117,8 @@ const { parseRichTextJson,richTextToPlain,serializeRichText }=await import('../d
 
 migrate();
 try{
-  assert.equal(DATABASE_SCHEMA_VERSION,10);
-  assert.equal(Number(db.pragma('user_version',{simple:true})),10);
+  assert.equal(DATABASE_SCHEMA_VERSION,11);
+  assert.equal(Number(db.pragma('user_version',{simple:true})),11);
 
   const postColumns=new Set(db.prepare('PRAGMA table_info(posts)').all().map(row=>row.name));
   const revisionColumns=new Set(db.prepare('PRAGMA table_info(content_revisions)').all().map(row=>row.name));
@@ -150,7 +150,7 @@ try{
   assert.equal(db.prepare('SELECT body_rich_json FROM posts WHERE id=?').get('ready').body_rich_json,customJson,'migration helper rerun must not overwrite rich state');
 
   migrate();
-  assert.equal(Number(db.pragma('user_version',{simple:true})),10);
+  assert.equal(Number(db.pragma('user_version',{simple:true})),11);
   assert.equal(db.prepare('SELECT body_rich_json FROM posts WHERE id=?').get('ready').body_rich_json,customJson);
 
   console.log(JSON.stringify({
