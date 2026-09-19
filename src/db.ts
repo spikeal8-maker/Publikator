@@ -5,6 +5,8 @@ import { config } from './config.js';
 import { DATABASE_SCHEMA_VERSION } from './schema.js';
 import { migrateRichMediaModel } from './rich-media-migration.js';
 import { migrateRevisionHistory } from './revision-history-migration.js';
+import { migrateCanonicalRichText } from './canonical-rich-text-migration.js';
+import { canonicalPlainRichJson } from './rich-text.js';
 
 export { DATABASE_SCHEMA_VERSION } from './schema.js';
 
@@ -13,6 +15,7 @@ fs.mkdirSync(config.mediaDir, { recursive: true });
 fs.mkdirSync(config.backupDir, { recursive: true });
 
 export const db = new Database(config.dbPath);
+db.function('publikator_plain_rich_json', { deterministic: true }, (value: unknown) => canonicalPlainRichJson(String(value ?? '')));
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 db.pragma('busy_timeout = 5000');
@@ -380,6 +383,7 @@ export function migrate(): void {
   if (currentSchemaVersion < 7) migrateTimeRenditionSequence();
   if (currentSchemaVersion < 8) migrateRichMediaModel(db);
   if (currentSchemaVersion < 9) migrateRevisionHistory(db);
+  if (currentSchemaVersion < 10) migrateCanonicalRichText(db);
 
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_posts_status_schedule ON posts(status, schedule_mode, scheduled_at);
