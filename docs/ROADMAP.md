@@ -288,6 +288,8 @@ Publikator уже прошёл маленькие additive milestones вмест
 5  ingestion provenance/source identity
 6  ingestion security state
 7  UTC/IANA schedule + TargetRendition + PublicationUnit
+8  rich-media model
+9  revision-history — EW4-002 candidate; becomes current only after accepted merge
 ```
 
 Новые feature PR не должны повторно создавать эти primitives. Следующая schema version появляется только при новом coherent data invariant и обязана следовать `docs/RELEASE_MIGRATION_POLICY.md` + `SCHEMA_MILESTONES`.
@@ -296,7 +298,7 @@ Publikator уже прошёл маленькие additive milestones вмест
 
 # 6. Текущее состояние и оставшийся порядок разработки
 
-Сверено: **18.09.2026**, после merge PR #88.
+Сверено: **19.09.2026**, после merge PR #102 (FE-007).
 
 Следующие foundation/product-этапы уже реализованы и **не должны создаваться заново параллельными слоями**:
 
@@ -310,24 +312,24 @@ Publikator уже прошёл маленькие additive milestones вмест
 - Google Sheets connector и automation lane #72/#79–#85;
 - Google Drive и Яндекс Диск для image binding;
 - настоящий browser acceptance из #86;
-- начатая консолидация Sources UI из #87/#88.
+- Sources UI consolidation из #87/#88;
+- FE-002…FE-007 frontend ownership consolidation; global `ui-page-polish-v5` runtime удалён в PR #102.
 
 Идентификаторы `CP2-007A…D` и `CP2-008A`, использованные в merged Google Sheets lane, **не означают**, что исходные milestones CP2-007 AI producer и CP2-008 Advanced ingest завершены. Для этого reconciliation главным является issue #26.
 
 ## Оставшийся рекомендуемый порядок
 
-1. **Frontend consolidation** — убирать оставшиеся post-render/MutationObserver-слои там, где route/component может сам владеть разметкой. Не создавать новый `ui-vN-polish`. Сохранять реальный browser gate.
-2. **EW4-002 Revision history UX** — просмотр, diff и restore immutable revisions для ещё не опубликованного контента.
-3. **EW4-003 Canonical rich text editor** — структурированный AST + plain-text fallback.
-4. **EW4-004 Platform compilers** — Telegram/MAX/VK/Instagram + downgrade diagnostics.
-5. **EW4-005/006 Defaults + Templates/Snippets** — project defaults и snapshot semantics шаблонов.
-6. **EW4-007 Calendar editing** — drag/drop, create-from-slot, quick edit и optimistic-conflict handling.
-7. **CP2-003 ZIP Content Bundle** — детерминированная media binding и acceptance на 100 posts / 150 media.
-8. **CP2-004 + EW4-009 Integration API v1** — полный product contract поверх уже существующей hashed/scoped API-key security foundation.
-9. **Завершение CP2-006** — cloud video ingest и browser-proven UI управления connectors.
-10. **CP2-007 AI Content Profile / producer** — AI создаёт DRAFT только через Integration API; прямой AI→social bypass запрещён.
-11. **CP2-008 Advanced ingest** — embedded images в XLSX, Google Sheets `IMAGE()` и явно ограниченные advanced-source сценарии.
-12. **EW4-010 + Pipeline mass acceptance + live capability enablement** — финальная product acceptance после закрытия контрактов выше.
+1. **EW4-002 Revision history UX** — текущий candidate `ew4-002/revision-history-ux`; просмотр, diff и safe restore immutable revisions. Не считать DONE до accepted merge.
+2. **EW4-003 Canonical rich text editor** — структурированный AST + plain-text fallback.
+3. **EW4-004 Platform compilers** — Telegram/MAX/VK/Instagram + downgrade diagnostics.
+4. **EW4-005/006 Defaults + Templates/Snippets** — project defaults и snapshot semantics шаблонов.
+5. **EW4-007 Calendar editing** — drag/drop, create-from-slot, quick edit и optimistic-conflict handling.
+6. **CP2-003 ZIP Content Bundle** — детерминированная media binding и acceptance на 100 posts / 150 media.
+7. **CP2-004 + EW4-009 Integration API v1** — полный product contract поверх уже существующей hashed/scoped API-key security foundation.
+8. **Завершение CP2-006** — cloud video ingest и browser-proven UI управления connectors.
+9. **CP2-007 AI Content Profile / producer** — AI создаёт DRAFT только через Integration API; прямой AI→social bypass запрещён.
+10. **CP2-008 Advanced ingest** — embedded images в XLSX, Google Sheets `IMAGE()` и явно ограниченные advanced-source сценарии.
+11. **EW4-010 + Pipeline mass acceptance + live capability enablement** — финальная product acceptance после закрытия контрактов выше.
 
 V1 live acceptance ведётся отдельно в issue #12 и ветке `release/1.0`; он не переопределяет порядок vNext-разработки.
 
