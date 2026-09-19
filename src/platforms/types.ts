@@ -1,11 +1,13 @@
 import type { MediaRow } from '../media.js';
 import type { Platform } from '../db.js';
 import type { ContentFormat, PublicationKind } from '../domain/content-domain.js';
+import type { PlatformTextCompilation } from '../platform-text.js';
 
 export type PublishInput = {
   postId: string;
   title: string;
   text: string;
+  textCompilation?: PlatformTextCompilation;
   media: MediaRow[];
   credentials: Record<string, unknown>;
   publicMediaUrls: string[];
