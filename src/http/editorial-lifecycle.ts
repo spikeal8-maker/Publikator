@@ -11,6 +11,7 @@ import {
   type EditorialStage
 } from '../editorial-lifecycle.js';
 import { contentMutationError, expectedContentVersion } from './content-version.js';
+import { parseRichTextJson } from '../rich-text.js';
 
 type EditorialListView = 'active' | 'archive' | 'trash';
 
@@ -45,6 +46,7 @@ function inspector(postId: string): any | undefined {
     FROM publication_events WHERE post_id=? ORDER BY created_at DESC LIMIT 20`).all(postId);
   return {
     ...post,
+    bodyRich: parseRichTextJson(String(post.body_rich_json)),
     media: listMedia(postId),
     contentMedia: listContentMedia(postId),
     targets,
