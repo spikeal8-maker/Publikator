@@ -12,6 +12,7 @@ process.env.APP_MASTER_KEY = 'telegram-adapter-test-master-key-longer-than-thirt
 const { telegramPublisher } = await import('../dist/platforms/telegram.js');
 const { PLATFORM_CAPABILITIES } = await import('../dist/platforms/capabilities.js');
 const { PlatformError } = await import('../dist/platforms/types.js');
+const { compilePlatformText } = await import('../dist/platform-text.js');
 const { db } = await import('../dist/db.js');
 
 async function makeMedia(index) {
@@ -152,6 +153,34 @@ try {
   }
 
   {
+    const richDoc={type:'doc',content:[{type:'paragraph',content:[
+      {type:'text',text:'Telegram ',marks:[]},
+      {type:'text',text:'bold🙂',marks:[{type:'bold'}]},
+      {type:'text',text:' ',marks:[]},
+      {type:'link',attrs:{href:'https://example.test/tg'},content:[{type:'text',text:'link',marks:[{type:'underline'}]}]}
+    ]}]};
+    const compiled=compilePlatformText('telegram',richDoc,'media_caption');
+    assert.equal(compiled.transport.kind,'telegram_entities');
+    const steps=[{
+      telegramMethod:'sendPhoto',
+      check:(call)=>{
+        assert.ok(call.init.body instanceof FormData);
+        assert.equal(call.init.body.get('caption'),compiled.transport.text);
+        assert.deepEqual(JSON.parse(String(call.init.body.get('caption_entities'))),compiled.transport.entities);
+        assert.equal(call.init.body.get('parse_mode'),null);
+      },
+      response:{ok:true,result:{message_id:151}}
+    }];
+    mockFetch(steps);
+    const result=await telegramPublisher.publish({
+      ...input({text:compiled.plainText}),
+      textCompilation:compiled
+    });
+    assert.equal(result.externalId,'151');
+    assert.equal(steps.length,0);
+  }
+
+  {
     const steps = [{
       telegramMethod: 'sendMediaGroup',
       check: (call) => {
@@ -239,13 +268,25 @@ try {
   }
 
   {
-    const longText = 'я'.repeat(1025);
+    const richLong={type:'doc',content:[{type:'paragraph',content:[
+      {type:'text',text:'я'.repeat(1020),marks:[]},
+      {type:'text',text:'Ж🙂Ж',marks:[{type:'bold'}]}
+    ]}]};
+    const compiled=compilePlatformText('telegram',richLong,'media_caption');
+    assert.equal(compiled.transport.kind,'telegram_entities');
+    assert.ok(compiled.transport.text.length>1024);
     const steps = [
-      { telegramMethod: 'sendPhoto', check: (call) => assert.equal(call.init.body.get('caption'), ''), response: { ok: true, result: { message_id: 301 } } },
-      { telegramMethod: 'sendMessage', check: (call) => { const body = JSON.parse(String(call.init.body)); assert.equal(body.text, longText); assert.ok(call.init.signal instanceof AbortSignal); }, status: 400, response: { ok: false, error_code: 400, description: 'Bad Request' } }
+      { telegramMethod: 'sendPhoto', check: (call) => { assert.equal(call.init.body.get('caption'), ''); assert.equal(call.init.body.get('caption_entities'), null); }, response: { ok: true, result: { message_id: 301 } } },
+      { telegramMethod: 'sendMessage', check: (call) => {
+        const body = JSON.parse(String(call.init.body));
+        assert.equal(body.text, compiled.transport.text);
+        assert.deepEqual(body.entities, compiled.transport.entities);
+        assert.equal(body.parse_mode, undefined);
+        assert.ok(call.init.signal instanceof AbortSignal);
+      }, status: 400, response: { ok: false, error_code: 400, description: 'Bad Request' } }
     ];
     mockFetch(steps);
-    await expectPlatformError(telegramPublisher.publish(input({ text: longText })), {
+    await expectPlatformError(telegramPublisher.publish({ ...input({ text: compiled.plainText }), textCompilation: compiled }), {
       retryable: false, outcomeUnknown: true, message: /media уже опубликовано \(message_id=301\).*повтор всего target заблокирован/
     });
   }
@@ -270,7 +311,7 @@ try {
     });
   }
 
-  console.log(JSON.stringify({ ok: true, scenarios: 12, feedVideoAdapterImplemented: true, videoCapabilityStillLiveGated: true }, null, 2));
+  console.log(JSON.stringify({ ok: true, scenarios: 13, feedVideoAdapterImplemented: true, videoCapabilityStillLiveGated: true }, null, 2));
 } finally {
   db.close();
   await fs.rm(dataDir, { recursive: true, force: true });
