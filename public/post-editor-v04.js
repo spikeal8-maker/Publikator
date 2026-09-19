@@ -297,7 +297,7 @@ async function enhancePostEditor(form, postId) {
   section.innerHTML = `<div class="platform-workspace-head">
       <div>
         <h3>Варианты по площадкам</h3>
-        <p class="muted small">Оставьте поле пустым, чтобы использовать базовый текст. Предпросмотр ориентировочный: финальный интерфейс определяется самой соцсетью.</p>
+        <p class="muted small">Rich-варианты сохраняются в TargetRendition. Панель инструментов отражает реальные возможности compiler каждой площадки.</p>
       </div>
       <span class="badge">${post.targets.length} подключений</span>
     </div>
@@ -312,6 +312,16 @@ async function enhancePostEditor(form, postId) {
 
   const rerenderAll = () => {
     for (const card of cards) {
+      const target = targetById.get(card.dataset.targetId);
+      if (target) renderTargetCard(card, target, post, form);
+    }
+  };
+
+  baseTextarea?.addEventListener('input', rerenderAll);
+  form.querySelectorAll('input[name="accountId"]').forEach((checkbox) => checkbox.addEventListener('change', rerenderAll));
+  enhanceMediaOrdering(form, post, rerenderAll);
+
+  for (const card of cards) {
     const target = targetById.get(card.dataset.targetId);
     if (!target) continue;
     const capability = capabilityByPlatform.get(target.platform);
