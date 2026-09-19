@@ -20,7 +20,7 @@ const sharp = (await import('sharp')).default;
 const { saveImageVersioned, deleteMediaVersioned } = await import('../dist/media.js');
 
 migrate();
-assert.equal(Number(db.pragma('user_version', { simple: true })), 10);
+assert.equal(Number(db.pragma('user_version', { simple: true })), 11);
 assert.throws(() => time.resolveLocalSchedule('2026-03-08T02:30:00', 'America/New_York'), /does not exist/i);
 assert.throws(() => time.resolveLocalSchedule('2026-11-01T01:30:00', 'America/New_York'), /ambiguous/i);
 const earlier = time.resolveLocalSchedule('2026-11-01T01:30:00', 'America/New_York', 'earlier');
@@ -35,6 +35,8 @@ db.prepare(`INSERT INTO social_accounts
   (id,platform,name,credentials_encrypted,enabled,created_at,updated_at)
   VALUES (?,?,?,?,1,?,?)`)
   .run(accountId, 'telegram', 'M0-005 Telegram', encryptJson({ botToken: 'mock', chatId: '@mock' }), now, now);
+db.prepare(`INSERT INTO project_default_targets (project_id,account_id,created_at)
+  VALUES (?,?,?)`).run(projectId, accountId, now);
 
 const app = await buildApp();
 await app.ready();
@@ -160,7 +162,7 @@ assert.equal(db.prepare('SELECT content_format FROM posts WHERE id=?').get(media
 console.log(JSON.stringify({
   ok: true,
   checkpoint: 'M0-005',
-  schemaVersion: 10,
+  schemaVersion: 11,
   dstNonexistentRejected: true,
   dstAmbiguousRequiresChoice: true,
   queueToAtConfirmation: true,

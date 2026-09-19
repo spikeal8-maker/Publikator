@@ -20,9 +20,12 @@ migrate();
 const projectId = db.prepare('SELECT id FROM projects ORDER BY created_at LIMIT 1').get().id;
 const createdAt = nowIso();
 for (const platform of ['telegram', 'instagram']) {
+  const accountId=`acc_${platform}`;
   db.prepare(`INSERT INTO social_accounts
     (id,platform,name,credentials_encrypted,enabled,created_at,updated_at)
-    VALUES (?,?,?,?,1,?,?)`).run(`acc_${platform}`, platform, `${platform} preview`, encryptJson({ token: 'mock' }), createdAt, createdAt);
+    VALUES (?,?,?,?,1,?,?)`).run(accountId, platform, `${platform} preview`, encryptJson({ token: 'mock' }), createdAt, createdAt);
+  db.prepare(`INSERT INTO project_default_targets (project_id,account_id,created_at) VALUES (?,?,?)`)
+    .run(projectId,accountId,createdAt);
 }
 
 const app = await buildApp();

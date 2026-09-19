@@ -30,7 +30,7 @@ const {
 const { buildApp }=await import('../dist/app.js');
 
 migrate();
-assert.equal(Number(db.pragma('user_version',{simple:true})),10);
+assert.equal(Number(db.pragma('user_version',{simple:true})),11);
 
 const richFixture={
   type:'doc',
@@ -205,6 +205,8 @@ const login=await app.inject({method:'POST',url:'/api/auth/login',payload:{passw
 assert.equal(login.statusCode,200,login.body);
 const cookie=String(login.headers['set-cookie']).split(';')[0];
 const projectId=db.prepare('SELECT id FROM projects ORDER BY created_at LIMIT 1').get().id;
+const insertProjectDefault=db.prepare(`INSERT INTO project_default_targets (project_id,account_id,created_at) VALUES (?,?,?)`);
+for(const platform of platforms) insertProjectDefault.run(projectId,accountIds[platform],nowIso());
 
 async function api(method,url,payload,expected=200){
   const response=await app.inject({method,url,headers:{cookie},...(payload===undefined?{}:{payload})});

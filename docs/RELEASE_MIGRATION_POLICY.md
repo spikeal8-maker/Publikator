@@ -36,17 +36,19 @@ Publikator uses monotonic, one-step schema milestones. Current ledger:
 | 8 | CX3-003 | rich-media authoring relation, video metadata and immutable story/media ordering |
 | 9 | EW4-002 | revision-history metadata and complete immutable revision capture for schema-9 content |
 | 10 | EW4-003 | canonical rich-text AST + deterministic plain fallback for working posts and immutable revisions |
+| 11 | EW4-005 | project-defaults candidate; A1 adds only canonical Project.default_timezone |
 
 A feature PR MUST NOT combine several unrelated future data-model milestones into one schema jump.
 A new schema version must represent one coherent data ownership/invariant change and migrate from the immediately previous version.
 ## 4. Mandatory evidence for every new schema version
 
-Schema 9 `revision-history` is accepted in `main`. EW4-003 candidate introduces the next additive milestone, schema 10 `canonical-rich-text`:
-- migration regression: `scripts/schema-v10-canonical-rich-text-e2e.mjs`;
-- backup regression: `scripts/backup-v10-canonical-rich-text-e2e.mjs`;
-- feature/domain regression: `scripts/ew4-003-canonical-rich-text-e2e.mjs`;
-- migration preserves literal legacy plain text exactly and does not parse Markdown;
-- schema 10 becomes current only after accepted EW4-003 merge.
+Schema 10 `canonical-rich-text` is accepted in `main`. EW4-005 Draft candidate introduces schema 11 `project-defaults`; current A1 evidence is:
+- migration regression: `scripts/schema-v11-project-defaults-e2e.mjs`;
+- backup regression: `scripts/backup-v11-project-defaults-e2e.mjs`;
+- feature/domain regression: `scripts/ew4-005a1-project-timezone-e2e.mjs`;
+- existing projects backfill to neutral `UTC`;
+- existing posts, revisions and schedules remain untouched;
+- schema 11 remains candidate until the whole EW4-005 is accepted/merged.
 
 Every schema `N` after the V1 baseline MUST add all of the following in the same checkpoint PR:
 1. explicit migration code from `N-1` to `N`;

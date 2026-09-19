@@ -19,7 +19,7 @@ const { createBackupBundle, resolveBackupBundle, stageRestoreBundle } = await im
 const { applyPendingRestore } = await import('../dist/restore-bootstrap.js');
 
 migrate();
-assert.equal(Number(db.pragma('user_version', { simple: true })), 10);
+assert.equal(Number(db.pragma('user_version', { simple: true })), 11);
 
 const projectId = id('prj');
 const postId = id('post');
@@ -54,14 +54,14 @@ db.prepare("UPDATE content_revisions SET editorial_stage='APPROVED',restored_fro
 db.prepare('DELETE FROM publication_events WHERE post_id=?').run(postId);
 
 const staged = await stageRestoreBundle(bundlePath);
-assert.equal(staged.manifest.schemaVersion, 10);
+assert.equal(staged.manifest.schemaVersion, 11);
 db.close();
 const applied = await applyPendingRestore();
 assert.equal(applied.applied, true);
 
 const restoredDb = new Database(config.dbPath, { readonly: true, fileMustExist: true });
 try {
-  assert.equal(Number(restoredDb.pragma('user_version', { simple: true })), 10);
+  assert.equal(Number(restoredDb.pragma('user_version', { simple: true })), 11);
   const after = restoredDb.prepare(`SELECT id,post_id,content_version,title,body,editorial_stage,actor_source,restored_from_revision_id
     FROM content_revisions WHERE post_id=? ORDER BY content_version`).all(postId);
   assert.deepEqual(after, before);
@@ -74,7 +74,7 @@ try {
   assert.equal(JSON.parse(eventRow.data_json).restoredRevisionId, revision1.id);
   console.log(JSON.stringify({
     ok: true,
-    schemaVersion: 10,
+    schemaVersion: 11,
     revisionsPreserved: true,
     editorialStagePreserved: true,
     restoredFromPreserved: true,

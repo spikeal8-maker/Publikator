@@ -148,16 +148,18 @@ function claimTarget(targetId: string, revisionId: string): boolean {
 
 export function ensureTargets(postId: string): void {
   const now = nowIso();
-  const post = db.prepare('SELECT created_at FROM posts WHERE id=?').get(postId) as { created_at: string } | undefined;
+  const post = db.prepare('SELECT project_id,created_at FROM posts WHERE id=?')
+    .get(postId) as { project_id: string; created_at: string } | undefined;
   if (!post) throw new Error('Пост не найден');
-  const accounts = db.prepare('SELECT id,created_at FROM social_accounts WHERE enabled=1 ORDER BY created_at').all() as Array<{ id: string; created_at: string }>;
+  const defaults = db.prepare(`SELECT pdt.account_id FROM project_default_targets pdt
+    JOIN social_accounts a ON a.id=pdt.account_id
+    WHERE pdt.project_id=? AND pdt.created_at<=? AND a.enabled=1
+    ORDER BY pdt.created_at,pdt.account_id`)
+    .all(post.project_id, post.created_at) as Array<{ account_id: string }>;
   const insert = db.prepare(`INSERT OR IGNORE INTO post_targets
-    (id,post_id,account_id,enabled,state,attempts,updated_at) VALUES (lower(hex(randomblob(16))),?,?,?,?,0,?)`);
+    (id,post_id,account_id,enabled,state,attempts,updated_at) VALUES (lower(hex(randomblob(16))),?,?,1,?,0,?)`);
   const tx = db.transaction(() => {
-    for (const account of accounts) {
-      const existedWhenPostWasCreated = account.created_at <= post.created_at ? 1 : 0;
-      insert.run(postId, account.id, existedWhenPostWasCreated, 'PENDING', now);
-    }
+    for (const target of defaults) insert.run(postId, target.account_id, 'PENDING', now);
   });
   tx();
 }
@@ -169,9 +171,13 @@ export function setTargetSelection(postId: string, accountIds: string[]): void {
   );
   const selected = [...new Set(accountIds)].filter((accountId) => allowed.has(accountId));
   const tx = db.transaction(() => {
-    db.prepare("UPDATE post_targets SET enabled=0, updated_at=? WHERE post_id=? AND state!='PUBLISHED'").run(nowIso(), postId);
+    const now = nowIso();
+    const insert = db.prepare(`INSERT OR IGNORE INTO post_targets
+      (id,post_id,account_id,enabled,state,attempts,updated_at) VALUES (lower(hex(randomblob(16))),?,?,0,?,0,?)`);
+    for (const accountId of selected) insert.run(postId, accountId, 'PENDING', now);
+    db.prepare("UPDATE post_targets SET enabled=0, updated_at=? WHERE post_id=? AND state!='PUBLISHED'").run(now, postId);
     const enable = db.prepare("UPDATE post_targets SET enabled=1, updated_at=? WHERE post_id=? AND account_id=? AND state!='PUBLISHED'");
-    for (const accountId of selected) enable.run(nowIso(), postId, accountId);
+    for (const accountId of selected) enable.run(now, postId, accountId);
   });
   tx();
 }

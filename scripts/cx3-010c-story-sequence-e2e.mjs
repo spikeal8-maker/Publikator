@@ -26,6 +26,8 @@ const accountId = id('acc');
 const now = nowIso();
 db.prepare(`INSERT INTO social_accounts (id,platform,name,credentials_encrypted,enabled,created_at,updated_at)
   VALUES (?,?,?,?,1,?,?)`).run(accountId, 'telegram', 'Sequence Telegram', encryptJson({ botToken: 'mock-token', businessConnectionId: 'business-1' }), now, now);
+db.prepare(`INSERT INTO project_default_targets (project_id,account_id,created_at) VALUES (?,?,?)`)
+  .run(projectId,accountId,now);
 
 const app = await buildApp();
 await app.ready();

@@ -19,7 +19,7 @@ const { applyPendingRestore }=await import('../dist/restore-bootstrap.js');
 const { serializeRichText,richTextToPlain,parseRichTextJson }=await import('../dist/rich-text.js');
 
 migrate();
-assert.equal(Number(db.pragma('user_version',{simple:true})),10);
+assert.equal(Number(db.pragma('user_version',{simple:true})),11);
 
 const projectId=id('prj');
 const postId=id('post');
@@ -64,14 +64,14 @@ db.prepare('UPDATE posts SET body=?,body_rich_json=? WHERE id=?').run('corrupt',
 db.prepare('UPDATE content_revisions SET body=?,body_rich_json=? WHERE post_id=?').run('corrupt',corruptRich,postId);
 
 const staged=await stageRestoreBundle(bundlePath);
-assert.equal(staged.manifest.schemaVersion,10);
+assert.equal(staged.manifest.schemaVersion,11);
 db.close();
 const applied=await applyPendingRestore();
 assert.equal(applied.applied,true);
 
 const restoredDb=new Database(config.dbPath,{readonly:true,fileMustExist:true});
 try{
-  assert.equal(Number(restoredDb.pragma('user_version',{simple:true})),10);
+  assert.equal(Number(restoredDb.pragma('user_version',{simple:true})),11);
   assert.deepEqual(
     restoredDb.prepare('SELECT title,body,body_rich_json,status,editorial_stage,content_version,ready_revision_id FROM posts WHERE id=?').get(postId),
     beforePost
@@ -82,7 +82,7 @@ try{
   for(const row of afterRevisions) assert.equal(richTextToPlain(parseRichTextJson(row.body_rich_json)),row.body);
   console.log(JSON.stringify({
     ok:true,
-    schemaVersion:10,
+    schemaVersion:11,
     exactAstRestored:true,
     plainFallbackRestored:true,
     revisionsRestored:true,

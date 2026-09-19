@@ -26,7 +26,7 @@ const { setPublisherForTests } = await import('../dist/platforms/index.js');
 const { buildApp } = await import('../dist/app.js');
 
 migrate();
-assert.equal(Number(db.pragma('user_version', { simple: true })), 10);
+assert.equal(Number(db.pragma('user_version', { simple: true })), 11);
 
 let publishCalls = 0;
 setPublisherForTests('telegram', {
@@ -102,6 +102,8 @@ db.prepare(`INSERT INTO social_accounts
   VALUES (?,?,?,?,1,?,?)`)
   .run(stableAccountId, 'telegram', 'Stable target', encryptJson({ botToken: 'mock', chatId: '@stable' }),
     '2000-01-01T00:00:00.000Z', '2000-01-01T00:00:00.000Z');
+db.prepare(`INSERT INTO project_default_targets (project_id,account_id,created_at) VALUES (?,?,?)`)
+  .run(projectId, stableAccountId, '2000-01-01T00:00:00.000Z');
 
 const placeholderPost = await createPost('Placeholder semantics', 'Placeholder body');
 const placeholderV1 = revisions(placeholderPost.id)[0];
@@ -120,10 +122,7 @@ assert.equal(placeholderRead.content_version, 1);
 assert.equal(revisions(placeholderPost.id).length, 1);
 const inertRow = db.prepare('SELECT id,enabled,override_text FROM post_targets WHERE post_id=? AND account_id=?')
   .get(placeholderPost.id, lateAccountId);
-assert.ok(inertRow);
-assert.equal(inertRow.enabled, 0);
-assert.equal(inertRow.override_text, null);
-assert.equal(db.prepare('SELECT COUNT(*) AS count FROM target_renditions WHERE target_id=?').get(inertRow.id).count, 0);
+assert.equal(inertRow, undefined, 'late account must not be attached retroactively to an existing post');
 
 const placeholderDiff = await api('GET', `/api/posts/${placeholderPost.id}/revisions/${placeholderV1.id}/diff`);
 assert.deepEqual(placeholderDiff.targets, { added: [], removed: [], changed: [] });
@@ -203,9 +202,7 @@ db.prepare(`INSERT INTO social_accounts
 await api('GET', `/api/posts/${restorePlaceholderPost.id}`);
 const restoreInertRow = db.prepare('SELECT id,enabled,override_text FROM post_targets WHERE post_id=? AND account_id=?')
   .get(restorePlaceholderPost.id, restoreLateAccountId);
-assert.ok(restoreInertRow);
-assert.equal(restoreInertRow.enabled, 0);
-assert.equal(restoreInertRow.override_text, null);
+assert.equal(restoreInertRow, undefined, 'restore probe must not gain a late target retroactively');
 
 const placeholderRestore = await api(
   'POST',
@@ -217,8 +214,7 @@ const restoreCurrent = revisions(restorePlaceholderPost.id).find((row) => row.co
 assert.deepEqual(JSON.parse(restoreCurrent.targets_json), [], 'restore revision must exclude inert placeholder targets');
 const restoredPlaceholderRow = db.prepare('SELECT enabled,override_text FROM post_targets WHERE post_id=? AND account_id=?')
   .get(restorePlaceholderPost.id, restoreLateAccountId);
-assert.deepEqual(restoredPlaceholderRow, { enabled: 0, override_text: null });
-assert.equal(db.prepare('SELECT COUNT(*) AS count FROM target_renditions WHERE target_id=?').get(restoreInertRow.id).count, 0);
+assert.equal(restoredPlaceholderRow, undefined, 'revision restore must not manufacture a non-default late target');
 const restorePlaceholderDiff = await api('GET', `/api/posts/${restorePlaceholderPost.id}/revisions/${restoreSource.id}/diff`);
 assert.deepEqual(restorePlaceholderDiff.targets, { added: [], removed: [], changed: [] });
 
@@ -603,7 +599,7 @@ assert.equal(publishCalls, 0, 'revision restore must never publish externally');
 console.log(JSON.stringify({
   ok: true,
   checkpoint: 'EW4-002',
-  schemaVersion: 10,
+  schemaVersion: 11,
   continuousRevisionVersions: true,
   actorPropagation: true,
   immutableRevisions: true,
