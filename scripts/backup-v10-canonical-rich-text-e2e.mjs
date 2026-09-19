@@ -59,8 +59,9 @@ const bundle=await createBackupBundle('schema10-canonical-rich-text');
 const bundlePath=resolveBackupBundle(bundle.name);
 assert.ok((await fs.stat(bundlePath)).size>0);
 
-db.prepare("UPDATE posts SET body='corrupt',body_rich_json='{"type":"doc","content":[]}' WHERE id=?").run(postId);
-db.prepare("UPDATE content_revisions SET body='corrupt',body_rich_json='{"type":"doc","content":[]}' WHERE post_id=?").run(postId);
+const corruptRich=JSON.stringify({type:'doc',content:[]});
+db.prepare('UPDATE posts SET body=?,body_rich_json=? WHERE id=?').run('corrupt',corruptRich,postId);
+db.prepare('UPDATE content_revisions SET body=?,body_rich_json=? WHERE post_id=?').run('corrupt',corruptRich,postId);
 
 const staged=await stageRestoreBundle(bundlePath);
 assert.equal(staged.manifest.schemaVersion,10);
