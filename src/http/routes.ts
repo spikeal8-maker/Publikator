@@ -252,7 +252,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/posts', async (request, reply) => {
     const body = bodyObject(request.body);
     const projectId = String(body.projectId || '');
-    if (!db.prepare('SELECT 1 FROM projects WHERE id=?').get(projectId)) return reply.code(400).send({ error: 'Проект не найден' });
+    const project = db.prepare('SELECT default_timezone FROM projects WHERE id=?').get(projectId) as { default_timezone: string } | undefined;
+    if (!project) return reply.code(400).send({ error: 'Проект не найден' });
     const title = String(body.title || '').trim();
     let content: { body: string; bodyRichJson: string };
     try { content = resolvedPostBody(body); }
@@ -261,7 +262,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const postId = id('post');
     const mode = ['MANUAL','AT','QUEUE'].includes(body.scheduleMode) ? body.scheduleMode : 'MANUAL';
     let schedule: ScheduleMutation;
-    try { schedule = scheduleMutation(mode, body); }
+    const scheduleInput = mode === 'AT' && body.scheduleTimezone === undefined
+      ? { ...body, scheduleTimezone: project.default_timezone }
+      : body;
+    try { schedule = scheduleMutation(mode, scheduleInput); }
     catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) }); }
     const created = db.transaction(() => {
       const now = nowIso();

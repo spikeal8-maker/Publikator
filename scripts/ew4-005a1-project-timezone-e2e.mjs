@@ -52,20 +52,42 @@ try{
   },400);
   assert.match(invalid.json().error,/Invalid IANA timezone: Mars\/Olympus/);
 
-  const post=(await api('POST','/api/posts',{
+  const inheritedPost=(await api('POST','/api/posts',{
     projectId:moscowProject.id,
-    title:'Existing scheduled post',
-    body:'Timezone must stay on the post',
+    title:'Inherited project timezone',
+    body:'Project timezone must become the AT post default',
     scheduleMode:'AT',
-    scheduledAtLocal:'2026-11-02T10:00',
-    scheduleTimezone:'America/New_York'
+    scheduledAtLocal:'2026-10-01T18:00'
   },201)).json();
-  assert.equal(post.content_version,1);
-  assert.equal(post.schedule_timezone,'America/New_York');
+  assert.equal(inheritedPost.content_version,1);
+  assert.equal(inheritedPost.schedule_timezone,'Europe/Moscow');
+  assert.equal(inheritedPost.scheduled_at_utc,'2026-10-01T15:00:00.000Z');
+
+  const explicitPost=(await api('POST','/api/posts',{
+    projectId:moscowProject.id,
+    title:'Explicit timezone override',
+    body:'Explicit timezone must beat project default',
+    scheduleMode:'AT',
+    scheduledAtLocal:'2026-10-01T18:00',
+    scheduleTimezone:'Asia/Tokyo'
+  },201)).json();
+  assert.equal(explicitPost.content_version,1);
+  assert.equal(explicitPost.schedule_timezone,'Asia/Tokyo');
+  assert.equal(explicitPost.scheduled_at_utc,'2026-10-01T09:00:00.000Z');
+
+  const invalidExplicit=await api('POST','/api/posts',{
+    projectId:moscowProject.id,
+    title:'Invalid explicit timezone',
+    body:'Invalid explicit timezone must still fail',
+    scheduleMode:'AT',
+    scheduledAtLocal:'2026-10-01T18:00',
+    scheduleTimezone:'Mars/Olympus'
+  },400);
+  assert.match(invalidExplicit.json().error,/Invalid IANA timezone: Mars\/Olympus/);
 
   const before=db.prepare(`SELECT id,project_id,content_version,schedule_mode,scheduled_at,scheduled_at_utc,schedule_timezone
-    FROM posts WHERE id=?`).get(post.id);
-  const revisionCountBefore=db.prepare('SELECT COUNT(*) AS count FROM content_revisions WHERE post_id=?').get(post.id).count;
+    FROM posts WHERE id=?`).get(inheritedPost.id);
+  const revisionCountBefore=db.prepare('SELECT COUNT(*) AS count FROM content_revisions WHERE post_id=?').get(inheritedPost.id).count;
 
   const patched=(await api('PATCH',`/api/projects/${moscowProject.id}`,{
     defaultTimezone:'Asia/Tokyo'
@@ -73,12 +95,12 @@ try{
   assert.equal(patched.default_timezone,'Asia/Tokyo');
 
   const after=db.prepare(`SELECT id,project_id,content_version,schedule_mode,scheduled_at,scheduled_at_utc,schedule_timezone
-    FROM posts WHERE id=?`).get(post.id);
-  const revisionCountAfter=db.prepare('SELECT COUNT(*) AS count FROM content_revisions WHERE post_id=?').get(post.id).count;
+    FROM posts WHERE id=?`).get(inheritedPost.id);
+  const revisionCountAfter=db.prepare('SELECT COUNT(*) AS count FROM content_revisions WHERE post_id=?').get(inheritedPost.id).count;
 
   assert.deepEqual(after,before);
   assert.equal(after.content_version,1);
-  assert.equal(after.schedule_timezone,'America/New_York');
+  assert.equal(after.schedule_timezone,'Europe/Moscow');
   assert.equal(revisionCountAfter,revisionCountBefore);
 
   const projects=(await api('GET','/api/projects')).json();
@@ -92,6 +114,10 @@ try{
     createExplicitTimezone:true,
     invalidTimezone400:true,
     patchTimezone:true,
+    projectTimezoneInherited:true,
+    inheritedUtcInstant:true,
+    explicitTimezoneOverride:true,
+    invalidExplicitTimezone400:true,
     existingPostUnchanged:true,
     postContentVersionUnchanged:true,
     noContentRevisionCreated:true,
