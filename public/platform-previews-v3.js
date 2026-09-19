@@ -1,3 +1,5 @@
+import { renderRichText } from './rich-text-editor-v1.js';
+
 const PLATFORM_LABELS = {
   telegram: 'Telegram',
   vk: 'VK',
@@ -45,14 +47,27 @@ function carousel(preview) {
 function issueList(preview) {
   if (!preview.issues?.length) return '<div class="platform-preview-ok">Preflight: OK</div>';
   return `<div class="platform-preview-issues">${preview.issues.map((issue) => `<div class="platform-preview-issue ${esc(issue.severity)}">
-    <strong>${issue.severity === 'error' ? 'Ошибка' : 'Предупреждение'}</strong>
+    <strong>${issue.severity === 'error' ? 'Ошибка' : issue.severity === 'warning' ? 'Предупреждение' : 'Информация'}</strong>
     <span>${esc(issue.message)}</span>
     <code>${esc(issue.code)}</code>
   </div>`).join('')}</div>`;
 }
 
 function caption(preview) {
-  return `<div class="platform-preview-caption">${esc(preview.text || '') || '<span class="muted">Без текста</span>'}</div>`;
+  if (preview.platform === 'telegram' || preview.platform === 'max') {
+    return `<div class="platform-preview-caption rich-text-preview" data-rich-preview-target="${esc(preview.targetId)}"></div>`;
+  }
+  const compiled = preview.compilation?.transport?.kind === 'plain'
+    ? preview.compilation.transport.text
+    : preview.text;
+  return `<div class="platform-preview-caption">${esc(compiled || '') || '<span class="muted">Без текста</span>'}</div>`;
+}
+
+function sourceLabel(source) {
+  if (source === 'platform_override') return 'Свой rich-вариант';
+  if (source === 'legacy_override') return 'Legacy plain override';
+  if (source === 'legacy_rendition_plain') return 'Legacy TargetRendition plain';
+  return 'Base rich text';
 }
 
 function card(preview) {
@@ -72,6 +87,7 @@ function card(preview) {
       <span>${esc(preview.publicationKind)} / ${esc(preview.contentFormat)}</span>
       <span>${preview.mediaCount} media${videoDuration ? ` · ${videoDuration}` : ''}</span>
       <span>${esc(preview.targetState)}</span>
+      <span class="platform-preview-source">${esc(sourceLabel(preview.textSource))}</span>
     </div>
     <div class="platform-preview-client ${vertical ? 'phone' : ''}">${content}${carousel(preview)}</div>
     ${issueList(preview)}
@@ -92,8 +108,13 @@ function mount(host, postId) {
       if (disposed) return;
       const previews = payload.previews || [];
       host.innerHTML = previews.length
-        ? `<div class="platform-preview-note">Предпросмотр учитывает resolved rendition и preflight, но не имитирует pixel-perfect интерфейс соцсети.</div><div class="platform-preview-grid">${previews.map(card).join('')}</div>`
+        ? `<div class="platform-preview-note">Предпросмотр использует тот же rich-text resolver/compiler, что preflight и publisher. Compiled MAX HTML никогда не вставляется как raw HTML.</div><div class="platform-preview-grid">${previews.map(card).join('')}</div>`
         : '<div class="muted">Площадки для предпросмотра отсутствуют</div>';
+      for (const preview of previews) {
+        if (preview.platform !== 'telegram' && preview.platform !== 'max') continue;
+        const target = host.querySelector(`[data-rich-preview-target="${CSS.escape(String(preview.targetId))}"]`);
+        if (target) renderRichText(target, preview.resolvedRichText);
+      }
     })
     .catch((error) => {
       if (!disposed) host.innerHTML = `<div class="error">${esc(error instanceof Error ? error.message : String(error))}</div>`;
