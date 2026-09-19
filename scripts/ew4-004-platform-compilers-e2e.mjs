@@ -30,7 +30,7 @@ const {
 const { buildApp }=await import('../dist/app.js');
 
 migrate();
-assert.equal(Number(db.pragma('user_version',{simple:true})),10);
+assert.equal(Number(db.pragma('user_version',{simple:true})),11);
 
 const richFixture={
   type:'doc',

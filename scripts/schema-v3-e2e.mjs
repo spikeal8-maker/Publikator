@@ -97,7 +97,7 @@ try {
     await app.close();
   }
 
-  console.log(JSON.stringify({ ok: true, schemaVersion: 10, duplicateSlotsCollapsed: true, duplicateApiStatus: 409 }, null, 2));
+  console.log(JSON.stringify({ ok: true, schemaVersion: 11, duplicateSlotsCollapsed: true, duplicateApiStatus: 409 }, null, 2));
 } finally {
   db.close();
   await fs.rm(dataDir, { recursive: true, force: true });

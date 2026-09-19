@@ -34,7 +34,7 @@ const { publishPost }=await import('../dist/publisher.js');
 const { buildApp }=await import('../dist/app.js');
 
 migrate();
-assert.equal(Number(db.pragma('user_version',{simple:true})),10);
+assert.equal(Number(db.pragma('user_version',{simple:true})),11);
 
 const complexAst={
   type:'doc',
@@ -307,7 +307,7 @@ assert.equal(publishedRevision.body_rich_json,serializeRichText(publishAst));
 console.log(JSON.stringify({
   ok:true,
   checkpoint:'EW4-003',
-  schemaVersion:10,
+  schemaVersion:11,
   canonicalGrammar:true,
   deterministicNormalization:true,
   deterministicPlainFallback:true,
