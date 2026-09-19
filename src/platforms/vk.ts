@@ -3,6 +3,7 @@ import { mediaAbsolutePath } from '../media.js';
 import type { MediaRow } from '../media.js';
 import type { PublishInput, PublishResult, SocialPublisher } from './types.js';
 import { PlatformError, requireString, responseJson } from './types.js';
+import { compileLiteralPlainText } from '../platform-text.js';
 
 const VK_RETRYABLE_CODES = new Set([1, 6, 9, 10, 29]);
 const VK_REQUEST_TIMEOUT_MS = 30_000;
@@ -251,11 +252,16 @@ export const vkPublisher: SocialPublisher = {
       : await prepareImageAttachments(input, common, groupId);
 
     const ownerId = `-${groupId}`;
+    const context = input.publicationKind === 'STORY' ? 'story_caption' : input.media.length ? 'media_caption' : 'text';
+    const compilation = input.textCompilation ?? compileLiteralPlainText('vk', input.text, context);
+    if (compilation.platform !== 'vk' || compilation.transport.kind !== 'plain') {
+      throw new Error('VK: unsupported text compilation transport');
+    }
     const posted = await vkCall('wall.post', {
       ...common,
       owner_id: ownerId,
       from_group: '1',
-      message: input.text,
+      message: compilation.transport.text,
       attachments: attachments.join(','),
       guid: input.postId
     }, { publicPost: true });

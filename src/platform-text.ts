@@ -321,28 +321,6 @@ function compileTelegram(document: RichTextDocument, context: PlatformTextContex
   const diagnostics: PlatformTextDiagnostic[] = [];
   const plainText = richTextToPlain(canonical);
 
-  if (context === 'story_caption') {
-    const features = richFeatures(canonical);
-    if (features.marks.size || features.links || features.quote || features.codeBlock) {
-      addDiagnostic(diagnostics, {
-        severity: 'warning',
-        code: 'RICH_TELEGRAM_STORY_FORMATTING_DOWNGRADED',
-        message: 'Текущий Publikator Story transport отправляет caption как plain text; presentation formatting упрощено.'
-      });
-    }
-    if (features.bulletList) addDiagnostic(diagnostics, {
-      severity: 'info',
-      code: 'RICH_BULLET_LIST_TRANSFORMED',
-      message: 'Маркированный список сохранён текстовыми bullet-prefixes.'
-    });
-    if (features.orderedList) addDiagnostic(diagnostics, {
-      severity: 'info',
-      code: 'RICH_ORDERED_LIST_TRANSFORMED',
-      message: 'Нумерованный список сохранён текстовыми numeric-prefixes.'
-    });
-    return { platform: 'telegram', context, plainText, transport: { kind: 'plain', text: plainText }, diagnostics };
-  }
-
   const builder: TelegramBuilder = { text: '', utf16Offset: 0, entities: [], diagnostics };
   canonical.content.forEach((block, index) => {
     if (index > 0) telegramAppend(builder, '\n\n');

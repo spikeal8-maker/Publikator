@@ -4,6 +4,7 @@ import type { MediaRow } from '../media.js';
 import { prepareTelegramStoryVideo, TELEGRAM_STORY_VIDEO_MAX_DURATION_MS } from './telegram-story-video.js';
 import type { PublishInput, PublishResult, SocialPublisher } from './types.js';
 import { PlatformError, requireString, responseJson } from './types.js';
+import { compileLiteralPlainText, type TelegramTextEntity } from '../platform-text.js';
 
 const CAPTION_LIMIT = 1024;
 const STORY_CAPTION_LIMIT = 2048;
@@ -97,17 +98,39 @@ async function telegramRequest(url: string, init: RequestInit, context: string, 
   }
 }
 
-async function sendMessage(token: string, chatId: string, text: string): Promise<any> {
+type TelegramCompiledText = { text: string; entities: TelegramTextEntity[] };
+
+function telegramCompiledText(input: PublishInput): TelegramCompiledText {
+  const context = input.publicationKind === 'STORY' ? 'story_caption' : input.media.length ? 'media_caption' : 'text';
+  const compilation = input.textCompilation ?? compileLiteralPlainText('telegram', input.text, context);
+  if (compilation.platform !== 'telegram') throw new Error('Telegram: textCompilation platform mismatch');
+  if (compilation.transport.kind === 'telegram_entities') {
+    return { text: compilation.transport.text, entities: compilation.transport.entities };
+  }
+  if (compilation.transport.kind === 'plain') return { text: compilation.transport.text, entities: [] };
+  throw new Error('Telegram: unsupported text compilation transport');
+}
+
+function setCaptionEntities(data: FormData, entities: TelegramTextEntity[]): void {
+  if (entities.length) data.set('caption_entities', JSON.stringify(entities));
+}
+
+async function sendMessage(token: string, chatId: string, compiled: TelegramCompiledText): Promise<any> {
   const body = await telegramRequest(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: false })
+    body: JSON.stringify({
+      chat_id: chatId,
+      text: compiled.text,
+      ...(compiled.entities.length ? { entities: compiled.entities } : {}),
+      disable_web_page_preview: false
+    })
   }, 'Telegram sendMessage');
   return body.result;
 }
 
 function assertStoryCaption(input: PublishInput): void {
-  const textLength = characterCount(input.text);
+  const textLength = characterCount(telegramCompiledText(input).text);
   if (textLength > STORY_CAPTION_LIMIT) {
     throw new Error(`Telegram: STORY caption ${textLength} символов превышает предел ${STORY_CAPTION_LIMIT}`);
   }
@@ -157,11 +180,14 @@ function assertStoryVideoSource(input: PublishInput): MediaRow {
 }
 
 function storySlideInput(input: PublishInput, media: MediaRow, text: string): PublishInput {
+  const textCompilation = text === input.text
+    ? input.textCompilation
+    : compileLiteralPlainText('telegram', text, 'story_caption');
   if (media.mime_type === 'image/jpeg') {
-    return { ...input, media: [media], publicationKind: 'STORY', contentFormat: 'IMAGE', text };
+    return { ...input, media: [media], publicationKind: 'STORY', contentFormat: 'IMAGE', text, textCompilation };
   }
   if (media.mime_type === 'video/mp4') {
-    return { ...input, media: [media], publicationKind: 'STORY', contentFormat: 'VERTICAL_VIDEO', text };
+    return { ...input, media: [media], publicationKind: 'STORY', contentFormat: 'VERTICAL_VIDEO', text, textCompilation };
   }
   throw new Error(`Telegram: STORY_SEQUENCE содержит неподдерживаемый MIME ${media.mime_type}`);
 }
@@ -219,13 +245,14 @@ function assertImagePublication(input: PublishInput): void {
   }
 }
 
-async function publishStoryImage(token: string, businessConnectionId: string, media: MediaRow, caption: string): Promise<any> {
+async function publishStoryImage(token: string, businessConnectionId: string, media: MediaRow, compiled: TelegramCompiledText): Promise<any> {
   const bytes = await readMediaBytes(mediaAbsolutePath(media), TELEGRAM_STORY_PHOTO_MAX_BYTES);
   const data = new FormData();
   data.set('business_connection_id', businessConnectionId);
   data.set('content', JSON.stringify({ type: 'photo', photo: 'attach://story' }));
   data.set('active_period', String(TELEGRAM_STORY_ACTIVE_PERIOD_SECONDS));
-  if (caption) data.set('caption', caption);
+  if (compiled.text) data.set('caption', compiled.text);
+  setCaptionEntities(data, compiled.entities);
   data.set('story', new Blob([bytes], { type: 'image/jpeg' }), media.original_name.replace(/\.[^.]+$/, '') + '.jpg');
   const body = await telegramRequest(`https://api.telegram.org/bot${token}/postStory`, {
     method: 'POST',
@@ -234,7 +261,7 @@ async function publishStoryImage(token: string, businessConnectionId: string, me
   return body.result;
 }
 
-async function publishStoryVideo(token: string, businessConnectionId: string, media: MediaRow, caption: string): Promise<any> {
+async function publishStoryVideo(token: string, businessConnectionId: string, media: MediaRow, compiled: TelegramCompiledText): Promise<any> {
   let rendition;
   try {
     rendition = await prepareTelegramStoryVideo(media);
@@ -253,7 +280,8 @@ async function publishStoryVideo(token: string, businessConnectionId: string, me
       ...(rendition.hasAudio ? {} : { is_animation: true })
     }));
     data.set('active_period', String(TELEGRAM_STORY_ACTIVE_PERIOD_SECONDS));
-    if (caption) data.set('caption', caption);
+    if (compiled.text) data.set('caption', compiled.text);
+    setCaptionEntities(data, compiled.entities);
     data.set('story', new Blob([bytes], { type: 'video/mp4' }), 'story.mp4');
     const body = await telegramRequest(`https://api.telegram.org/bot${token}/postStory`, {
       method: 'POST',
@@ -265,11 +293,12 @@ async function publishStoryVideo(token: string, businessConnectionId: string, me
   }
 }
 
-async function publishVideo(token: string, chatId: string, media: MediaRow, caption: string): Promise<any> {
+async function publishVideo(token: string, chatId: string, media: MediaRow, compiled: TelegramCompiledText): Promise<any> {
   const bytes = await readMediaBytes(mediaAbsolutePath(media), TELEGRAM_VIDEO_MAX_BYTES);
   const data = new FormData();
   data.set('chat_id', chatId);
-  data.set('caption', caption);
+  data.set('caption', compiled.text);
+  setCaptionEntities(data, compiled.entities);
   data.set('supports_streaming', 'true');
   if (media.width && media.width > 0) data.set('width', String(media.width));
   if (media.height && media.height > 0) data.set('height', String(media.height));
@@ -285,13 +314,14 @@ async function publishVideo(token: string, chatId: string, media: MediaRow, capt
   return body.result;
 }
 
-async function publishImages(token: string, chatId: string, mediaRows: MediaRow[], caption: string): Promise<any> {
+async function publishImages(token: string, chatId: string, mediaRows: MediaRow[], compiled: TelegramCompiledText): Promise<any> {
   if (mediaRows.length === 1) {
     const media = mediaRows[0]!;
     const bytes = await readMediaBytes(mediaAbsolutePath(media));
     const data = new FormData();
     data.set('chat_id', chatId);
-    data.set('caption', caption);
+    data.set('caption', compiled.text);
+    setCaptionEntities(data, compiled.entities);
     data.set('photo', new Blob([bytes], { type: 'image/jpeg' }), media.original_name.replace(/\.[^.]+$/, '') + '.jpg');
     const body = await telegramRequest(`https://api.telegram.org/bot${token}/sendPhoto`, {
       method: 'POST',
@@ -308,7 +338,14 @@ async function publishImages(token: string, chatId: string, mediaRows: MediaRow[
     const name = `media${index}`;
     const bytes = await readMediaBytes(mediaAbsolutePath(media));
     data.set(name, new Blob([bytes], { type: 'image/jpeg' }), `${name}.jpg`);
-    descriptors.push({ type: 'photo', media: `attach://${name}`, ...(index === 0 && caption ? { caption } : {}) });
+    descriptors.push({
+      type: 'photo',
+      media: `attach://${name}`,
+      ...(index === 0 && compiled.text ? {
+        caption: compiled.text,
+        ...(compiled.entities.length ? { caption_entities: compiled.entities } : {})
+      } : {})
+    });
   }
   data.set('media', JSON.stringify(descriptors));
   const body = await telegramRequest(`https://api.telegram.org/bot${token}/sendMediaGroup`, {
@@ -350,7 +387,7 @@ export const telegramPublisher: SocialPublisher = {
     requireString(input.credentials, 'chatId');
     if (isVideoPublication(input)) assertFeedVideo(input);
     else assertImagePublication(input);
-    const textLength = characterCount(input.text);
+    const textLength = characterCount(telegramCompiledText(input).text);
     if (textLength > MESSAGE_LIMIT) {
       throw new Error(`Telegram: текст ${textLength} символов превышает предел ${MESSAGE_LIMIT}. Сократите базовый текст или задайте отдельный текст Telegram.`);
     }
@@ -370,9 +407,9 @@ export const telegramPublisher: SocialPublisher = {
     const slide = storySlideInput(input, media, unitIndex === 0 ? input.text : '');
 
     if (slide.contentFormat === 'IMAGE') {
-      return assertStoryResult(await publishStoryImage(token, businessConnectionId, assertStoryImage(slide), slide.text));
+      return assertStoryResult(await publishStoryImage(token, businessConnectionId, assertStoryImage(slide), telegramCompiledText(slide)));
     }
-    return assertStoryResult(await publishStoryVideo(token, businessConnectionId, assertStoryVideoSource(slide), slide.text));
+    return assertStoryResult(await publishStoryVideo(token, businessConnectionId, assertStoryVideoSource(slide), telegramCompiledText(slide)));
   },
   async publish(input: PublishInput): Promise<PublishResult> {
     this.validate(input);
@@ -383,16 +420,17 @@ export const telegramPublisher: SocialPublisher = {
 
     if (isStoryImagePublication(input)) {
       const businessConnectionId = requireString(input.credentials, 'businessConnectionId');
-      return assertStoryResult(await publishStoryImage(token, businessConnectionId, assertStoryImage(input), input.text));
+      return assertStoryResult(await publishStoryImage(token, businessConnectionId, assertStoryImage(input), telegramCompiledText(input)));
     }
     if (isStoryVideoPublication(input)) {
       const businessConnectionId = requireString(input.credentials, 'businessConnectionId');
-      return assertStoryResult(await publishStoryVideo(token, businessConnectionId, assertStoryVideoSource(input), input.text));
+      return assertStoryResult(await publishStoryVideo(token, businessConnectionId, assertStoryVideoSource(input), telegramCompiledText(input)));
     }
 
     const chatId = requireString(input.credentials, 'chatId');
-    const textLength = characterCount(input.text);
-    const caption = textLength <= CAPTION_LIMIT ? input.text : '';
+    const compiled = telegramCompiledText(input);
+    const textLength = characterCount(compiled.text);
+    const caption = textLength <= CAPTION_LIMIT ? compiled : { text: '', entities: [] };
     const result = isVideoPublication(input)
       ? await publishVideo(token, chatId, assertFeedVideo(input), caption)
       : await publishImages(token, chatId, input.media, caption);
@@ -406,7 +444,7 @@ export const telegramPublisher: SocialPublisher = {
 
     if (textLength > CAPTION_LIMIT) {
       try {
-        const textResult = await sendMessage(token, chatId, input.text);
+        const textResult = await sendMessage(token, chatId, compiled);
         if (!textResult?.message_id) {
           throw new PlatformError('Telegram sendMessage: API не вернул message_id', {
             retryable: false,
