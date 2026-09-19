@@ -884,7 +884,7 @@ Status: **ACCEPTED / MERGED**. Schema 9 `revision-history` закреплён в
 
 ### EW4-003 — Canonical rich text editor
 
-Current candidate: branch `ew4-003/canonical-rich-text`. Schema 10 `canonical-rich-text` становится current только после accepted merge.
+Status: **ACCEPTED / MERGED**. Schema 10 `canonical-rich-text` является current schema.
 
 - один authoritative `src/rich-text.ts`;
 - portable canonical AST без raw HTML;
@@ -892,16 +892,26 @@ Current candidate: branch `ew4-003/canonical-rich-text`. Schema 10 `canonical-ri
 - Base rich editor toolbar;
 - links/lists/quotes/code;
 - `posts.body_rich_json` + `content_revisions.body_rich_json`;
-- publisher в этом checkpoint продолжает использовать plain fallback;
-- platform compilers остаются EW4-004.
+- Base editor and canonical AST are accepted foundation for platform compilation.
 
 ### EW4-004 — Platform rich-text compilers
 
-- Telegram entities/caption entities;
-- MAX markdown/html compiler;
-- VK compiler;
-- Instagram compiler;
-- downgrade warnings.
+Current candidate: PR #105 / branch `ew4-004/platform-rich-text-compilers`. Schema change: **none**.
+
+- one authoritative target-text resolver;
+- one pure compiler domain `src/platform-text.ts`;
+- Telegram: explicit entities / caption_entities, including Story captions;
+- MAX: safe compiled HTML + `format=html`;
+- VK: deterministic plain `wall.post.message` + downgrade warnings;
+- Instagram: deterministic plain caption + downgrade warnings;
+- rich-text capability modes `native / transform / drop`;
+- compiler diagnostics are INFO/WARNING/ERROR; only ERROR blocks READY;
+- preview, preflight and publisher share the same resolver/compiler;
+- platform rich editor cards reuse `public/rich-text-editor-v1.js`;
+- new platform rich overrides are owned by TargetRendition, not legacy `override_text`;
+- live capability flags remain separately gated.
+
+Official evidence and diagnostics: `docs/PLATFORM_TEXT_COMPILERS_EW4_004.md`.
 
 ### EW4-005 — Targets/defaults/platform options
 
