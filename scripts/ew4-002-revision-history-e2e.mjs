@@ -15,6 +15,7 @@ const { db, migrate, id, nowIso } = await import('../dist/db.js');
 const { encryptJson } = await import('../dist/crypto.js');
 const { saveImageVersioned } = await import('../dist/media.js');
 const { diffText } = await import('../dist/revision-history.js');
+const { snapshotContentRevision } = await import('../dist/content-versioning.js');
 const { setPublisherForTests } = await import('../dist/platforms/index.js');
 const { buildApp } = await import('../dist/app.js');
 
@@ -59,6 +60,163 @@ function assertContinuous(postId, expectedVersion) {
   const versions = revisions(postId).map((row) => row.content_version);
   assert.deepEqual(versions, Array.from({ length: expectedVersion }, (_, index) => index + 1));
 }
+
+const atomicCountsBefore = {
+  posts: db.prepare('SELECT COUNT(*) AS count FROM posts').get().count,
+  targets: db.prepare('SELECT COUNT(*) AS count FROM post_targets').get().count,
+  revisions: db.prepare('SELECT COUNT(*) AS count FROM content_revisions').get().count
+};
+db.exec(`CREATE TEMP TRIGGER ew4_002_fail_initial_revision
+  BEFORE INSERT ON content_revisions
+  BEGIN
+    SELECT RAISE(ABORT, 'forced initial revision failure');
+  END;`);
+const failedAtomicCreate = await app.inject({
+  method: 'POST',
+  url: '/api/posts',
+  headers: { cookie },
+  payload: { projectId, title: 'Atomic rollback probe', body: 'Must rollback', scheduleMode: 'MANUAL' }
+});
+assert.equal(failedAtomicCreate.statusCode, 500, failedAtomicCreate.body);
+assert.equal(db.prepare('SELECT COUNT(*) AS count FROM posts WHERE title=?').get('Atomic rollback probe').count, 0);
+assert.deepEqual({
+  posts: db.prepare('SELECT COUNT(*) AS count FROM posts').get().count,
+  targets: db.prepare('SELECT COUNT(*) AS count FROM post_targets').get().count,
+  revisions: db.prepare('SELECT COUNT(*) AS count FROM content_revisions').get().count
+}, atomicCountsBefore, 'failed initial revision must roll back post and targets');
+db.exec('DROP TRIGGER ew4_002_fail_initial_revision');
+
+const atomicPost = await createPost('Atomic create success', 'Atomic body');
+assertContinuous(atomicPost.id, 1);
+assert.equal(revisions(atomicPost.id)[0].content_version, 1);
+
+const stableAccountId = id('acc');
+db.prepare(`INSERT INTO social_accounts
+  (id,platform,name,credentials_encrypted,enabled,created_at,updated_at)
+  VALUES (?,?,?,?,1,?,?)`)
+  .run(stableAccountId, 'telegram', 'Stable target', encryptJson({ botToken: 'mock', chatId: '@stable' }),
+    '2000-01-01T00:00:00.000Z', '2000-01-01T00:00:00.000Z');
+
+const placeholderPost = await createPost('Placeholder semantics', 'Placeholder body');
+const placeholderV1 = revisions(placeholderPost.id)[0];
+assert.deepEqual(JSON.parse(placeholderV1.targets_json).map((target) => target.accountId), [stableAccountId]);
+
+const lateAccountId = id('acc');
+const lateAccountTime = new Date(Date.now() + 60_000).toISOString();
+db.prepare(`INSERT INTO social_accounts
+  (id,platform,name,credentials_encrypted,enabled,created_at,updated_at)
+  VALUES (?,?,?,?,1,?,?)`)
+  .run(lateAccountId, 'telegram', 'Late inert target', encryptJson({ botToken: 'mock', chatId: '@late' }),
+    lateAccountTime, lateAccountTime);
+
+const placeholderRead = await api('GET', `/api/posts/${placeholderPost.id}`);
+assert.equal(placeholderRead.content_version, 1);
+assert.equal(revisions(placeholderPost.id).length, 1);
+const inertRow = db.prepare('SELECT id,enabled,override_text FROM post_targets WHERE post_id=? AND account_id=?')
+  .get(placeholderPost.id, lateAccountId);
+assert.ok(inertRow);
+assert.equal(inertRow.enabled, 0);
+assert.equal(inertRow.override_text, null);
+assert.equal(db.prepare('SELECT COUNT(*) AS count FROM target_renditions WHERE target_id=?').get(inertRow.id).count, 0);
+
+const placeholderDiff = await api('GET', `/api/posts/${placeholderPost.id}/revisions/${placeholderV1.id}/diff`);
+assert.deepEqual(placeholderDiff.targets, { added: [], removed: [], changed: [] });
+const placeholderReuseV1 = snapshotContentRevision(placeholderPost.id, 1, 'manual');
+assert.equal(placeholderReuseV1.id, placeholderV1.id, 'GET-created inert target must not break exact revision reuse');
+
+const placeholderImage = await sharp({
+  create: { width: 32, height: 32, channels: 3, background: { r: 70, g: 90, b: 120 } }
+}).jpeg().toBuffer();
+const placeholderMedia = await saveImageVersioned(placeholderPost.id, 'placeholder.jpg', placeholderImage, 1);
+assert.equal(placeholderMedia.contentVersion, 2);
+const readyRevisionBefore = db.prepare('SELECT * FROM content_revisions WHERE post_id=? AND content_version=2').get(placeholderPost.id);
+assert.ok(readyRevisionBefore);
+assert.equal(readyRevisionBefore.editorial_stage, 'DRAFT');
+assert.deepEqual(JSON.parse(readyRevisionBefore.targets_json).map((target) => target.accountId), [stableAccountId]);
+
+const readyPayload = (revision) => ({
+  id: revision.id,
+  post_id: revision.post_id,
+  content_version: revision.content_version,
+  title: revision.title,
+  body: revision.body,
+  schedule_mode: revision.schedule_mode,
+  scheduled_at: revision.scheduled_at,
+  scheduled_at_utc: revision.scheduled_at_utc,
+  schedule_timezone: revision.schedule_timezone,
+  publication_kind: revision.publication_kind,
+  content_format: revision.content_format,
+  targets_json: revision.targets_json,
+  media_json: revision.media_json,
+  content_media_json: revision.content_media_json,
+  actor_source: revision.actor_source,
+  restored_from_revision_id: revision.restored_from_revision_id,
+  created_at: revision.created_at
+});
+const payloadBeforeReady = readyPayload(readyRevisionBefore);
+const placeholderReuseV2 = snapshotContentRevision(placeholderPost.id, 2, 'manual');
+assert.equal(placeholderReuseV2.id, readyRevisionBefore.id);
+
+const placeholderReady = await api('POST', `/api/posts/${placeholderPost.id}/ready`, { expectedContentVersion: 2 });
+assert.equal(placeholderReady.contentVersion, 2);
+assert.equal(placeholderReady.revisionId, readyRevisionBefore.id);
+const readyPost = db.prepare('SELECT status,editorial_stage,content_version,ready_revision_id FROM posts WHERE id=?').get(placeholderPost.id);
+assert.deepEqual(readyPost, {
+  status: 'READY',
+  editorial_stage: 'APPROVED',
+  content_version: 2,
+  ready_revision_id: readyRevisionBefore.id
+});
+const readyRevisionAfter = db.prepare('SELECT * FROM content_revisions WHERE id=?').get(readyRevisionBefore.id);
+assert.equal(readyRevisionAfter.editorial_stage, 'APPROVED');
+assert.deepEqual(readyPayload(readyRevisionAfter), payloadBeforeReady, 'READY must only finalize approval metadata');
+assert.equal(revisions(placeholderPost.id).length, 2);
+
+const repeatedReady = await api('POST', `/api/posts/${placeholderPost.id}/ready`, { expectedContentVersion: 2 });
+assert.equal(repeatedReady.revisionId, readyRevisionBefore.id);
+assert.equal(revisions(placeholderPost.id).length, 2, 'repeated READY must be idempotent');
+
+db.prepare('UPDATE social_accounts SET enabled=0,updated_at=? WHERE id IN (?,?)')
+  .run(nowIso(), stableAccountId, lateAccountId);
+
+const restorePlaceholderPost = await createPost('Restore placeholder semantics', 'Restore source body');
+const restoreSource = revisions(restorePlaceholderPost.id)[0];
+const restorePlaceholderEdit = await api('PATCH', `/api/posts/${restorePlaceholderPost.id}`, {
+  body: 'Restore changed body',
+  expectedContentVersion: 1
+});
+assert.equal(restorePlaceholderEdit.contentVersion, 2);
+
+const restoreLateAccountId = id('acc');
+const restoreLateTime = new Date(Date.now() + 120_000).toISOString();
+db.prepare(`INSERT INTO social_accounts
+  (id,platform,name,credentials_encrypted,enabled,created_at,updated_at)
+  VALUES (?,?,?,?,1,?,?)`)
+  .run(restoreLateAccountId, 'telegram', 'Restore inert target', encryptJson({ botToken: 'mock', chatId: '@restore-inert' }),
+    restoreLateTime, restoreLateTime);
+await api('GET', `/api/posts/${restorePlaceholderPost.id}`);
+const restoreInertRow = db.prepare('SELECT id,enabled,override_text FROM post_targets WHERE post_id=? AND account_id=?')
+  .get(restorePlaceholderPost.id, restoreLateAccountId);
+assert.ok(restoreInertRow);
+assert.equal(restoreInertRow.enabled, 0);
+assert.equal(restoreInertRow.override_text, null);
+
+const placeholderRestore = await api(
+  'POST',
+  `/api/posts/${restorePlaceholderPost.id}/revisions/${restoreSource.id}/restore`,
+  { expectedContentVersion: 2 }
+);
+assert.equal(placeholderRestore.contentVersion, 3);
+const restoreCurrent = revisions(restorePlaceholderPost.id).find((row) => row.content_version === 3);
+assert.deepEqual(JSON.parse(restoreCurrent.targets_json), [], 'restore revision must exclude inert placeholder targets');
+const restoredPlaceholderRow = db.prepare('SELECT enabled,override_text FROM post_targets WHERE post_id=? AND account_id=?')
+  .get(restorePlaceholderPost.id, restoreLateAccountId);
+assert.deepEqual(restoredPlaceholderRow, { enabled: 0, override_text: null });
+assert.equal(db.prepare('SELECT COUNT(*) AS count FROM target_renditions WHERE target_id=?').get(restoreInertRow.id).count, 0);
+const restorePlaceholderDiff = await api('GET', `/api/posts/${restorePlaceholderPost.id}/revisions/${restoreSource.id}/diff`);
+assert.deepEqual(restorePlaceholderDiff.targets, { added: [], removed: [], changed: [] });
+
+db.prepare('UPDATE social_accounts SET enabled=0,updated_at=? WHERE id=?').run(nowIso(), restoreLateAccountId);
 
 const post = await createPost('Revision A', 'Body A');
 assert.equal(post.content_version, 1);
@@ -261,7 +419,11 @@ console.log(JSON.stringify({
   publishedRestoreBlocked: true,
   restoredFromMetadata: true,
   auditEvent: true,
-  noExternalPublication: true
+  noExternalPublication: true,
+  atomicInitialCreateRollback: true,
+  inertPlaceholderIgnoredByRevisionSemantics: true,
+  restoreIgnoresInertPlaceholder: true,
+  readyRevisionApprovalFinalizedAtomically: true
 }, null, 2));
 
 await app.close();

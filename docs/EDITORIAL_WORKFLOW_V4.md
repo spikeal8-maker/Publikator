@@ -144,6 +144,10 @@ revisions        = 1..N
 
 Pre-schema-9 historical gaps допустимы и отображаются как historical gaps; migration не фабрикует отсутствующие snapshots.
 
+Runtime placeholder target row не является revision state, если target одновременно disabled, не имеет override text и не имеет TargetRendition. Такие rows могут материализоваться read/runtime infrastructure без content-version bump и не попадают в canonical revision snapshot. Disabled target с override или rendition остаётся meaningful revision state.
+
+READY не создаёт новую revision и не увеличивает content_version. Для exact current revision допускается единственная one-way metadata finalization: `content_revisions.editorial_stage → APPROVED`. Она выполняется атомарно с `posts.status=READY`, `posts.editorial_stage=APPROVED` и assignment `ready_revision_id`; revision ID, actor/source и весь content payload остаются неизменными.
+
 Редактор должен автоматически создавать revisions при существенных изменениях.
 
 Хранить минимум:

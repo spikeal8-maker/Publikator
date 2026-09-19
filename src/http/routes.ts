@@ -197,12 +197,15 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     let schedule: ScheduleMutation;
     try { schedule = scheduleMutation(mode, body); }
     catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) }); }
-    const now = nowIso();
-    db.prepare('INSERT INTO posts (id,project_id,title,body,status,schedule_mode,scheduled_at,scheduled_at_utc,schedule_timezone,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
-      .run(postId, projectId, title, text, 'DRAFT', mode, schedule.scheduledAt, schedule.scheduledAtUtc, schedule.scheduleTimezone, now, now);
-    ensureTargets(postId);
-    createInitialContentRevision(postId, 'manual');
-    return reply.code(201).send(postView(db.prepare('SELECT * FROM posts WHERE id=?').get(postId)));
+    const created = db.transaction(() => {
+      const now = nowIso();
+      db.prepare('INSERT INTO posts (id,project_id,title,body,status,schedule_mode,scheduled_at,scheduled_at_utc,schedule_timezone,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+        .run(postId, projectId, title, text, 'DRAFT', mode, schedule.scheduledAt, schedule.scheduledAtUtc, schedule.scheduleTimezone, now, now);
+      ensureTargets(postId);
+      createInitialContentRevision(postId, 'manual');
+      return db.prepare('SELECT * FROM posts WHERE id=?').get(postId);
+    })();
+    return reply.code(201).send(postView(created));
   });
   app.patch('/api/posts/:id', async (request, reply) => {
     const params = request.params as { id: string };

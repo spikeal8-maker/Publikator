@@ -126,6 +126,28 @@ export function assertContentVersion(postId: string, expectedContentVersion: num
   }
 }
 
+function revisionTargetHasRendition(target: RevisionTargetSnapshot): boolean {
+  const rendition = target.rendition;
+  return Boolean(rendition && [
+    rendition.textRichJson,
+    rendition.textPlain,
+    rendition.publicationKind,
+    rendition.contentFormat,
+    rendition.mediaPlanJson,
+    rendition.optionsJson
+  ].some((value) => value !== null && value !== undefined));
+}
+
+export function isMeaningfulRevisionTarget(target: RevisionTargetSnapshot): boolean {
+  return Boolean(target.enabled)
+    || (target.overrideText !== null && target.overrideText !== undefined)
+    || revisionTargetHasRendition(target);
+}
+
+export function semanticRevisionTargets(targets: RevisionTargetSnapshot[]): RevisionTargetSnapshot[] {
+  return targets.filter(isMeaningfulRevisionTarget);
+}
+
 function targetSnapshot(postId: string): RevisionTargetSnapshot[] {
   const targets = db.prepare(`SELECT pt.id AS targetId, pt.account_id AS accountId, pt.enabled,
       pt.override_text AS overrideText, tr.text_rich_json AS renditionTextRichJson, tr.text_plain AS renditionTextPlain,
@@ -138,7 +160,7 @@ function targetSnapshot(postId: string): RevisionTargetSnapshot[] {
       renditionContentFormat: string | null; renditionMediaPlanJson: string | null; renditionOptionsJson: string | null;
     }>;
 
-  return targets.map((target) => {
+  const snapshot = targets.map((target) => {
     const hasRendition = [
       target.renditionTextRichJson,
       target.renditionTextPlain,
@@ -162,6 +184,7 @@ function targetSnapshot(postId: string): RevisionTargetSnapshot[] {
       } : null
     };
   });
+  return semanticRevisionTargets(snapshot);
 }
 
 function contentMediaSnapshot(postId: string): RevisionContentMediaSnapshot[] {
@@ -326,7 +349,8 @@ export function commitContentEdit<T>(
 }
 
 export function revisionTargets(revision: ContentRevisionRow): RevisionTargetSnapshot[] {
-  return JSON.parse(revision.targets_json) as RevisionTargetSnapshot[];
+  const parsed = JSON.parse(revision.targets_json);
+  return Array.isArray(parsed) ? semanticRevisionTargets(parsed as RevisionTargetSnapshot[]) : [];
 }
 
 export function revisionContentMedia(revision: ContentRevisionRow): RevisionContentMediaSnapshot[] {
@@ -375,20 +399,48 @@ export function markReadyRevision(
   expectedContentVersion: number,
   revisionId: string
 ): void {
-  const updated = db.prepare(`UPDATE posts
-    SET status='READY', editorial_stage='APPROVED', ready_revision_id=?, updated_at=?
-    WHERE id=?
-      AND content_version=?
-      AND status IN ('DRAFT','READY','FAILED')
-      AND EXISTS (
-        SELECT 1 FROM content_revisions cr
-        WHERE cr.id=? AND cr.post_id=posts.id AND cr.content_version=posts.content_version
-      )`)
-    .run(revisionId, nowIso(), postId, expectedContentVersion, revisionId);
+  const transaction = db.transaction(() => {
+    const post = getPost(postId);
+    ensureEditable(post);
+    if (post.content_version !== expectedContentVersion) {
+      throw new ContentConflictError(`READY не применён: версия ${expectedContentVersion} устарела, текущая ${post.content_version}`);
+    }
 
-  if (updated.changes !== 1) {
-    const fresh = getPost(postId);
-    ensureEditable(fresh);
-    throw new ContentConflictError(`READY не применён: версия ${expectedContentVersion} устарела, текущая ${fresh.content_version}`);
-  }
+    const revision = db.prepare('SELECT * FROM content_revisions WHERE id=? AND post_id=? AND content_version=?')
+      .get(revisionId, postId, expectedContentVersion) as ContentRevisionRow | undefined;
+    if (!revision) {
+      throw new ContentConflictError('READY revision не соответствует текущей версии post');
+    }
+
+    const exact = snapshotCurrentContentRevision(
+      postId,
+      expectedContentVersion,
+      revision.actor_source as RevisionActorSource,
+      revision.restored_from_revision_id
+    );
+    if (exact.id !== revisionId) {
+      throw new ContentConflictError('READY revision не является exact revision текущей версии');
+    }
+
+    const finalized = db.prepare(`UPDATE content_revisions
+      SET editorial_stage='APPROVED'
+      WHERE id=? AND post_id=? AND content_version=?
+        AND editorial_stage IN ('IDEA','DRAFT','IN_REVIEW','APPROVED')`)
+      .run(revisionId, postId, expectedContentVersion);
+    if (finalized.changes !== 1) {
+      throw new ContentConflictError('READY revision нельзя финализировать как APPROVED');
+    }
+
+    const updated = db.prepare(`UPDATE posts
+      SET status='READY', editorial_stage='APPROVED', ready_revision_id=?, updated_at=?
+      WHERE id=? AND content_version=? AND status IN ('DRAFT','READY','FAILED')`)
+      .run(revisionId, nowIso(), postId, expectedContentVersion);
+    if (updated.changes !== 1) {
+      const fresh = getPost(postId);
+      ensureEditable(fresh);
+      throw new ContentConflictError(`READY не применён: версия ${expectedContentVersion} устарела, текущая ${fresh.content_version}`);
+    }
+  });
+
+  transaction();
 }
