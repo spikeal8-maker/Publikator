@@ -47,7 +47,7 @@ function insertAccount(id, name) {
 }
 
 try {
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 8);
+  assert.equal(Number(db.pragma('user_version', { simple: true })), 9);
   const postColumns = db.prepare('PRAGMA table_info(posts)').all().map((row) => row.name);
   for (const name of ['source_type','source_ref','source_revision','source_payload_hash','source_batch_id','imported_at','imported_content_version']) {
     assert.ok(postColumns.includes(name), name);
@@ -65,7 +65,7 @@ try {
   let validation = await preview(csv());
   assert.equal(validation.rows[0].classification, 'NEW');
   assert.equal(validation.canApply, true);
-  let result = applyContentPlanV3(validation);
+  let result = applyContentPlanV3(validation, { actorSource: 'content_plan' });
   assert.equal(result.created, 1);
 
   let rows = db.prepare("SELECT * FROM posts WHERE source_type='content-plan-v3' ORDER BY created_at,id").all();
@@ -76,7 +76,7 @@ try {
 
   validation = await preview(csv());
   assert.equal(validation.rows[0].classification, 'UNCHANGED');
-  result = applyContentPlanV3(validation);
+  result = applyContentPlanV3(validation, { actorSource: 'content_plan' });
   assert.equal(result.unchanged, 1);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM posts WHERE source_type='content-plan-v3'").get().n, 1);
 
@@ -87,7 +87,7 @@ try {
 
   validation = await preview(csv({ revision: 'rev-2' }));
   assert.equal(validation.rows[0].classification, 'UNCHANGED');
-  applyContentPlanV3(validation);
+  applyContentPlanV3(validation, { actorSource: 'content_plan' });
   rows = db.prepare("SELECT * FROM posts WHERE source_type='content-plan-v3' ORDER BY created_at,id").all();
   assert.equal(rows[0].source_revision, 'rev-2');
   assert.equal(rows[0].content_version, 1);
@@ -95,15 +95,22 @@ try {
 
   validation = await preview(csv({ body: 'Second body', revision: 'rev-3' }));
   assert.equal(validation.rows[0].classification, 'UPDATE');
-  result = applyContentPlanV3(validation);
+  result = applyContentPlanV3(validation, { actorSource: 'content_plan' });
   assert.equal(result.updated, 1);
   rows = db.prepare("SELECT * FROM posts WHERE source_type='content-plan-v3' ORDER BY created_at,id").all();
   assert.equal(rows[0].body, 'Second body');
   assert.equal(rows[0].content_version, 2);
   assert.equal(rows[0].imported_content_version, 2);
+  assert.deepEqual(
+    db.prepare('SELECT content_version,actor_source FROM content_revisions WHERE post_id=? ORDER BY content_version').all(rows[0].id),
+    [
+      { content_version: 1, actor_source: 'content_plan' },
+      { content_version: 2, actor_source: 'content_plan' }
+    ]
+  );
 
   const postId = rows[0].id;
-  commitContentEdit(postId, 2, () => db.prepare("UPDATE posts SET body='Local edit' WHERE id=?").run(postId));
+  commitContentEdit(postId, 2, 'manual', () => db.prepare("UPDATE posts SET body='Local edit' WHERE id=?").run(postId));
   validation = await preview(csv({ body: 'Third body', revision: 'rev-4' }));
   assert.equal(validation.rows[0].classification, 'CONFLICT');
   assert.equal(validation.canApply, false);
@@ -111,7 +118,7 @@ try {
 
   const otherSource = await preview(csv({ body: 'Other source body' }), 'sheet-beta');
   assert.equal(otherSource.rows[0].classification, 'NEW');
-  applyContentPlanV3(otherSource);
+  applyContentPlanV3(otherSource, { actorSource: 'content_plan' });
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM posts WHERE source_type='content-plan-v3'").get().n, 2);
 
   insertAccount('tg-dup-1', 'Duplicate');
@@ -128,7 +135,7 @@ try {
     telegramBody: 'Shared Telegram override'
   }), 'sheet-targets');
   assert.equal(multiTarget.rows[0].classification, 'NEW');
-  const multiResult = applyContentPlanV3(multiTarget);
+  const multiResult = applyContentPlanV3(multiTarget, { actorSource: 'content_plan' });
   const selectedOverrides = db.prepare(`SELECT account_id,override_text FROM post_targets
     WHERE post_id=? AND enabled=1 ORDER BY account_id`).all(multiResult.postIds[0]);
   assert.deepEqual(selectedOverrides, [
@@ -141,23 +148,23 @@ try {
   assert.match(carousel.rows[0].errors.join(' '), /content_format=IMAGE/);
 
   const archiveSeed = await preview(csv({ externalId: 'archive-1', body: 'Archive me', revision: 'rev-1' }), 'sheet-actions');
-  const archiveCreate = applyContentPlanV3(archiveSeed);
+  const archiveCreate = applyContentPlanV3(archiveSeed, { actorSource: 'content_plan' });
   const archiveId = archiveCreate.postIds[0];
   let archivePreview = await preview(csv({ externalId: 'archive-1', action: 'ARCHIVE', revision: 'rev-2' }), 'sheet-actions');
   assert.equal(archivePreview.rows[0].classification, 'ARCHIVE_REQUEST');
   assert.equal(archivePreview.canApply, true);
-  applyContentPlanV3(archivePreview);
+  applyContentPlanV3(archivePreview, { actorSource: 'content_plan' });
   let archiveRow = db.prepare('SELECT editorial_stage,content_version,imported_content_version FROM posts WHERE id=?').get(archiveId);
   assert.deepEqual(archiveRow, { editorial_stage: 'ARCHIVED', content_version: 2, imported_content_version: 2 });
 
   archivePreview = await preview(csv({ externalId: 'archive-1', action: 'ARCHIVE', revision: 'rev-2' }), 'sheet-actions');
   assert.equal(archivePreview.rows[0].classification, 'UNCHANGED');
-  applyContentPlanV3(archivePreview);
+  applyContentPlanV3(archivePreview, { actorSource: 'content_plan' });
   archiveRow = db.prepare('SELECT editorial_stage,content_version,imported_content_version FROM posts WHERE id=?').get(archiveId);
   assert.deepEqual(archiveRow, { editorial_stage: 'ARCHIVED', content_version: 2, imported_content_version: 2 });
 
   const immutableSeed = await preview(csv({ externalId: 'immutable-1', body: 'Published source', revision: 'rev-1' }), 'sheet-actions');
-  const immutableCreate = applyContentPlanV3(immutableSeed);
+  const immutableCreate = applyContentPlanV3(immutableSeed, { actorSource: 'content_plan' });
   const immutableId = immutableCreate.postIds[0];
   db.prepare("UPDATE posts SET status='PUBLISHED' WHERE id=?").run(immutableId);
   const immutableArchive = await preview(csv({ externalId: 'immutable-1', action: 'ARCHIVE', revision: 'rev-2' }), 'sheet-actions');

@@ -38,14 +38,14 @@ assert.notDeepEqual(db.prepare('SELECT * FROM integration_api_keys WHERE id=?').
 assert.notDeepEqual(db.prepare('SELECT * FROM ingestion_connectors WHERE id=?').get(connector.id), connectorBefore);
 
 const staged = await stageRestoreBundle(bundlePath);
-assert.equal(staged.manifest.schemaVersion, 8);
+assert.equal(staged.manifest.schemaVersion, 9);
 db.close();
 const applied = await applyPendingRestore();
 assert.equal(applied.applied, true);
 
 const restored = new Database(config.dbPath, { readonly: true, fileMustExist: true });
 try {
-  assert.equal(Number(restored.pragma('user_version', { simple: true })), 8);
+  assert.equal(Number(restored.pragma('user_version', { simple: true })), 9);
   assert.deepEqual(restored.prepare('SELECT * FROM integration_api_keys WHERE id=?').get(api.key.id), keyBefore);
   assert.deepEqual(restored.prepare('SELECT * FROM ingestion_connectors WHERE id=?').get(connector.id), connectorBefore);
   const databaseBlob = JSON.stringify(restored.prepare('SELECT * FROM integration_api_keys').all()) + JSON.stringify(restored.prepare('SELECT * FROM ingestion_connectors').all());
@@ -53,7 +53,7 @@ try {
   assert.equal(databaseBlob.includes(connectorSecret), false);
   console.log(JSON.stringify({
     ok: true,
-    schemaVersion: 8,
+    schemaVersion: 9,
     apiKeyHashPreserved: true,
     connectorCiphertextPreserved: true,
     plaintextSecretsAbsent: true,

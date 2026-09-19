@@ -445,7 +445,7 @@ export async function applyGoogleSheetsValues(connectorId: string, expectedSnaps
   if (validation.fileSha256 !== expectedSnapshotSha256.toLowerCase()) throw new Error('Google Sheet changed after preview; preview again before apply');
   if (!validation.canApply) throw new Error('Google Sheets preview contains ERROR/CONFLICT');
   const result = db.transaction(() => {
-    const applied = applyContentPlanV3(validation);
+    const applied = applyContentPlanV3(validation, { actorSource: 'google_sheets', sourceTypeOverride: 'google_sheets' });
     forceNewRowsToGoogleSource(validation, connectorId, applied.postIds);
     return applied;
   })();

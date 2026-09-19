@@ -32,7 +32,12 @@ export const SOURCE_LABELS = Object.freeze({
   api: 'API',
   bundle: 'Пакет',
   sheets: 'Таблица',
-  google_sheets: 'Google Sheets'
+  google_sheets: 'Google Sheets',
+  content_plan: 'Импорт',
+  manual_restore: 'Восстановление вручную',
+  system: 'Система',
+  migration: 'Миграция',
+  'content-plan-v3': 'Импорт'
 });
 
 export const SCHEDULE_MODE_LABELS = Object.freeze({

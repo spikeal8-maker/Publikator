@@ -43,7 +43,7 @@ export function autoReadyGoogleSheetsPost(postId: string): GoogleSheetsAutoReady
   if (targetCount < 1) return blocked(postId, 'Auto Ready blocked: no enabled publication target');
 
   try {
-    const revision = snapshotContentRevision(postId, post.content_version, 'google-sheets-auto-ready');
+    const revision = snapshotContentRevision(postId, post.content_version, 'google_sheets');
     const preflight = preflightRevision(revision.id);
     if (!preflight.ok) {
       const issues = preflight.issues.map((issue) => ({

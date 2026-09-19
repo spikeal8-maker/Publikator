@@ -26,7 +26,7 @@ export async function registerContentPlanV3Routes(app:FastifyInstance):Promise<v
     const expectedSha=request.headers['x-content-plan-sha256'];if(typeof expectedSha!=='string'||!/^[a-f0-9]{64}$/i.test(expectedSha))return reply.code(400).send({error:'Нужен SHA-256 из preview'});
     let release:(()=>void)|null=null;try{const src=sourceId(request);const file=await uploaded(request);const parsed=await parseContentPlanV3(file.filename,file.buffer);if(parsed.fileSha256!==expectedSha.toLowerCase())return reply.code(409).send({error:'Файл изменился после preview'});
       release=beginExclusiveRuntimeMaintenance('content-plan-v3 import');const validation=await validateContentPlanV3(parsed,src);if(!validation.canApply)return reply.code(409).send({error:'Schema 3 preview содержит ERROR/CONFLICT',validation});
-      return{ok:true,fileSha256:parsed.fileSha256,...applyContentPlanV3(validation)};
+      return{ok:true,fileSha256:parsed.fileSha256,...applyContentPlanV3(validation, { actorSource: 'content_plan' })};
     }catch(error){return reply.code(409).send({error:error instanceof Error?error.message:String(error)});}finally{release?.();}
   });
 }

@@ -140,7 +140,7 @@ try {
   assert.equal(post.imported_content_version, 2);
   const revision = db.prepare('SELECT id,content_version,actor_source FROM content_revisions WHERE id=?').get(post.ready_revision_id);
   assert.equal(revision.content_version, 2);
-  assert.equal(revision.actor_source, 'google-sheets-auto-ready');
+  assert.equal(revision.actor_source, 'google_sheets');
 
   const readyCount = db.prepare("SELECT COUNT(*) AS count FROM publication_events WHERE post_id=? AND event_type='google_sheets.auto_ready_succeeded'").get(post.id).count;
   assert.equal(readyCount, 1);

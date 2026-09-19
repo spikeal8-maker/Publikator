@@ -138,7 +138,7 @@ async function seedPhase() {
     assert.equal(projected.schedule_timezone, 'UTC');
 
     const schemaVersion = db.prepare('PRAGMA user_version').get().user_version;
-    assert.equal(schemaVersion, 8);
+    assert.equal(schemaVersion, 9);
 
     await fs.writeFile(
       stateFile,
@@ -159,7 +159,7 @@ async function verifyPhase() {
   try {
     const schemaVersion = db.prepare('PRAGMA user_version').get().user_version;
     assert.equal(schemaVersion, expected.schemaVersion);
-    assert.equal(schemaVersion, 8);
+    assert.equal(schemaVersion, 9);
 
     const response = await request(
       'GET',

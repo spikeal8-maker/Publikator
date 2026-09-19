@@ -1,4 +1,5 @@
-import { statusLabel } from './presentation-labels.js';
+import { publicationFormatLabel, scheduleModeLabel, sourceLabel, statusLabel } from './presentation-labels.js';
+import { openRevisionHistory } from './revision-history-v1.js';
 
 const EDITORIAL_VIEWS = {
   active: { label: 'Активные', api: '/api/editorial/posts?view=active' },
@@ -140,7 +141,7 @@ function inspectorEvents(post) {
 }
 
 function actionButtons(post) {
-  const buttons = [];
+  const buttons = ['<button type="button" class="secondary inspector-history">История изменений</button>'];
   if (post.actions.edit) buttons.push('<button type="button" class="primary inspector-edit">Редактировать</button>');
   if (post.actions.archive) buttons.push('<button type="button" class="secondary inspector-archive">В архив</button>');
   if (post.actions.trash) buttons.push('<button type="button" class="secondary danger inspector-trash">В корзину</button>');
@@ -178,12 +179,12 @@ async function openContentInspector(postId) {
       <section class="card"><h3>Публикация</h3><div class="inspector-body">${editorialEscape(post.body)}</div></section>
       <section class="card"><h3>Параметры</h3>
         <dl class="inspector-meta">
-          <div><dt>Режим</dt><dd>${editorialEscape(post.schedule_mode)}</dd></div>
+          <div><dt>Режим</dt><dd>${editorialEscape(scheduleModeLabel(post.schedule_mode))}</dd></div>
           <div><dt>Дата</dt><dd>${formatEditorialTime(post.scheduled_at_utc || post.scheduled_at)}</dd></div>
-          <div><dt>Timezone</dt><dd>${editorialEscape(post.schedule_timezone || '—')}</dd></div>
-          <div><dt>Формат</dt><dd>${editorialEscape(post.publication_kind)} / ${editorialEscape(post.content_format)}</dd></div>
+          <div><dt>Часовой пояс</dt><dd>${editorialEscape(post.schedule_timezone || '—')}</dd></div>
+          <div><dt>Формат</dt><dd>${editorialEscape(publicationFormatLabel(post.publication_kind, post.content_format))}</dd></div>
           <div><dt>Версия</dt><dd>${Number(post.content_version)}</dd></div>
-          <div><dt>Источник</dt><dd>${editorialEscape(post.source_type || 'manual')}</dd></div>
+          <div><dt>Источник</dt><dd>${editorialEscape(sourceLabel(post.source_type || 'manual'))}</dd></div>
         </dl>
       </section>
     </div>
@@ -199,6 +200,18 @@ async function openContentInspector(postId) {
   overlay.querySelector('.inspector-close')?.addEventListener('click', close);
   overlay.querySelector('.inspector-edit')?.addEventListener('click', () => {
     try { close(); legacyEditor(post.id); } catch (error) { window.alert(error instanceof Error ? error.message : String(error)); }
+  });
+  overlay.querySelector('.inspector-history')?.addEventListener('click', () => {
+    openRevisionHistory(post, {
+      onRestored: async () => {
+        close();
+        await refreshEditorialCollection();
+        await openContentInspector(post.id);
+      }
+    }).catch((error) => {
+      const errorBox = overlay.querySelector('.inspector-error');
+      if (errorBox) errorBox.textContent = error instanceof Error ? error.message : String(error);
+    });
   });
 
   const mutate = async (action, method = 'POST', extra = {}) => {

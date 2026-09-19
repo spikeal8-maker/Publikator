@@ -20,7 +20,7 @@ const sharp = (await import('sharp')).default;
 const { saveImageVersioned, deleteMediaVersioned } = await import('../dist/media.js');
 
 migrate();
-assert.equal(Number(db.pragma('user_version', { simple: true })), 8);
+assert.equal(Number(db.pragma('user_version', { simple: true })), 9);
 assert.throws(() => time.resolveLocalSchedule('2026-03-08T02:30:00', 'America/New_York'), /does not exist/i);
 assert.throws(() => time.resolveLocalSchedule('2026-11-01T01:30:00', 'America/New_York'), /ambiguous/i);
 const earlier = time.resolveLocalSchedule('2026-11-01T01:30:00', 'America/New_York', 'earlier');
@@ -160,7 +160,7 @@ assert.equal(db.prepare('SELECT content_format FROM posts WHERE id=?').get(media
 console.log(JSON.stringify({
   ok: true,
   checkpoint: 'M0-005',
-  schemaVersion: 8,
+  schemaVersion: 9,
   dstNonexistentRejected: true,
   dstAmbiguousRequiresChoice: true,
   queueToAtConfirmation: true,

@@ -38,7 +38,7 @@ legacy.close();
 const { db, migrate, nowIso } = await import('../dist/db.js');
 migrate();
 try {
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 8);
+  assert.equal(Number(db.pragma('user_version', { simple: true })), 9);
   const mediaColumns = new Set(db.prepare('PRAGMA table_info(media)').all().map((row) => row.name));
   for (const column of ['duration_ms','fps','video_codec','audio_codec','container','poster_asset_id']) assert.ok(mediaColumns.has(column), column);
   assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='content_media'").get());
@@ -66,10 +66,10 @@ try {
     VALUES ('bad','story','img1',0,'story_item',?,?)`).run(nowIso(), nowIso()), /same post/);
 
   migrate();
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 8);
+  assert.equal(Number(db.pragma('user_version', { simple: true })), 9);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM content_media WHERE post_id='image'").get().n, 3);
   console.log(JSON.stringify({
-    ok: true, from: 7, to: 8, videoMetadataColumns: true, contentMediaBackfill: true,
+    ok: true, from: 7, to: 9, videoMetadataColumns: true, contentMediaBackfill: true,
     immutableRelationBackfill: true, imageCompatibilityTriggers: true, samePostGuard: true, rerunSafe: true
   }, null, 2));
 } finally {

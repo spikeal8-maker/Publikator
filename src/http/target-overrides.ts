@@ -53,7 +53,7 @@ export async function registerTargetOverrideRoutes(app: FastifyInstance): Promis
     let nextVersion: number;
     try {
       const version = expectedContentVersion(request, body);
-      const committed = commitContentEdit(params.postId, version, () => {
+      const committed = commitContentEdit(params.postId, version, 'manual', () => {
         db.prepare('UPDATE post_targets SET override_text=?, updated_at=? WHERE id=?')
           .run(overrideText, now, params.targetId);
       });

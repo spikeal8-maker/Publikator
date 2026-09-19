@@ -54,7 +54,7 @@ export function saveTargetRendition(targetId: string, override: TargetRenditionO
   const rich = jsonOrNull(override.textRichJson, 'textRichJson', true);
   const media = jsonOrNull(override.mediaPlanJson, 'mediaPlanJson');
   const options = jsonOrNull(override.optionsJson, 'optionsJson');
-  const committed = commitContentEdit(target.post_id, expectedContentVersion, () => {
+  const committed = commitContentEdit(target.post_id, expectedContentVersion, 'manual', () => {
     db.prepare(`INSERT INTO target_renditions
       (target_id,text_rich_json,text_plain,publication_kind,content_format,media_plan_json,options_json,updated_at)
       VALUES (?,?,?,?,?,?,?,?)

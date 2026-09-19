@@ -99,7 +99,7 @@ export function setContentCompositionVersioned(
     if (item.role === 'video' && !row.mime_type.startsWith('video/')) throw new Error('Video role requires a video media asset');
   }
 
-  const committed = commitContentEdit(postId, expectedContentVersion, () => {
+  const committed = commitContentEdit(postId, expectedContentVersion, 'manual', () => {
     const updateMediaOrder = db.prepare('UPDATE media SET sort_order=? WHERE id=? AND post_id=?');
     const upsertContentMedia = db.prepare(`INSERT INTO content_media
       (id,post_id,media_id,sort_order,role,preview_duration_ms,created_at,updated_at)
@@ -132,7 +132,7 @@ export function setVideoMetadataVersioned(
     const poster = db.prepare('SELECT id,mime_type FROM media WHERE id=? AND post_id=?').get(metadata.posterAssetId, media.post_id) as { id: string; mime_type: string } | undefined;
     if (!poster || !poster.mime_type.startsWith('image/')) throw new Error('Poster asset must be an image from the same post');
   }
-  const committed = commitContentEdit(media.post_id, expectedContentVersion, () => {
+  const committed = commitContentEdit(media.post_id, expectedContentVersion, 'manual', () => {
     db.prepare(`UPDATE media SET duration_ms=?,fps=?,video_codec=?,audio_codec=?,container=?,poster_asset_id=? WHERE id=?`)
       .run(metadata.durationMs, metadata.fps ?? null, metadata.videoCodec ?? null, metadata.audioCodec ?? null,
         metadata.container ?? null, metadata.posterAssetId ?? null, mediaId);

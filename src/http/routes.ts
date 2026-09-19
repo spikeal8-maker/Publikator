@@ -3,7 +3,7 @@ import { config } from '../config.js';
 import { createSessionToken, decryptJson, encryptJson, securePasswordEqual, verifySessionToken } from '../crypto.js';
 import { db, event, id, nowIso, type Platform } from '../db.js';
 import { deleteMediaVersioned, listMedia, saveImageVersioned } from '../media.js';
-import { commitContentEdit, markReadyRevision, snapshotContentRevision } from '../content-versioning.js';
+import { commitContentEdit, createInitialContentRevision, markReadyRevision, snapshotContentRevision } from '../content-versioning.js';
 import { contentMutationError, expectedContentVersion } from './content-version.js';
 import {
   confirmRecoveryNotPublished,
@@ -197,11 +197,15 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     let schedule: ScheduleMutation;
     try { schedule = scheduleMutation(mode, body); }
     catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) }); }
-    const now = nowIso();
-    db.prepare('INSERT INTO posts (id,project_id,title,body,status,schedule_mode,scheduled_at,scheduled_at_utc,schedule_timezone,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
-      .run(postId, projectId, title, text, 'DRAFT', mode, schedule.scheduledAt, schedule.scheduledAtUtc, schedule.scheduleTimezone, now, now);
-    ensureTargets(postId);
-    return reply.code(201).send(postView(db.prepare('SELECT * FROM posts WHERE id=?').get(postId)));
+    const created = db.transaction(() => {
+      const now = nowIso();
+      db.prepare('INSERT INTO posts (id,project_id,title,body,status,schedule_mode,scheduled_at,scheduled_at_utc,schedule_timezone,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+        .run(postId, projectId, title, text, 'DRAFT', mode, schedule.scheduledAt, schedule.scheduledAtUtc, schedule.scheduleTimezone, now, now);
+      ensureTargets(postId);
+      createInitialContentRevision(postId, 'manual');
+      return db.prepare('SELECT * FROM posts WHERE id=?').get(postId);
+    })();
+    return reply.code(201).send(postView(created));
   });
   app.patch('/api/posts/:id', async (request, reply) => {
     const params = request.params as { id: string };
@@ -222,7 +226,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) }); }
     try {
       const version = expectedContentVersion(request, body);
-      const committed = commitContentEdit(params.id, version, () => {
+      const committed = commitContentEdit(params.id, version, 'manual', () => {
         db.prepare('UPDATE posts SET title=?,body=?,schedule_mode=?,scheduled_at=?,scheduled_at_utc=?,schedule_timezone=?,updated_at=? WHERE id=?')
           .run(title, text, mode, schedule.scheduledAt, schedule.scheduledAtUtc, schedule.scheduleTimezone, nowIso(), params.id);
       });
@@ -241,7 +245,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (!Array.isArray(body.accountIds) || body.accountIds.some((value: unknown) => typeof value !== 'string')) return reply.code(400).send({ error: 'accountIds должен быть массивом строк' });
     try {
       const version = expectedContentVersion(request, body);
-      const committed = commitContentEdit(params.id, version, () => setTargetSelection(params.id, body.accountIds as string[]));
+      const committed = commitContentEdit(params.id, version, 'manual', () => setTargetSelection(params.id, body.accountIds as string[]));
       return { ok: true, contentVersion: committed.contentVersion, targets: (postView(db.prepare('SELECT * FROM posts WHERE id=?').get(params.id)) as any).targets };
     } catch (error) {
       return contentMutationError(reply, error);
@@ -294,7 +298,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       let body: Record<string, any> = {};
       if (request.body !== undefined && request.body !== null) body = bodyObject(request.body);
       const version = expectedContentVersion(request, body);
-      const revision = snapshotContentRevision(params.id, version, 'manual-ready');
+      const revision = snapshotContentRevision(params.id, version, 'manual');
       const preflight = preflightRevision(revision.id);
       if (!preflight.ok) {
         const details = preflight.issues.map((issue) => `${issue.platform} / ${issue.accountName}: ${issue.message}`).join('\n');
