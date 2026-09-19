@@ -5,7 +5,7 @@
 .rich-text-toolbar button{min-width:34px;min-height:32px;padding:5px 8px;border:1px solid transparent;border-radius:7px;background:transparent;color:#111827}
 .rich-text-toolbar button:hover:not(:disabled){background:#e2e8f0}
 .rich-text-toolbar button:focus-visible,.rich-text-surface:focus-visible{outline:2px solid #2563eb;outline-offset:-2px}
-.rich-text-surface{min-height:170px;padding:12px 13px;line-height:1.55;overflow-wrap:anywhere;white-space:normal}
+.rich-text-surface{min-height:170px;padding:12px 13px;line-height:1.55;overflow-wrap:anywhere;white-space:pre-wrap}
 .rich-text-surface:empty::before{content:'Введите текст публикации';color:#94a3b8;pointer-events:none}
 .rich-text-surface p{margin:0 0 9px}
 .rich-text-surface p:last-child{margin-bottom:0}
@@ -15,7 +15,7 @@
 .rich-text-surface a,.rich-text-preview a{color:#1d4ed8;text-decoration:underline}
 .rich-text-editor.disabled{background:#f8fafc}
 .rich-text-editor.disabled .rich-text-toolbar{opacity:.62}
-.rich-text-preview{white-space:normal;overflow-wrap:anywhere;line-height:1.55}
+.rich-text-preview{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.55}
 .rich-text-preview p{margin:0 0 8px}
 .rich-text-plain-fallback[hidden]{display:none!important}
 @media(max-width:760px){
