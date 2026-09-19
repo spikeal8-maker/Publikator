@@ -151,8 +151,10 @@ export function ensureTargets(postId: string): void {
   const post = db.prepare('SELECT project_id,created_at FROM posts WHERE id=?')
     .get(postId) as { project_id: string; created_at: string } | undefined;
   if (!post) throw new Error('Пост не найден');
-  const defaults = db.prepare(`SELECT account_id FROM project_default_targets
-    WHERE project_id=? AND created_at<=? ORDER BY created_at,account_id`)
+  const defaults = db.prepare(`SELECT pdt.account_id FROM project_default_targets pdt
+    JOIN social_accounts a ON a.id=pdt.account_id
+    WHERE pdt.project_id=? AND pdt.created_at<=? AND a.enabled=1
+    ORDER BY pdt.created_at,pdt.account_id`)
     .all(post.project_id, post.created_at) as Array<{ account_id: string }>;
   const insert = db.prepare(`INSERT OR IGNORE INTO post_targets
     (id,post_id,account_id,enabled,state,attempts,updated_at) VALUES (lower(hex(randomblob(16))),?,?,1,?,0,?)`);

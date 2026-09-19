@@ -127,7 +127,10 @@ try{
 
   const projectColumns=new Set(db.prepare('PRAGMA table_info(projects)').all().map((row)=>row.name));
   assert.ok(projectColumns.has('default_timezone'));
-  assert.equal(db.prepare('SELECT default_timezone FROM projects WHERE id=?').get('p1').default_timezone,'UTC');
+  assert.ok(projectColumns.has('default_targets_explicit'));
+  const migratedProject=db.prepare('SELECT default_timezone,default_targets_explicit FROM projects WHERE id=?').get('p1');
+  assert.equal(migratedProject.default_timezone,'UTC');
+  assert.equal(migratedProject.default_targets_explicit,0);
   const defaultTargetColumns=new Set(db.prepare('PRAGMA table_info(project_default_targets)').all().map((row)=>row.name));
   assert.deepEqual([...defaultTargetColumns].sort(),['account_id','created_at','project_id']);
   assert.deepEqual(
@@ -149,6 +152,7 @@ try{
   migrate();
   assert.equal(Number(db.pragma('user_version',{simple:true})),11);
   assert.equal(db.prepare('SELECT default_timezone FROM projects WHERE id=?').get('p1').default_timezone,'Asia/Tokyo');
+  assert.equal(db.prepare('SELECT default_targets_explicit FROM projects WHERE id=?').get('p1').default_targets_explicit,0);
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM project_default_targets WHERE project_id=?').get('p1').count,0);
   assert.deepEqual(db.prepare('SELECT * FROM posts WHERE id=?').get('post1'),postBefore);
   assert.deepEqual(db.prepare('SELECT * FROM content_revisions WHERE post_id=? ORDER BY content_version').all('post1'),revisionsBefore);
@@ -164,6 +168,7 @@ try{
     defaultTargetCreatedAt:true,
     disabledAccountExcluded:true,
     existingProjectUtc:true,
+    defaultTargetsExplicitBackfilledFalse:true,
     postsUnchanged:true,
     postTargetsUnchanged:true,
     revisionsUnchanged:true,

@@ -260,6 +260,7 @@ export function migrate(): void {
       name TEXT NOT NULL,
       slug TEXT NOT NULL UNIQUE,
       default_timezone TEXT NOT NULL DEFAULT 'UTC',
+      default_targets_explicit INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL
     );
 

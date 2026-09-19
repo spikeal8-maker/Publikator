@@ -220,6 +220,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         .run(name, defaultTimezone, params.id);
       if (defaultTargetAccountIds !== undefined) {
         replaceProjectDefaultTargets(params.id, defaultTargetAccountIds, nowIso());
+        db.prepare('UPDATE projects SET default_targets_explicit=1 WHERE id=?').run(params.id);
       }
       return db.prepare('SELECT * FROM projects WHERE id=?').get(params.id);
     })();
@@ -249,8 +250,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (!name || !body.credentials || typeof body.credentials !== 'object') return reply.code(400).send({ error: 'Нужны name и credentials' });
     const accountId = id('acc');
     const now = nowIso();
-    db.prepare('INSERT INTO social_accounts (id,platform,name,credentials_encrypted,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)')
-      .run(accountId, platform, name, encryptJson(body.credentials), now, now);
+    db.transaction(() => {
+      db.prepare('INSERT INTO social_accounts (id,platform,name,credentials_encrypted,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)')
+        .run(accountId, platform, name, encryptJson(body.credentials), now, now);
+      db.prepare(`INSERT INTO project_default_targets (project_id,account_id,created_at)
+        SELECT id,?,? FROM projects WHERE default_targets_explicit=0`)
+        .run(accountId, now);
+    })();
     return reply.code(201).send({ id: accountId, platform, name, enabled: 1 });
   });
   app.patch('/api/accounts/:id', async (request, reply) => {

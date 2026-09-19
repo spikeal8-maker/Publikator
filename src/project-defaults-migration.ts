@@ -7,6 +7,9 @@ export function migrateProjectDefaults(db: Database.Database): void {
   if (!columns.has('default_timezone')) {
     db.exec("ALTER TABLE projects ADD COLUMN default_timezone TEXT NOT NULL DEFAULT 'UTC'");
   }
+  if (!columns.has('default_targets_explicit')) {
+    db.exec('ALTER TABLE projects ADD COLUMN default_targets_explicit INTEGER NOT NULL DEFAULT 0');
+  }
 
   const hadDefaultTargets = Boolean(
     db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='project_default_targets'").get()
