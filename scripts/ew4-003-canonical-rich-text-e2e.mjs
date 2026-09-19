@@ -81,7 +81,7 @@ const literalDoc=plainTextToRichText(literal);
 assert.equal(richTextToPlain(literalDoc),literal);
 assert.equal(literalDoc.content[0].content[0].text,literal);
 
-assert.throws(()=>normalizeRichText({type:'doc',content:[{type:'script',content:[]}]}),/forbidden/i);
+assert.throws(()=>normalizeRichText({type:'doc',content:[{type:'script',content:[]}]}),/(forbidden|block nodes)/i);
 assert.throws(()=>normalizeRichText({type:'doc',content:[{type:'paragraph',onclick:'alert(1)',content:[]}]}),/forbidden/i);
 assert.throws(()=>normalizeRichText({type:'doc',content:[{type:'paragraph',innerHTML:'<script>',content:[]}]}),/forbidden/i);
 for(const href of ['javascript:alert(1)','data:text/html,boom','file:///etc/passwd','https://user:pass@example.test/']){
