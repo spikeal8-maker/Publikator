@@ -87,7 +87,7 @@ legacy.prepare('INSERT INTO projects(id,name,slug,created_at) VALUES (?,?,?,?)')
 legacy.prepare(`INSERT INTO posts
   (id,project_id,title,body,body_rich_json,status,editorial_stage,schedule_mode,scheduled_at,content_version,
    created_at,updated_at,scheduled_at_utc,schedule_timezone,publication_kind,content_format)
-  VALUES (?,?,?,?,?,'DRAFT','DRAFT','AT',?,7,?,?,?,?,?,'FEED','TEXT_ONLY')`)
+  VALUES (?,?,?,?,?,'DRAFT','DRAFT','AT',?,7,?,?,?,?,'FEED','TEXT_ONLY')`)
   .run('post1','p1','Existing post','Schema 10 body',rich,'2026-10-01T13:00:00.000Z',ts,ts,'2026-10-01T13:00:00.000Z','America/New_York');
 legacy.prepare(`INSERT INTO content_revisions
   (id,post_id,content_version,title,body,body_rich_json,editorial_stage,schedule_mode,scheduled_at,targets_json,media_json,
