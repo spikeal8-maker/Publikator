@@ -26,7 +26,7 @@ const { setPublisherForTests } = await import('../dist/platforms/index.js');
 const { buildApp } = await import('../dist/app.js');
 
 migrate();
-assert.equal(Number(db.pragma('user_version', { simple: true })), 9);
+assert.equal(Number(db.pragma('user_version', { simple: true })), 10);
 
 let publishCalls = 0;
 setPublisherForTests('telegram', {
@@ -603,7 +603,7 @@ assert.equal(publishCalls, 0, 'revision restore must never publish externally');
 console.log(JSON.stringify({
   ok: true,
   checkpoint: 'EW4-002',
-  schemaVersion: 9,
+  schemaVersion: 10,
   continuousRevisionVersions: true,
   actorPropagation: true,
   immutableRevisions: true,
