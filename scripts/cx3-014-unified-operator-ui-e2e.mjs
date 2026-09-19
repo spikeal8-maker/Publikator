@@ -125,7 +125,7 @@ for (const stale of ["agenda:'Agenda'", 'display: ${', ' · schedule ']) {
   assert.ok(!calendar.includes(stale), `Calendar technical presentation leaked: ${stale}`);
 }
 
-assert.ok(editorial.includes("import { statusLabel } from './presentation-labels.js';"), 'Editorial must use shared status helper');
+assert.ok(/import\s*\{[^}]*\bstatusLabel\b[^}]*\}\s*from '\.\/presentation-labels\.js';/.test(editorial), 'Editorial must use shared status helper');
 assert.ok(editorial.includes('data-raw-status="${editorialEscape(raw)}"'), 'Editorial badges must preserve raw status');
 assert.ok(editorial.includes('editorialEscape(statusLabel(raw))'), 'Editorial badges must render human status');
 
