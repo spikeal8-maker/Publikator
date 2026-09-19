@@ -24,7 +24,7 @@ const quote = (value) => `"${String(value).replaceAll('"', '""')}"`;
 const csv = Buffer.from('\uFEFF' + columns.join(';') + '\r\n' + values.map(quote).join(';') + '\r\n');const parsed = await parseContentPlanV3('restore.csv', csv);
 const validation = await validateContentPlanV3(parsed, 'restore-source');
 assert.equal(validation.canApply, true);
-const imported = applyContentPlanV3(validation);
+const imported = applyContentPlanV3(validation, { actorSource: 'content_plan' });
 assert.equal(imported.created, 1);
 const postId = imported.postIds[0];
 
