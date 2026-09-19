@@ -15,7 +15,7 @@ import {
   setTargetSelection
 } from '../publisher.js';
 import { testConnection } from '../platforms/connection-test.js';
-import { resolveExactSchedule, resolveScheduleInput } from '../schedule-time.js';
+import { normalizeIanaTimezone, resolveExactSchedule, resolveScheduleInput } from '../schedule-time.js';
 import { parseRichTextJson, plainTextToRichText, richTextToPlain, serializeRichText } from '../rich-text.js';
 
 type ScheduleMutation = { scheduledAt: string | null; scheduledAtUtc: string | null; scheduleTimezone: string | null };
@@ -132,9 +132,46 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const name = String(body.name || '').trim();
     const slug = String(body.slug || '').trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-');
     if (!name || !slug) return reply.code(400).send({ error: 'Нужны name и slug' });
+
+    let defaultTimezone: string;
+    try {
+      if (body.defaultTimezone !== undefined && typeof body.defaultTimezone !== 'string') {
+        throw new Error('defaultTimezone должен быть строкой IANA timezone');
+      }
+      defaultTimezone = normalizeIanaTimezone(body.defaultTimezone ?? 'UTC');
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+
     const projectId = id('prj');
-    db.prepare('INSERT INTO projects (id,name,slug,created_at) VALUES (?,?,?,?)').run(projectId, name, slug, nowIso());
+    db.prepare('INSERT INTO projects (id,name,slug,default_timezone,created_at) VALUES (?,?,?,?,?)')
+      .run(projectId, name, slug, defaultTimezone, nowIso());
     return reply.code(201).send(db.prepare('SELECT * FROM projects WHERE id=?').get(projectId));
+  });
+  app.patch('/api/projects/:id', async (request, reply) => {
+    const params = request.params as { id: string };
+    const body = bodyObject(request.body);
+    const current = db.prepare('SELECT * FROM projects WHERE id=?').get(params.id) as any;
+    if (!current) return reply.code(404).send({ error: 'Проект не найден' });
+
+    const name = body.name === undefined ? current.name : String(body.name).trim();
+    if (!name) return reply.code(400).send({ error: 'name не должен быть пустым' });
+
+    let defaultTimezone = String(current.default_timezone);
+    if (body.defaultTimezone !== undefined) {
+      if (typeof body.defaultTimezone !== 'string') {
+        return reply.code(400).send({ error: 'defaultTimezone должен быть строкой IANA timezone' });
+      }
+      try {
+        defaultTimezone = normalizeIanaTimezone(body.defaultTimezone);
+      } catch (error) {
+        return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+
+    db.prepare('UPDATE projects SET name=?,default_timezone=? WHERE id=?')
+      .run(name, defaultTimezone, params.id);
+    return db.prepare('SELECT * FROM projects WHERE id=?').get(params.id);
   });
 
   app.get('/api/accounts', async () => {
