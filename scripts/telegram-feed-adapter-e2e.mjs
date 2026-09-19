@@ -269,7 +269,7 @@ try {
 
   {
     const richLong={type:'doc',content:[{type:'paragraph',content:[
-      {type:'text',text:'я'.repeat(1020),marks:[]},
+      {type:'text',text:'я'.repeat(1021),marks:[]},
       {type:'text',text:'Ж🙂Ж',marks:[{type:'bold'}]}
     ]}]};
     const compiled=compilePlatformText('telegram',richLong,'media_caption');
