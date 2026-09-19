@@ -86,8 +86,8 @@ const { db, migrate } = await import('../dist/db.js');
 const { DATABASE_SCHEMA_VERSION } = await import('../dist/schema.js');
 migrate();
 try {
-  assert.equal(DATABASE_SCHEMA_VERSION, 9);
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 9);
+  assert.equal(DATABASE_SCHEMA_VERSION, 10);
+  assert.equal(Number(db.pragma('user_version', { simple: true })), 10);
 
   const columns = new Set(db.prepare('PRAGMA table_info(content_revisions)').all().map((row) => row.name));
   assert.ok(columns.has('editorial_stage'), 'editorial_stage');
@@ -109,7 +109,7 @@ try {
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM content_revisions').get().count, 2, 'migration must not fabricate historical gaps');
 
   migrate();
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 9);
+  assert.equal(Number(db.pragma('user_version', { simple: true })), 10);
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM content_revisions').get().count, 2);
   assert.equal(db.prepare('SELECT editorial_stage FROM content_revisions WHERE id=?').get('rev-published').editorial_stage, 'APPROVED');
 
