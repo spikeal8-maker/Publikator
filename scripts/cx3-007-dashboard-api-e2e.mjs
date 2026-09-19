@@ -19,6 +19,8 @@ const projectId = db.prepare('SELECT id FROM projects ORDER BY created_at LIMIT 
 const createdAt = nowIso();
 db.prepare(`INSERT INTO social_accounts (id,platform,name,credentials_encrypted,enabled,created_at,updated_at)
   VALUES (?,?,?,?,1,?,?)`).run('acc_dashboard_tg', 'telegram', 'Dashboard TG', encryptJson({ token: 'mock' }), createdAt, createdAt);
+db.prepare(`INSERT INTO project_default_targets (project_id,account_id,created_at) VALUES (?,?,?)`)
+  .run(projectId,'acc_dashboard_tg',createdAt);
 const app = await buildApp();
 await app.ready();
 

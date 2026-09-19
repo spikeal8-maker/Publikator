@@ -28,6 +28,8 @@ db.prepare(`INSERT INTO social_accounts
   (id,platform,name,credentials_encrypted,enabled,created_at,updated_at)
   VALUES (?,?,?,?,1,?,?)`)
   .run(accountId, 'telegram', 'CX3-005 Telegram', encryptJson({ botToken: 'mock-token', chatId: '@mock' }), accountNow, accountNow);
+db.prepare(`INSERT INTO project_default_targets (project_id,account_id,created_at) VALUES (?,?,?)`)
+  .run(projectId, accountId, accountNow);
 
 const app = await buildApp();
 await app.ready();
