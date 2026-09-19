@@ -16,7 +16,7 @@ const { buildApp } = await import('../dist/app.js');
 const rich = await import('../dist/rich-media.js');
 const delivery = await import('../dist/delivery-foundation.js');
 const capabilities = await import('../dist/platforms/capabilities.js');
-const { snapshotContentRevision, markReadyRevision } = await import('../dist/content-versioning.js');
+const { commitContentEdit, snapshotContentRevision, markReadyRevision } = await import('../dist/content-versioning.js');
 const { preflightRevision, publishPost } = await import('../dist/publisher.js');
 const { setPublisherForTests } = await import('../dist/platforms/index.js');
 
@@ -45,14 +45,17 @@ async function createPost(title, body = `${title} body`) {
   return response.json();
 }
 
-function addMedia(postId, name, mimeType, width, height, order = 0) {
+function addMedia(postId, expectedContentVersion, name, mimeType, width, height, order = 0) {
   const mediaId = id('med');
-  db.prepare(`INSERT INTO media
-    (id,post_id,original_name,relative_path,mime_type,size_bytes,width,height,sha256,created_at,sort_order)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
-    .run(mediaId, postId, name, `${postId}/${name}`, mimeType, 1024, width, height,
-      String(order + 1).repeat(64).slice(0, 64), nowIso(), order);
-  return mediaId;
+  const committed = commitContentEdit(postId, expectedContentVersion, 'manual', () => {
+    db.prepare(`INSERT INTO media
+      (id,post_id,original_name,relative_path,mime_type,size_bytes,width,height,sha256,created_at,sort_order)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+      .run(mediaId, postId, name, `${postId}/${name}`, mimeType, 1024, width, height,
+        String(order + 1).repeat(64).slice(0, 64), nowIso(), order);
+    return mediaId;
+  });
+  return { mediaId, contentVersion: committed.contentVersion };
 }
 
 const anonymousCapabilities = await app.inject({ method: 'GET', url: '/api/platform-capabilities' });
@@ -89,14 +92,15 @@ const maxUrlIssues = capabilities.capabilityIssues('max', {
 assert.ok(maxUrlIssues.some((issue) => issue.code === 'PUBLIC_MEDIA_URL_REQUIRED'));
 
 const supported = await createPost('Supported feed image');
-addMedia(supported.id, 'image.jpg', 'image/jpeg', 1200, 1200);
-const readySupported = await request('POST', `/api/posts/${supported.id}/ready`, { expectedContentVersion: supported.content_version });
+const supportedMedia = addMedia(supported.id, supported.content_version, 'image.jpg', 'image/jpeg', 1200, 1200);
+const readySupported = await request('POST', `/api/posts/${supported.id}/ready`, { expectedContentVersion: supportedMedia.contentVersion });
 assert.equal(readySupported.statusCode, 200, readySupported.body);
 assert.equal(db.prepare('SELECT status FROM posts WHERE id=?').get(supported.id).status, 'READY');
 
 const shortPost = await createPost('Unsupported short video');
-const videoId = addMedia(shortPost.id, 'clip.mp4', 'video/mp4', 1080, 1920);
-const metadataEdit = rich.setVideoMetadataVersioned(videoId, shortPost.content_version, {
+const shortMedia = addMedia(shortPost.id, shortPost.content_version, 'clip.mp4', 'video/mp4', 1080, 1920);
+const videoId = shortMedia.mediaId;
+const metadataEdit = rich.setVideoMetadataVersioned(videoId, shortMedia.contentVersion, {
   durationMs: 5000, fps: 30, videoCodec: 'h264', audioCodec: 'aac', container: 'mp4'
 });
 const compositionEdit = rich.setContentCompositionVersioned(shortPost.id, metadataEdit.contentVersion, 'SHORT', 'VERTICAL_VIDEO', [
@@ -122,11 +126,11 @@ assert.equal(externalPostCalls, 0, 'capability must block before external publis
 setPublisherForTests('telegram', null);
 
 const renditionPost = await createPost('Target rendition compatibility');
-addMedia(renditionPost.id, 'story-source.jpg', 'image/jpeg', 1080, 1920);
+const renditionMedia = addMedia(renditionPost.id, renditionPost.content_version, 'story-source.jpg', 'image/jpeg', 1080, 1920);
 const targetId = db.prepare('SELECT id FROM post_targets WHERE post_id=? AND account_id=?').get(renditionPost.id, accountId).id;
 const renditionEdit = delivery.saveTargetRendition(targetId, {
   textPlain: 'Target-specific story text', publicationKind: 'STORY', contentFormat: 'IMAGE'
-}, renditionPost.content_version);
+}, renditionMedia.contentVersion);
 const renditionRevision = snapshotContentRevision(renditionPost.id, renditionEdit.contentVersion, 'cx3-005-rendition');
 const renditionPreflight = preflightRevision(renditionRevision.id);
 assert.equal(renditionPreflight.ok, false);
