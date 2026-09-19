@@ -253,7 +253,7 @@ function planCsv(externalId,title,body,sourceRevision){
     schema_version:'3',external_id:externalId,action:'UPSERT',project:project.slug,template_key:'',
     internal_title:title,body,publication_kind:'FEED',content_format:'IMAGE',schedule_mode:'MANUAL',
     scheduled_at:'',timezone:'UTC',targets:'[]',telegram_body:'',vk_body:'',max_body:'',instagram_body:'',
-    media:'[]',tags:'',source_note:'',source_revision:sourceRevision
+    media:'',tags:'',source_note:'',source_revision:sourceRevision
   };
   return Buffer.from(
     CONTENT_PLAN_V3_COLUMNS.join(',')+'\n'+CONTENT_PLAN_V3_COLUMNS.map(column=>csvCell(values[column])).join(',')+'\n',
