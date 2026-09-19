@@ -65,7 +65,7 @@ ACCOUNT_ID="$(curl -fsS -b "$COOKIE_FILE" \
 test -n "$ACCOUNT_ID"
 
 curl -fsS -b "$COOKIE_FILE" "http://127.0.0.1:${PORT}/api/posts/${OLD_POST_ID}" | \
-  jq -e '(.targets | length) == 1 and (.targets[0].enabled == 0)' >/dev/null
+  jq -e '(.targets | length) == 0' >/dev/null
 
 POST_ID="$(curl -fsS -b "$COOKIE_FILE" \
   -H 'content-type: application/json' \
