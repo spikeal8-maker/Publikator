@@ -91,6 +91,9 @@ jobs:
       - name: Schema v9 revision history migration
         run: node scripts/schema-v9-revision-history-e2e.mjs
 
+      - name: Schema v10 canonical rich text migration
+        run: node scripts/schema-v10-canonical-rich-text-e2e.mjs
+
       - name: M0-005 time rendition sequence semantics
         run: node scripts/m005-e2e.mjs
 
@@ -105,6 +108,9 @@ jobs:
 
       - name: EW4-002 revision history UX
         run: node scripts/ew4-002-revision-history-e2e.mjs
+
+      - name: EW4-003 canonical rich text editor
+        run: node scripts/ew4-003-canonical-rich-text-e2e.mjs
 
       - name: CX3-001 visual calendar shell
         run: node scripts/cx3-001-calendar-e2e.mjs
@@ -236,6 +242,9 @@ jobs:
       - name: Schema v9 revision history backup and restore
         run: node scripts/backup-v9-revision-history-e2e.mjs
 
+      - name: Schema v10 canonical rich text backup and restore
+        run: node scripts/backup-v10-canonical-rich-text-e2e.mjs
+
       - name: Canonical backup API
         env:
           NODE_ENV: test
@@ -293,7 +302,7 @@ jobs:
             if [ -n "$HEALTH" ]; then break; fi
             sleep 1
           done
-          jq -e --arg sha "$GITHUB_SHA" '.ok == true and .buildSha == $sha and .schemaVersion == 9' <<<"$HEALTH"
+          jq -e --arg sha "$GITHUB_SHA" '.ok == true and .buildSha == $sha and .schemaVersion == 10' <<<"$HEALTH"
 
       - name: Linux documented deployment launcher
         run: bash scripts/deploy-linux-e2e.sh

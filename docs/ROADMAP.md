@@ -289,7 +289,8 @@ Publikator уже прошёл маленькие additive milestones вмест
 6  ingestion security state
 7  UTC/IANA schedule + TargetRendition + PublicationUnit
 8  rich-media model
-9  revision-history — EW4-002 candidate; becomes current only after accepted merge
+9  revision-history — EW4-002 accepted/merged; current accepted schema
+10 canonical-rich-text — EW4-003 candidate; becomes current only after accepted merge
 ```
 
 Новые feature PR не должны повторно создавать эти primitives. Следующая schema version появляется только при новом coherent data invariant и обязана следовать `docs/RELEASE_MIGRATION_POLICY.md` + `SCHEMA_MILESTONES`.
@@ -298,7 +299,7 @@ Publikator уже прошёл маленькие additive milestones вмест
 
 # 6. Текущее состояние и оставшийся порядок разработки
 
-Сверено: **19.09.2026**, после merge PR #102 (FE-007).
+Сверено: **19.09.2026**, после accepted merge PR #103 (EW4-002).
 
 Следующие foundation/product-этапы уже реализованы и **не должны создаваться заново параллельными слоями**:
 
@@ -319,17 +320,16 @@ Publikator уже прошёл маленькие additive milestones вмест
 
 ## Оставшийся рекомендуемый порядок
 
-1. **EW4-002 Revision history UX** — текущий candidate `ew4-002/revision-history-ux`; просмотр, diff и safe restore immutable revisions. Не считать DONE до accepted merge.
-2. **EW4-003 Canonical rich text editor** — структурированный AST + plain-text fallback.
-3. **EW4-004 Platform compilers** — Telegram/MAX/VK/Instagram + downgrade diagnostics.
-4. **EW4-005/006 Defaults + Templates/Snippets** — project defaults и snapshot semantics шаблонов.
-5. **EW4-007 Calendar editing** — drag/drop, create-from-slot, quick edit и optimistic-conflict handling.
-6. **CP2-003 ZIP Content Bundle** — детерминированная media binding и acceptance на 100 posts / 150 media.
-7. **CP2-004 + EW4-009 Integration API v1** — полный product contract поверх уже существующей hashed/scoped API-key security foundation.
-8. **Завершение CP2-006** — cloud video ingest и browser-proven UI управления connectors.
-9. **CP2-007 AI Content Profile / producer** — AI создаёт DRAFT только через Integration API; прямой AI→social bypass запрещён.
-10. **CP2-008 Advanced ingest** — embedded images в XLSX, Google Sheets `IMAGE()` и явно ограниченные advanced-source сценарии.
-11. **EW4-010 + Pipeline mass acceptance + live capability enablement** — финальная product acceptance после закрытия контрактов выше.
+1. **EW4-003 Canonical rich text editor** — текущий candidate `ew4-003/canonical-rich-text`; schema 10, структурированный AST + deterministic plain-text fallback + Base editor.
+2. **EW4-004 Platform compilers** — Telegram/MAX/VK/Instagram + downgrade diagnostics.
+3. **EW4-005/006 Defaults + Templates/Snippets** — project defaults и snapshot semantics шаблонов.
+4. **EW4-007 Calendar editing** — drag/drop, create-from-slot, quick edit и optimistic-conflict handling.
+5. **CP2-003 ZIP Content Bundle** — детерминированная media binding и acceptance на 100 posts / 150 media.
+6. **CP2-004 + EW4-009 Integration API v1** — полный product contract поверх уже существующей hashed/scoped API-key security foundation.
+7. **Завершение CP2-006** — cloud video ingest и browser-proven UI управления connectors.
+8. **CP2-007 AI Content Profile / producer** — AI создаёт DRAFT только через Integration API; прямой AI→social bypass запрещён.
+9. **CP2-008 Advanced ingest** — embedded images в XLSX, Google Sheets `IMAGE()` и явно ограниченные advanced-source сценарии.
+10. **EW4-010 + Pipeline mass acceptance + live capability enablement** — финальная product acceptance после закрытия контрактов выше.
 
 V1 live acceptance ведётся отдельно в issue #12 и ветке `release/1.0`; он не переопределяет порядок vNext-разработки.
 

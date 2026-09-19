@@ -133,7 +133,7 @@ Delete permanently
 
 ## 4. Revision history / Undo
 
-EW4-002 candidate вводит schema 9 `revision-history` и делает revision capture частью content-version transaction contract.
+EW4-002 принят и merged в `main`. Schema 9 `revision-history` — текущий принятый foundation до merge EW4-003; revision capture является частью content-version transaction contract.
 
 Для post, созданного уже на schema 9, invariant:
 
@@ -870,7 +870,7 @@ Actions
 
 ### EW4-002 — Revision history
 
-Candidate status: реализовано в `ew4-002/revision-history-ux`, но не считается DONE до accepted merge.
+Status: **ACCEPTED / MERGED**. Schema 9 `revision-history` закреплён в `main`.
 
 - schema 9 revision-history metadata;
 - automatic immutable revision for each schema-9 content version;
@@ -884,11 +884,16 @@ Candidate status: реализовано в `ew4-002/revision-history-ux`, но 
 
 ### EW4-003 — Canonical rich text editor
 
-- portable editor model;
-- toolbar;
-- canonical AST;
-- plain fallback;
-- links/lists/quotes/code.
+Current candidate: branch `ew4-003/canonical-rich-text`. Schema 10 `canonical-rich-text` становится current только после accepted merge.
+
+- один authoritative `src/rich-text.ts`;
+- portable canonical AST без raw HTML;
+- deterministic normalization + plain fallback;
+- Base rich editor toolbar;
+- links/lists/quotes/code;
+- `posts.body_rich_json` + `content_revisions.body_rich_json`;
+- publisher в этом checkpoint продолжает использовать plain fallback;
+- platform compilers остаются EW4-004.
 
 ### EW4-004 — Platform rich-text compilers
 
