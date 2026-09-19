@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { CURRENT_SCHEMA_VERSION } from './current-schema-version.mjs';
 
 const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'publikator-m0-002-'));
 process.env.NODE_ENV = 'test';
@@ -19,7 +20,7 @@ const { setPublisherForTests } = await import('../dist/platforms/index.js');
 const { buildApp } = await import('../dist/app.js');
 
 migrate();
-assert.equal(Number(db.pragma('user_version', { simple: true })), 11);
+assert.equal(Number(db.pragma('user_version', { simple: true })),CURRENT_SCHEMA_VERSION);
 
 let publishCalls = 0;
 let publishedTexts = [];
@@ -143,7 +144,7 @@ try {
   console.log(JSON.stringify({
     ok: true,
     checkpoint: 'M0-002',
-    schemaVersion: 11,
+    schemaVersion:CURRENT_SCHEMA_VERSION,
     staleEditConflict: true,
     readyInvalidation: true,
     immutableSnapshotPublish: true,

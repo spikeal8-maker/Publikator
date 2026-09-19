@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import { CURRENT_SCHEMA_VERSION } from './current-schema-version.mjs';
 
 const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'publikator-schema-v6-'));
 const dbPath = path.join(dataDir, 'publikator.sqlite');
@@ -37,7 +38,7 @@ legacy.close();
 const { db, migrate } = await import('../dist/db.js');
 migrate();
 try {
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 11);
+  assert.equal(Number(db.pragma('user_version', { simple: true })),CURRENT_SCHEMA_VERSION);
   for (const table of ['integration_api_keys', 'ingestion_connectors']) {
     assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table), table);
   }
@@ -49,7 +50,7 @@ try {
     imported_at: '2026-01-02T00:00:00.000Z', imported_content_version: 7
   });
   migrate();
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 11);
+  assert.equal(Number(db.pragma('user_version', { simple: true })),CURRENT_SCHEMA_VERSION);
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM integration_api_keys').get().n, 0);
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM ingestion_connectors').get().n, 0);
   console.log(JSON.stringify({

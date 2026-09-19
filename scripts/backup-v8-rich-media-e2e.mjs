@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import { CURRENT_SCHEMA_VERSION } from './current-schema-version.mjs';
 
 const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'publikator-backup-v8-'));
 process.env.NODE_ENV = 'test';
@@ -66,14 +67,14 @@ db.prepare('UPDATE media SET duration_ms=1,poster_asset_id=NULL WHERE id=?').run
 db.prepare('DELETE FROM content_media WHERE post_id=?').run(postId);
 db.prepare("UPDATE content_revisions SET content_media_json='[]' WHERE id=?").run(revision.id);
 const staged = await stageRestoreBundle(bundlePath);
-assert.equal(staged.manifest.schemaVersion, 11);
+assert.equal(staged.manifest.schemaVersion,CURRENT_SCHEMA_VERSION);
 db.close();
 const applied = await applyPendingRestore();
 assert.equal(applied.applied, true);
 
 const restored = new Database(config.dbPath, { readonly: true, fileMustExist: true });
 try {
-  assert.equal(Number(restored.pragma('user_version', { simple: true })), 11);
+  assert.equal(Number(restored.pragma('user_version', { simple: true })),CURRENT_SCHEMA_VERSION);
   assert.deepEqual(restored.prepare('SELECT publication_kind,content_format,content_version FROM posts WHERE id=?').get(postId), postBefore);
   assert.deepEqual(restored.prepare(`SELECT id,duration_ms,fps,video_codec,audio_codec,container,poster_asset_id
     FROM media WHERE post_id=? ORDER BY sort_order`).all(postId), mediaBefore);
@@ -83,7 +84,7 @@ try {
   assert.equal((await fs.readFile(path.join(config.mediaDir, postId, 'poster.jpg'))).toString(), 'poster-fixture');
   console.log(JSON.stringify({
     ok: true,
-    schemaVersion: 11,
+    schemaVersion:CURRENT_SCHEMA_VERSION,
     videoMetadataPreserved: true,
     contentMediaPreserved: true,
     immutableRelationSnapshotPreserved: true,

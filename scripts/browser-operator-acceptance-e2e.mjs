@@ -311,10 +311,106 @@ try {
     assert.ok(overflow <= 1, `${route} desktop body overflow: ${overflow}px`);
   }
 
+  // EW4-006: real Post Template library and snapshot creation.
+  await page.goto(`${base}/templates`, { waitUntil: 'domcontentloaded' });
+  await page.locator('#app').waitFor({ state: 'visible' });
+  await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Шаблоны');
+  assert.equal(await page.getByText('Шаблоны пока не включены').count(), 0, 'templates placeholder must be removed');
+
+  await page.locator('#operator-new-template').click();
+  let templateForm = page.locator('#operator-template-form');
+  await templateForm.waitFor({ state: 'visible' });
+  assert.equal(await templateForm.locator('[data-template-rich-editor] .rich-text-surface').count(), 1, 'template must reuse canonical rich editor');
+  assert.ok(await templateForm.locator('[data-template-rich-editor] .rich-text-toolbar button').count() >= 10, 'template rich toolbar missing');
+  await templateForm.locator('input[name="name"]').fill('Browser Template Snapshot');
+  await templateForm.locator('input[name="key"]').fill('browser-template-snapshot');
+  await templateForm.locator('select[name="projectId"]').selectOption(fixtureProjectId);
+  await templateForm.locator('select[name="publicationKind"]').selectOption('FEED');
+  await templateForm.locator('select[name="contentFormat"]').selectOption('TEXT_ONLY');
+  await templateForm.locator('select[name="scheduleMode"]').selectOption('MANUAL');
+  const templateSurface = templateForm.locator('[data-template-rich-editor] .rich-text-surface');
+  await templateSurface.fill('Browser Template V1');
+  await templateForm.locator('#operator-template-project-defaults').uncheck();
+  await templateForm.locator(`input[name="templateTarget"][value="${editorAccountId}"]`).check();
+  await templateForm.locator(`input[name="templateTarget"][value="${browserPlatformAccounts.vk}"]`).check();
+  await templateForm.locator('button.primary[type="submit"]').click();
+  await page.locator('#operator-template-form').waitFor({ state: 'detached', timeout: 5000 });
+
+  let templateRow = page.locator('#view table.table tbody tr').filter({ hasText: 'Browser Template Snapshot' });
+  assert.equal(await templateRow.count(), 1, 'saved template must render once');
+  assert.match(await templateRow.innerText(), /Browser editor channel/);
+  assert.match(await templateRow.innerText(), /Browser VK/);
+
+  // Re-open before applying to prove persisted editor state.
+  await templateRow.locator('.operator-template-edit').click();
+  templateForm = page.locator('#operator-template-form');
+  await templateForm.waitFor({ state: 'visible' });
+  assert.equal(
+    (await templateForm.locator('[data-template-rich-editor] .rich-text-surface').innerText()).trim(),
+    'Browser Template V1'
+  );
+  assert.equal(await templateForm.locator(`input[name="templateTarget"][value="${editorAccountId}"]`).isChecked(), true);
+  assert.equal(await templateForm.locator(`input[name="templateTarget"][value="${browserPlatformAccounts.vk}"]`).isChecked(), true);
+  await templateForm.locator('#operator-template-cancel').click();
+  await page.locator('#operator-template-form').waitFor({ state: 'detached', timeout: 5000 });
+
+  templateRow = page.locator('#view table.table tbody tr').filter({ hasText: 'Browser Template Snapshot' });
+  await templateRow.locator('.operator-template-create-post').click();
+  await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Контент');
+  const postA = db.prepare(`SELECT id,body,content_version,status,editorial_stage FROM posts
+    WHERE title=? ORDER BY rowid DESC LIMIT 1`).get('Browser Template Snapshot');
+  assert.ok(postA?.id);
+  assert.equal(postA.body, 'Browser Template V1');
+  assert.equal(postA.content_version, 1);
+  assert.equal(postA.status, 'DRAFT');
+  assert.equal(postA.editorial_stage, 'DRAFT');
+  const templateTargetIds = (postId) => db.prepare(
+    'SELECT account_id FROM post_targets WHERE post_id=? AND enabled=1 ORDER BY account_id'
+  ).all(postId).map((row) => row.account_id);
+  assert.deepEqual(templateTargetIds(postA.id), [editorAccountId, browserPlatformAccounts.vk].sort());
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM content_revisions WHERE post_id=?').get(postA.id).count, 1);
+  const postARevisionCount = db.prepare('SELECT COUNT(*) AS count FROM content_revisions WHERE post_id=?').get(postA.id).count;
+
+  await page.goto(`${base}/templates`, { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Шаблоны');
+  templateRow = page.locator('#view table.table tbody tr').filter({ hasText: 'Browser Template Snapshot' });
+  await templateRow.locator('.operator-template-edit').click();
+  templateForm = page.locator('#operator-template-form');
+  await templateForm.waitFor({ state: 'visible' });
+  await templateForm.locator('[data-template-rich-editor] .rich-text-surface').fill('Browser Template V2');
+  await templateForm.locator(`input[name="templateTarget"][value="${editorAccountId}"]`).uncheck();
+  await templateForm.locator(`input[name="templateTarget"][value="${browserPlatformAccounts.vk}"]`).uncheck();
+  await templateForm.locator(`input[name="templateTarget"][value="${browserPlatformAccounts.max}"]`).check();
+  await templateForm.locator('button.primary[type="submit"]').click();
+  await page.locator('#operator-template-form').waitFor({ state: 'detached', timeout: 5000 });
+
+  const postAAfterTemplateEdit = db.prepare('SELECT body,content_version FROM posts WHERE id=?').get(postA.id);
+  assert.equal(postAAfterTemplateEdit.body, 'Browser Template V1');
+  assert.equal(postAAfterTemplateEdit.content_version, 1);
+  assert.deepEqual(templateTargetIds(postA.id), [editorAccountId, browserPlatformAccounts.vk].sort());
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM content_revisions WHERE post_id=?').get(postA.id).count, postARevisionCount);
+
+  templateRow = page.locator('#view table.table tbody tr').filter({ hasText: 'Browser Template Snapshot' });
+  assert.match(await templateRow.innerText(), /Browser MAX/);
+  await templateRow.locator('.operator-template-create-post').click();
+  await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Контент');
+  const postB = db.prepare(`SELECT id,body,content_version,status FROM posts
+    WHERE title=? AND id<>? ORDER BY rowid DESC LIMIT 1`).get('Browser Template Snapshot', postA.id);
+  assert.ok(postB?.id);
+  assert.equal(postB.body, 'Browser Template V2');
+  assert.equal(postB.content_version, 1);
+  assert.equal(postB.status, 'DRAFT');
+  assert.deepEqual(templateTargetIds(postB.id), [browserPlatformAccounts.max]);
+
+  await page.waitForFunction((title) => [...document.querySelectorAll('#view table.table tbody tr')]
+    .some((row) => row.textContent?.includes(title)), 'Browser Template Snapshot');
+
   // EW4-005: Project defaults are operable through the existing /projects page.
   await page.goto(`${base}/projects`, { waitUntil: 'domcontentloaded' });
   await page.locator('#app').waitFor({ state: 'visible' });
   await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Проекты');
+  await page.waitForFunction(() => [...document.querySelectorAll('#view table.table thead th')]
+    .some((cell) => cell.textContent?.trim() === 'Slug'));
   const projectHeaders = await page.locator('#view table.table thead th').allTextContents();
   for (const expected of ['Название','Slug','Часовой пояс','Площадки по умолчанию','Действие']) {
     assert.ok(projectHeaders.includes(expected), `Projects column missing: ${expected}`);

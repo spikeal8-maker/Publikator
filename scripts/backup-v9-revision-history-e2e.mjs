@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import { CURRENT_SCHEMA_VERSION } from './current-schema-version.mjs';
 
 const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'publikator-backup-v9-'));
 process.env.NODE_ENV = 'test';
@@ -19,7 +20,7 @@ const { createBackupBundle, resolveBackupBundle, stageRestoreBundle } = await im
 const { applyPendingRestore } = await import('../dist/restore-bootstrap.js');
 
 migrate();
-assert.equal(Number(db.pragma('user_version', { simple: true })), 11);
+assert.equal(Number(db.pragma('user_version', { simple: true })),CURRENT_SCHEMA_VERSION);
 
 const projectId = id('prj');
 const postId = id('post');
@@ -54,14 +55,14 @@ db.prepare("UPDATE content_revisions SET editorial_stage='APPROVED',restored_fro
 db.prepare('DELETE FROM publication_events WHERE post_id=?').run(postId);
 
 const staged = await stageRestoreBundle(bundlePath);
-assert.equal(staged.manifest.schemaVersion, 11);
+assert.equal(staged.manifest.schemaVersion,CURRENT_SCHEMA_VERSION);
 db.close();
 const applied = await applyPendingRestore();
 assert.equal(applied.applied, true);
 
 const restoredDb = new Database(config.dbPath, { readonly: true, fileMustExist: true });
 try {
-  assert.equal(Number(restoredDb.pragma('user_version', { simple: true })), 11);
+  assert.equal(Number(restoredDb.pragma('user_version', { simple: true })),CURRENT_SCHEMA_VERSION);
   const after = restoredDb.prepare(`SELECT id,post_id,content_version,title,body,editorial_stage,actor_source,restored_from_revision_id
     FROM content_revisions WHERE post_id=? ORDER BY content_version`).all(postId);
   assert.deepEqual(after, before);
@@ -74,7 +75,7 @@ try {
   assert.equal(JSON.parse(eventRow.data_json).restoredRevisionId, revision1.id);
   console.log(JSON.stringify({
     ok: true,
-    schemaVersion: 11,
+    schemaVersion:CURRENT_SCHEMA_VERSION,
     revisionsPreserved: true,
     editorialStagePreserved: true,
     restoredFromPreserved: true,

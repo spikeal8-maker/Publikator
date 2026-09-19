@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
+import { CURRENT_SCHEMA_VERSION } from './current-schema-version.mjs';
 
 const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'publikator-m0-004-'));
 process.env.NODE_ENV = 'test';
@@ -16,7 +17,7 @@ const security = await import('../dist/ingestion-security.js');
 const integration = await import('../dist/integration-security.js');
 
 migrate();
-assert.equal(Number(db.pragma('user_version', { simple: true })), 11);
+assert.equal(Number(db.pragma('user_version', { simple: true })),CURRENT_SCHEMA_VERSION);
 for (const table of ['integration_api_keys', 'ingestion_connectors']) {
   assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table), table);
 }
@@ -182,7 +183,7 @@ try {  const safePaths = security.validateBundleEntries([
   console.log(JSON.stringify({
     ok: true,
     checkpoint: 'M0-004',
-    schemaVersion: 11,
+    schemaVersion:CURRENT_SCHEMA_VERSION,
     archiveSafety: true,
     ssrfAndRedirectSafety: true,
     dnsDestinationPinned: true,

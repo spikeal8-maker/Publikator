@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { CURRENT_SCHEMA_VERSION } from './current-schema-version.mjs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -13,7 +14,7 @@ process.env.PUBLIC_BASE_URL='https://publisher.example.test';
 const {db,migrate}=await import('../dist/db.js');
 const {buildApp}=await import('../dist/app.js');
 migrate();
-assert.equal(Number(db.pragma('user_version',{simple:true})),12);
+assert.equal(Number(db.pragma('user_version',{simple:true})),CURRENT_SCHEMA_VERSION);
 
 const app=await buildApp();
 await app.ready();
@@ -175,7 +176,7 @@ try{
   console.log(JSON.stringify({
     ok:true,
     checkpoint:'EW4-006',
-    schemaVersion:12,
+    schemaVersion:CURRENT_SCHEMA_VERSION,
     templateCrud:true,
     canonicalRichText:true,
     createPostFromTemplate:true,

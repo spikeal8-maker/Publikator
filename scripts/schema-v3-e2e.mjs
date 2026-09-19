@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import { CURRENT_SCHEMA_VERSION } from './current-schema-version.mjs';
 
 const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'publikator-schema-v3-'));
 const dbPath = path.join(dataDir, 'publikator.sqlite');
@@ -47,7 +48,7 @@ const { buildApp } = await import('../dist/app.js');
 migrate();
 
 try {
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 11);
+  assert.equal(Number(db.pragma('user_version', { simple: true })),CURRENT_SCHEMA_VERSION);
 
   const slots = db.prepare(`SELECT id,last_fired_on FROM schedule_slots
     WHERE project_id='legacy-project' AND weekday=1 AND time_hhmm='18:00' AND timezone='Europe/Moscow'`).all();
@@ -97,7 +98,7 @@ try {
     await app.close();
   }
 
-  console.log(JSON.stringify({ ok: true, schemaVersion: 11, duplicateSlotsCollapsed: true, duplicateApiStatus: 409 }, null, 2));
+  console.log(JSON.stringify({ ok: true, schemaVersion:CURRENT_SCHEMA_VERSION, duplicateSlotsCollapsed: true, duplicateApiStatus: 409 }, null, 2));
 } finally {
   db.close();
   await fs.rm(dataDir, { recursive: true, force: true });

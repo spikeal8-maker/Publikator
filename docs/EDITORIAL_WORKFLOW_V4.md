@@ -915,9 +915,9 @@ Official evidence and diagnostics: `docs/PLATFORM_TEXT_COMPILERS_EW4_004.md`.
 
 ### EW4-005 — Targets/defaults/platform options
 
-Status: **IMPLEMENTED CANDIDATE** in Draft PR #106 / branch `ew4-005/project-defaults`.
+Status: **ACCEPTED / MERGED**. PR #106 merged in main `88c536c418218aa6cfc864585a0494f60489e9b1`.
 
-- schema remains 11 `project-defaults`;
+- schema 11 `project-defaults` accepted;
 - project default timezone = implemented, including `/Projects` settings UX and inheritance by a new AT post;
 - project default targets = implemented, including automatic-vs-explicit ownership, explicit empty defaults, named target checkboxes and `Выбрать все включённые`;
 - new posts inherit current project timezone and current enabled project default targets without retroactively changing existing posts;
@@ -927,14 +927,18 @@ Status: **IMPLEMENTED CANDIDATE** in Draft PR #106 / branch `ew4-005/project-def
 - all current Telegram/VK/MAX/Instagram `platformOptionsSchema` values are empty;
 - no unsupported or fake platform option UI was introduced.
 
-EW4-006 Templates/snippets and calendar editing are not started by EW4-005.
-
 ### EW4-006 — Templates/snippets
 
-- template library;
-- project defaults;
-- snippets/CTA/signatures/hashtags;
-- snapshot application.
+Status: **POST TEMPLATE VERTICAL CANDIDATE** in Draft PR #107 / branch `ew4-006/templates`.
+
+- schema candidate 12 `templates`;
+- Post Template library CRUD and canonical rich text;
+- Project-default fallback or explicit template target snapshot;
+- create ordinary DRAFT from template with initial ContentRevision;
+- template edit never mutates already-created Posts; new Posts receive the new template snapshot;
+- `template.applied` audit event;
+- existing `/templates` operator page provides create/edit/delete/create-publication UX;
+- Snippet/CTA/Signature/Hashtag insertion = **NOT STARTED**.
 
 ### EW4-007 — Calendar editing
 

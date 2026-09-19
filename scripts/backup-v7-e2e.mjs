@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import { CURRENT_SCHEMA_VERSION } from './current-schema-version.mjs';
 
 const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'publikator-backup-v7-'));
 process.env.NODE_ENV = 'test';
@@ -55,20 +56,20 @@ db.prepare("UPDATE posts SET schedule_timezone='UTC',scheduled_at_utc='2030-01-0
 db.prepare('DELETE FROM target_renditions WHERE target_id=?').run(targetId);
 db.prepare('DELETE FROM publication_units WHERE target_id=?').run(targetId);
 const staged = await stageRestoreBundle(bundlePath);
-assert.equal(staged.manifest.schemaVersion, 11);
+assert.equal(staged.manifest.schemaVersion,CURRENT_SCHEMA_VERSION);
 db.close();
 const applied = await applyPendingRestore();
 assert.equal(applied.applied, true);
 
 const restored = new Database(config.dbPath, { readonly: true, fileMustExist: true });
 try {
-  assert.equal(Number(restored.pragma('user_version', { simple: true })), 11);
+  assert.equal(Number(restored.pragma('user_version', { simple: true })),CURRENT_SCHEMA_VERSION);
   assert.deepEqual(restored.prepare(`SELECT scheduled_at_utc,schedule_timezone,publication_kind,content_format FROM posts WHERE id=?`).get(postId), postBefore);
   assert.deepEqual(restored.prepare('SELECT * FROM target_renditions WHERE target_id=?').get(targetId), renditionBefore);
   assert.deepEqual(restored.prepare('SELECT * FROM publication_units WHERE target_id=? ORDER BY unit_index').all(targetId), unitsBefore);
   console.log(JSON.stringify({
     ok: true,
-    schemaVersion: 11,
+    schemaVersion:CURRENT_SCHEMA_VERSION,
     scheduleTimezonePreserved: true,
     targetRenditionPreserved: true,
     publicationUnitRecoveryPreserved: true,

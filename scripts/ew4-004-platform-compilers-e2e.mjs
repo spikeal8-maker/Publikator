@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { CURRENT_SCHEMA_VERSION } from './current-schema-version.mjs';
 
 const dataDir=await fs.mkdtemp(path.join(os.tmpdir(),'publikator-ew4-004-'));
 process.env.NODE_ENV='test';
@@ -30,7 +31,7 @@ const {
 const { buildApp }=await import('../dist/app.js');
 
 migrate();
-assert.equal(Number(db.pragma('user_version',{simple:true})),11);
+assert.equal(Number(db.pragma('user_version',{simple:true})),CURRENT_SCHEMA_VERSION);
 
 const richFixture={
   type:'doc',

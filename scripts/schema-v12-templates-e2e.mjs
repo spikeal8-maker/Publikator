@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { CURRENT_SCHEMA_VERSION } from './current-schema-version.mjs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -17,8 +18,8 @@ const {serializeRichText,plainTextToRichText}=await import('../dist/rich-text.js
 
 migrate();
 try{
-  assert.equal(DATABASE_SCHEMA_VERSION,12);
-  assert.equal(Number(db.pragma('user_version',{simple:true})),12);
+  assert.equal(DATABASE_SCHEMA_VERSION,CURRENT_SCHEMA_VERSION);
+  assert.equal(Number(db.pragma('user_version',{simple:true})),CURRENT_SCHEMA_VERSION);
 
   const project=db.prepare('SELECT id FROM projects ORDER BY created_at LIMIT 1').get();
   const accountId=id('acc');
@@ -58,7 +59,7 @@ try{
   };
 
   migrate();
-  assert.equal(Number(db.pragma('user_version',{simple:true})),12);
+  assert.equal(Number(db.pragma('user_version',{simple:true})),CURRENT_SCHEMA_VERSION);
   const columns=db.prepare('PRAGMA table_info(templates)').all().map((row)=>row.name);
   for(const required of [
     'id','key','name','project_id','template_type','body_rich_json','body_plain',
@@ -74,7 +75,7 @@ try{
   assert.deepEqual(db.prepare('SELECT * FROM schedule_slots ORDER BY id').all(),before.schedules);
 
   migrate();
-  assert.equal(Number(db.pragma('user_version',{simple:true})),12);
+  assert.equal(Number(db.pragma('user_version',{simple:true})),CURRENT_SCHEMA_VERSION);
   console.log(JSON.stringify({
     ok:true,
     from:11,

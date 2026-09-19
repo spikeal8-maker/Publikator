@@ -10,6 +10,7 @@ PORT="18080"
 PASSWORD="$PUBLIKATOR_TEST_ADMIN_PASSWORD"
 MASTER_KEY="$PUBLIKATOR_TEST_MASTER_KEY"
 COOKIE_FILE="/tmp/publikator-acceptance-cookies.txt"
+CURRENT_SCHEMA_VERSION="$(node scripts/current-schema-version.mjs)"
 
 cleanup() {
   docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
@@ -110,7 +111,7 @@ curl -fsS -b "$COOKIE_FILE" "http://127.0.0.1:${PORT}/api/backup-bundles/${BUNDL
 test -s /tmp/publikator-full.tgz
 mkdir -p /tmp/publikator-bundle-check
 tar -xzf /tmp/publikator-full.tgz -C /tmp/publikator-bundle-check
-jq -e '.format == "publikator-backup" and .formatVersion == 1 and .schemaVersion == 11 and .counts.media == 2 and (.mediaFiles | length) == 2' \
+jq -e --argjson schemaVersion "$CURRENT_SCHEMA_VERSION" '.format == "publikator-backup" and .formatVersion == 1 and .schemaVersion == $schemaVersion and .counts.media == 2 and (.mediaFiles | length) == 2' \
   /tmp/publikator-bundle-check/manifest.json >/dev/null
 ! grep -F "$MASTER_KEY" /tmp/publikator-bundle-check/manifest.json
 
@@ -170,4 +171,4 @@ curl -fsS -b "$COOKIE_FILE" "http://127.0.0.1:${PORT}/api/posts/${POST_ID}" | \
   jq -e --arg first "$MEDIA_2" '.status == "READY" and .content_version >= 1 and (.ready_revision_id != null) and (.media | length) == 2 and .media[0].id == $first and any(.targets[]; .platform == "telegram" and .enabled == 1 and .override_text == "Telegram CI override")' >/dev/null
 curl -fsS -b "$COOKIE_FILE" "http://127.0.0.1:${PORT}/api/backup-bundles" | jq -e 'any(.[]; .name | contains("pre-restore"))' >/dev/null
 
-echo '{"ok":true,"productionDocker":true,"fullBackupRestore":true,"schemaVersion":11}'
+jq -nc --argjson schemaVersion "$CURRENT_SCHEMA_VERSION" '{ok:true,productionDocker:true,fullBackupRestore:true,schemaVersion:$schemaVersion}'

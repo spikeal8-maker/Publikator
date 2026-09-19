@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import { CURRENT_SCHEMA_VERSION } from './current-schema-version.mjs';
 
 const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'publikator-backup-v6-'));
 process.env.NODE_ENV = 'test';
@@ -38,14 +39,14 @@ assert.notDeepEqual(db.prepare('SELECT * FROM integration_api_keys WHERE id=?').
 assert.notDeepEqual(db.prepare('SELECT * FROM ingestion_connectors WHERE id=?').get(connector.id), connectorBefore);
 
 const staged = await stageRestoreBundle(bundlePath);
-assert.equal(staged.manifest.schemaVersion, 11);
+assert.equal(staged.manifest.schemaVersion,CURRENT_SCHEMA_VERSION);
 db.close();
 const applied = await applyPendingRestore();
 assert.equal(applied.applied, true);
 
 const restored = new Database(config.dbPath, { readonly: true, fileMustExist: true });
 try {
-  assert.equal(Number(restored.pragma('user_version', { simple: true })), 11);
+  assert.equal(Number(restored.pragma('user_version', { simple: true })),CURRENT_SCHEMA_VERSION);
   assert.deepEqual(restored.prepare('SELECT * FROM integration_api_keys WHERE id=?').get(api.key.id), keyBefore);
   assert.deepEqual(restored.prepare('SELECT * FROM ingestion_connectors WHERE id=?').get(connector.id), connectorBefore);
   const databaseBlob = JSON.stringify(restored.prepare('SELECT * FROM integration_api_keys').all()) + JSON.stringify(restored.prepare('SELECT * FROM ingestion_connectors').all());
@@ -53,7 +54,7 @@ try {
   assert.equal(databaseBlob.includes(connectorSecret), false);
   console.log(JSON.stringify({
     ok: true,
-    schemaVersion: 11,
+    schemaVersion:CURRENT_SCHEMA_VERSION,
     apiKeyHashPreserved: true,
     connectorCiphertextPreserved: true,
     plaintextSecretsAbsent: true,

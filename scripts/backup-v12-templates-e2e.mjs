@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { CURRENT_SCHEMA_VERSION } from './current-schema-version.mjs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -18,7 +19,7 @@ const {createBackupBundle,resolveBackupBundle,stageRestoreBundle}=await import('
 const {applyPendingRestore}=await import('../dist/restore-bootstrap.js');
 
 migrate();
-assert.equal(Number(db.pragma('user_version',{simple:true})),12);
+assert.equal(Number(db.pragma('user_version',{simple:true})),CURRENT_SCHEMA_VERSION);
 const project=db.prepare('SELECT id FROM projects ORDER BY created_at LIMIT 1').get();
 const template=createTemplate({
   key:'backup-template',
@@ -39,7 +40,7 @@ db.prepare('UPDATE templates SET name=?,body_plain=? WHERE id=?').run('Mutated',
 db.prepare('DELETE FROM templates WHERE id=?').run(template.id);
 
 const staged=await stageRestoreBundle(bundlePath);
-assert.equal(staged.manifest.schemaVersion,12);
+assert.equal(staged.manifest.schemaVersion,CURRENT_SCHEMA_VERSION);
 db.close();
 
 const applied=await applyPendingRestore();
@@ -47,11 +48,11 @@ assert.equal(applied.applied,true);
 
 const restored=new Database(config.dbPath,{readonly:true,fileMustExist:true});
 try{
-  assert.equal(Number(restored.pragma('user_version',{simple:true})),12);
+  assert.equal(Number(restored.pragma('user_version',{simple:true})),CURRENT_SCHEMA_VERSION);
   assert.deepEqual(restored.prepare('SELECT * FROM templates WHERE id=?').get(template.id),before);
   console.log(JSON.stringify({
     ok:true,
-    schemaVersion:12,
+    schemaVersion:CURRENT_SCHEMA_VERSION,
     templatesRestored:true,
     canonicalBackupRestore:true
   },null,2));
