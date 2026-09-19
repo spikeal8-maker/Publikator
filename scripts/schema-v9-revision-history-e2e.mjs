@@ -79,7 +79,11 @@ legacy.prepare(`INSERT INTO content_revisions
   .run('rev-published','published',4,'Published title','Published body','MANUAL',null,'[]','[]','manual-ready',ts,null,null,'FEED','IMAGE','[]');
 legacy.pragma('user_version = 8');
 
-const publishedBefore = legacy.prepare('SELECT * FROM posts WHERE id=?').get('published');
+const publishedProjection = `SELECT id,project_id,title,body,status,editorial_stage,schedule_mode,scheduled_at,content_version,ready_revision_id,
+  source_type,source_ref,source_revision,source_payload_hash,source_batch_id,imported_at,imported_content_version,
+  created_at,updated_at,scheduled_at_utc,schedule_timezone,publication_kind,content_format
+  FROM posts WHERE id=?`;
+const publishedBefore = legacy.prepare(publishedProjection).get('published');
 legacy.close();
 
 const { db, migrate } = await import('../dist/db.js');
@@ -104,7 +108,7 @@ try {
     restored_from_revision_id: null
   });
 
-  const publishedAfter = db.prepare('SELECT * FROM posts WHERE id=?').get('published');
+  const publishedAfter = db.prepare(publishedProjection).get('published');
   assert.deepEqual(publishedAfter, publishedBefore, 'schema 8→9 migration must not mutate historical published post content/state');
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM content_revisions').get().count, 2, 'migration must not fabricate historical gaps');
 
