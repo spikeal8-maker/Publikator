@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { db, nowIso } from '../db.js';
 import { commitContentEdit } from '../content-versioning.js';
 import { contentMutationError, expectedContentVersion } from './content-version.js';
+import { parseRichTextJson, richTextToPlain, serializeRichText } from '../rich-text.js';
 
 const IMMUTABLE_POST_STATUSES = new Set(['PUBLISHING', 'PUBLISHED', 'PARTIAL']);
 const MAX_OVERRIDE_LENGTH = 20_000;
@@ -36,26 +37,56 @@ export async function registerTargetOverrideRoutes(app: FastifyInstance): Promis
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }
 
-    if (!Object.prototype.hasOwnProperty.call(body, 'text')) {
-      return reply.code(400).send({ error: 'Поле text обязательно; null или пустая строка сбрасывает отдельный текст площадки' });
-    }
-    if (body.text !== null && typeof body.text !== 'string') {
-      return reply.code(400).send({ error: 'text должен быть строкой или null' });
+    const hasRich = Object.prototype.hasOwnProperty.call(body, 'textRich');
+    const hasPlain = Object.prototype.hasOwnProperty.call(body, 'text');
+    if (!hasRich && !hasPlain) {
+      return reply.code(400).send({ error: 'Нужно передать textRich или legacy text; null сбрасывает отдельный текст площадки' });
     }
 
-    const normalized = typeof body.text === 'string' ? body.text.trim() : '';
-    if (normalized.length > MAX_OVERRIDE_LENGTH) {
-      return reply.code(400).send({ error: `Отдельный текст площадки не должен превышать ${MAX_OVERRIDE_LENGTH} символов` });
+    let richJson: string | null = null;
+    let richPlain: string | null = null;
+    let overrideText: string | null = null;
+    try {
+      if (hasRich) {
+        if (body.textRich !== null) {
+          richJson = serializeRichText(body.textRich);
+          richPlain = richTextToPlain(parseRichTextJson(richJson));
+          if (richPlain.length > MAX_OVERRIDE_LENGTH) throw new Error(`Отдельный текст площадки не должен превышать ${MAX_OVERRIDE_LENGTH} символов`);
+        }
+      } else {
+        if (body.text !== null && typeof body.text !== 'string') throw new Error('text должен быть строкой или null');
+        const normalized = typeof body.text === 'string' ? body.text.trim() : '';
+        if (normalized.length > MAX_OVERRIDE_LENGTH) throw new Error(`Отдельный текст площадки не должен превышать ${MAX_OVERRIDE_LENGTH} символов`);
+        overrideText = normalized.length > 0 ? normalized : null;
+      }
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }
-    const overrideText = normalized.length > 0 ? normalized : null;
+
     const now = nowIso();
-
     let nextVersion: number;
     try {
       const version = expectedContentVersion(request, body);
       const committed = commitContentEdit(params.postId, version, 'manual', () => {
-        db.prepare('UPDATE post_targets SET override_text=?, updated_at=? WHERE id=?')
-          .run(overrideText, now, params.targetId);
+        if (hasRich) {
+          db.prepare('UPDATE post_targets SET override_text=NULL, updated_at=? WHERE id=?').run(now, params.targetId);
+          if (richJson === null) {
+            db.prepare('UPDATE target_renditions SET text_rich_json=NULL,text_plain=NULL,updated_at=? WHERE target_id=?')
+              .run(now, params.targetId);
+          } else {
+            db.prepare(`INSERT INTO target_renditions
+              (target_id,text_rich_json,text_plain,publication_kind,content_format,media_plan_json,options_json,updated_at)
+              VALUES (?,?,?,NULL,NULL,NULL,NULL,?)
+              ON CONFLICT(target_id) DO UPDATE SET
+                text_rich_json=excluded.text_rich_json,text_plain=excluded.text_plain,updated_at=excluded.updated_at`)
+              .run(params.targetId, richJson, richPlain, now);
+          }
+        } else {
+          db.prepare('UPDATE post_targets SET override_text=?, updated_at=? WHERE id=?')
+            .run(overrideText, now, params.targetId);
+          db.prepare('UPDATE target_renditions SET text_rich_json=NULL,text_plain=NULL,updated_at=? WHERE target_id=?')
+            .run(now, params.targetId);
+        }
       });
       nextVersion = committed.contentVersion;
     } catch (error) {
@@ -70,8 +101,11 @@ export async function registerTargetOverrideRoutes(app: FastifyInstance): Promis
         accountId: row.account_id,
         accountName: row.account_name,
         platform: row.platform,
-        overrideText,
-        resolvedText: overrideText ?? row.base_text
+        overrideText: hasRich ? null : overrideText,
+        textRich: richJson ? parseRichTextJson(richJson) : null,
+        textPlain: richPlain,
+        source: richJson ? 'platform_override' : overrideText ? 'legacy_override' : 'base',
+        resolvedText: richPlain ?? overrideText ?? row.base_text
       }
     };
   });

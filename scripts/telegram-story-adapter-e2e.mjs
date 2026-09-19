@@ -14,6 +14,7 @@ process.env.MEDIA_PROCESSING_TIMEOUT_MS = '120000';
 const { telegramPublisher } = await import('../dist/platforms/telegram.js');
 const { PLATFORM_CAPABILITIES } = await import('../dist/platforms/capabilities.js');
 const { PlatformError } = await import('../dist/platforms/types.js');
+const { compilePlatformText } = await import('../dist/platform-text.js');
 
 async function storyMedia(overrides = {}) {
   const relativePath = 'post-telegram-story/story.jpg';
@@ -120,6 +121,14 @@ try {
   const media = await storyMedia();
 
   {
+    const richStory={type:'doc',content:[{type:'paragraph',content:[
+      {type:'text',text:'Story ',marks:[]},
+      {type:'text',text:'bold🙂',marks:[{type:'bold'},{type:'italic'}]},
+      {type:'text',text:' ',marks:[]},
+      {type:'link',attrs:{href:'https://example.test/story'},content:[{type:'text',text:'link',marks:[]}]}
+    ]}]};
+    const compiledStory=compilePlatformText('telegram',richStory,'story_caption');
+    assert.equal(compiledStory.transport.kind,'telegram_entities');
     const calls = [];
     globalThis.fetch = async (request, init = {}) => {
       const url = String(request);
@@ -128,7 +137,9 @@ try {
       assert.ok(init.body instanceof FormData);
       assert.equal(init.body.get('business_connection_id'), 'business-connection-123');
       assert.equal(init.body.get('active_period'), '86400');
-      assert.equal(init.body.get('caption'), 'Story caption');
+      assert.equal(init.body.get('caption'), compiledStory.transport.text);
+      assert.deepEqual(JSON.parse(String(init.body.get('caption_entities'))), compiledStory.transport.entities);
+      assert.equal(init.body.get('parse_mode'), null);
       assert.deepEqual(JSON.parse(String(init.body.get('content'))), { type: 'photo', photo: 'attach://story' });
       const story = init.body.get('story');
       assert.ok(story instanceof Blob);
@@ -136,7 +147,10 @@ try {
       assert.ok(init.signal instanceof AbortSignal);
       return json({ ok: true, result: { id: 77, chat: { id: 123, type: 'private' } } });
     };
-    const result = await telegramPublisher.publish(input(media));
+    const result = await telegramPublisher.publish({
+      ...input(media,{text:compiledStory.plainText}),
+      textCompilation:compiledStory
+    });
     assert.equal(result.externalId, '77');
     assert.equal(calls.length, 1);
   }

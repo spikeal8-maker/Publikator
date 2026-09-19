@@ -1,5 +1,6 @@
 import type { PublishInput, PublishResult, SocialPublisher } from './types.js';
 import { PlatformError, requireString, responseJson } from './types.js';
+import { compileLiteralPlainText } from '../platform-text.js';
 
 const STATUS_POLL_INTERVAL_MS = process.env.NODE_ENV === 'test' ? 5 : 5_000;
 const STATUS_WAIT_TIMEOUT_MS = process.env.NODE_ENV === 'test' ? 250 : 90_000;
@@ -218,6 +219,12 @@ export const instagramPublisher: SocialPublisher = {
     const igUserId = requireString(input.credentials, 'igUserId');
     const graphVersion = requireString(input.credentials, 'graphVersion');
     const base = `https://graph.facebook.com/${encodeURIComponent(graphVersion)}`;
+    const context = input.publicationKind === 'STORY' ? 'story_caption' : input.media.length ? 'media_caption' : 'text';
+    const compilation = input.textCompilation ?? compileLiteralPlainText('instagram', input.text, context);
+    if (compilation.platform !== 'instagram' || compilation.transport.kind !== 'plain') {
+      throw new Error('Instagram: unsupported text compilation transport');
+    }
+    const caption = compilation.transport.text;
 
     let creationId: string;
     const children: string[] = [];
@@ -227,7 +234,7 @@ export const instagramPublisher: SocialPublisher = {
       creationId = await createContainer(base, igUserId, {
         media_type: 'REELS',
         video_url: input.publicMediaUrls[0]!,
-        caption: input.text,
+        caption,
         share_to_feed: isShortVideoPublication(input) ? 'false' : 'true',
         access_token: accessToken
       });
@@ -235,7 +242,7 @@ export const instagramPublisher: SocialPublisher = {
     } else if (input.media.length === 1) {
       creationId = await createContainer(base, igUserId, {
         image_url: input.publicMediaUrls[0]!,
-        caption: input.text,
+        caption,
         access_token: accessToken
       });
       await waitForContainerReady(base, accessToken, creationId);
@@ -253,7 +260,7 @@ export const instagramPublisher: SocialPublisher = {
       creationId = await createContainer(base, igUserId, {
         media_type: 'CAROUSEL',
         children: children.join(','),
-        caption: input.text,
+        caption,
         access_token: accessToken
       });
       await waitForContainerReady(base, accessToken, creationId);

@@ -457,9 +457,21 @@ export async function validateContentPlanV3(parsed: V3Parsed, sourceIdRaw: strin
 function applyOverrides(postId: string, targets: ResolvedAccount[], overrides: Array<ResolvedAccount & { text: string }>): void {
   ensureTargets(postId);
   setTargetSelection(postId, targets.map((target) => target.accountId));
-  db.prepare("UPDATE post_targets SET override_text=NULL WHERE post_id=? AND state!='PUBLISHED'").run(postId);
-  const update = db.prepare("UPDATE post_targets SET override_text=?,updated_at=? WHERE post_id=? AND account_id=? AND state!='PUBLISHED'");
-  for (const override of overrides) update.run(override.text, nowIso(), postId, override.accountId);
+  const now = nowIso();
+  db.prepare("UPDATE post_targets SET override_text=NULL,updated_at=? WHERE post_id=? AND state!='PUBLISHED'").run(now, postId);
+  db.prepare(`UPDATE target_renditions SET text_rich_json=NULL,text_plain=NULL,updated_at=?
+    WHERE target_id IN (SELECT id FROM post_targets WHERE post_id=? AND state!='PUBLISHED')`).run(now, postId);
+  const targetId = db.prepare("SELECT id FROM post_targets WHERE post_id=? AND account_id=? AND state!='PUBLISHED'");
+  const save = db.prepare(`INSERT INTO target_renditions
+    (target_id,text_rich_json,text_plain,publication_kind,content_format,media_plan_json,options_json,updated_at)
+    VALUES (?,?,?,NULL,NULL,NULL,NULL,?)
+    ON CONFLICT(target_id) DO UPDATE SET
+      text_rich_json=excluded.text_rich_json,text_plain=excluded.text_plain,updated_at=excluded.updated_at`);
+  for (const override of overrides) {
+    const target = targetId.get(postId, override.accountId) as { id: string } | undefined;
+    if (!target) continue;
+    save.run(target.id, canonicalPlainRichJson(override.text), override.text, now);
+  }
 }
 
 export function applyContentPlanV3(

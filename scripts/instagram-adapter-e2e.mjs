@@ -5,6 +5,7 @@ process.env.NODE_ENV = 'test';
 const { instagramPublisher } = await import('../dist/platforms/instagram.js');
 const { PLATFORM_CAPABILITIES, platformRequiresPublicHttpsMedia } = await import('../dist/platforms/capabilities.js');
 const { PlatformError } = await import('../dist/platforms/types.js');
+const { compilePlatformText } = await import('../dist/platform-text.js');
 
 const credentials = {
   accessToken: 'test-access-token',
@@ -117,16 +118,32 @@ assert.equal(PLATFORM_CAPABILITIES.instagram.supportsShortVideo, false);
 assert.equal(PLATFORM_CAPABILITIES.instagram.verification.richMediaPendingLiveAcceptance, true);
 assert.equal(platformRequiresPublicHttpsMedia('instagram', 'VIDEO'), true);
 
-// 1. Single image: IN_PROGRESS -> FINISHED -> media_publish.
+// 1. Single image: compiler plain caption -> IN_PROGRESS -> FINISHED -> media_publish.
 {
+  const richDoc={type:'doc',content:[{type:'paragraph',content:[
+    {type:'text',text:'Instagram ',marks:[]},
+    {type:'text',text:'bold',marks:[{type:'bold'},{type:'underline'}]},
+    {type:'text',text:' ',marks:[]},
+    {type:'link',attrs:{href:'https://example.test/ig'},content:[{type:'text',text:'link',marks:[]}]}
+  ]}]};
+  const compiled=compilePlatformText('instagram',richDoc,'media_caption');
+  assert.equal(compiled.transport.kind,'plain');
   const steps = [
-    { method: 'POST', path: '/v24.0/17841400000000000/media', response: { id: 'container-single' } },
+    { method: 'POST', path: '/v24.0/17841400000000000/media', check: ({ body }) => {
+      assert.equal(body.caption,compiled.transport.text);
+      assert.equal(body.caption.includes('**'),false);
+      assert.equal(body.caption.includes('<strong>'),false);
+    }, response: { id: 'container-single' } },
     { method: 'GET', path: '/v24.0/container-single', response: { status_code: 'IN_PROGRESS', status: 'Processing' } },
     { method: 'GET', path: '/v24.0/container-single', response: { status_code: 'FINISHED', status: 'Ready' } },
     { method: 'POST', path: '/v24.0/17841400000000000/media_publish', check: ({ body }) => assert.equal(body.creation_id, 'container-single'), response: { id: 'published-single' } }
   ];
   const calls = mockFetch(steps);
-  const result = await instagramPublisher.publish(input(['https://publisher.example.test/public-media/a.jpg']));
+  const result = await instagramPublisher.publish({
+    ...input(['https://publisher.example.test/public-media/a.jpg']),
+    text:compiled.plainText,
+    textCompilation:compiled
+  });
   assert.equal(result.externalId, 'published-single');
   assert.equal(steps.length, 0);
   assert.equal(calls.length, 4);

@@ -47,11 +47,20 @@ function bodyObject(body: unknown): Record<string, any> {
 
 function postView(row: any): any {
   const media = listMedia(row.id);
-  const targets = db.prepare(`SELECT pt.id, pt.account_id, pt.enabled, pt.override_text, pt.state, pt.attempts,
+  const targetRows = db.prepare(`SELECT pt.id, pt.account_id, pt.enabled, pt.override_text, pt.state, pt.attempts,
     pt.next_attempt_at, pt.external_id, pt.external_url, pt.last_error, pt.published_at,
-    a.platform, a.name AS account_name
-    FROM post_targets pt JOIN social_accounts a ON a.id=pt.account_id
-    WHERE pt.post_id=? ORDER BY a.platform,a.name`).all(row.id);
+    a.platform, a.name AS account_name,
+    tr.text_rich_json, tr.text_plain, tr.publication_kind AS rendition_publication_kind,
+    tr.content_format AS rendition_content_format, tr.media_plan_json, tr.options_json
+    FROM post_targets pt
+    JOIN social_accounts a ON a.id=pt.account_id
+    LEFT JOIN target_renditions tr ON tr.target_id=pt.id
+    WHERE pt.post_id=? ORDER BY a.platform,a.name`).all(row.id) as any[];
+  const targets = targetRows.map((target) => ({
+    ...target,
+    textRich: target.text_rich_json ? parseRichTextJson(String(target.text_rich_json)) : null,
+    textPlain: target.text_plain ?? null
+  }));
   const bodyRich = parseRichTextJson(String(row.body_rich_json));
   return { ...row, bodyRich, media, targets };
 }

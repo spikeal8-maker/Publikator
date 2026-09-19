@@ -21,7 +21,7 @@ Therefore CX3-005 keeps the existing proven adapter surface:
 
 `TEXT_ONLY` is also disabled in this checkpoint because the current production publishers are image-oriented. It must not be enabled merely because an external API can send text messages.
 
-## Official documentation review — 2026-09-14
+## Official documentation review — 2026-09-19
 
 The implementation was checked against current platform documentation before freezing the matrix:
 
@@ -43,6 +43,24 @@ The implementation was checked against current platform documentation before fre
 
 The matrix intentionally distinguishes **external platform capability** from **Publikator adapter capability**.
 
+EW4-004 adds a second, orthogonal rich-text capability dimension to this same registry; it does **not** create a second capability registry:
+
+| Feature | Telegram | MAX | VK | Instagram |
+| --- | --- | --- | --- | --- |
+| bold / italic / underline / strike | native | native | drop | drop |
+| inline code | native | native | drop | drop |
+| code block | native | native | transform | transform |
+| link | native | native | transform | transform |
+| quote | native | native | transform | transform |
+| bullet / ordered lists | transform | transform | transform | transform |
+
+Modes:
+- `native` — platform transport preserves presentation directly;
+- `transform` — meaning is preserved deterministically through textual/structural transformation;
+- `drop` — presentation is simplified and compiler emits WARNING.
+
+Detailed external evidence and diagnostic codes: `PLATFORM_TEXT_COMPILERS_EW4_004.md`.
+
 ## Preflight invariant
 
 For each enabled target, Publikator resolves the immutable READY revision plus target rendition first, then validates:
@@ -56,7 +74,9 @@ For each enabled target, Publikator resolves the immutable READY revision plus t
 - text limits;
 - public HTTPS media requirement.
 
-Any incompatibility blocks READY with HTTP 409 and structured capability issue codes.
+Compiler diagnostics are merged into preflight with severity `info | warning | error`. INFO/WARNING do not block READY. ERROR does. Existing hard capability failures remain ERROR.
+
+Any actual incompatibility blocks READY with HTTP 409 and structured capability issue codes.
 
 The same capability guard runs again against the immutable revision immediately before target publication, before claim/external POST. This prevents scheduler/retry paths from bypassing READY preflight.
 
@@ -69,4 +89,4 @@ CX3-005 does not add:
 - video upload/transcoding;
 - a new database schema.
 
-Schema remains 8.
+Current schema remains 10. EW4-004 adds no schema migration.

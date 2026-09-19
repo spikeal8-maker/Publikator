@@ -112,6 +112,9 @@ jobs:
       - name: EW4-003 canonical rich text editor
         run: node scripts/ew4-003-canonical-rich-text-e2e.mjs
 
+      - name: EW4-004 platform rich text compilers
+        run: node scripts/ew4-004-platform-compilers-e2e.mjs
+
       - name: CX3-001 visual calendar shell
         run: node scripts/cx3-001-calendar-e2e.mjs
 

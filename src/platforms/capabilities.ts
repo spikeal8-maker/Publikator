@@ -21,6 +21,21 @@ export type TextRules = {
   captionMaxChars?: number | null;
 };
 
+export type RichTextCapabilityMode = 'native' | 'transform' | 'drop';
+
+export type RichTextCapabilities = {
+  bold: RichTextCapabilityMode;
+  italic: RichTextCapabilityMode;
+  underline: RichTextCapabilityMode;
+  strike: RichTextCapabilityMode;
+  inlineCode: RichTextCapabilityMode;
+  codeBlock: RichTextCapabilityMode;
+  link: RichTextCapabilityMode;
+  quote: RichTextCapabilityMode;
+  bulletList: RichTextCapabilityMode;
+  orderedList: RichTextCapabilityMode;
+};
+
 export type PlatformCapability = {
   platform: Platform;
   supportsFeed: boolean;
@@ -37,6 +52,7 @@ export type PlatformCapability = {
   aspectRatioRules: AspectRatioRule[];
   durationRules: DurationRule[];
   textRules: TextRules;
+  richText: RichTextCapabilities;
   requiresPublicHttpsMedia: boolean;
   publicHttpsMediaFormats?: ContentFormat[];
   platformOptionsSchema: Record<string, unknown>;
@@ -51,7 +67,7 @@ export type CapabilityIssue = {
   message: string;
 };
 
-const VERIFIED_AT = '2026-09-14';
+const VERIFIED_AT = '2026-09-19';
 
 export const PLATFORM_CAPABILITIES: Record<Platform, PlatformCapability> = {
   telegram: {
@@ -70,6 +86,11 @@ export const PLATFORM_CAPABILITIES: Record<Platform, PlatformCapability> = {
     aspectRatioRules: [{ contentFormats: ['IMAGE', 'CAROUSEL'], maxRatio: 20, maxWidthPlusHeight: 10000 }],
     durationRules: [],
     textRules: { maxChars: 4096, captionMaxChars: 1024 },
+    richText: {
+      bold: 'native', italic: 'native', underline: 'native', strike: 'native',
+      inlineCode: 'native', codeBlock: 'native', link: 'native', quote: 'native',
+      bulletList: 'transform', orderedList: 'transform'
+    },
     requiresPublicHttpsMedia: false,
     platformOptionsSchema: {},
     verification: { officialDocsReviewedAt: VERIFIED_AT, richMediaPendingLiveAcceptance: true }
@@ -90,6 +111,11 @@ export const PLATFORM_CAPABILITIES: Record<Platform, PlatformCapability> = {
     aspectRatioRules: [],
     durationRules: [],
     textRules: { maxChars: null },
+    richText: {
+      bold: 'drop', italic: 'drop', underline: 'drop', strike: 'drop',
+      inlineCode: 'drop', codeBlock: 'transform', link: 'transform', quote: 'transform',
+      bulletList: 'transform', orderedList: 'transform'
+    },
     requiresPublicHttpsMedia: false,
     platformOptionsSchema: {},
     verification: { officialDocsReviewedAt: VERIFIED_AT, richMediaPendingLiveAcceptance: true }
@@ -110,6 +136,11 @@ export const PLATFORM_CAPABILITIES: Record<Platform, PlatformCapability> = {
     aspectRatioRules: [{ contentFormats: ['IMAGE', 'CAROUSEL'], maxWidth: 7680, maxHeight: 7680 }],
     durationRules: [],
     textRules: { maxChars: 4000 },
+    richText: {
+      bold: 'native', italic: 'native', underline: 'native', strike: 'native',
+      inlineCode: 'native', codeBlock: 'native', link: 'native', quote: 'native',
+      bulletList: 'transform', orderedList: 'transform'
+    },
     requiresPublicHttpsMedia: true,
     publicHttpsMediaFormats: ['IMAGE', 'CAROUSEL'],
     platformOptionsSchema: {},
@@ -131,6 +162,11 @@ export const PLATFORM_CAPABILITIES: Record<Platform, PlatformCapability> = {
     aspectRatioRules: [],
     durationRules: [],
     textRules: { maxChars: null },
+    richText: {
+      bold: 'drop', italic: 'drop', underline: 'drop', strike: 'drop',
+      inlineCode: 'drop', codeBlock: 'transform', link: 'transform', quote: 'transform',
+      bulletList: 'transform', orderedList: 'transform'
+    },
     requiresPublicHttpsMedia: true,
     platformOptionsSchema: {},
     verification: { officialDocsReviewedAt: VERIFIED_AT, richMediaPendingLiveAcceptance: true }

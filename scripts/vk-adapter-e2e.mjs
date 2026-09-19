@@ -12,6 +12,7 @@ process.env.APP_MASTER_KEY = 'vk-adapter-test-master-key-longer-than-thirty-two-
 const { vkPublisher } = await import('../dist/platforms/vk.js');
 const { PLATFORM_CAPABILITIES } = await import('../dist/platforms/capabilities.js');
 const { PlatformError } = await import('../dist/platforms/types.js');
+const { compilePlatformText } = await import('../dist/platform-text.js');
 const { db } = await import('../dist/db.js');
 
 const imageRelativePath = 'post-vk-test/image.jpg';
@@ -177,19 +178,34 @@ try {
   assert.equal(PLATFORM_CAPABILITIES.vk.supportsShortVideo, false);
   assert.equal(PLATFORM_CAPABILITIES.vk.verification.richMediaPendingLiveAcceptance, true);
 
-  // 1. Existing image happy path remains unchanged.
+  // 1. Image happy path uses exact compiler plain output; no fake Markdown/HTML.
   {
+    const richDoc={type:'doc',content:[{type:'paragraph',content:[
+      {type:'text',text:'VK ',marks:[]},
+      {type:'text',text:'bold',marks:[{type:'bold'}]},
+      {type:'text',text:' ',marks:[]},
+      {type:'link',attrs:{href:'https://example.test/vk'},content:[{type:'text',text:'link',marks:[]}]}
+    ]}]};
+    const compiled=compilePlatformText('vk',richDoc,'media_caption');
+    assert.equal(compiled.transport.kind,'plain');
     const steps = successImagePreparationSteps({
       apiMethod: 'wall.post',
       check: (call) => {
         assert.equal(call.body.owner_id, '-12345');
         assert.equal(call.body.guid, 'post-vk-test');
         assert.equal(call.body.attachments, 'photo-12345_777');
+        assert.equal(call.body.message, compiled.transport.text);
+        assert.equal(call.body.message.includes('**'), false);
+        assert.equal(call.body.message.includes('<strong>'), false);
       },
       response: { response: { post_id: 9001 } }
     });
     const calls = mockFetch(steps);
-    const result = await vkPublisher.publish(baseInput);
+    const result = await vkPublisher.publish({
+      ...baseInput,
+      text: compiled.plainText,
+      textCompilation: compiled
+    });
     assert.equal(result.externalId, '9001');
     assert.equal(result.externalUrl, 'https://vk.com/wall-12345_9001');
     assert.equal(steps.length, 0);

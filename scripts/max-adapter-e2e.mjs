@@ -12,6 +12,7 @@ process.env.APP_MASTER_KEY = 'max-adapter-test-master-key-longer-than-thirty-two
 const { maxPublisher } = await import('../dist/platforms/max.js');
 const { PLATFORM_CAPABILITIES, platformRequiresPublicHttpsMedia } = await import('../dist/platforms/capabilities.js');
 const { PlatformError } = await import('../dist/platforms/types.js');
+const { compilePlatformText } = await import('../dist/platform-text.js');
 
 function media(index) {
   return {
@@ -138,14 +139,25 @@ try {
   assert.throws(() => maxPublisher.validate(input({ urls: ['https://user:pass@publisher.example.test/a.jpg'] })), /без credentials/);
   assert.throws(() => maxPublisher.validate(input({ count: 13 })), /не более 12/);
 
-  // 6. Existing image success path stays URL-based and one-request.
+  // 6. Existing image success path stays URL-based and one-request, with compiler HTML transport.
   {
+    const richDoc={type:'doc',content:[{type:'paragraph',content:[
+      {type:'text',text:'MAX <safe> ',marks:[]},
+      {type:'text',text:'bold',marks:[{type:'bold'},{type:'underline'}]},
+      {type:'text',text:' ',marks:[]},
+      {type:'link',attrs:{href:'https://example.test/max?a=1&b=2'},content:[{type:'text',text:'link',marks:[{type:'italic'}]}]}
+    ]}]};
+    const compiled=compilePlatformText('max',richDoc,'media_caption');
+    assert.equal(compiled.transport.kind,'max_html');
     const calls = [];
     globalThis.fetch = async (request, init = {}) => {
       calls.push({ request: String(request), init });
       return json({ message: { body: { mid: 'max-mid-1' }, link: 'https://max.ru/channel/post/1' } });
     };
-    const result = await maxPublisher.publish(input({ count: 2 }));
+    const result = await maxPublisher.publish({
+      ...input({ count: 2, text: compiled.plainText }),
+      textCompilation: compiled
+    });
     assert.equal(result.externalId, 'max-mid-1');
     assert.equal(result.externalUrl, 'https://max.ru/channel/post/1');
     assert.equal(calls.length, 1);
@@ -156,6 +168,10 @@ try {
     assert.equal(url.searchParams.has('access_token'), false);
     assert.equal(call.init.headers.Authorization, 'max-test-token');
     const body = JSON.parse(call.init.body);
+    assert.equal(body.text, compiled.transport.text);
+    assert.equal(body.format, 'html');
+    assert.equal(body.text.includes('<safe>'), false);
+    assert.equal(body.parse_mode, undefined);
     assert.deepEqual(body.attachments.map((item) => item.payload.url), [
       'https://publisher.example.test/public-media/0.jpg',
       'https://publisher.example.test/public-media/1.jpg'
@@ -237,6 +253,7 @@ try {
           assert.equal(init.headers.Authorization, 'max-test-token');
           const body = JSON.parse(init.body);
           assert.equal(body.text, 'MAX video test');
+          assert.equal(body.format, 'html');
           assert.deepEqual(body.attachments, [{ type: 'video', payload: { token: 'max-video-token-1' } }]);
         },
         response: { message: { body: { mid: 'max-video-mid-1' }, link: 'https://max.ru/channel/post/video-1' } }

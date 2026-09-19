@@ -1,3 +1,5 @@
+import { mountRichTextEditor, plainTextToRichDocument } from './rich-text-editor-v1.js';
+
 const PLATFORM_NAMES = {
   telegram: 'Telegram',
   vk: 'VK',
@@ -69,9 +71,48 @@ function platformWarning(target, post) {
   return '';
 }
 
-function targetCardHtml(target, post) {
+const RICH_COMMAND_BY_CAPABILITY = {
+  bold: 'bold',
+  italic: 'italic',
+  underline: 'underline',
+  strike: 'strike',
+  inlineCode: 'code',
+  codeBlock: 'codeblock',
+  link: 'link',
+  quote: 'quote',
+  bulletList: 'bullet',
+  orderedList: 'ordered'
+};
+
+function platformAllowedCommands(capability) {
+  const commands = ['break', 'emoji'];
+  for (const [feature, command] of Object.entries(RICH_COMMAND_BY_CAPABILITY)) {
+    if (capability?.richText?.[feature] && capability.richText[feature] !== 'drop') commands.push(command);
+  }
+  return [...new Set(commands)];
+}
+
+function targetHasOwnText(target) {
+  return Boolean(target.textRich || target.textPlain || target.override_text);
+}
+
+function targetInitialDocument(target, post) {
+  if (target.textRich) return target.textRich;
+  if (target.textPlain) return plainTextToRichDocument(target.textPlain);
+  if (target.override_text) return plainTextToRichDocument(target.override_text);
+  return post.bodyRich || plainTextToRichDocument(post.body || '');
+}
+
+function capabilitySummary(capability) {
+  if (!capability?.richText) return 'Capability rich-text contract недоступен.';
+  const dropped = Object.entries(capability.richText).filter(([, mode]) => mode === 'drop').map(([name]) => name);
+  return dropped.length
+    ? `Оформление будет упрощено для: ${dropped.join(', ')}.`
+    : 'Доступные инструменты сохраняются нативно или детерминированно преобразуются.';
+}
+
+function targetCardHtml(target, post, capability) {
   const platformName = PLATFORM_NAMES[target.platform] || target.platform;
-  const override = target.override_text || '';
   return `<article class="platform-editor-card" data-target-id="${escapeHtml(target.id)}" data-account-id="${escapeHtml(target.account_id)}" data-platform="${escapeHtml(target.platform)}">
     <div class="platform-editor-head">
       <div>
@@ -80,13 +121,14 @@ function targetCardHtml(target, post) {
       </div>
       <div class="platform-head-badges">
         <span class="badge platform-selection">${target.enabled ? 'Выбрано' : 'Не выбрано'}</span>
-        <span class="badge text-mode">${override ? 'Свой текст' : 'Базовый текст'}</span>
+        <span class="badge text-mode">${targetHasOwnText(target) ? 'Свой текст' : 'Базовый текст'}</span>
       </div>
     </div>
     <div class="platform-editor-body">
-      <label class="platform-text-label">Текст для ${escapeHtml(platformName)}
-        <textarea class="platform-text" maxlength="20000" placeholder="Пусто = использовать базовый текст">${escapeHtml(override)}</textarea>
-      </label>
+      <div class="platform-text-label">Текст для ${escapeHtml(platformName)}
+        <div class="platform-rich-host"></div>
+      </div>
+      <div class="platform-editor-capability ${Object.values(capability?.richText || {}).includes('drop') ? 'warning' : 'ok'}">${escapeHtml(capabilitySummary(capability))}</div>
       <div class="platform-editor-meta">
         <span class="small muted"><span class="resolved-count">0</span> символов в публикации</span>
         <div class="row-actions">
@@ -100,7 +142,7 @@ function targetCardHtml(target, post) {
     <div class="platform-preview ${escapeHtml(target.platform)}">
       <div class="platform-preview-top">
         <span class="platform-avatar">${escapeHtml(platformName.slice(0, 1))}</span>
-        <div><strong>${escapeHtml(target.account_name)}</strong><div class="small muted">Предпросмотр</div></div>
+        <div><strong>${escapeHtml(target.account_name)}</strong><div class="small muted">Локальный plain preview</div></div>
       </div>
       ${mediaPreviewHtml(post)}
       <div class="platform-preview-text"></div>
@@ -131,15 +173,15 @@ function renderPreviewMedia(card, post) {
 
 function renderTargetCard(card, target, post, form) {
   const baseText = form.querySelector('textarea[name="body"]')?.value || '';
-  const textarea = card.querySelector('.platform-text');
-  const ownText = textarea.value.trim();
-  const resolvedText = ownText || baseText;
+  const editor = card.richTextEditor;
+  const editorText = editor?.getPlainText?.() || '';
+  const resolvedText = editorText || baseText;
   const checkbox = targetCheckbox(form, target.account_id);
   const selected = checkbox ? checkbox.checked : Boolean(target.enabled);
 
   card.classList.toggle('platform-disabled', !selected);
   card.querySelector('.platform-selection').textContent = selected ? 'Выбрано' : 'Не выбрано';
-  card.querySelector('.text-mode').textContent = ownText ? 'Свой текст' : 'Базовый текст';
+  card.querySelector('.text-mode').textContent = targetHasOwnText(target) ? 'Свой текст' : 'Базовый текст';
   card.querySelector('.resolved-count').textContent = String(resolvedText.length);
   card.querySelector('.platform-preview-text').textContent = resolvedText || 'Текст публикации пока пуст.';
   renderPreviewMedia(card, post);
@@ -156,6 +198,7 @@ function lockPublishedEditor(form, post, section) {
   form.querySelectorAll('input, textarea, select, button[type="submit"], #mark-ready, #publish-now, .delete-media, .save-platform-text, .reset-platform-text, .move-media, .rich-text-toolbar button')
     .forEach((element) => { element.disabled = true; });
   form.querySelector('[data-rich-text-editor]')?.richTextEditor?.setDisabled(true);
+  section.querySelectorAll('.platform-editor-card').forEach((card) => card.richTextEditor?.setDisabled(true));
 }
 
 function hydrateScheduledAt(form, post) {
@@ -235,8 +278,12 @@ async function enhancePostEditor(form, postId) {
   if (form.dataset.v04Enhanced === '1') return;
   form.dataset.v04Enhanced = '1';
 
-  const post = await requestJson(`/api/posts/${encodeURIComponent(postId)}`);
+  const [post, capabilityPayload] = await Promise.all([
+    requestJson(`/api/posts/${encodeURIComponent(postId)}`),
+    requestJson('/api/platform-capabilities')
+  ]);
   if (!form.isConnected) return;
+  const capabilityByPlatform = new Map((capabilityPayload.capabilities || []).map((item) => [item.platform, item]));
 
   const modalCard = form.closest('.modal-card');
   modalCard?.classList.add('post-editor-modal');
@@ -250,12 +297,12 @@ async function enhancePostEditor(form, postId) {
   section.innerHTML = `<div class="platform-workspace-head">
       <div>
         <h3>Варианты по площадкам</h3>
-        <p class="muted small">Оставьте поле пустым, чтобы использовать базовый текст. Предпросмотр ориентировочный: финальный интерфейс определяется самой соцсетью.</p>
+        <p class="muted small">Rich-варианты сохраняются в TargetRendition. Панель инструментов отражает реальные возможности compiler каждой площадки.</p>
       </div>
       <span class="badge">${post.targets.length} подключений</span>
     </div>
     <div class="platform-editor-grid">
-      ${post.targets.map((target) => targetCardHtml(target, post)).join('') || '<div class="card muted">Нет подключённых площадок. Добавьте их в разделе «Соцсети».</div>'}
+      ${post.targets.map((target) => targetCardHtml(target, post, capabilityByPlatform.get(target.platform))).join('') || '<div class="card muted">Нет подключённых площадок. Добавьте их в разделе «Соцсети».</div>'}
     </div>`;
   actions.before(section);
 
@@ -277,22 +324,28 @@ async function enhancePostEditor(form, postId) {
   for (const card of cards) {
     const target = targetById.get(card.dataset.targetId);
     if (!target) continue;
-    const textarea = card.querySelector('.platform-text');
-    textarea.addEventListener('input', () => renderTargetCard(card, target, post, form));
+    const capability = capabilityByPlatform.get(target.platform);
+    const editor = mountRichTextEditor(card.querySelector('.platform-rich-host'), {
+      document: targetInitialDocument(target, post),
+      allowedCommands: platformAllowedCommands(capability),
+      onChange: () => renderTargetCard(card, target, post, form)
+    });
+    card.richTextEditor = editor;
 
     card.querySelector('.save-platform-text').addEventListener('click', async () => {
       try {
         setSaveState(card, 'Сохранение…');
-        const text = textarea.value.trim() ? textarea.value : null;
         const result = await requestJson(`/api/posts/${encodeURIComponent(post.id)}/targets/${encodeURIComponent(target.id)}/text`, {
           method: 'PATCH',
-          body: JSON.stringify({ text, expectedContentVersion: editorContentVersion(form) })
+          body: JSON.stringify({ textRich: editor.getDocument(), expectedContentVersion: editorContentVersion(form) })
         });
-        target.override_text = result.target.overrideText;
+        target.override_text = null;
+        target.textRich = result.target.textRich;
+        target.textPlain = result.target.textPlain;
         updateEditorContentVersion(form, result.contentVersion, post);
-        textarea.value = result.target.overrideText || '';
+        editor.setDocument(result.target.textRich || post.bodyRich);
         renderTargetCard(card, target, post, form);
-        setSaveState(card, result.target.overrideText ? 'Отдельный текст сохранён.' : 'Используется базовый текст.', 'success');
+        setSaveState(card, 'Rich-вариант площадки сохранён в TargetRendition.', 'success');
       } catch (error) {
         setSaveState(card, error instanceof Error ? error.message : String(error), 'error');
       }
@@ -303,13 +356,15 @@ async function enhancePostEditor(form, postId) {
         setSaveState(card, 'Сброс варианта…');
         const result = await requestJson(`/api/posts/${encodeURIComponent(post.id)}/targets/${encodeURIComponent(target.id)}/text`, {
           method: 'PATCH',
-          body: JSON.stringify({ text: null, expectedContentVersion: editorContentVersion(form) })
+          body: JSON.stringify({ textRich: null, expectedContentVersion: editorContentVersion(form) })
         });
         target.override_text = null;
+        target.textRich = null;
+        target.textPlain = null;
         updateEditorContentVersion(form, result.contentVersion, post);
-        textarea.value = '';
+        editor.setDocument(post.bodyRich || plainTextToRichDocument(post.body || ''));
         renderTargetCard(card, target, post, form);
-        setSaveState(card, 'Используется базовый текст.', 'success');
+        setSaveState(card, 'Используется базовый rich text.', 'success');
       } catch (error) {
         setSaveState(card, error instanceof Error ? error.message : String(error), 'error');
       }

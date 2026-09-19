@@ -4,6 +4,7 @@ import { mediaAbsolutePath } from '../media.js';
 import type { MediaRow } from '../media.js';
 import type { PublishInput, PublishResult, SocialPublisher } from './types.js';
 import { PlatformError, requireString, responseJson } from './types.js';
+import { compileLiteralPlainText } from '../platform-text.js';
 
 const MAX_TEXT_LENGTH = 4000;
 const MAX_ATTACHMENTS = 12;
@@ -219,10 +220,20 @@ async function prepareVideoToken(accessToken: string, media: MediaRow): Promise<
   return token;
 }
 
+function maxCompiledText(input: PublishInput): { text: string; format: 'html' } {
+  const context = input.publicationKind === 'STORY' ? 'story_caption' : input.media.length ? 'media_caption' : 'text';
+  const compilation = input.textCompilation ?? compileLiteralPlainText('max', input.text, context);
+  if (compilation.platform !== 'max' || compilation.transport.kind !== 'max_html') {
+    throw new Error('MAX: unsupported text compilation transport');
+  }
+  return { text: compilation.transport.text, format: compilation.transport.format };
+}
+
 async function postMessage(
   accessToken: string,
   chatId: string,
   text: string,
+  format: 'html',
   attachments: Array<{ type: string; payload: Record<string, string> }>
 ): Promise<any> {
   try {
@@ -232,7 +243,7 @@ async function postMessage(
         Authorization: accessToken,
         'content-type': 'application/json'
       },
-      body: JSON.stringify({ text, attachments }),
+      body: JSON.stringify({ text, format, attachments }),
       signal: AbortSignal.timeout(MAX_REQUEST_TIMEOUT_MS)
     });
     const body = await responseJson(response, 'MAX POST /messages');
@@ -289,7 +300,8 @@ export const maxPublisher: SocialPublisher = {
     const attachments = isVideoPublication(input)
       ? [{ type: 'video', payload: { token: await prepareVideoToken(accessToken, assertFeedVideo(input)) } }]
       : input.publicMediaUrls.map((url) => ({ type: 'image', payload: { url } }));
-    const body = await postMessage(accessToken, chatId, input.text, attachments);
+    const compiled = maxCompiledText(input);
+    const body = await postMessage(accessToken, chatId, compiled.text, compiled.format, attachments);
 
     const message = body.message ?? body;
     const externalId = message?.body?.mid ?? message?.mid ?? message?.id ?? message?.message_id;

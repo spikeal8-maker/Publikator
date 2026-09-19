@@ -16,6 +16,9 @@ const { encryptJson } = await import('../dist/crypto.js');
 const sharp = (await import('sharp')).default;
 const { saveImageVersioned } = await import('../dist/media.js');
 const { buildApp } = await import('../dist/app.js');
+const { config } = await import('../dist/config.js');
+const { publishPost } = await import('../dist/publisher.js');
+const { setPublisherForTests } = await import('../dist/platforms/index.js');
 migrate();
 const app = await buildApp();
 
@@ -193,6 +196,21 @@ const publishedBlockedRestore = await fixtureApi('POST', `/api/posts/${published
 }, 409);
 assert.equal(publishedBlockedRestore.code, 'REVISION_PUBLISHED_IMMUTABLE');
 
+const browserPlatformAccounts = { telegram: editorAccountId };
+for (const [platform, credentials, name] of [
+  ['max', { accessToken: 'browser-max-token', chatId: '-100500' }, 'Browser MAX'],
+  ['vk', { accessToken: 'browser-vk-token', groupId: '12345', apiVersion: '5.199' }, 'Browser VK'],
+  ['instagram', { accessToken: 'browser-instagram-token', igUserId: '17841400000000000', graphVersion: 'v24.0' }, 'Browser Instagram']
+]) {
+  const accountId = id('acc');
+  browserPlatformAccounts[platform] = accountId;
+  const createdAt = nowIso();
+  db.prepare(`INSERT INTO social_accounts
+    (id,platform,name,credentials_encrypted,enabled,created_at,updated_at)
+    VALUES (?,?,?,?,1,?,?)`)
+    .run(accountId, platform, name, encryptJson(credentials), createdAt, createdAt);
+}
+
 await app.listen({ host: '127.0.0.1', port: 18087 });
 
 const base = 'http://127.0.0.1:18087';
@@ -212,7 +230,7 @@ try {
 
   const selectEditorText = async (needle) => {
     const found = await page.evaluate((text) => {
-      const surface = document.querySelector('.rich-text-surface');
+      const surface = document.querySelector('[data-rich-text-editor] .rich-text-surface');
       if (!surface) return false;
       const walker = document.createTreeWalker(surface, NodeFilter.SHOW_TEXT);
       while (walker.nextNode()) {
@@ -234,7 +252,29 @@ try {
   const richCommand = async (needle, command, promptValue = null) => {
     await selectEditorText(needle);
     if (promptValue !== null) page.once('dialog', (dialog) => dialog.accept(promptValue));
-    await page.locator(`[data-rich-command="${command}"]`).click();
+    await page.locator(`[data-rich-text-editor] [data-rich-command="${command}"]`).click();
+  };
+
+  const selectPlatformText = async (platform, needle) => {
+    const found = await page.evaluate(({ platformName, text }) => {
+      const surface = document.querySelector(`.platform-editor-card[data-platform="${platformName}"] .rich-text-surface`);
+      if (!surface) return false;
+      const walker = document.createTreeWalker(surface, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) {
+        const node = walker.currentNode;
+        const index = String(node.nodeValue || '').indexOf(text);
+        if (index < 0) continue;
+        const range = document.createRange();
+        range.setStart(node, index);
+        range.setEnd(node, index + text.length);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        return true;
+      }
+      return false;
+    }, { platformName: platform, text: needle });
+    assert.equal(found, true, `platform editor text not found: ${platform} / ${needle}`);
   };
 
   await page.goto(`${base}/calendar`, { waitUntil: 'domcontentloaded' });
@@ -243,6 +283,9 @@ try {
   await page.locator('#password').fill(process.env.ADMIN_PASSWORD);
   await page.locator('#login-form button[type="submit"]').click();
   await page.locator('#app').waitFor({ state: 'visible' });
+  // Keep browser origin HTTP, but make publication media URLs satisfy real HTTPS capability gates.
+  // Login cookie was already created with the HTTP test base.
+  config.publicBaseUrl = 'https://publisher.example.test';
   await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Календарь');
   assert.equal(new URL(page.url()).pathname, '/calendar', 'login must return to requested route');
 
@@ -325,11 +368,11 @@ try {
   await postForm.locator('input[name="title"]').fill(richEditorTitle);
   assert.equal(await postForm.locator('textarea[name="body"]:visible').count(), 0, 'visible raw body textarea must be absent');
   assert.equal(await postForm.locator('textarea[name="body"][hidden]').count(), 1, 'hidden synchronized plain fallback must remain');
-  const richSurface = postForm.locator('.rich-text-surface');
+  const richSurface = postForm.locator('[data-rich-text-editor] .rich-text-surface');
   await richSurface.waitFor({ state: 'visible' });
-  assert.equal(await postForm.locator('.rich-text-toolbar button').count(), 12, 'rich toolbar command count');
+  assert.equal(await postForm.locator('[data-rich-text-editor] .rich-text-toolbar button').count(), 12, 'rich toolbar command count');
   for (const label of ['Жирный','Курсив','Подчёркнутый','Зачёркнутый','Inline code','Ссылка','Цитата','Маркированный список','Нумерованный список','Блок кода','Перенос строки','Вставить emoji']) {
-    assert.equal(await postForm.locator(`[aria-label="${label}"]`).count(), 1, `missing rich toolbar label: ${label}`);
+    assert.equal(await postForm.locator(`[data-rich-text-editor] [aria-label="${label}"]`).count(), 1, `missing rich toolbar label: ${label}`);
   }
 
   await richSurface.click();
@@ -357,7 +400,7 @@ try {
   await richCommand('Code block text','codeblock');
 
   await page.evaluate(() => {
-    const surface = document.querySelector('.rich-text-surface');
+    const surface = document.querySelector('[data-rich-text-editor] .rich-text-surface');
     const selection = window.getSelection();
     const range = document.createRange();
     range.selectNodeContents(surface);
@@ -365,8 +408,8 @@ try {
     selection.removeAllRanges();
     selection.addRange(range);
   });
-  await postForm.locator('[data-rich-command="emoji"]').click();
-  await postForm.locator('[data-rich-command="break"]').click();
+  await postForm.locator('[data-rich-text-editor] [data-rich-command="emoji"]').click();
+  await postForm.locator('[data-rich-text-editor] [data-rich-command="break"]').click();
   await page.keyboard.type('After break');
 
   const editorSnapshot = await page.evaluate(() => {
@@ -405,8 +448,91 @@ try {
   await postForm.waitFor({ state: 'visible', timeout: 5000 });
   await postForm.locator('.platform-workspace').waitFor({ state: 'visible', timeout: 5000 });
   for (const selector of ['strong','em','u','s','code','a','blockquote','ul','ol','pre']) {
-    assert.ok(await postForm.locator(`.rich-text-surface ${selector}`).count() >= 1, `formatting did not hydrate: ${selector}`);
+    assert.ok(await postForm.locator(`[data-rich-text-editor] .rich-text-surface ${selector}`).count() >= 1, `formatting did not hydrate: ${selector}`);
   }
+
+  // EW4-004: one reusable editor, four capability-aware platform cards.
+  assert.equal(await postForm.locator('.platform-editor-card').count(), 4, 'EW4-004 requires four platform editor cards');
+  const tgCard = postForm.locator('.platform-editor-card[data-platform="telegram"]');
+  const maxCard = postForm.locator('.platform-editor-card[data-platform="max"]');
+  const vkCard = postForm.locator('.platform-editor-card[data-platform="vk"]');
+  const instagramCard = postForm.locator('.platform-editor-card[data-platform="instagram"]');
+  for (const card of [tgCard, maxCard, vkCard, instagramCard]) await card.waitFor({ state: 'visible', timeout: 5000 });
+
+  assert.equal(await tgCard.locator('.rich-text-toolbar button').count(), 12, 'Telegram toolbar capability mismatch');
+  assert.equal(await maxCard.locator('.rich-text-toolbar button').count(), 12, 'MAX toolbar capability mismatch');
+  assert.equal(await vkCard.locator('[data-rich-command="bold"]').count(), 0, 'VK must not advertise bold support');
+  assert.equal(await vkCard.locator('[data-rich-command="underline"]').count(), 0, 'VK must not advertise underline support');
+  assert.equal(await instagramCard.locator('[data-rich-command="bold"]').count(), 0, 'Instagram must not advertise bold support');
+  assert.equal(await instagramCard.locator('[data-rich-command="underline"]').count(), 0, 'Instagram must not advertise underline support');
+  assert.equal(await vkCard.locator('[data-rich-command="bullet"]').count(), 1, 'VK list transform missing');
+  assert.equal(await instagramCard.locator('[data-rich-command="ordered"]').count(), 1, 'Instagram list transform missing');
+
+  await tgCard.locator('.rich-text-surface').fill('Telegram Browser Bold Link🙂');
+  await selectPlatformText('telegram', 'Bold');
+  await tgCard.locator('[data-rich-command="bold"]').click();
+  await selectPlatformText('telegram', 'Link');
+  page.once('dialog', (dialog) => dialog.accept('https://example.test/browser-telegram'));
+  await tgCard.locator('[data-rich-command="link"]').click();
+  await tgCard.locator('.save-platform-text').click();
+  await page.waitForFunction(() => document.querySelector('.platform-editor-card[data-platform="telegram"] .platform-save-state')?.textContent?.includes('TargetRendition'));
+
+  await maxCard.locator('.rich-text-surface').fill('MAX Browser Underline <literal>');
+  await selectPlatformText('max', 'Underline');
+  await maxCard.locator('[data-rich-command="underline"]').click();
+  await maxCard.locator('.save-platform-text').click();
+  await page.waitForFunction(() => document.querySelector('.platform-editor-card[data-platform="max"] .platform-save-state')?.textContent?.includes('TargetRendition'));
+
+  // VK/Instagram keep inherited rich Base visible even though their toolbar does not advertise dropped marks.
+  await vkCard.locator('.save-platform-text').click();
+  await page.waitForFunction(() => document.querySelector('.platform-editor-card[data-platform="vk"] .platform-save-state')?.textContent?.includes('TargetRendition'));
+  await instagramCard.locator('.save-platform-text').click();
+  await page.waitForFunction(() => document.querySelector('.platform-editor-card[data-platform="instagram"] .platform-save-state')?.textContent?.includes('TargetRendition'));
+
+  const platformOverrideRows = db.prepare(`SELECT a.platform,pt.override_text,tr.text_rich_json,tr.text_plain
+    FROM post_targets pt
+    JOIN social_accounts a ON a.id=pt.account_id
+    LEFT JOIN target_renditions tr ON tr.target_id=pt.id
+    WHERE pt.post_id=? ORDER BY a.platform`).all(richDbPost.id);
+  assert.equal(platformOverrideRows.length, 4);
+  for (const row of platformOverrideRows) {
+    assert.equal(row.override_text, null, `${row.platform} new rich save must not use legacy override_text`);
+    assert.ok(row.text_rich_json, `${row.platform} rich TargetRendition missing`);
+    assert.ok(row.text_plain, `${row.platform} matching text_plain missing`);
+  }
+  const telegramStoredAst = JSON.parse(platformOverrideRows.find((row) => row.platform === 'telegram').text_rich_json);
+  const maxStoredAst = JSON.parse(platformOverrideRows.find((row) => row.platform === 'max').text_rich_json);
+  assert.ok(JSON.stringify(telegramStoredAst).includes('"type":"bold"'), 'Telegram editor must persist bold mark in TargetRendition');
+  assert.ok(JSON.stringify(telegramStoredAst).includes('"type":"link"'), 'Telegram editor must persist link node in TargetRendition');
+  assert.ok(JSON.stringify(maxStoredAst).includes('"type":"underline"'), 'MAX editor must persist underline mark in TargetRendition');
+
+  await postForm.locator('#close-modal').click();
+  await page.locator('#post-form').waitFor({ state: 'detached', timeout: 5000 });
+  await contentRow(richEditorTitle).locator('.open-post').click();
+  richInspector = page.locator('.editorial-inspector-overlay');
+  await richInspector.waitFor({ state: 'visible', timeout: 5000 });
+  const compilerPreviewSection = richInspector.locator('.platform-preview-section');
+  await compilerPreviewSection.waitFor({ state: 'visible', timeout: 5000 });
+  await page.waitForFunction(() => document.querySelectorAll('.platform-preview-section .platform-preview-card').length === 4);
+  assert.ok(await compilerPreviewSection.locator('.platform-telegram .platform-preview-caption strong').count() >= 1, 'Telegram preview must preserve bold safely');
+  assert.ok(await compilerPreviewSection.locator('.platform-max .platform-preview-caption u').count() >= 1, 'MAX preview must preserve underline safely');
+  assert.ok((await compilerPreviewSection.locator('.platform-vk').innerText()).includes('RICH_BOLD_DOWNGRADED'), 'VK downgrade warning missing');
+  assert.ok((await compilerPreviewSection.locator('.platform-instagram').innerText()).includes('RICH_UNDERLINE_DOWNGRADED'), 'Instagram downgrade warning missing');
+  assert.ok((await compilerPreviewSection.locator('.platform-telegram').innerText()).includes('Свой rich-вариант'));
+  assert.ok((await compilerPreviewSection.locator('.platform-max').innerText()).includes('Свой rich-вариант'));
+
+  await richInspector.locator('.inspector-edit').click();
+  await richInspector.waitFor({ state: 'detached', timeout: 5000 });
+  postForm = page.locator('#post-form');
+  await postForm.waitFor({ state: 'visible', timeout: 5000 });
+  await postForm.locator('.platform-workspace').waitFor({ state: 'visible', timeout: 5000 });
+  assert.ok((await postForm.locator('.platform-editor-card[data-platform="telegram"] .rich-text-surface').innerText()).includes('Telegram Browser Bold Link🙂'));
+  assert.ok(await postForm.locator('.platform-editor-card[data-platform="telegram"] .rich-text-surface strong').count() >= 1);
+  assert.ok(await postForm.locator('.platform-editor-card[data-platform="telegram"] .rich-text-surface a[href^="https://example.test/browser-telegram"]').count() >= 1);
+  assert.ok(await postForm.locator('.platform-editor-card[data-platform="max"] .rich-text-surface u').count() >= 1);
+  assert.ok(await postForm.locator('.platform-editor-card[data-platform="vk"] .rich-text-surface strong').count() >= 1, 'unsupported inherited Base formatting must remain visible in VK editor');
+  assert.ok(await postForm.locator('.platform-editor-card[data-platform="instagram"] .rich-text-surface strong').count() >= 1, 'unsupported inherited Base formatting must remain visible in Instagram editor');
+
   const previewText = await postForm.locator('.platform-preview-text').first().innerText();
   assert.ok(previewText.includes('Normal Bold Italic Underline Strike Code'), 'platform preview must use rich editor plain fallback');
   assert.ok(!previewText.includes('**'), 'platform preview must not invent Markdown');
@@ -442,7 +568,7 @@ try {
   await richInspector.locator('.inspector-edit').click();
   postForm = page.locator('#post-form');
   await postForm.waitFor({ state: 'visible', timeout: 5000 });
-  const changedSurface = postForm.locator('.rich-text-surface');
+  const changedSurface = postForm.locator('[data-rich-text-editor] .rich-text-surface');
   await changedSurface.click();
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A');
   await page.keyboard.type('Changed after READY');
@@ -485,11 +611,11 @@ try {
   await richInspector.locator('.inspector-edit').click();
   postForm = page.locator('#post-form');
   await postForm.waitFor({ state: 'visible', timeout: 5000 });
-  assert.equal(await postForm.locator('.rich-text-surface strong').count(),1,'restored editor must hydrate formatting');
+  assert.equal(await postForm.locator('[data-rich-text-editor] .rich-text-surface strong').count(),1,'restored editor must hydrate formatting');
 
   // Hostile clipboard HTML is treated as plain text; executable DOM never enters the editor/storage.
   await page.evaluate(() => {
-    const surface=document.querySelector('.rich-text-surface');
+    const surface=document.querySelector('[data-rich-text-editor] .rich-text-surface');
     surface.focus();
     const selection=window.getSelection();
     const range=document.createRange();
@@ -502,7 +628,7 @@ try {
     data.setData('text/plain','<script>literal</script> <img onerror=literal>');
     surface.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:data}));
   });
-  assert.equal(await postForm.locator('.rich-text-surface script,.rich-text-surface img').count(),0,'hostile clipboard must not create executable elements');
+  assert.equal(await postForm.locator('[data-rich-text-editor] .rich-text-surface script,[data-rich-text-editor] .rich-text-surface img').count(),0,'hostile clipboard must not create executable elements');
   assert.equal(await page.evaluate(()=>window.__richXss||0),0);
   await postForm.locator('button.primary[type="submit"]').click();
   await page.locator('#post-form').waitFor({ state: 'detached', timeout: 5000 });
@@ -536,6 +662,36 @@ try {
   assert.equal(unsafeLinkResponse.statusCode,400,unsafeLinkResponse.body);
   assert.equal(db.prepare('SELECT content_version FROM posts WHERE id=?').get(richDbPost.id).content_version,xssVersion);
 
+  // Same final fixture: Preview API compiler result must equal publisher compiler input.
+  const finalReady = await fixtureApi('POST', `/api/posts/${richDbPost.id}/ready`, { expectedContentVersion: xssVersion });
+  assert.ok(finalReady.revisionId);
+  const parityPreviews = await fixtureApi('GET', `/api/posts/${richDbPost.id}/platform-previews`);
+  assert.equal(parityPreviews.previews.length, 4);
+  const publisherCaptures = {};
+  for (const platform of ['telegram','max','vk','instagram']) {
+    setPublisherForTests(platform, {
+      platform,
+      validate(input) { assert.ok(input.textCompilation, `${platform} browser parity compilation missing`); },
+      async publish(input) {
+        publisherCaptures[platform] = input;
+        return { externalId: `browser-${platform}`, externalUrl: `https://example.test/browser-${platform}` };
+      }
+    });
+  }
+  try {
+    await publishPost(richDbPost.id);
+  } finally {
+    for (const platform of ['telegram','max','vk','instagram']) setPublisherForTests(platform, null);
+  }
+  assert.deepEqual(Object.keys(publisherCaptures).sort(), ['instagram','max','telegram','vk']);
+  for (const preview of parityPreviews.previews) {
+    const published = publisherCaptures[preview.platform];
+    assert.ok(published, `publisher capture missing for ${preview.platform}`);
+    assert.deepEqual(published.textCompilation, preview.compilation, `preview/publisher compiler parity failed for ${preview.platform}`);
+    assert.equal(published.text, preview.compilation.plainText, `publisher plain mismatch for ${preview.platform}`);
+  }
+  assert.equal(db.prepare('SELECT status FROM posts WHERE id=?').get(richDbPost.id).status, 'PUBLISHED');
+
   await draftRow.locator('.open-post').click();
   const contentInspector = page.locator('.editorial-inspector-overlay');
   await contentInspector.waitFor({ state: 'visible', timeout: 5000 });
@@ -550,7 +706,7 @@ try {
   const existingSections = await existingPostModal.locator('.ui-editor-section-title strong').allTextContents();
   for (const section of ['Основное', 'Медиа', 'Площадки']) assert.ok(existingSections.includes(section), `existing editor section missing: ${section}`);
   assert.equal(await postForm.locator('#media-file').count(), 1, 'existing editor media enhancement missing');
-  assert.equal(await existingPostModal.locator('.platform-editor-card').count(), 1, 'existing editor target enhancement missing');
+  assert.equal(await existingPostModal.locator('.platform-editor-card').count(), 4, 'existing editor target enhancement missing');
   await postForm.locator('#close-modal').click();
   await page.locator('#post-form').waitFor({ state: 'detached', timeout: 5000 });
 
@@ -795,7 +951,13 @@ try {
     richTextPersistence: true,
     richTextRevisionRoundtrip: true,
     richTextXssSafe: true,
-    plainPublisherFallback: true,
+    platformRichTextEditors: true,
+    telegramEntityCompiler: true,
+    maxFormattingCompiler: true,
+    vkRichTextDowngrade: true,
+    instagramRichTextDowngrade: true,
+    compilerPreviewParity: true,
+    compilerPublisherParity: true,
     noBodyOverflow: true,
     pageErrors: 0
   }, null, 2));
