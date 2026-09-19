@@ -133,6 +133,17 @@ Delete permanently
 
 ## 4. Revision history / Undo
 
+EW4-002 candidate вводит schema 9 `revision-history` и делает revision capture частью content-version transaction contract.
+
+Для post, созданного уже на schema 9, invariant:
+
+```text
+content versions = 1..N
+revisions        = 1..N
+```
+
+Pre-schema-9 historical gaps допустимы и отображаются как historical gaps; migration не фабрикует отсутствующие snapshots.
+
 Редактор должен автоматически создавать revisions при существенных изменениях.
 
 Хранить минимум:
@@ -158,6 +169,30 @@ UI:
 - `Восстановить эту версию` для ещё не опубликованного контента.
 
 Imported/API changes должны отображаться как отдельный source actor.
+
+Actor/source vocabulary для новых revisions:
+- `manual` → Вручную;
+- `manual_restore` → Восстановление вручную;
+- `content_plan` → Импорт;
+- `google_sheets` → Google Sheets;
+- `system` / `migration` → служебные labels;
+- unknown actor отображается raw diagnostic value.
+
+History API owner: `src/revision-history.ts` + `src/http/revision-history.ts`.
+
+API:
+- `GET /api/posts/:id/revisions` — bounded newest-first pagination;
+- `GET /api/posts/:id/revisions/:revisionId` — parsed snapshot detail;
+- `GET /api/posts/:id/revisions/:revisionId/diff` — selected revision → current content;
+- `POST /api/posts/:id/revisions/:revisionId/restore` — optimistic restore с обязательным `expectedContentVersion`.
+
+Restore не rewinds version: восстановление старой revision создаёт новую монотонную content version и новую immutable revision с `restored_from_revision_id`. После restore publication state и editorial stage всегда возвращаются в DRAFT, а `ready_revision_id` очищается.
+
+Restore запрещён для PUBLISHING/PARTIAL/PUBLISHED и не обходится вокруг ARCHIVED/TRASHED lifecycle. Historical media/targets должны быть полностью совместимы; иначе restore блокируется целиком, но view/diff остаются доступны.
+
+Media safety: все historical media IDs должны существовать, canonical files должны существовать и совпадать по identity/hash. Retained historical media storage этим checkpoint не вводится.
+
+Target safety: historical account identity должна существовать; credentials не восстанавливаются и внешние platform API не вызываются.
 
 ---
 
@@ -831,10 +866,17 @@ Actions
 
 ### EW4-002 — Revision history
 
-- snapshots;
-- compare;
-- restore previous revision;
-- source actor.
+Candidate status: реализовано в `ew4-002/revision-history-ux`, но не считается DONE до accepted merge.
+
+- schema 9 revision-history metadata;
+- automatic immutable revision for each schema-9 content version;
+- actor/source provenance;
+- list/detail/diff API;
+- bounded line diff + fallback;
+- Content Inspector History UX;
+- optimistic monotonic Restore;
+- explicit media/target compatibility blocks;
+- restore audit event.
 
 ### EW4-003 — Canonical rich text editor
 
