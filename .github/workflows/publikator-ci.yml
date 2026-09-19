@@ -97,6 +97,9 @@ jobs:
       - name: Schema v11 project defaults migration
         run: node scripts/schema-v11-project-defaults-e2e.mjs
 
+      - name: Schema v12 templates migration
+        run: node scripts/schema-v12-templates-e2e.mjs
+
       - name: M0-005 time rendition sequence semantics
         run: node scripts/m005-e2e.mjs
 
@@ -120,6 +123,9 @@ jobs:
 
       - name: EW4-005A1 project default timezone
         run: node scripts/ew4-005a1-project-timezone-e2e.mjs
+
+      - name: EW4-006 post templates
+        run: node scripts/ew4-006-templates-e2e.mjs
 
       - name: CX3-001 visual calendar shell
         run: node scripts/cx3-001-calendar-e2e.mjs
@@ -257,6 +263,9 @@ jobs:
       - name: Schema v11 project defaults backup and restore
         run: node scripts/backup-v11-project-defaults-e2e.mjs
 
+      - name: Schema v12 templates backup and restore
+        run: node scripts/backup-v12-templates-e2e.mjs
+
       - name: Canonical backup API
         env:
           NODE_ENV: test
@@ -314,7 +323,8 @@ jobs:
             if [ -n "$HEALTH" ]; then break; fi
             sleep 1
           done
-          jq -e --arg sha "$GITHUB_SHA" '.ok == true and .buildSha == $sha and  .schemaVersion == 11' <<<"$HEALTH"
+          CURRENT_SCHEMA_VERSION="$(node scripts/current-schema-version.mjs)"
+          jq -e --arg sha "$GITHUB_SHA" --argjson schemaVersion "$CURRENT_SCHEMA_VERSION" '.ok == true and .buildSha == $sha and .schemaVersion == $schemaVersion' <<<"$HEALTH"
 
       - name: Linux documented deployment launcher
         run: bash scripts/deploy-linux-e2e.sh
