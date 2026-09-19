@@ -1,5 +1,6 @@
 import { publicationFormatLabel, scheduleModeLabel, sourceLabel, statusLabel } from './presentation-labels.js';
 import { openRevisionHistory } from './revision-history-v1.js';
+import { renderRichText } from './rich-text-editor-v1.js';
 
 const EDITORIAL_VIEWS = {
   active: { label: 'Активные', api: '/api/editorial/posts?view=active' },
@@ -176,7 +177,7 @@ async function openContentInspector(postId) {
     </div>
     ${inspectorMedia(post)}
     <div class="inspector-grid">
-      <section class="card"><h3>Публикация</h3><div class="inspector-body">${editorialEscape(post.body)}</div></section>
+      <section class="card"><h3>Публикация</h3><div class="inspector-body rich-text-preview" data-inspector-rich-text></div></section>
       <section class="card"><h3>Параметры</h3>
         <dl class="inspector-meta">
           <div><dt>Режим</dt><dd>${editorialEscape(scheduleModeLabel(post.schedule_mode))}</dd></div>
@@ -194,6 +195,8 @@ async function openContentInspector(postId) {
     <div class="error inspector-error"></div>
   </div>`;
   document.body.append(overlay);
+  const richHost=overlay.querySelector('[data-inspector-rich-text]');
+  if(richHost)renderRichText(richHost,post.bodyRich);
   const mediaCleanup = window.PublikatorMediaViewer?.mount?.(overlay.querySelector('.inspector-media-host'), post) || (() => {});
   const close = () => { mediaCleanup(); overlay.remove(); };
   overlay.addEventListener('click', (event) => { if (event.target === overlay) close(); });

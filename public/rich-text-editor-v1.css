@@ -1,0 +1,25 @@
+.rich-text-field{display:grid;gap:7px}
+.rich-text-label{font-size:14px}
+.rich-text-editor{display:grid;gap:0;border:1px solid #cbd5e1;border-radius:10px;background:#fff;overflow:hidden}
+.rich-text-toolbar{display:flex;gap:4px;flex-wrap:wrap;padding:7px;border-bottom:1px solid #e5e7eb;background:#f8fafc}
+.rich-text-toolbar button{min-width:34px;min-height:32px;padding:5px 8px;border:1px solid transparent;border-radius:7px;background:transparent;color:#111827}
+.rich-text-toolbar button:hover:not(:disabled){background:#e2e8f0}
+.rich-text-toolbar button:focus-visible,.rich-text-surface:focus-visible{outline:2px solid #2563eb;outline-offset:-2px}
+.rich-text-surface{min-height:170px;padding:12px 13px;line-height:1.55;overflow-wrap:anywhere;white-space:pre-wrap}
+.rich-text-surface:empty::before{content:'Введите текст публикации';color:#94a3b8;pointer-events:none}
+.rich-text-surface p{margin:0 0 9px}
+.rich-text-surface p:last-child{margin-bottom:0}
+.rich-text-surface blockquote,.rich-text-preview blockquote{margin:8px 0;padding-left:12px;border-left:3px solid #cbd5e1;color:#475569}
+.rich-text-surface pre,.rich-text-preview pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f1f5f9;border-radius:8px;padding:9px}
+.rich-text-surface ul,.rich-text-surface ol,.rich-text-preview ul,.rich-text-preview ol{padding-left:24px}
+.rich-text-surface a,.rich-text-preview a{color:#1d4ed8;text-decoration:underline}
+.rich-text-editor.disabled{background:#f8fafc}
+.rich-text-editor.disabled .rich-text-toolbar{opacity:.62}
+.rich-text-preview{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.55}
+.rich-text-preview p{margin:0 0 8px}
+.rich-text-plain-fallback[hidden]{display:none!important}
+@media(max-width:760px){
+ .rich-text-toolbar{flex-wrap:nowrap;overflow-x:auto;overscroll-behavior-inline:contain}
+ .rich-text-toolbar button{flex:0 0 auto}
+ .rich-text-surface{min-height:150px}
+}

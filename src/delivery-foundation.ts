@@ -1,7 +1,7 @@
 import { db, id, nowIso } from './db.js';
 import type { ContentFormat, PublicationKind } from './domain/content-domain.js';
 import { commitContentEdit } from './content-versioning.js';
-import { assertSafeRichTextAst } from './ingestion-security.js';
+import { parseRichTextJson, richTextToPlain, serializeRichText } from './rich-text.js';
 
 export type CanonicalRendition = {
   textRichJson: string | null;
@@ -37,12 +37,16 @@ export function resolveTargetRendition(
 const PUBLICATION_KINDS = new Set<PublicationKind>(['FEED', 'SHORT', 'STORY']);
 const CONTENT_FORMATS = new Set<ContentFormat>(['TEXT_ONLY', 'IMAGE', 'CAROUSEL', 'VIDEO', 'VERTICAL_VIDEO', 'STORY_SEQUENCE']);
 
-function jsonOrNull(value: string | null | undefined, label: string, richText = false): string | null {
+function jsonOrNull(value: string | null | undefined, label: string): string | null {
   if (value == null || value === '') return null;
-  let parsed: unknown;
-  try { parsed = JSON.parse(value); } catch { throw new Error(`${label} must contain valid JSON`); }
-  if (richText) assertSafeRichTextAst(parsed);
+  try { JSON.parse(value); } catch { throw new Error(`${label} must contain valid JSON`); }
   return value;
+}
+
+function canonicalRichTextOrNull(value: string | null | undefined): { json: string; plain: string } | null {
+  if (value == null || value === '') return null;
+  const document = parseRichTextJson(value);
+  return { json: serializeRichText(document), plain: richTextToPlain(document) };
 }
 
 
@@ -51,7 +55,7 @@ export function saveTargetRendition(targetId: string, override: TargetRenditionO
   if (!target) throw new Error('Target not found');
   if (override.publicationKind && !PUBLICATION_KINDS.has(override.publicationKind)) throw new Error('Unsupported publication kind');
   if (override.contentFormat && !CONTENT_FORMATS.has(override.contentFormat)) throw new Error('Unsupported content format');
-  const rich = jsonOrNull(override.textRichJson, 'textRichJson', true);
+  const rich = canonicalRichTextOrNull(override.textRichJson);
   const media = jsonOrNull(override.mediaPlanJson, 'mediaPlanJson');
   const options = jsonOrNull(override.optionsJson, 'optionsJson');
   const committed = commitContentEdit(target.post_id, expectedContentVersion, 'manual', () => {
@@ -62,7 +66,7 @@ export function saveTargetRendition(targetId: string, override: TargetRenditionO
         text_rich_json=excluded.text_rich_json,text_plain=excluded.text_plain,
         publication_kind=excluded.publication_kind,content_format=excluded.content_format,
         media_plan_json=excluded.media_plan_json,options_json=excluded.options_json,updated_at=excluded.updated_at`)
-      .run(targetId, rich, override.textPlain ?? null, override.publicationKind ?? null,
+      .run(targetId, rich?.json ?? null, rich?.plain ?? override.textPlain ?? null, override.publicationKind ?? null,
         override.contentFormat ?? null, media, options, nowIso());
   });
   return { contentVersion: committed.contentVersion };

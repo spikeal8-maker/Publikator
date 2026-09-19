@@ -15,6 +15,7 @@ import {
   type RevisionTargetSnapshot
 } from './content-versioning.js';
 import type { MediaRow } from './media.js';
+import { parseRichTextJson, richTextToPlain, serializeRichText, type RichTextDocument } from './rich-text.js';
 
 export class RevisionHistoryNotFoundError extends Error {}
 
@@ -77,6 +78,7 @@ export type RevisionDetail = RevisionSummary & {
   postId: string;
   title: string;
   body: string;
+  bodyRich: RichTextDocument;
   scheduleMode: string;
   scheduledAt: string | null;
   scheduledAtUtc: string | null;
@@ -198,6 +200,16 @@ function mediaDetail(row: MediaRow): RevisionMediaDetail {
   };
 }
 
+function revisionRichState(revision: ContentRevisionRow): { document: RichTextDocument; json: string; plain: string } {
+  const document = parseRichTextJson(revision.body_rich_json);
+  const json = serializeRichText(document);
+  const plain = richTextToPlain(document);
+  if (plain !== revision.body) {
+    throw new Error(`Rich-text revision invariant нарушен для ${revision.id}: plain fallback не соответствует canonical AST`);
+  }
+  return { document, json, plain };
+}
+
 function restoredFromVersion(revision: ContentRevisionRow): number | null {
   if (!revision.restored_from_revision_id) return null;
   const row = db.prepare('SELECT content_version FROM content_revisions WHERE id=?')
@@ -277,6 +289,7 @@ export function getRevisionDetail(postId: string, revisionId: string): RevisionD
     postId,
     title: revision.title,
     body: revision.body,
+    bodyRich: revisionRichState(revision).document,
     scheduleMode: revision.schedule_mode,
     scheduledAt: revision.scheduled_at,
     scheduledAtUtc: revision.scheduled_at_utc,
@@ -447,10 +460,18 @@ export async function getRevisionDiff(postId: string, revisionId: string) {
   const current = currentContentSnapshot(postId);
   const historicalTargets = revisionTargets(revision);
   const historicalMedia = revisionContentMedia(revision);
+  const historicalRich = revisionRichState(revision);
+  const currentRich = parseRichTextJson(current.bodyRichJson);
+  const currentRichJson = serializeRichText(currentRich);
   const compatibility = await revisionRestoreCompatibility(postId, revisionId);
   return {
     revision: getRevisionDetail(postId, revisionId),
     currentContentVersion: current.contentVersion,
+    richText: {
+      changed: historicalRich.json !== currentRichJson,
+      before: historicalRich.document,
+      after: currentRich
+    },
     text: {
       title: fieldDiff(revision.title, current.title),
       body: {
@@ -571,6 +592,7 @@ export async function restoreRevision(
   expectedContentVersion: number
 ): Promise<{ contentVersion: number; revisionId: string; restoredFromRevisionId: string }> {
   const selected = revisionForPost(postId, revisionId);
+  const selectedRich = revisionRichState(selected);
   const compatibility = await revisionRestoreCompatibility(postId, revisionId);
   if (!compatibility.canRestore) {
     throw new RevisionRestoreBlockedError(compatibility.code ?? 'REVISION_RESTORE_BLOCKED', compatibility.reason ?? 'Restore заблокирован');
@@ -587,11 +609,12 @@ export async function restoreRevision(
 
     const committed = commitContentEdit(postId, expectedContentVersion, 'manual_restore', () => {
       db.prepare(`UPDATE posts SET
-        title=?,body=?,schedule_mode=?,scheduled_at=?,scheduled_at_utc=?,schedule_timezone=?,
+        title=?,body=?,body_rich_json=?,schedule_mode=?,scheduled_at=?,scheduled_at_utc=?,schedule_timezone=?,
         publication_kind=?,content_format=?
         WHERE id=?`).run(
         selected.title,
-        selected.body,
+        selectedRich.plain,
+        selectedRich.json,
         selected.schedule_mode,
         selected.scheduled_at,
         selected.scheduled_at_utc,

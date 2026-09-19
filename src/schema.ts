@@ -12,7 +12,8 @@ export const SCHEMA_MILESTONES = [
   { version: 6, key: 'ingestion-security', migrationRegression: 'scripts/schema-v6-ingestion-security-e2e.mjs', backupRegression: 'scripts/backup-v6-e2e.mjs' },
   { version: 7, key: 'time-rendition-sequence', migrationRegression: 'scripts/schema-v7-time-rendition-sequence-e2e.mjs', backupRegression: 'scripts/backup-v7-e2e.mjs' },
   { version: 8, key: 'rich-media-model', migrationRegression: 'scripts/schema-v8-rich-media-e2e.mjs', backupRegression: 'scripts/backup-v8-rich-media-e2e.mjs' },
-  { version: 9, key: 'revision-history', migrationRegression: 'scripts/schema-v9-revision-history-e2e.mjs', backupRegression: 'scripts/backup-v9-revision-history-e2e.mjs' }
+  { version: 9, key: 'revision-history', migrationRegression: 'scripts/schema-v9-revision-history-e2e.mjs', backupRegression: 'scripts/backup-v9-revision-history-e2e.mjs' },
+  { version: 10, key: 'canonical-rich-text', migrationRegression: 'scripts/schema-v10-canonical-rich-text-e2e.mjs', backupRegression: 'scripts/backup-v10-canonical-rich-text-e2e.mjs' }
 ] as const satisfies readonly SchemaMilestone[];
 
 export const DATABASE_SCHEMA_VERSION = SCHEMA_MILESTONES[SCHEMA_MILESTONES.length - 1]!.version;

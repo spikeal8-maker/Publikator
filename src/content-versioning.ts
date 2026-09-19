@@ -46,6 +46,7 @@ export type ContentRevisionRow = {
   content_version: number;
   title: string;
   body: string;
+  body_rich_json: string;
   editorial_stage: EditorialStage;
   schedule_mode: 'MANUAL' | 'AT' | 'QUEUE';
   scheduled_at: string | null;
@@ -69,6 +70,7 @@ type VersionedPostRow = {
   ready_revision_id: string | null;
   title: string;
   body: string;
+  body_rich_json: string;
   schedule_mode: 'MANUAL' | 'AT' | 'QUEUE';
   scheduled_at: string | null;
   scheduled_at_utc: string | null;
@@ -89,6 +91,7 @@ export type WorkingContentSnapshot = {
   contentVersion: number;
   title: string;
   body: string;
+  bodyRichJson: string;
   editorialStage: EditorialStage;
   scheduleMode: 'MANUAL' | 'AT' | 'QUEUE';
   scheduledAt: string | null;
@@ -103,7 +106,7 @@ export type WorkingContentSnapshot = {
 
 function getPost(postId: string): VersionedPostRow {
   const row = db.prepare(`SELECT id,status,editorial_stage,content_version,ready_revision_id,
-      title,body,schedule_mode,scheduled_at,scheduled_at_utc,schedule_timezone,publication_kind,content_format
+      title,body,body_rich_json,schedule_mode,scheduled_at,scheduled_at_utc,schedule_timezone,publication_kind,content_format
     FROM posts WHERE id=?`).get(postId) as VersionedPostRow | undefined;
   if (!row) throw new ContentNotFoundError('Пост не найден');
   return row;
@@ -210,6 +213,7 @@ export function currentContentSnapshot(postId: string): WorkingContentSnapshot {
     contentVersion: post.content_version,
     title: post.title,
     body: post.body,
+    bodyRichJson: post.body_rich_json,
     editorialStage: post.editorial_stage,
     scheduleMode: post.schedule_mode,
     scheduledAt: post.scheduled_at,
@@ -249,6 +253,7 @@ function snapshotCurrentContentRevision(
   if (existing) {
     const matches = existing.title === post.title
       && existing.body === post.body
+      && existing.body_rich_json === post.body_rich_json
       && existing.editorial_stage === post.editorial_stage
       && existing.schedule_mode === post.schedule_mode
       && existing.scheduled_at === post.scheduled_at
@@ -268,15 +273,16 @@ function snapshotCurrentContentRevision(
 
   const revisionId = id('rev');
   db.prepare(`INSERT INTO content_revisions
-    (id,post_id,content_version,title,body,editorial_stage,schedule_mode,scheduled_at,scheduled_at_utc,schedule_timezone,
+    (id,post_id,content_version,title,body,body_rich_json,editorial_stage,schedule_mode,scheduled_at,scheduled_at_utc,schedule_timezone,
      publication_kind,content_format,targets_json,media_json,content_media_json,actor_source,restored_from_revision_id,created_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     .run(
       revisionId,
       postId,
       expectedContentVersion,
       post.title,
       post.body,
+      post.body_rich_json,
       post.editorial_stage,
       post.schedule_mode,
       post.scheduled_at,

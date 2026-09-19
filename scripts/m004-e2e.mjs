@@ -16,7 +16,7 @@ const security = await import('../dist/ingestion-security.js');
 const integration = await import('../dist/integration-security.js');
 
 migrate();
-assert.equal(Number(db.pragma('user_version', { simple: true })), 9);
+assert.equal(Number(db.pragma('user_version', { simple: true })), 10);
 for (const table of ['integration_api_keys', 'ingestion_connectors']) {
   assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table), table);
 }
@@ -143,10 +143,28 @@ try {  const safePaths = security.validateBundleEntries([
     ] }]
   });
   expectThrow(() => security.assertSafeRichTextAst({ type: 'html', text: '<script>alert(1)</script>' }), /forbidden/i);
-  expectThrow(() => security.assertSafeRichTextAst({ type: 'link', attrs: { href: 'javascript:alert(1)' } }), /protocol/i);
-  expectThrow(() => security.assertSafeRichTextAst({ type: 'paragraph', onClick: 'evil' }), /property/i);
-  expectThrow(() => security.assertSafeRichTextAst({ type: 'text', text: 'x', marks: [{ type: 'bold', onClick: 'evil' }] }), /forbidden properties/i);
-  expectThrow(() => security.assertSafeRichTextAst({ type: 'text', text: 'x', content: [] }), /cannot contain child/i);  assert.equal(security.spreadsheetSafeText('=2+2'), "'=2+2");
+  expectThrow(() => security.assertSafeRichTextAst({
+    type: 'doc',
+    content: [{ type: 'paragraph', content: [
+      { type: 'link', attrs: { href: 'javascript:alert(1)' }, content: [{ type: 'text', text: 'bad' }] }
+    ] }]
+  }), /protocol/i);
+  expectThrow(() => security.assertSafeRichTextAst({
+    type: 'doc',
+    content: [{ type: 'paragraph', onClick: 'evil', content: [] }]
+  }), /property/i);
+  expectThrow(() => security.assertSafeRichTextAst({
+    type: 'doc',
+    content: [{ type: 'paragraph', content: [
+      { type: 'text', text: 'x', marks: [{ type: 'bold', onClick: 'evil' }] }
+    ] }]
+  }), /forbidden property/i);
+  expectThrow(() => security.assertSafeRichTextAst({
+    type: 'doc',
+    content: [{ type: 'paragraph', content: [
+      { type: 'text', text: 'x', content: [] }
+    ] }]
+  }), /forbidden property/i);  assert.equal(security.spreadsheetSafeText('=2+2'), "'=2+2");
   assert.equal(security.spreadsheetSafeText('  @SUM(A1:A2)'), "'  @SUM(A1:A2)");
   assert.equal(security.spreadsheetSafeText('ordinary text'), 'ordinary text');
   const { createContentPlanXlsx, parseContentPlanFile, serializeContentPlanCsv } = await import('../dist/content-plan.js');
@@ -164,7 +182,7 @@ try {  const safePaths = security.validateBundleEntries([
   console.log(JSON.stringify({
     ok: true,
     checkpoint: 'M0-004',
-    schemaVersion: 9,
+    schemaVersion: 10,
     archiveSafety: true,
     ssrfAndRedirectSafety: true,
     dnsDestinationPinned: true,

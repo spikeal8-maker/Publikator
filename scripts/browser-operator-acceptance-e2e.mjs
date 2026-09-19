@@ -12,6 +12,7 @@ process.env.APP_MASTER_KEY = 'browser-acceptance-master-key-longer-than-thirty-t
 process.env.PUBLIC_BASE_URL = 'http://127.0.0.1:18087';
 
 const { db, migrate, id, nowIso } = await import('../dist/db.js');
+const { encryptJson } = await import('../dist/crypto.js');
 const sharp = (await import('sharp')).default;
 const { saveImageVersioned } = await import('../dist/media.js');
 const { buildApp } = await import('../dist/app.js');
@@ -96,7 +97,7 @@ await createContentFixture(contentFailedTitle, { scheduleMode: 'MANUAL', status:
 
 const editorAccountId = id('acc');
 db.prepare(`INSERT INTO social_accounts (id,platform,name,credentials_encrypted,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)`)
-  .run(editorAccountId, 'telegram', 'Browser editor channel', 'fixture', nowIso(), nowIso());
+  .run(editorAccountId, 'telegram', 'Browser editor channel', encryptJson({ botToken: 'browser-token', chatId: '@browser' }), nowIso(), nowIso());
 db.prepare(`INSERT INTO post_targets (id,post_id,account_id,enabled,state,attempts,updated_at) VALUES (?,?,?,1,'PENDING',0,?)`)
   .run(id('target'), contentDraft.id, editorAccountId, nowIso());
 
@@ -163,6 +164,8 @@ const mediaBlockedPost = await fixtureApi('POST', '/api/posts', {
 }, 201);
 const mediaBlockedRevision = db.prepare('SELECT id FROM content_revisions WHERE post_id=? AND content_version=1').get(mediaBlockedPost.id);
 const mediaBytes = await sharp({ create: { width: 24, height: 24, channels: 3, background: { r: 70, g: 90, b: 110 } } }).jpeg().toBuffer();
+const richEditorImagePath = path.join(dataDir, 'browser-rich-editor.jpg');
+await fs.writeFile(richEditorImagePath, mediaBytes);
 await saveImageVersioned(mediaBlockedPost.id, 'history.jpg', mediaBytes, 1);
 const readableMediaDiff = await fixtureApi('GET', `/api/posts/${mediaBlockedPost.id}/revisions/${mediaBlockedRevision.id}/diff`);
 assert.equal(readableMediaDiff.restoreCompatibility.code, 'REVISION_MEDIA_INCOMPATIBLE');
@@ -206,6 +209,33 @@ try {
   const page = await context.newPage();
   const pageErrors = [];
   page.on('pageerror', (error) => pageErrors.push(String(error?.stack || error)));
+
+  const selectEditorText = async (needle) => {
+    const found = await page.evaluate((text) => {
+      const surface = document.querySelector('.rich-text-surface');
+      if (!surface) return false;
+      const walker = document.createTreeWalker(surface, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) {
+        const node = walker.currentNode;
+        const index = String(node.nodeValue || '').indexOf(text);
+        if (index < 0) continue;
+        const range = document.createRange();
+        range.setStart(node, index);
+        range.setEnd(node, index + text.length);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        return true;
+      }
+      return false;
+    }, needle);
+    assert.equal(found, true, `rich editor text not found: ${needle}`);
+  };
+  const richCommand = async (needle, command, promptValue = null) => {
+    await selectEditorText(needle);
+    if (promptValue !== null) page.once('dialog', (dialog) => dialog.accept(promptValue));
+    await page.locator(`[data-rich-command="${command}"]`).click();
+  };
 
   await page.goto(`${base}/calendar`, { waitUntil: 'domcontentloaded' });
   await page.locator('#login').waitFor({ state: 'visible' });
@@ -288,8 +318,223 @@ try {
   assert.equal(await scheduledLabel.isVisible(), true);
   await postForm.locator('select[name="scheduleMode"]').selectOption('QUEUE');
   assert.equal(await scheduledLabel.isHidden(), true);
-  await postForm.locator('#close-modal').click();
-  await page.locator('#post-form').waitFor({ state: 'detached' });
+
+  // EW4-003: real Base rich-text create flow.
+  const richEditorTitle = 'Browser Canonical Rich Text';
+  await postForm.locator('select[name="scheduleMode"]').selectOption('MANUAL');
+  await postForm.locator('input[name="title"]').fill(richEditorTitle);
+  assert.equal(await postForm.locator('textarea[name="body"]:visible').count(), 0, 'visible raw body textarea must be absent');
+  assert.equal(await postForm.locator('textarea[name="body"][hidden]').count(), 1, 'hidden synchronized plain fallback must remain');
+  const richSurface = postForm.locator('.rich-text-surface');
+  await richSurface.waitFor({ state: 'visible' });
+  assert.equal(await postForm.locator('.rich-text-toolbar button').count(), 12, 'rich toolbar command count');
+  for (const label of ['Жирный','Курсив','Подчёркнутый','Зачёркнутый','Inline code','Ссылка','Цитата','Маркированный список','Нумерованный список','Блок кода','Перенос строки','Вставить emoji']) {
+    assert.equal(await postForm.locator(`[aria-label="${label}"]`).count(), 1, `missing rich toolbar label: ${label}`);
+  }
+
+  await richSurface.click();
+  await page.keyboard.type('Normal Bold Italic Underline Strike Code Link');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Quote text');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Bullet text');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Number text');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Code block text');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Emoji: ');
+
+  await richCommand('Bold','bold');
+  await richCommand('Italic','italic');
+  await richCommand('Underline','underline');
+  await richCommand('Strike','strike');
+  await richCommand('Code','code');
+  await richCommand('Link','link','https://example.test/browser-rich');
+  await richCommand('Quote text','quote');
+  await richCommand('Bullet text','bullet');
+  await richCommand('Number text','ordered');
+  await richCommand('Code block text','codeblock');
+
+  await page.evaluate(() => {
+    const surface = document.querySelector('.rich-text-surface');
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(surface);
+    range.collapse(false);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  });
+  await postForm.locator('[data-rich-command="emoji"]').click();
+  await postForm.locator('[data-rich-command="break"]').click();
+  await page.keyboard.type('After break');
+
+  const editorSnapshot = await page.evaluate(() => {
+    const api = document.querySelector('[data-rich-text-editor]')?.richTextEditor;
+    return { document: api?.getDocument(), plain: api?.getPlainText() };
+  });
+  assert.ok(editorSnapshot?.document);
+  assert.match(editorSnapshot.plain, /Normal Bold Italic Underline Strike Code/);
+  assert.match(editorSnapshot.plain, /🙂/);
+  const editorJson = JSON.stringify(editorSnapshot.document);
+  for (const type of ['blockquote','bullet_list','ordered_list','code_block']) assert.ok(editorJson.includes(`"type":"${type}"`), `editor AST missing ${type}`);
+  for (const mark of ['bold','italic','underline','strike','code']) assert.ok(editorJson.includes(`"type":"${mark}"`), `editor AST missing mark ${mark}`);
+  assert.ok(editorJson.includes('"type":"link"'), 'editor AST missing link');
+
+  await postForm.locator('button.primary[type="submit"]').click();
+  await page.locator('#post-form').waitFor({ state: 'detached', timeout: 5000 });
+  await page.waitForFunction((title) => [...document.querySelectorAll('#view table.table tbody tr')].some((row) => row.textContent?.includes(title)), richEditorTitle);
+
+  const richDbPost = db.prepare('SELECT id,body,body_rich_json,content_version,status,ready_revision_id FROM posts WHERE title=?').get(richEditorTitle);
+  assert.ok(richDbPost);
+  assert.equal(richDbPost.body, editorSnapshot.plain);
+  const storedRich = JSON.parse(richDbPost.body_rich_json);
+  assert.deepEqual(storedRich, editorSnapshot.document);
+  assert.equal(/<(script|b|strong|em|u|s|a)(\s|>)/i.test(richDbPost.body_rich_json), false, 'canonical storage must be AST JSON, not HTML');
+
+  const richRow = contentRow(richEditorTitle);
+  await richRow.locator('.open-post').click();
+  let richInspector = page.locator('.editorial-inspector-overlay');
+  await richInspector.waitFor({ state: 'visible', timeout: 5000 });
+  assert.equal(await richInspector.locator('[data-inspector-rich-text] strong').count(), 1, 'Content Inspector must render bold from canonical AST');
+  assert.equal(await richInspector.locator('[data-inspector-rich-text] a[href^="https://example.test/browser-rich"]').count(), 1, 'Content Inspector must render safe link');
+  await richInspector.locator('.inspector-edit').click();
+  await richInspector.waitFor({ state: 'detached', timeout: 5000 });
+
+  postForm = page.locator('#post-form');
+  await postForm.waitFor({ state: 'visible', timeout: 5000 });
+  await postForm.locator('.platform-workspace').waitFor({ state: 'visible', timeout: 5000 });
+  for (const selector of ['strong','em','u','s','code','a','blockquote','ul','ol','pre']) {
+    assert.ok(await postForm.locator(`.rich-text-surface ${selector}`).count() >= 1, `formatting did not hydrate: ${selector}`);
+  }
+  const previewText = await postForm.locator('.platform-preview-text').first().innerText();
+  assert.ok(previewText.includes('Normal Bold Italic Underline Strike Code'), 'platform preview must use rich editor plain fallback');
+  assert.ok(!previewText.includes('**'), 'platform preview must not invent Markdown');
+
+  await postForm.locator('#media-file').setInputFiles(richEditorImagePath);
+  await page.waitForFunction(() =>
+    document.querySelector('#post-form .media-list img') !== null
+    || document.querySelector('.editorial-inspector-overlay .inspector-media-host img') !== null
+  );
+  const uploadInspector = page.locator('.editorial-inspector-overlay');
+  if (await uploadInspector.count()) {
+    await uploadInspector.locator('.inspector-edit').click();
+    await uploadInspector.waitFor({ state: 'detached', timeout: 5000 });
+  }
+  postForm = page.locator('#post-form');
+  await postForm.waitFor({ state: 'visible', timeout: 5000 });
+  await postForm.locator('.media-list img').first().waitFor({ state: 'visible', timeout: 5000 });
+  await postForm.locator('#mark-ready').click();
+  await page.locator('#post-form').waitFor({ state: 'detached', timeout: 5000 });
+
+  const richReadyState = db.prepare('SELECT content_version,status,editorial_stage,ready_revision_id FROM posts WHERE id=?').get(richDbPost.id);
+  assert.equal(richReadyState.status, 'READY');
+  assert.equal(richReadyState.editorial_stage, 'APPROVED');
+  assert.ok(richReadyState.ready_revision_id);
+  const richReadyRevision = db.prepare('SELECT id,body,body_rich_json,editorial_stage FROM content_revisions WHERE id=?').get(richReadyState.ready_revision_id);
+  assert.equal(richReadyRevision.editorial_stage, 'APPROVED');
+  assert.equal(richReadyRevision.body, editorSnapshot.plain);
+  assert.deepEqual(JSON.parse(richReadyRevision.body_rich_json), editorSnapshot.document);
+
+  await contentRow(richEditorTitle).locator('.open-post').click();
+  richInspector = page.locator('.editorial-inspector-overlay');
+  await richInspector.waitFor({ state: 'visible', timeout: 5000 });
+  await richInspector.locator('.inspector-edit').click();
+  postForm = page.locator('#post-form');
+  await postForm.waitFor({ state: 'visible', timeout: 5000 });
+  const changedSurface = postForm.locator('.rich-text-surface');
+  await changedSurface.click();
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A');
+  await page.keyboard.type('Changed after READY');
+  await richCommand('READY','bold');
+  await postForm.locator('button.primary[type="submit"]').click();
+  await page.locator('#post-form').waitFor({ state: 'detached', timeout: 5000 });
+
+  const changedState = db.prepare('SELECT content_version,status,editorial_stage,ready_revision_id FROM posts WHERE id=?').get(richDbPost.id);
+  assert.equal(changedState.status,'DRAFT');
+  assert.equal(changedState.editorial_stage,'DRAFT');
+  assert.equal(changedState.ready_revision_id,null);
+  assert.ok(changedState.content_version > richReadyState.content_version);
+
+  await contentRow(richEditorTitle).locator('.open-post').click();
+  richInspector = page.locator('.editorial-inspector-overlay');
+  await richInspector.waitFor({ state: 'visible', timeout: 5000 });
+  await richInspector.locator('.inspector-history').click();
+  const richHistoryOverlay = page.locator('.revision-history-overlay');
+  await richHistoryOverlay.waitFor({ state: 'visible', timeout: 5000 });
+  await page.waitForFunction((revisionId) => document.querySelector(`.revision-history-item[data-revision-id="${revisionId}"]`) !== null, richReadyState.ready_revision_id);
+  await richHistoryOverlay.locator(`.revision-history-item[data-revision-id="${richReadyState.ready_revision_id}"]`).click();
+  const richHistoryDetail = richHistoryOverlay.locator('.revision-detail');
+  await richHistoryDetail.waitFor({ state: 'visible', timeout: 5000 });
+  assert.equal(await richHistoryDetail.locator('.revision-rich-preview strong').count(), 1, 'History formatted preview must render canonical marks');
+  assert.equal(await richHistoryDetail.locator('.revision-restore').count(),1);
+  page.once('dialog',(dialog)=>dialog.accept());
+  await richHistoryDetail.locator('.revision-restore').click();
+  await richHistoryOverlay.waitFor({ state: 'detached', timeout: 5000 });
+
+  richInspector = page.locator('.editorial-inspector-overlay');
+  await richInspector.waitFor({ state: 'visible', timeout: 5000 });
+  const restoredRichView = await fixtureApi('GET', `/api/posts/${richDbPost.id}`);
+  assert.ok(restoredRichView.content_version > changedState.content_version);
+  assert.equal(restoredRichView.status,'DRAFT');
+  assert.equal(restoredRichView.editorial_stage,'DRAFT');
+  assert.equal(restoredRichView.ready_revision_id,null);
+  assert.equal(restoredRichView.body,editorSnapshot.plain);
+  assert.deepEqual(restoredRichView.bodyRich,editorSnapshot.document);
+
+  await richInspector.locator('.inspector-edit').click();
+  postForm = page.locator('#post-form');
+  await postForm.waitFor({ state: 'visible', timeout: 5000 });
+  assert.equal(await postForm.locator('.rich-text-surface strong').count(),1,'restored editor must hydrate formatting');
+
+  // Hostile clipboard HTML is treated as plain text; executable DOM never enters the editor/storage.
+  await page.evaluate(() => {
+    const surface=document.querySelector('.rich-text-surface');
+    surface.focus();
+    const selection=window.getSelection();
+    const range=document.createRange();
+    range.selectNodeContents(surface);
+    range.collapse(false);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    const data=new DataTransfer();
+    data.setData('text/html','<img src=x onerror="window.__richXss=1"><script>window.__richXss=2</script>');
+    data.setData('text/plain','<script>literal</script> <img onerror=literal>');
+    surface.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:data}));
+  });
+  assert.equal(await postForm.locator('.rich-text-surface script,.rich-text-surface img').count(),0,'hostile clipboard must not create executable elements');
+  assert.equal(await page.evaluate(()=>window.__richXss||0),0);
+  await postForm.locator('button.primary[type="submit"]').click();
+  await page.locator('#post-form').waitFor({ state: 'detached', timeout: 5000 });
+  const xssStored=db.prepare('SELECT content_version,body_rich_json FROM posts WHERE id=?').get(richDbPost.id);
+  const xssAst=JSON.parse(xssStored.body_rich_json);
+  const unsafeKeys=[];
+  const walk=(value)=>{
+    if(Array.isArray(value)){value.forEach(walk);return;}
+    if(!value||typeof value!=='object')return;
+    for(const key of Object.keys(value)){
+      if(/^on/i.test(key)||['innerHTML','style','class'].includes(key))unsafeKeys.push(key);
+      walk(value[key]);
+    }
+  };
+  walk(xssAst);
+  assert.deepEqual(unsafeKeys,[]);
+  assert.equal(JSON.stringify(xssAst).includes('"type":"script"'),false);
+
+  const xssVersion=xssStored.content_version;
+  const unsafeLinkResponse=await app.inject({
+    method:'PATCH',
+    url:`/api/posts/${richDbPost.id}`,
+    headers:{cookie:fixtureCookie},
+    payload:{
+      expectedContentVersion:xssVersion,
+      bodyRich:{type:'doc',content:[{type:'paragraph',content:[
+        {type:'link',attrs:{href:'javascript:alert(1)'},content:[{type:'text',text:'bad',marks:[]}]}
+      ]}]}
+    }
+  });
+  assert.equal(unsafeLinkResponse.statusCode,400,unsafeLinkResponse.body);
+  assert.equal(db.prepare('SELECT content_version FROM posts WHERE id=?').get(richDbPost.id).content_version,xssVersion);
 
   await draftRow.locator('.open-post').click();
   const contentInspector = page.locator('.editorial-inspector-overlay');
@@ -546,6 +791,11 @@ try {
     calendarPresentationOwnership: true,
     legacyPagePolishRemoved: true,
     revisionHistoryUx: true,
+    canonicalRichTextEditor: true,
+    richTextPersistence: true,
+    richTextRevisionRoundtrip: true,
+    richTextXssSafe: true,
+    plainPublisherFallback: true,
     noBodyOverflow: true,
     pageErrors: 0
   }, null, 2));

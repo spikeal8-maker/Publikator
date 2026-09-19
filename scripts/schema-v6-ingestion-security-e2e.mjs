@@ -37,7 +37,7 @@ legacy.close();
 const { db, migrate } = await import('../dist/db.js');
 migrate();
 try {
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 9);
+  assert.equal(Number(db.pragma('user_version', { simple: true })), 10);
   for (const table of ['integration_api_keys', 'ingestion_connectors']) {
     assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table), table);
   }
@@ -49,7 +49,7 @@ try {
     imported_at: '2026-01-02T00:00:00.000Z', imported_content_version: 7
   });
   migrate();
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 9);
+  assert.equal(Number(db.pragma('user_version', { simple: true })), 10);
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM integration_api_keys').get().n, 0);
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM ingestion_connectors').get().n, 0);
   console.log(JSON.stringify({
