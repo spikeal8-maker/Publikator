@@ -9,6 +9,7 @@ import { commitContentEdit, createInitialContentRevision, type RevisionActorSour
 import { ensureTargets, setTargetSelection } from './publisher.js';
 import { spreadsheetSafeText } from './ingestion-security.js';
 import { normalizeIanaTimezone, resolveExactSchedule, resolveLocalSchedule } from './schedule-time.js';
+import { canonicalPlainRichJson } from './rich-text.js';
 
 export const CONTENT_PLAN_V3_VERSION = 3;
 export const CONTENT_PLAN_V3_COLUMNS = [
@@ -495,10 +496,10 @@ export function applyContentPlanV3(
         postIds.push(postId);
         created += 1;
         db.prepare(`INSERT INTO posts (
-          id,project_id,title,body,status,editorial_stage,schedule_mode,scheduled_at,scheduled_at_utc,schedule_timezone,content_version,ready_revision_id,
+          id,project_id,title,body,body_rich_json,status,editorial_stage,schedule_mode,scheduled_at,scheduled_at_utc,schedule_timezone,content_version,ready_revision_id,
           source_type,source_ref,source_revision,source_payload_hash,source_batch_id,imported_at,imported_content_version,created_at,updated_at
-        ) VALUES (?,?,?,?, 'DRAFT','DRAFT',?,?,?,?,1,NULL,?,?,?,?,?,?,1,?,?)`).run(
-          postId, row.projectId, row.title, row.body, row.scheduleMode, row.scheduledAt, row.scheduledAt, row.scheduleTimezone,
+        ) VALUES (?,?,?,?,?, 'DRAFT','DRAFT',?,?,?,?,1,NULL,?,?,?,?,?,?,1,?,?)`).run(
+          postId, row.projectId, row.title, row.body, canonicalPlainRichJson(row.body), row.scheduleMode, row.scheduledAt, row.scheduledAt, row.scheduleTimezone,
           options.sourceTypeOverride ?? SOURCE_TYPE, ref, row.sourceRevision, row.payloadHash, batch, now, now, now
         );
         applyOverrides(postId, row.targets, row.overrides);
@@ -520,8 +521,8 @@ export function applyContentPlanV3(
       commitContentEdit(postId, row.importedContentVersion, options.actorSource, () => {
         if (row.classification === 'UPDATE') {
           if (!row.projectId) throw new Error('UPDATE row lost projectId after preview');
-          db.prepare('UPDATE posts SET project_id=?,title=?,body=?,schedule_mode=?,scheduled_at=?,scheduled_at_utc=?,schedule_timezone=? WHERE id=?')
-            .run(row.projectId, row.title, row.body, row.scheduleMode, row.scheduledAt, row.scheduledAt, row.scheduleTimezone, postId);
+          db.prepare('UPDATE posts SET project_id=?,title=?,body=?,body_rich_json=?,schedule_mode=?,scheduled_at=?,scheduled_at_utc=?,schedule_timezone=? WHERE id=?')
+            .run(row.projectId, row.title, row.body, canonicalPlainRichJson(row.body), row.scheduleMode, row.scheduledAt, row.scheduledAt, row.scheduleTimezone, postId);
           applyOverrides(postId, row.targets, row.overrides);
         }
       }, outcome);

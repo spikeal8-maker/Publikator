@@ -9,28 +9,34 @@ export function migrateCanonicalRichText(db: Database.Database): void {
   const postColumns = new Set(
     (db.prepare('PRAGMA table_info(posts)').all() as Array<{ name: string }>).map((row) => row.name)
   );
-  if (!postColumns.has('body_rich_json')) {
+  const addedPostRichColumn = !postColumns.has('body_rich_json');
+  if (addedPostRichColumn) {
     db.exec(`ALTER TABLE posts ADD COLUMN body_rich_json TEXT NOT NULL DEFAULT ${sqlLiteral(EMPTY_RICH_TEXT_JSON)}`);
   }
 
   const revisionColumns = new Set(
     (db.prepare('PRAGMA table_info(content_revisions)').all() as Array<{ name: string }>).map((row) => row.name)
   );
-  if (!revisionColumns.has('body_rich_json')) {
+  const addedRevisionRichColumn = !revisionColumns.has('body_rich_json');
+  if (addedRevisionRichColumn) {
     db.exec(`ALTER TABLE content_revisions ADD COLUMN body_rich_json TEXT NOT NULL DEFAULT ${sqlLiteral(EMPTY_RICH_TEXT_JSON)}`);
   }
 
-  const updatePost = db.prepare('UPDATE posts SET body_rich_json=? WHERE id=?');
-  const posts = db.prepare('SELECT id,body FROM posts ORDER BY rowid').all() as Array<{ id: string; body: string }>;
-  db.transaction(() => {
-    for (const post of posts) updatePost.run(canonicalPlainRichJson(post.body), post.id);
-  })();
+  if (addedPostRichColumn) {
+    const updatePost = db.prepare('UPDATE posts SET body_rich_json=? WHERE id=?');
+    const posts = db.prepare('SELECT id,body FROM posts ORDER BY rowid').all() as Array<{ id: string; body: string }>;
+    db.transaction(() => {
+      for (const post of posts) updatePost.run(canonicalPlainRichJson(post.body), post.id);
+    })();
+  }
 
-  const updateRevision = db.prepare('UPDATE content_revisions SET body_rich_json=? WHERE id=?');
-  const revisions = db.prepare('SELECT id,body FROM content_revisions ORDER BY rowid').all() as Array<{ id: string; body: string }>;
-  db.transaction(() => {
-    for (const revision of revisions) updateRevision.run(canonicalPlainRichJson(revision.body), revision.id);
-  })();
+  if (addedRevisionRichColumn) {
+    const updateRevision = db.prepare('UPDATE content_revisions SET body_rich_json=? WHERE id=?');
+    const revisions = db.prepare('SELECT id,body FROM content_revisions ORDER BY rowid').all() as Array<{ id: string; body: string }>;
+    db.transaction(() => {
+      for (const revision of revisions) updateRevision.run(canonicalPlainRichJson(revision.body), revision.id);
+    })();
+  }
 
   const empty = sqlLiteral(EMPTY_RICH_TEXT_JSON);
   db.exec(`

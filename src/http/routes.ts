@@ -16,6 +16,7 @@ import {
 } from '../publisher.js';
 import { testConnection } from '../platforms/connection-test.js';
 import { resolveExactSchedule, resolveScheduleInput } from '../schedule-time.js';
+import { parseRichTextJson, plainTextToRichText, richTextToPlain, serializeRichText } from '../rich-text.js';
 
 type ScheduleMutation = { scheduledAt: string | null; scheduledAtUtc: string | null; scheduleTimezone: string | null };
 
@@ -51,7 +52,24 @@ function postView(row: any): any {
     a.platform, a.name AS account_name
     FROM post_targets pt JOIN social_accounts a ON a.id=pt.account_id
     WHERE pt.post_id=? ORDER BY a.platform,a.name`).all(row.id);
-  return { ...row, media, targets };
+  const bodyRich = parseRichTextJson(String(row.body_rich_json));
+  return { ...row, bodyRich, media, targets };
+}
+
+function resolvedPostBody(input: Record<string, any>, current?: any): { body: string; bodyRichJson: string } {
+  if (Object.prototype.hasOwnProperty.call(input, 'bodyRich')) {
+    const bodyRichJson = serializeRichText(input.bodyRich);
+    return { body: richTextToPlain(input.bodyRich), bodyRichJson };
+  }
+  if (Object.prototype.hasOwnProperty.call(input, 'body')) {
+    const body = String(input.body ?? '').trim();
+    return { body, bodyRichJson: serializeRichText(plainTextToRichText(body)) };
+  }
+  if (current) {
+    const document = parseRichTextJson(String(current.body_rich_json));
+    return { body: richTextToPlain(document), bodyRichJson: serializeRichText(document) };
+  }
+  return { body: '', bodyRichJson: serializeRichText(plainTextToRichText('')) };
 }
 
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
@@ -190,8 +208,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const projectId = String(body.projectId || '');
     if (!db.prepare('SELECT 1 FROM projects WHERE id=?').get(projectId)) return reply.code(400).send({ error: 'Проект не найден' });
     const title = String(body.title || '').trim();
-    const text = String(body.body || '').trim();
-    if (!title || !text) return reply.code(400).send({ error: 'Заголовок и текст обязательны' });
+    let content: { body: string; bodyRichJson: string };
+    try { content = resolvedPostBody(body); }
+    catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) }); }
+    if (!title || !content.body.trim()) return reply.code(400).send({ error: 'Заголовок и текст обязательны' });
     const postId = id('post');
     const mode = ['MANUAL','AT','QUEUE'].includes(body.scheduleMode) ? body.scheduleMode : 'MANUAL';
     let schedule: ScheduleMutation;
@@ -199,8 +219,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) }); }
     const created = db.transaction(() => {
       const now = nowIso();
-      db.prepare('INSERT INTO posts (id,project_id,title,body,status,schedule_mode,scheduled_at,scheduled_at_utc,schedule_timezone,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
-        .run(postId, projectId, title, text, 'DRAFT', mode, schedule.scheduledAt, schedule.scheduledAtUtc, schedule.scheduleTimezone, now, now);
+      db.prepare('INSERT INTO posts (id,project_id,title,body,body_rich_json,status,schedule_mode,scheduled_at,scheduled_at_utc,schedule_timezone,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
+        .run(postId, projectId, title, content.body, content.bodyRichJson, 'DRAFT', mode, schedule.scheduledAt, schedule.scheduledAtUtc, schedule.scheduleTimezone, now, now);
       ensureTargets(postId);
       createInitialContentRevision(postId, 'manual');
       return db.prepare('SELECT * FROM posts WHERE id=?').get(postId);
@@ -214,9 +234,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (!current) return reply.code(404).send({ error: 'Пост не найден' });
     if (IMMUTABLE_POST_STATUSES.has(current.status)) return reply.code(409).send({ error: 'Нельзя редактировать частично или полностью опубликованный пост' });
     const title = body.title === undefined ? current.title : String(body.title).trim();
-    const text = body.body === undefined ? current.body : String(body.body).trim();
+    let content: { body: string; bodyRichJson: string };
+    try { content = resolvedPostBody(body, current); }
+    catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) }); }
     const mode = body.scheduleMode === undefined ? current.schedule_mode : String(body.scheduleMode);
-    if (!title || !text) return reply.code(400).send({ error: 'Заголовок и текст обязательны' });
+    if (!title || !content.body.trim()) return reply.code(400).send({ error: 'Заголовок и текст обязательны' });
     if (!['MANUAL','AT','QUEUE'].includes(mode)) return reply.code(400).send({ error: 'Неверный scheduleMode' });
     if (current.schedule_mode === 'QUEUE' && mode === 'AT' && body.confirmQueueToAt !== true) {
       return reply.code(409).send({ error: 'QUEUE_TO_AT_CONFIRMATION_REQUIRED', message: 'Convert QUEUE -> AT requires explicit confirmation' });
@@ -227,8 +249,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     try {
       const version = expectedContentVersion(request, body);
       const committed = commitContentEdit(params.id, version, 'manual', () => {
-        db.prepare('UPDATE posts SET title=?,body=?,schedule_mode=?,scheduled_at=?,scheduled_at_utc=?,schedule_timezone=?,updated_at=? WHERE id=?')
-          .run(title, text, mode, schedule.scheduledAt, schedule.scheduledAtUtc, schedule.scheduleTimezone, nowIso(), params.id);
+        db.prepare('UPDATE posts SET title=?,body=?,body_rich_json=?,schedule_mode=?,scheduled_at=?,scheduled_at_utc=?,schedule_timezone=?,updated_at=? WHERE id=?')
+          .run(title, content.body, content.bodyRichJson, mode, schedule.scheduledAt, schedule.scheduledAtUtc, schedule.scheduleTimezone, nowIso(), params.id);
       });
       return { ok: true, contentVersion: committed.contentVersion, post: postView(db.prepare('SELECT * FROM posts WHERE id=?').get(params.id)) };
     } catch (error) {
