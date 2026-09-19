@@ -500,6 +500,11 @@ try {
     assert.ok(row.text_rich_json, `${row.platform} rich TargetRendition missing`);
     assert.ok(row.text_plain, `${row.platform} matching text_plain missing`);
   }
+  const telegramStoredAst = JSON.parse(platformOverrideRows.find((row) => row.platform === 'telegram').text_rich_json);
+  const maxStoredAst = JSON.parse(platformOverrideRows.find((row) => row.platform === 'max').text_rich_json);
+  assert.ok(JSON.stringify(telegramStoredAst).includes('"type":"bold"'), 'Telegram editor must persist bold mark in TargetRendition');
+  assert.ok(JSON.stringify(telegramStoredAst).includes('"type":"link"'), 'Telegram editor must persist link node in TargetRendition');
+  assert.ok(JSON.stringify(maxStoredAst).includes('"type":"underline"'), 'MAX editor must persist underline mark in TargetRendition');
 
   await postForm.locator('#close-modal').click();
   await page.locator('#post-form').waitFor({ state: 'detached', timeout: 5000 });
