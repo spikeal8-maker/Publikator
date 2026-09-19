@@ -896,7 +896,7 @@ Status: **ACCEPTED / MERGED**. Schema 10 `canonical-rich-text` является 
 
 ### EW4-004 — Platform rich-text compilers
 
-Current candidate: PR #105 / branch `ew4-004/platform-rich-text-compilers`. Schema change: **none**.
+Status: **ACCEPTED / MERGED**. PR #105 merged in main `73748e291d750c89680ded8588dccfcba641790e`. Schema remained 10.
 
 - one authoritative target-text resolver;
 - one pure compiler domain `src/platform-text.ts`;
@@ -915,11 +915,23 @@ Official evidence and diagnostics: `docs/PLATFORM_TEXT_COMPILERS_EW4_004.md`.
 
 ### EW4-005 — Targets/defaults/platform options
 
+Current Draft candidate: PR #106 / branch `ew4-005/project-defaults`.
+
+Current implemented slice: **EW4-005A1 — Project default timezone domain/API**.
+
+- schema candidate 11 `project-defaults`;
+- `projects.default_timezone TEXT NOT NULL`;
+- migration backfill for existing projects = `UTC`;
+- GET/POST/PATCH project API contract;
+- authoritative validation through existing `normalizeIanaTimezone()`;
+- changing project default timezone does not mutate existing posts/revisions/schedules.
+
+Not started in A1:
 - project default targets;
-- checkboxes;
+- platform policies/options;
 - select-all-supported;
-- platform options capability schema;
-- per-post override.
+- templates/snippets;
+- calendar editing.
 
 ### EW4-006 — Templates/snippets
 
