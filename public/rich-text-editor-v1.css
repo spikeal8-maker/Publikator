@@ -23,3 +23,13 @@
  .rich-text-toolbar button{flex:0 0 auto}
  .rich-text-surface{min-height:150px}
 }
+
+.platform-editor-card .rich-text-editor{margin-top:5px}
+.platform-editor-card .rich-text-surface{min-height:120px}
+.platform-editor-card .rich-text-toolbar{padding:5px}
+.platform-editor-card .rich-text-toolbar button{min-width:30px;min-height:29px;padding:4px 6px}
+.platform-editor-capability{margin-top:6px;line-height:1.4}
+.platform-editor-capability.warning{color:#92400e}
+.platform-editor-capability.ok{color:#166534}
+.platform-preview-source{font-size:12px;color:#64748b}
+.platform-preview-issue.info{background:#eff6ff;color:#1e40af}

@@ -313,14 +313,16 @@ const TOOLBAR=[
   ['emoji','Вставить emoji','🙂']
 ];
 
-export function mountRichTextEditor(host,{document:initialDocument,onChange,disabled=false}={}){
+export function mountRichTextEditor(host,{document:initialDocument,onChange,disabled=false,allowedCommands=null}={}){
   host.replaceChildren();
   host.classList.add('rich-text-editor');
   const toolbar=document.createElement('div');
   toolbar.className='rich-text-toolbar';
   toolbar.setAttribute('role','toolbar');
   toolbar.setAttribute('aria-label','Форматирование текста');
+  const allowed=Array.isArray(allowedCommands)?new Set(allowedCommands):null;
   for(const [command,label,text] of TOOLBAR){
+    if(allowed&&!allowed.has(command))continue;
     const button=document.createElement('button');
     button.type='button';
     button.dataset.richCommand=command;
@@ -402,7 +404,8 @@ export function mountRichTextEditor(host,{document:initialDocument,onChange,disa
     },
     focus:()=>surface.focus(),
     surface,
-    toolbar
+    toolbar,
+    allowedCommands:allowed?[...allowed]:TOOLBAR.map(([command])=>command)
   };
   host.richTextEditor=api;
   api.setDisabled(disabled);
