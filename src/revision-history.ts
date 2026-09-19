@@ -107,6 +107,53 @@ const TEXT_DIFF_MAX_CHARS = 40_000;
 const TEXT_DIFF_MAX_LINES = 400;
 const RESTORABLE_STATUSES = new Set(['DRAFT', 'READY', 'FAILED']);
 const INACTIVE_EDITORIAL_STAGES = new Set(['ARCHIVED', 'TRASHED']);
+const EXTERNAL_PUBLICATION_EVIDENCE_REASON =
+  'Эту версию нельзя восстановить: у материала есть подтверждённая или неразрешённая внешняя публикация.';
+
+export type ExternalPublicationEvidence = {
+  hasEvidence: boolean;
+  targetEvidence: boolean;
+  publicationUnitEvidence: boolean;
+};
+
+export function externalPublicationEvidence(postId: string): ExternalPublicationEvidence {
+  const targetEvidence = Boolean(db.prepare(`SELECT 1 FROM post_targets
+    WHERE post_id=?
+      AND (
+        state IN ('PUBLISHED','PARTIAL','RECOVERY_NEEDED')
+        OR external_id IS NOT NULL
+        OR external_url IS NOT NULL
+        OR published_at IS NOT NULL
+      )
+    LIMIT 1`).get(postId));
+
+  const publicationUnitEvidence = Boolean(db.prepare(`SELECT 1
+    FROM publication_units pu
+    JOIN post_targets pt ON pt.id=pu.target_id
+    WHERE pt.post_id=?
+      AND (
+        pu.state IN ('PUBLISHED','RECOVERY_NEEDED')
+        OR pu.external_id IS NOT NULL
+        OR pu.external_url IS NOT NULL
+        OR pu.published_at IS NOT NULL
+      )
+    LIMIT 1`).get(postId));
+
+  return {
+    hasEvidence: targetEvidence || publicationUnitEvidence,
+    targetEvidence,
+    publicationUnitEvidence
+  };
+}
+
+function externalPublicationEvidenceCompatibility(postId: string): RestoreCompatibility | null {
+  if (!externalPublicationEvidence(postId).hasEvidence) return null;
+  return {
+    canRestore: false,
+    code: 'REVISION_EXTERNAL_PUBLICATION_EVIDENCE',
+    reason: EXTERNAL_PUBLICATION_EVIDENCE_REASON
+  };
+}
 
 function postHistoryState(postId: string): PostHistoryState {
   const row = db.prepare(`SELECT id,status,editorial_stage,content_version,ready_revision_id
@@ -367,6 +414,8 @@ function targetCompatibility(revision: ContentRevisionRow): RestoreCompatibility
 export async function revisionRestoreCompatibility(postId: string, revisionId: string): Promise<RestoreCompatibility> {
   const post = postHistoryState(postId);
   const revision = revisionForPost(postId, revisionId);
+  const publicationEvidence = externalPublicationEvidenceCompatibility(postId);
+  if (publicationEvidence) return publicationEvidence;
   if (INACTIVE_EDITORIAL_STAGES.has(post.editorial_stage)) {
     return {
       canRestore: false,
@@ -528,6 +577,14 @@ export async function restoreRevision(
   }
 
   const transaction = db.transaction(() => {
+    const publicationEvidence = externalPublicationEvidenceCompatibility(postId);
+    if (publicationEvidence) {
+      throw new RevisionRestoreBlockedError(
+        publicationEvidence.code ?? 'REVISION_EXTERNAL_PUBLICATION_EVIDENCE',
+        publicationEvidence.reason ?? EXTERNAL_PUBLICATION_EVIDENCE_REASON
+      );
+    }
+
     const committed = commitContentEdit(postId, expectedContentVersion, 'manual_restore', () => {
       db.prepare(`UPDATE posts SET
         title=?,body=?,schedule_mode=?,scheduled_at=?,scheduled_at_utc=?,schedule_timezone=?,

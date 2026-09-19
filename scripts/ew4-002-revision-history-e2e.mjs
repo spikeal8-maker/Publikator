@@ -16,6 +16,12 @@ const { encryptJson } = await import('../dist/crypto.js');
 const { saveImageVersioned } = await import('../dist/media.js');
 const { diffText } = await import('../dist/revision-history.js');
 const { snapshotContentRevision } = await import('../dist/content-versioning.js');
+const { refreshPostStatus } = await import('../dist/publisher.js');
+const {
+  ensurePublicationUnits,
+  claimNextPublicationUnit,
+  markPublicationUnitPublished
+} = await import('../dist/delivery-foundation.js');
 const { setPublisherForTests } = await import('../dist/platforms/index.js');
 const { buildApp } = await import('../dist/app.js');
 
@@ -396,6 +402,202 @@ const targetBlocked = await api('POST', `/api/posts/${targetPost.id}/revisions/$
 }, 409);
 assert.equal(targetBlocked.code, 'REVISION_TARGET_INCOMPATIBLE');
 
+// Publication-safety regression: confirmed evidence on a disabled account must block restore
+// even when the aggregate post status is recalculated back to FAILED.
+const externalEvidencePost = await createPost('Disabled account publication evidence', 'Evidence source body');
+const externalEvidenceAccountA = id('acc');
+const externalEvidenceAccountB = id('acc');
+const evidenceAccountTime = new Date(Date.now() + 180_000).toISOString();
+db.prepare(`INSERT INTO social_accounts
+  (id,platform,name,credentials_encrypted,enabled,created_at,updated_at)
+  VALUES (?,?,?,?,1,?,?)`).run(
+    externalEvidenceAccountA, 'telegram', 'Evidence A',
+    encryptJson({ botToken: 'mock', chatId: '@evidence-a' }), evidenceAccountTime, evidenceAccountTime
+  );
+db.prepare(`INSERT INTO social_accounts
+  (id,platform,name,credentials_encrypted,enabled,created_at,updated_at)
+  VALUES (?,?,?,?,1,?,?)`).run(
+    externalEvidenceAccountB, 'telegram', 'Evidence B',
+    encryptJson({ botToken: 'mock', chatId: '@evidence-b' }), evidenceAccountTime, evidenceAccountTime
+  );
+
+const externalEvidenceV2 = await api('PUT', `/api/posts/${externalEvidencePost.id}/targets`, {
+  accountIds: [externalEvidenceAccountA, externalEvidenceAccountB],
+  expectedContentVersion: 1
+});
+assert.equal(externalEvidenceV2.contentVersion, 2);
+const externalEvidenceRevision = revisions(externalEvidencePost.id).find((row) => row.content_version === 2);
+assert.ok(externalEvidenceRevision);
+
+const externalEvidenceV3 = await api('PATCH', `/api/posts/${externalEvidencePost.id}`, {
+  body: 'Evidence changed body',
+  expectedContentVersion: 2
+});
+assert.equal(externalEvidenceV3.contentVersion, 3);
+
+const evidenceTargets = db.prepare(`SELECT id,account_id FROM post_targets
+  WHERE post_id=? AND account_id IN (?,?) ORDER BY account_id`)
+  .all(externalEvidencePost.id, externalEvidenceAccountA, externalEvidenceAccountB);
+const evidenceTargetA = evidenceTargets.find((row) => row.account_id === externalEvidenceAccountA);
+const evidenceTargetB = evidenceTargets.find((row) => row.account_id === externalEvidenceAccountB);
+assert.ok(evidenceTargetA);
+assert.ok(evidenceTargetB);
+const evidencePublishedAt = nowIso();
+db.prepare(`UPDATE post_targets SET
+  state='PUBLISHED',external_id='confirmed-a',external_url='https://example.test/confirmed-a',
+  published_at=?,last_error=NULL,updated_at=?
+  WHERE id=?`).run(evidencePublishedAt, evidencePublishedAt, evidenceTargetA.id);
+db.prepare(`UPDATE post_targets SET
+  state='FAILED',last_error='Target B failed',updated_at=?
+  WHERE id=?`).run(evidencePublishedAt, evidenceTargetB.id);
+db.prepare("UPDATE posts SET status='PARTIAL',editorial_stage='APPROVED',updated_at=? WHERE id=?")
+  .run(evidencePublishedAt, externalEvidencePost.id);
+assert.equal(db.prepare('SELECT status FROM posts WHERE id=?').get(externalEvidencePost.id).status, 'PARTIAL');
+
+db.prepare('UPDATE social_accounts SET enabled=0,updated_at=? WHERE id=?')
+  .run(nowIso(), externalEvidenceAccountA);
+refreshPostStatus(externalEvidencePost.id);
+assert.equal(
+  db.prepare('SELECT status FROM posts WHERE id=?').get(externalEvidencePost.id).status,
+  'FAILED',
+  'disabled published account must reproduce aggregate FAILED loophole'
+);
+const preservedEvidencePost = db.prepare(`SELECT content_version,title,body,schedule_mode,scheduled_at,scheduled_at_utc,
+  schedule_timezone,ready_revision_id,status,editorial_stage FROM posts WHERE id=?`).get(externalEvidencePost.id);
+const preservedEvidenceRevisionCount = revisions(externalEvidencePost.id).length;
+const preservedEvidenceTargets = db.prepare(`SELECT id,account_id,enabled,state,attempts,next_attempt_at,external_id,
+  external_url,last_error,published_at,updated_at FROM post_targets WHERE post_id=? ORDER BY id`)
+  .all(externalEvidencePost.id);
+const preservedEvidenceUnits = db.prepare(`SELECT pu.* FROM publication_units pu
+  JOIN post_targets pt ON pt.id=pu.target_id WHERE pt.post_id=? ORDER BY pu.id`).all(externalEvidencePost.id);
+const preservedRestoreEvents = db.prepare(
+  "SELECT COUNT(*) AS count FROM publication_events WHERE post_id=? AND event_type='post_revision_restored'"
+).get(externalEvidencePost.id).count;
+
+const evidenceDiff = await api(
+  'GET',
+  `/api/posts/${externalEvidencePost.id}/revisions/${externalEvidenceRevision.id}/diff`
+);
+assert.equal(evidenceDiff.restoreCompatibility.code, 'REVISION_EXTERNAL_PUBLICATION_EVIDENCE');
+assert.match(evidenceDiff.restoreCompatibility.reason, /внешняя публикация/i);
+
+const evidenceBlocked = await api(
+  'POST',
+  `/api/posts/${externalEvidencePost.id}/revisions/${externalEvidenceRevision.id}/restore`,
+  { expectedContentVersion: 3 },
+  409
+);
+assert.equal(evidenceBlocked.code, 'REVISION_EXTERNAL_PUBLICATION_EVIDENCE');
+assert.deepEqual(
+  db.prepare(`SELECT content_version,title,body,schedule_mode,scheduled_at,scheduled_at_utc,
+    schedule_timezone,ready_revision_id,status,editorial_stage FROM posts WHERE id=?`).get(externalEvidencePost.id),
+  preservedEvidencePost
+);
+assert.equal(revisions(externalEvidencePost.id).length, preservedEvidenceRevisionCount);
+assert.deepEqual(
+  db.prepare(`SELECT id,account_id,enabled,state,attempts,next_attempt_at,external_id,
+    external_url,last_error,published_at,updated_at FROM post_targets WHERE post_id=? ORDER BY id`)
+    .all(externalEvidencePost.id),
+  preservedEvidenceTargets
+);
+assert.deepEqual(
+  db.prepare(`SELECT pu.* FROM publication_units pu
+    JOIN post_targets pt ON pt.id=pu.target_id WHERE pt.post_id=? ORDER BY pu.id`).all(externalEvidencePost.id),
+  preservedEvidenceUnits
+);
+assert.equal(
+  db.prepare("SELECT COUNT(*) AS count FROM publication_events WHERE post_id=? AND event_type='post_revision_restored'")
+    .get(externalEvidencePost.id).count,
+  preservedRestoreEvents
+);
+
+// PublicationUnit evidence must independently block restore even if target/post aggregates look restoreable.
+const unitEvidencePost = await createPost('PublicationUnit evidence', 'Unit source body');
+const unitEvidenceAccount = id('acc');
+const unitAccountTime = new Date(Date.now() + 240_000).toISOString();
+db.prepare(`INSERT INTO social_accounts
+  (id,platform,name,credentials_encrypted,enabled,created_at,updated_at)
+  VALUES (?,?,?,?,1,?,?)`).run(
+    unitEvidenceAccount, 'telegram', 'Unit evidence account',
+    encryptJson({ botToken: 'mock', chatId: '@unit-evidence' }), unitAccountTime, unitAccountTime
+  );
+const unitEvidenceV2 = await api('PUT', `/api/posts/${unitEvidencePost.id}/targets`, {
+  accountIds: [unitEvidenceAccount],
+  expectedContentVersion: 1
+});
+assert.equal(unitEvidenceV2.contentVersion, 2);
+const unitEvidenceRevision = revisions(unitEvidencePost.id).find((row) => row.content_version === 2);
+assert.ok(unitEvidenceRevision);
+const unitEvidenceV3 = await api('PATCH', `/api/posts/${unitEvidencePost.id}`, {
+  body: 'Unit changed body',
+  expectedContentVersion: 2
+});
+assert.equal(unitEvidenceV3.contentVersion, 3);
+const unitTarget = db.prepare('SELECT id FROM post_targets WHERE post_id=? AND account_id=?')
+  .get(unitEvidencePost.id, unitEvidenceAccount);
+assert.ok(unitTarget);
+
+const units = ensurePublicationUnits(unitTarget.id, unitEvidenceRevision.id, ['STORY']);
+assert.equal(units.length, 1);
+const claimedUnit = claimNextPublicationUnit(unitTarget.id);
+assert.ok(claimedUnit);
+markPublicationUnitPublished(claimedUnit.id, 'unit-confirmed', 'https://example.test/unit-confirmed');
+db.prepare(`UPDATE post_targets SET
+  state='FAILED',external_id=NULL,external_url=NULL,published_at=NULL,last_error='Aggregate target reset',updated_at=?
+  WHERE id=?`).run(nowIso(), unitTarget.id);
+db.prepare("UPDATE posts SET status='FAILED',editorial_stage='DRAFT',updated_at=? WHERE id=?")
+  .run(nowIso(), unitEvidencePost.id);
+assert.equal(db.prepare('SELECT status FROM posts WHERE id=?').get(unitEvidencePost.id).status, 'FAILED');
+
+const preservedUnitPost = db.prepare(`SELECT content_version,title,body,schedule_mode,scheduled_at,scheduled_at_utc,
+  schedule_timezone,ready_revision_id,status,editorial_stage FROM posts WHERE id=?`).get(unitEvidencePost.id);
+const preservedUnitRevisionCount = revisions(unitEvidencePost.id).length;
+const preservedUnitTargets = db.prepare(`SELECT id,account_id,enabled,state,attempts,next_attempt_at,external_id,
+  external_url,last_error,published_at,updated_at FROM post_targets WHERE post_id=? ORDER BY id`)
+  .all(unitEvidencePost.id);
+const preservedUnits = db.prepare(`SELECT pu.* FROM publication_units pu
+  JOIN post_targets pt ON pt.id=pu.target_id WHERE pt.post_id=? ORDER BY pu.id`).all(unitEvidencePost.id);
+assert.equal(preservedUnits[0].state, 'PUBLISHED');
+assert.equal(preservedUnits[0].external_id, 'unit-confirmed');
+const preservedUnitRestoreEvents = db.prepare(
+  "SELECT COUNT(*) AS count FROM publication_events WHERE post_id=? AND event_type='post_revision_restored'"
+).get(unitEvidencePost.id).count;
+
+const unitEvidenceDiff = await api(
+  'GET',
+  `/api/posts/${unitEvidencePost.id}/revisions/${unitEvidenceRevision.id}/diff`
+);
+assert.equal(unitEvidenceDiff.restoreCompatibility.code, 'REVISION_EXTERNAL_PUBLICATION_EVIDENCE');
+const unitEvidenceBlocked = await api(
+  'POST',
+  `/api/posts/${unitEvidencePost.id}/revisions/${unitEvidenceRevision.id}/restore`,
+  { expectedContentVersion: 3 },
+  409
+);
+assert.equal(unitEvidenceBlocked.code, 'REVISION_EXTERNAL_PUBLICATION_EVIDENCE');
+assert.deepEqual(
+  db.prepare(`SELECT content_version,title,body,schedule_mode,scheduled_at,scheduled_at_utc,
+    schedule_timezone,ready_revision_id,status,editorial_stage FROM posts WHERE id=?`).get(unitEvidencePost.id),
+  preservedUnitPost
+);
+assert.equal(revisions(unitEvidencePost.id).length, preservedUnitRevisionCount);
+assert.deepEqual(
+  db.prepare(`SELECT id,account_id,enabled,state,attempts,next_attempt_at,external_id,
+    external_url,last_error,published_at,updated_at FROM post_targets WHERE post_id=? ORDER BY id`)
+    .all(unitEvidencePost.id),
+  preservedUnitTargets
+);
+assert.deepEqual(
+  db.prepare(`SELECT pu.* FROM publication_units pu
+    JOIN post_targets pt ON pt.id=pu.target_id WHERE pt.post_id=? ORDER BY pu.id`).all(unitEvidencePost.id),
+  preservedUnits
+);
+assert.equal(
+  db.prepare("SELECT COUNT(*) AS count FROM publication_events WHERE post_id=? AND event_type='post_revision_restored'")
+    .get(unitEvidencePost.id).count,
+  preservedUnitRestoreEvents
+);
+
 assert.equal(publishCalls, 0, 'revision restore must never publish externally');
 
 console.log(JSON.stringify({
@@ -423,7 +625,10 @@ console.log(JSON.stringify({
   atomicInitialCreateRollback: true,
   inertPlaceholderIgnoredByRevisionSemantics: true,
   restoreIgnoresInertPlaceholder: true,
-  readyRevisionApprovalFinalizedAtomically: true
+  readyRevisionApprovalFinalizedAtomically: true,
+  disabledAccountPublicationEvidenceBlocked: true,
+  publicationUnitEvidenceBlocked: true,
+  blockedRestorePreservesPublicationEvidence: true
 }, null, 2));
 
 await app.close();
