@@ -251,7 +251,7 @@ function csvCell(value){
 function planCsv(externalId,title,body,sourceRevision){
   const values={
     schema_version:'3',external_id:externalId,action:'UPSERT',project:project.slug,template_key:'',
-    internal_title:title,body,publication_kind:'FEED',content_format:'TEXT_ONLY',schedule_mode:'MANUAL',
+    internal_title:title,body,publication_kind:'FEED',content_format:'IMAGE',schedule_mode:'MANUAL',
     scheduled_at:'',timezone:'UTC',targets:'[]',telegram_body:'',vk_body:'',max_body:'',instagram_body:'',
     media:'[]',tags:'',source_note:'',source_revision:sourceRevision
   };
