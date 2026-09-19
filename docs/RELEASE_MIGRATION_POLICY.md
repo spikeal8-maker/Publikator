@@ -34,10 +34,17 @@ Publikator uses monotonic, one-step schema milestones. Current ledger:
 | 6 | M0-004 | ingestion security state |
 | 7 | M0-005 | UTC/IANA scheduling, rendition and publication units |
 | 8 | CX3-003 | rich-media authoring relation, video metadata and immutable story/media ordering |
+| 9 | EW4-002 | revision-history metadata and complete immutable revision capture for schema-9 content |
 
 A feature PR MUST NOT combine several unrelated future data-model milestones into one schema jump.
 A new schema version must represent one coherent data ownership/invariant change and migrate from the immediately previous version.
 ## 4. Mandatory evidence for every new schema version
+
+Current schema-9 candidate evidence for EW4-002:
+- migration regression: `scripts/schema-v9-revision-history-e2e.mjs`;
+- backup regression: `scripts/backup-v9-revision-history-e2e.mjs`;
+- feature/domain regression: `scripts/ew4-002-revision-history-e2e.mjs`;
+- migration is additive and does not fabricate pre-schema-9 historical revision gaps.
 
 Every schema `N` after the V1 baseline MUST add all of the following in the same checkpoint PR:
 1. explicit migration code from `N-1` to `N`;
