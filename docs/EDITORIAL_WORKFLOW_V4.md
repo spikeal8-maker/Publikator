@@ -915,23 +915,19 @@ Official evidence and diagnostics: `docs/PLATFORM_TEXT_COMPILERS_EW4_004.md`.
 
 ### EW4-005 — Targets/defaults/platform options
 
-Current Draft candidate: PR #106 / branch `ew4-005/project-defaults`.
+Status: **IMPLEMENTED CANDIDATE** in Draft PR #106 / branch `ew4-005/project-defaults`.
 
-Current implemented slice: **EW4-005A1 — Project default timezone domain/API**.
+- schema remains 11 `project-defaults`;
+- project default timezone = implemented, including `/Projects` settings UX and inheritance by a new AT post;
+- project default targets = implemented, including automatic-vs-explicit ownership, explicit empty defaults, named target checkboxes and `Выбрать все включённые`;
+- new posts inherit current project timezone and current enabled project default targets without retroactively changing existing posts;
+- per-post target override = implemented and isolated from project defaults;
+- project settings UX = implemented in the existing `/Projects` surface;
+- platform option extension point = existing `platformOptionsSchema` / TargetRendition `options_json`;
+- all current Telegram/VK/MAX/Instagram `platformOptionsSchema` values are empty;
+- no unsupported or fake platform option UI was introduced.
 
-- schema candidate 11 `project-defaults`;
-- `projects.default_timezone TEXT NOT NULL`;
-- migration backfill for existing projects = `UTC`;
-- GET/POST/PATCH project API contract;
-- authoritative validation through existing `normalizeIanaTimezone()`;
-- changing project default timezone does not mutate existing posts/revisions/schedules.
-
-Not started in A1:
-- project default targets;
-- platform policies/options;
-- select-all-supported;
-- templates/snippets;
-- calendar editing.
+EW4-006 Templates/snippets and calendar editing are not started by EW4-005.
 
 ### EW4-006 — Templates/snippets
 

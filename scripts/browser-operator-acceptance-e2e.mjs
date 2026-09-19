@@ -101,6 +101,8 @@ await createContentFixture(contentFailedTitle, { scheduleMode: 'MANUAL', status:
 const editorAccountId = id('acc');
 db.prepare(`INSERT INTO social_accounts (id,platform,name,credentials_encrypted,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)`)
   .run(editorAccountId, 'telegram', 'Browser editor channel', encryptJson({ botToken: 'browser-token', chatId: '@browser' }), nowIso(), nowIso());
+db.prepare(`INSERT INTO project_default_targets (project_id,account_id,created_at) VALUES (?,?,?)`)
+  .run(fixtureProjectId, editorAccountId, nowIso());
 db.prepare(`INSERT INTO post_targets (id,post_id,account_id,enabled,state,attempts,updated_at) VALUES (?,?,?,1,'PENDING',0,?)`)
   .run(id('target'), contentDraft.id, editorAccountId, nowIso());
 
@@ -209,7 +211,17 @@ for (const [platform, credentials, name] of [
     (id,platform,name,credentials_encrypted,enabled,created_at,updated_at)
     VALUES (?,?,?,?,1,?,?)`)
     .run(accountId, platform, name, encryptJson(credentials), createdAt, createdAt);
+  db.prepare(`INSERT INTO project_default_targets (project_id,account_id,created_at) VALUES (?,?,?)`)
+    .run(fixtureProjectId, accountId, createdAt);
+  db.prepare(`INSERT INTO post_targets (id,post_id,account_id,enabled,state,attempts,updated_at)
+    VALUES (?,?,?,0,'PENDING',0,?)`)
+    .run(id('target'), contentDraft.id, accountId, createdAt);
 }
+
+const ew4005Project = await fixtureApi('POST', '/api/projects', {
+  name: 'Browser EW4-005 Project',
+  slug: 'browser-ew4-005'
+}, 201);
 
 await app.listen({ host: '127.0.0.1', port: 18087 });
 
@@ -299,6 +311,67 @@ try {
     assert.ok(overflow <= 1, `${route} desktop body overflow: ${overflow}px`);
   }
 
+  // EW4-005: Project defaults are operable through the existing /projects page.
+  await page.goto(`${base}/projects`, { waitUntil: 'domcontentloaded' });
+  await page.locator('#app').waitFor({ state: 'visible' });
+  await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Проекты');
+  const projectHeaders = await page.locator('#view table.table thead th').allTextContents();
+  for (const expected of ['Название','Slug','Часовой пояс','Площадки по умолчанию','Действие']) {
+    assert.ok(projectHeaders.includes(expected), `Projects column missing: ${expected}`);
+  }
+
+  let ewProjectRow = page.locator('#view table.table tbody tr').filter({ hasText: ew4005Project.name });
+  assert.equal(await ewProjectRow.count(), 1, 'EW4-005 browser project must render once');
+  assert.match(await ewProjectRow.innerText(), /UTC/);
+  assert.match(await ewProjectRow.innerText(), /Telegram \/ Browser editor channel/);
+  assert.match(await ewProjectRow.innerText(), /VK \/ Browser VK/);
+  assert.match(await ewProjectRow.innerText(), /MAX \/ Browser MAX/);
+
+  await ewProjectRow.locator('.project-settings').click();
+  let projectSettingsForm = page.locator('#project-settings-form');
+  await projectSettingsForm.waitFor({ state: 'visible' });
+  assert.equal(await projectSettingsForm.locator('input[name="defaultTimezone"]').inputValue(), 'UTC');
+  const projectTargetBoxes = projectSettingsForm.locator('input[name="defaultTargetAccountId"]');
+  assert.equal(await projectTargetBoxes.count(), 4, 'Project settings must show all existing social accounts');
+  await projectTargetBoxes.evaluateAll((inputs) => inputs.forEach((input) => { input.checked = false; }));
+  await projectSettingsForm.locator('#select-all-enabled').click();
+  assert.equal(await projectSettingsForm.locator('input[name="defaultTargetAccountId"]:checked').count(), 4, 'Select all enabled must select every enabled account');
+
+  // Explicit empty is a real user state and must survive a backend round-trip.
+  await projectTargetBoxes.evaluateAll((inputs) => inputs.forEach((input) => { input.checked = false; }));
+  await projectSettingsForm.locator('button.primary[type="submit"]').click();
+  await page.locator('#project-settings-form').waitFor({ state: 'detached', timeout: 5000 });
+  let projectFromApi = (await fixtureApi('GET', '/api/projects')).find((project) => project.id === ew4005Project.id);
+  assert.equal(projectFromApi.default_targets_explicit, 1);
+  assert.deepEqual(projectFromApi.defaultTargetAccountIds, []);
+
+  ewProjectRow = page.locator('#view table.table tbody tr').filter({ hasText: ew4005Project.name });
+  assert.match(await ewProjectRow.innerText(), /Не выбраны/);
+  await ewProjectRow.locator('.project-settings').click();
+  projectSettingsForm = page.locator('#project-settings-form');
+  await projectSettingsForm.waitFor({ state: 'visible' });
+  assert.equal(await projectSettingsForm.locator('input[name="defaultTargetAccountId"]:checked').count(), 0, 'Explicit empty defaults must hydrate as empty');
+
+  await projectSettingsForm.locator('input[name="defaultTimezone"]').fill('Europe/Moscow');
+  await projectSettingsForm.locator(`input[name="defaultTargetAccountId"][value="${editorAccountId}"]`).check();
+  await projectSettingsForm.locator(`input[name="defaultTargetAccountId"][value="${browserPlatformAccounts.vk}"]`).check();
+  await projectSettingsForm.locator('button.primary[type="submit"]').click();
+  await page.locator('#project-settings-form').waitFor({ state: 'detached', timeout: 5000 });
+
+  projectFromApi = (await fixtureApi('GET', '/api/projects')).find((project) => project.id === ew4005Project.id);
+  assert.equal(projectFromApi.default_timezone, 'Europe/Moscow');
+  assert.equal(projectFromApi.default_targets_explicit, 1);
+  assert.deepEqual(
+    [...projectFromApi.defaultTargetAccountIds].sort(),
+    [editorAccountId, browserPlatformAccounts.vk].sort()
+  );
+  ewProjectRow = page.locator('#view table.table tbody tr').filter({ hasText: ew4005Project.name });
+  const projectRowText = await ewProjectRow.innerText();
+  assert.ok(projectRowText.includes('Europe/Moscow'));
+  assert.ok(projectRowText.includes('Telegram / Browser editor channel'));
+  assert.ok(projectRowText.includes('VK / Browser VK'));
+  assert.ok(!projectRowText.includes('MAX / Browser MAX'));
+
   await page.goto(`${base}/content`, { waitUntil: 'domcontentloaded' });
   await page.locator('#app').waitFor({ state: 'visible' });
   await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Контент');
@@ -344,6 +417,81 @@ try {
   assert.equal(await readyRow.isVisible(), true);
   assert.equal(await failedRow.isVisible(), true);
 
+  // EW4-005: new Post inherits project timezone and targets; per-post override stays isolated.
+  const ewInheritedTitle = 'Browser EW4-005 inherited defaults';
+  await page.locator('#new-post').click();
+  let ewPostForm = page.locator('#post-form');
+  await ewPostForm.waitFor({ state: 'visible' });
+  await ewPostForm.locator('select[name="projectId"]').selectOption(ew4005Project.id);
+  await ewPostForm.locator('select[name="scheduleMode"]').selectOption('AT');
+  await ewPostForm.locator('input[name="scheduledAt"]').fill('2026-10-01T18:00');
+  await ewPostForm.locator('input[name="title"]').fill(ewInheritedTitle);
+  await ewPostForm.locator('[data-rich-text-editor] .rich-text-surface').fill('EW4-005 inherited defaults browser body');
+  await ewPostForm.locator('button.primary[type="submit"]').click();
+  await page.locator('#post-form').waitFor({ state: 'detached', timeout: 5000 });
+  await page.waitForFunction((title) => [...document.querySelectorAll('#view table.table tbody tr')].some((row) => row.textContent?.includes(title)), ewInheritedTitle);
+
+  const ewPost = db.prepare(`SELECT id,schedule_timezone,scheduled_at_utc FROM posts WHERE title=?`).get(ewInheritedTitle);
+  assert.ok(ewPost);
+  assert.equal(ewPost.schedule_timezone, 'Europe/Moscow');
+  assert.equal(ewPost.scheduled_at_utc, '2026-10-01T15:00:00.000Z');
+  let ewEnabledTargets = db.prepare(`SELECT account_id FROM post_targets WHERE post_id=? AND enabled=1 ORDER BY account_id`)
+    .all(ewPost.id).map((row) => row.account_id);
+  assert.deepEqual(ewEnabledTargets, [editorAccountId, browserPlatformAccounts.vk].sort());
+
+  await contentRow(ewInheritedTitle).locator('.open-post').click();
+  let ewInspector = page.locator('.editorial-inspector-overlay');
+  await ewInspector.waitFor({ state: 'visible', timeout: 5000 });
+  await ewInspector.locator('.inspector-edit').click();
+  await ewInspector.waitFor({ state: 'detached', timeout: 5000 });
+  ewPostForm = page.locator('#post-form');
+  await ewPostForm.waitFor({ state: 'visible', timeout: 5000 });
+  await ewPostForm.locator('.platform-workspace').waitFor({ state: 'visible', timeout: 5000 });
+
+  const ewTelegramBox = ewPostForm.locator(`input[name="accountId"][value="${editorAccountId}"]`);
+  const ewVkBox = ewPostForm.locator(`input[name="accountId"][value="${browserPlatformAccounts.vk}"]`);
+  const ewMaxBox = ewPostForm.locator(`input[name="accountId"][value="${browserPlatformAccounts.max}"]`);
+  const ewInstagramBox = ewPostForm.locator(`input[name="accountId"][value="${browserPlatformAccounts.instagram}"]`);
+  assert.equal(await ewTelegramBox.isChecked(), true);
+  assert.equal(await ewVkBox.isChecked(), true);
+  assert.equal(await ewMaxBox.isChecked(), false);
+  assert.equal(await ewInstagramBox.isChecked(), false);
+  assert.equal(
+    await ewPostForm.locator('[data-platform-option], [data-platform-options], .platform-option, .platform-options').count(),
+    0,
+    'empty platformOptionsSchema must not render fake platform option UI'
+  );
+
+  await ewTelegramBox.uncheck();
+  await ewVkBox.uncheck();
+  await ewMaxBox.check();
+  await ewPostForm.locator('button.primary[type="submit"]').click();
+  await page.locator('#post-form').waitFor({ state: 'detached', timeout: 5000 });
+
+  ewEnabledTargets = db.prepare(`SELECT account_id FROM post_targets WHERE post_id=? AND enabled=1 ORDER BY account_id`)
+    .all(ewPost.id).map((row) => row.account_id);
+  assert.deepEqual(ewEnabledTargets, [browserPlatformAccounts.max]);
+  projectFromApi = (await fixtureApi('GET', '/api/projects')).find((project) => project.id === ew4005Project.id);
+  assert.equal(projectFromApi.default_timezone, 'Europe/Moscow');
+  assert.deepEqual(
+    [...projectFromApi.defaultTargetAccountIds].sort(),
+    [editorAccountId, browserPlatformAccounts.vk].sort()
+  );
+
+  // Re-open to prove the editor hydrates actual per-post state rather than project defaults.
+  await contentRow(ewInheritedTitle).locator('.open-post').click();
+  ewInspector = page.locator('.editorial-inspector-overlay');
+  await ewInspector.waitFor({ state: 'visible', timeout: 5000 });
+  await ewInspector.locator('.inspector-edit').click();
+  await ewInspector.waitFor({ state: 'detached', timeout: 5000 });
+  ewPostForm = page.locator('#post-form');
+  await ewPostForm.waitFor({ state: 'visible', timeout: 5000 });
+  assert.equal(await ewPostForm.locator(`input[name="accountId"][value="${editorAccountId}"]`).isChecked(), false);
+  assert.equal(await ewPostForm.locator(`input[name="accountId"][value="${browserPlatformAccounts.vk}"]`).isChecked(), false);
+  assert.equal(await ewPostForm.locator(`input[name="accountId"][value="${browserPlatformAccounts.max}"]`).isChecked(), true);
+  await ewPostForm.locator('#close-modal').click();
+  await page.locator('#post-form').waitFor({ state: 'detached', timeout: 5000 });
+
   await page.locator('#new-post').click();
   let postForm = page.locator('#post-form');
   await postForm.waitFor({ state: 'visible' });
@@ -364,6 +512,7 @@ try {
 
   // EW4-003: real Base rich-text create flow.
   const richEditorTitle = 'Browser Canonical Rich Text';
+  await postForm.locator('select[name="projectId"]').selectOption(fixtureProjectId);
   await postForm.locator('select[name="scheduleMode"]').selectOption('MANUAL');
   await postForm.locator('input[name="title"]').fill(richEditorTitle);
   assert.equal(await postForm.locator('textarea[name="body"]:visible').count(), 0, 'visible raw body textarea must be absent');

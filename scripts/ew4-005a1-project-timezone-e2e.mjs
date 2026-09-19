@@ -12,10 +12,16 @@ process.env.PUBLIC_BASE_URL='https://publisher.example.test';
 
 const {db,migrate}=await import('../dist/db.js');
 const {buildApp}=await import('../dist/app.js');
+const {listPlatformCapabilities}=await import('../dist/platforms/capabilities.js');
 migrate();
 
 const app=await buildApp();
 await app.ready();
+
+const platformOptionSchemas=Object.fromEntries(
+  listPlatformCapabilities().map((capability)=>[capability.platform,capability.platformOptionsSchema])
+);
+assert.deepEqual(platformOptionSchemas,{telegram:{},vk:{},max:{},instagram:{}});
 
 const login=await app.inject({method:'POST',url:'/api/auth/login',payload:{password:process.env.ADMIN_PASSWORD}});
 assert.equal(login.statusCode,200,login.body);
@@ -276,6 +282,8 @@ try{
     explicitEmptyPreserved:true,
     explicitSubsetPreserved:true,
     disabledAccountExcluded:true,
+    platformOptionsExtensionPoint:true,
+    currentPlatformOptionSchemasEmpty:true,
     newProjectInitialDefaults:true,
     patchExplicitDefaults:true,
     patchEmptyDefaults:true,
