@@ -126,6 +126,8 @@ const login=await app.inject({method:'POST',url:'/api/auth/login',payload:{passw
 assert.equal(login.statusCode,200,login.body);
 const cookie=String(login.headers['set-cookie']).split(';')[0];
 const project=db.prepare('SELECT id,slug FROM projects ORDER BY created_at LIMIT 1').get();
+db.prepare(`INSERT INTO project_default_targets (project_id,account_id,created_at) VALUES (?,?,?)`)
+  .run(project.id,accountId,accountTime);
 
 async function api(method,url,payload,expected=200,headers={}){
   const response=await app.inject({method,url,headers:{cookie,...headers},...(payload===undefined?{}:{payload})});
