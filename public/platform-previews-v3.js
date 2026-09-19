@@ -108,7 +108,7 @@ function mount(host, postId) {
       if (disposed) return;
       const previews = payload.previews || [];
       host.innerHTML = previews.length
-        ? `<div class="platform-preview-note">Предпросмотр использует тот же rich-text resolver/compiler, что preflight и publisher. Compiled MAX HTML никогда не вставляется как raw HTML.</div><div class="platform-preview-grid">${previews.map(card).join('')}</div>`
+        ? `<div class="platform-preview-note">Предпросмотр использует тот же rich-text resolver/compiler, что preflight и publisher; это не pixel-perfect копия интерфейса соцсети. Compiled MAX HTML никогда не вставляется как raw HTML.</div><div class="platform-preview-grid">${previews.map(card).join('')}</div>`
         : '<div class="muted">Площадки для предпросмотра отсутствуют</div>';
       for (const preview of previews) {
         if (preview.platform !== 'telegram' && preview.platform !== 'max') continue;
