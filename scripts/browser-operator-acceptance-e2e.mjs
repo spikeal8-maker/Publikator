@@ -412,8 +412,18 @@ try {
   assert.ok(!previewText.includes('**'), 'platform preview must not invent Markdown');
 
   await postForm.locator('#media-file').setInputFiles(richEditorImagePath);
-  await page.waitForFunction(() => document.querySelector('#post-form .media-list img') !== null);
+  await page.waitForFunction(() =>
+    document.querySelector('#post-form .media-list img') !== null
+    || document.querySelector('.editorial-inspector-overlay .inspector-media-host img') !== null
+  );
+  const uploadInspector = page.locator('.editorial-inspector-overlay');
+  if (await uploadInspector.count()) {
+    await uploadInspector.locator('.inspector-edit').click();
+    await uploadInspector.waitFor({ state: 'detached', timeout: 5000 });
+  }
   postForm = page.locator('#post-form');
+  await postForm.waitFor({ state: 'visible', timeout: 5000 });
+  await postForm.locator('.media-list img').first().waitFor({ state: 'visible', timeout: 5000 });
   await postForm.locator('#mark-ready').click();
   await page.locator('#post-form').waitFor({ state: 'detached', timeout: 5000 });
 
