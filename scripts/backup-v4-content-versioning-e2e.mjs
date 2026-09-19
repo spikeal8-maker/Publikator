@@ -44,19 +44,19 @@ db.prepare("UPDATE posts SET status='DRAFT',editorial_stage='DRAFT',content_vers
 db.prepare('DELETE FROM content_revisions WHERE id=?').run(revisionId);
 
 const staged = await stageRestoreBundle(bundlePath);
-assert.equal(staged.manifest.schemaVersion, 10);
+assert.equal(staged.manifest.schemaVersion, 11);
 db.close();
 const applied = await applyPendingRestore();
 assert.equal(applied.applied, true);
 
 const restored = new Database(config.dbPath, { readonly: true, fileMustExist: true });
 try {
-  assert.equal(Number(restored.pragma('user_version', { simple: true })), 10);
+  assert.equal(Number(restored.pragma('user_version', { simple: true })), 11);
   assert.deepEqual(restored.prepare(postSelect).get(postId), postBefore);
   assert.deepEqual(restored.prepare(revisionSelect).get(revisionId), revisionBefore);
   console.log(JSON.stringify({
     ok: true,
-    schemaVersion: 10,
+    schemaVersion: 11,
     contentVersionPreserved: true,
     readyRevisionPreserved: true,
     canonicalRevisionPreserved: true,

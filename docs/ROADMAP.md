@@ -290,7 +290,8 @@ Publikator уже прошёл маленькие additive milestones вмест
 7  UTC/IANA schedule + TargetRendition + PublicationUnit
 8  rich-media model
 9  revision-history — EW4-002 accepted/merged
-10 canonical-rich-text — EW4-003 accepted/merged; current schema
+10 canonical-rich-text — EW4-003 accepted/merged
+11 project-defaults — EW4-005 Draft candidate; A1 currently owns only Project.default_timezone
 ```
 
 Новые feature PR не должны повторно создавать эти primitives. Следующая schema version появляется только при новом coherent data invariant и обязана следовать `docs/RELEASE_MIGRATION_POLICY.md` + `SCHEMA_MILESTONES`.
@@ -299,7 +300,7 @@ Publikator уже прошёл маленькие additive milestones вмест
 
 # 6. Текущее состояние и оставшийся порядок разработки
 
-Сверено: **19.09.2026**, после accepted merge PR #104 (EW4-003), main `cfbf0d803d53e1c59bc919979de8de904356952e`.
+Сверено: **19.09.2026**, после accepted merge PR #105 (EW4-004), main `73748e291d750c89680ded8588dccfcba641790e`.
 
 Следующие foundation/product-этапы уже реализованы и **не должны создаваться заново параллельными слоями**:
 
@@ -320,8 +321,8 @@ Publikator уже прошёл маленькие additive milestones вмест
 
 ## Оставшийся рекомендуемый порядок
 
-1. **EW4-004 Platform rich-text compilers** — текущий candidate PR #105 / `ew4-004/platform-rich-text-compilers`; единый resolver/compiler, Telegram entities, MAX HTML transport, VK/Instagram downgrade diagnostics; schema остаётся 10. Не считать DONE до accepted merge.
-2. **EW4-005/006 Defaults + Templates/Snippets** — project defaults и snapshot semantics шаблонов.
+1. **EW4-005** — current Draft candidate PR #106 / `ew4-005/project-defaults`. Текущий короткий срез A1 добавляет только `Project.default_timezone` и schema candidate 11; default targets/platform options ещё не начаты.
+2. **EW4-006 Templates/Snippets** — NOT STARTED.
 3. **EW4-007 Calendar editing** — drag/drop, create-from-slot, quick edit и optimistic-conflict handling.
 4. **CP2-003 ZIP Content Bundle** — детерминированная media binding и acceptance на 100 posts / 150 media.
 5. **CP2-004 + EW4-009 Integration API v1** — полный product contract поверх уже существующей hashed/scoped API-key security foundation.

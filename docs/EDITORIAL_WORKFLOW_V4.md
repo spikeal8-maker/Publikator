@@ -896,7 +896,7 @@ Status: **ACCEPTED / MERGED**. Schema 10 `canonical-rich-text` является 
 
 ### EW4-004 — Platform rich-text compilers
 
-Current candidate: PR #105 / branch `ew4-004/platform-rich-text-compilers`. Schema change: **none**.
+Status: **ACCEPTED / MERGED**. PR #105 merged in main `73748e291d750c89680ded8588dccfcba641790e`. Schema remained 10.
 
 - one authoritative target-text resolver;
 - one pure compiler domain `src/platform-text.ts`;
@@ -915,11 +915,19 @@ Official evidence and diagnostics: `docs/PLATFORM_TEXT_COMPILERS_EW4_004.md`.
 
 ### EW4-005 — Targets/defaults/platform options
 
-- project default targets;
-- checkboxes;
-- select-all-supported;
-- platform options capability schema;
-- per-post override.
+Status: **IMPLEMENTED CANDIDATE** in Draft PR #106 / branch `ew4-005/project-defaults`.
+
+- schema remains 11 `project-defaults`;
+- project default timezone = implemented, including `/Projects` settings UX and inheritance by a new AT post;
+- project default targets = implemented, including automatic-vs-explicit ownership, explicit empty defaults, named target checkboxes and `Выбрать все включённые`;
+- new posts inherit current project timezone and current enabled project default targets without retroactively changing existing posts;
+- per-post target override = implemented and isolated from project defaults;
+- project settings UX = implemented in the existing `/Projects` surface;
+- platform option extension point = existing `platformOptionsSchema` / TargetRendition `options_json`;
+- all current Telegram/VK/MAX/Instagram `platformOptionsSchema` values are empty;
+- no unsupported or fake platform option UI was introduced.
+
+EW4-006 Templates/snippets and calendar editing are not started by EW4-005.
 
 ### EW4-006 — Templates/snippets
 

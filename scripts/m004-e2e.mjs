@@ -16,7 +16,7 @@ const security = await import('../dist/ingestion-security.js');
 const integration = await import('../dist/integration-security.js');
 
 migrate();
-assert.equal(Number(db.pragma('user_version', { simple: true })), 10);
+assert.equal(Number(db.pragma('user_version', { simple: true })), 11);
 for (const table of ['integration_api_keys', 'ingestion_connectors']) {
   assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table), table);
 }
@@ -182,7 +182,7 @@ try {  const safePaths = security.validateBundleEntries([
   console.log(JSON.stringify({
     ok: true,
     checkpoint: 'M0-004',
-    schemaVersion: 10,
+    schemaVersion: 11,
     archiveSafety: true,
     ssrfAndRedirectSafety: true,
     dnsDestinationPinned: true,

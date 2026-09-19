@@ -15,7 +15,7 @@ import {
   setTargetSelection
 } from '../publisher.js';
 import { testConnection } from '../platforms/connection-test.js';
-import { resolveExactSchedule, resolveScheduleInput } from '../schedule-time.js';
+import { normalizeIanaTimezone, resolveExactSchedule, resolveScheduleInput } from '../schedule-time.js';
 import { parseRichTextJson, plainTextToRichText, richTextToPlain, serializeRichText } from '../rich-text.js';
 
 type ScheduleMutation = { scheduledAt: string | null; scheduledAtUtc: string | null; scheduleTimezone: string | null };
@@ -81,6 +81,35 @@ function resolvedPostBody(input: Record<string, any>, current?: any): { body: st
   return { body: '', bodyRichJson: serializeRichText(plainTextToRichText('')) };
 }
 
+function projectDefaultTargetAccountIds(projectId: string): string[] {
+  return (db.prepare(`SELECT account_id FROM project_default_targets
+    WHERE project_id=? ORDER BY created_at,account_id`).all(projectId) as Array<{ account_id: string }>)
+    .map((row) => row.account_id);
+}
+
+function projectView(row: any): any {
+  return { ...row, defaultTargetAccountIds: projectDefaultTargetAccountIds(String(row.id)) };
+}
+
+function normalizedProjectDefaultTargetAccountIds(value: unknown): string[] {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
+    throw new Error('defaultTargetAccountIds должен быть массивом строк');
+  }
+  const accountIds = [...new Set(value as string[])];
+  const exists = db.prepare('SELECT 1 FROM social_accounts WHERE id=?');
+  for (const accountId of accountIds) {
+    if (!exists.get(accountId)) throw new Error(`Неизвестный account id: ${accountId}`);
+  }
+  return accountIds;
+}
+
+function replaceProjectDefaultTargets(projectId: string, accountIds: string[], createdAt: string): void {
+  db.prepare('DELETE FROM project_default_targets WHERE project_id=?').run(projectId);
+  const insert = db.prepare(`INSERT INTO project_default_targets (project_id,account_id,created_at)
+    VALUES (?,?,?)`);
+  for (const accountId of accountIds) insert.run(projectId, accountId, createdAt);
+}
+
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/health', async () => ({
     ok: true,
@@ -126,15 +155,76 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return { counts, targetCounts, recentEvents };
   });
 
-  app.get('/api/projects', async () => db.prepare('SELECT * FROM projects ORDER BY name').all());
+  app.get('/api/projects', async () =>
+    (db.prepare('SELECT * FROM projects ORDER BY name').all() as any[]).map(projectView)
+  );
   app.post('/api/projects', async (request, reply) => {
     const body = bodyObject(request.body);
     const name = String(body.name || '').trim();
     const slug = String(body.slug || '').trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-');
     if (!name || !slug) return reply.code(400).send({ error: 'Нужны name и slug' });
+
+    let defaultTimezone: string;
+    try {
+      if (body.defaultTimezone !== undefined && typeof body.defaultTimezone !== 'string') {
+        throw new Error('defaultTimezone должен быть строкой IANA timezone');
+      }
+      defaultTimezone = normalizeIanaTimezone(body.defaultTimezone ?? 'UTC');
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+
     const projectId = id('prj');
-    db.prepare('INSERT INTO projects (id,name,slug,created_at) VALUES (?,?,?,?)').run(projectId, name, slug, nowIso());
-    return reply.code(201).send(db.prepare('SELECT * FROM projects WHERE id=?').get(projectId));
+    const created = db.transaction(() => {
+      const createdAt = nowIso();
+      db.prepare('INSERT INTO projects (id,name,slug,default_timezone,created_at) VALUES (?,?,?,?,?)')
+        .run(projectId, name, slug, defaultTimezone, createdAt);
+      db.prepare(`INSERT INTO project_default_targets (project_id,account_id,created_at)
+        SELECT ?,id,? FROM social_accounts WHERE enabled=1`).run(projectId, createdAt);
+      return db.prepare('SELECT * FROM projects WHERE id=?').get(projectId);
+    })();
+    return reply.code(201).send(projectView(created));
+  });
+  app.patch('/api/projects/:id', async (request, reply) => {
+    const params = request.params as { id: string };
+    const body = bodyObject(request.body);
+    const current = db.prepare('SELECT * FROM projects WHERE id=?').get(params.id) as any;
+    if (!current) return reply.code(404).send({ error: 'Проект не найден' });
+
+    const name = body.name === undefined ? current.name : String(body.name).trim();
+    if (!name) return reply.code(400).send({ error: 'name не должен быть пустым' });
+
+    let defaultTimezone = String(current.default_timezone);
+    if (body.defaultTimezone !== undefined) {
+      if (typeof body.defaultTimezone !== 'string') {
+        return reply.code(400).send({ error: 'defaultTimezone должен быть строкой IANA timezone' });
+      }
+      try {
+        defaultTimezone = normalizeIanaTimezone(body.defaultTimezone);
+      } catch (error) {
+        return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+
+    let defaultTargetAccountIds: string[] | undefined;
+    if (body.defaultTargetAccountIds !== undefined) {
+      try {
+        defaultTargetAccountIds = normalizedProjectDefaultTargetAccountIds(body.defaultTargetAccountIds);
+      } catch (error) {
+        return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+
+    const updated = db.transaction(() => {
+      db.prepare('UPDATE projects SET name=?,default_timezone=? WHERE id=?')
+        .run(name, defaultTimezone, params.id);
+      if (defaultTargetAccountIds !== undefined) {
+        replaceProjectDefaultTargets(params.id, defaultTargetAccountIds, nowIso());
+        db.prepare('UPDATE projects SET default_targets_explicit=1 WHERE id=?').run(params.id);
+      }
+      return db.prepare('SELECT * FROM projects WHERE id=?').get(params.id);
+    })();
+    return projectView(updated);
   });
 
   app.get('/api/accounts', async () => {
@@ -160,8 +250,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (!name || !body.credentials || typeof body.credentials !== 'object') return reply.code(400).send({ error: 'Нужны name и credentials' });
     const accountId = id('acc');
     const now = nowIso();
-    db.prepare('INSERT INTO social_accounts (id,platform,name,credentials_encrypted,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)')
-      .run(accountId, platform, name, encryptJson(body.credentials), now, now);
+    db.transaction(() => {
+      db.prepare('INSERT INTO social_accounts (id,platform,name,credentials_encrypted,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)')
+        .run(accountId, platform, name, encryptJson(body.credentials), now, now);
+      db.prepare(`INSERT INTO project_default_targets (project_id,account_id,created_at)
+        SELECT id,?,? FROM projects WHERE default_targets_explicit=0`)
+        .run(accountId, now);
+    })();
     return reply.code(201).send({ id: accountId, platform, name, enabled: 1 });
   });
   app.patch('/api/accounts/:id', async (request, reply) => {
@@ -215,7 +310,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/posts', async (request, reply) => {
     const body = bodyObject(request.body);
     const projectId = String(body.projectId || '');
-    if (!db.prepare('SELECT 1 FROM projects WHERE id=?').get(projectId)) return reply.code(400).send({ error: 'Проект не найден' });
+    const project = db.prepare('SELECT default_timezone FROM projects WHERE id=?').get(projectId) as { default_timezone: string } | undefined;
+    if (!project) return reply.code(400).send({ error: 'Проект не найден' });
     const title = String(body.title || '').trim();
     let content: { body: string; bodyRichJson: string };
     try { content = resolvedPostBody(body); }
@@ -224,7 +320,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const postId = id('post');
     const mode = ['MANUAL','AT','QUEUE'].includes(body.scheduleMode) ? body.scheduleMode : 'MANUAL';
     let schedule: ScheduleMutation;
-    try { schedule = scheduleMutation(mode, body); }
+    const scheduleInput = mode === 'AT' && body.scheduleTimezone === undefined
+      ? { ...body, scheduleTimezone: project.default_timezone }
+      : body;
+    try { schedule = scheduleMutation(mode, scheduleInput); }
     catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) }); }
     const created = db.transaction(() => {
       const now = nowIso();

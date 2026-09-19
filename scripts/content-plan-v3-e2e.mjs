@@ -48,7 +48,7 @@ function insertAccount(id, name) {
 }
 
 try {
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 10);
+  assert.equal(Number(db.pragma('user_version', { simple: true })), 11);
   const postColumns = db.prepare('PRAGMA table_info(posts)').all().map((row) => row.name);
   for (const name of ['source_type','source_ref','source_revision','source_payload_hash','source_batch_id','imported_at','imported_content_version']) {
     assert.ok(postColumns.includes(name), name);
