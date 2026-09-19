@@ -460,17 +460,17 @@ try {
   richInspector = page.locator('.editorial-inspector-overlay');
   await richInspector.waitFor({ state: 'visible', timeout: 5000 });
   await richInspector.locator('.inspector-history').click();
-  historyOverlay = page.locator('.revision-history-overlay');
-  await historyOverlay.waitFor({ state: 'visible', timeout: 5000 });
+  const richHistoryOverlay = page.locator('.revision-history-overlay');
+  await richHistoryOverlay.waitFor({ state: 'visible', timeout: 5000 });
   await page.waitForFunction((revisionId) => document.querySelector(`.revision-history-item[data-revision-id="${revisionId}"]`) !== null, richReadyState.ready_revision_id);
-  await historyOverlay.locator(`.revision-history-item[data-revision-id="${richReadyState.ready_revision_id}"]`).click();
-  const richHistoryDetail = historyOverlay.locator('.revision-detail');
+  await richHistoryOverlay.locator(`.revision-history-item[data-revision-id="${richReadyState.ready_revision_id}"]`).click();
+  const richHistoryDetail = richHistoryOverlay.locator('.revision-detail');
   await richHistoryDetail.waitFor({ state: 'visible', timeout: 5000 });
   assert.equal(await richHistoryDetail.locator('.revision-rich-preview strong').count(), 1, 'History formatted preview must render canonical marks');
   assert.equal(await richHistoryDetail.locator('.revision-restore').count(),1);
   page.once('dialog',(dialog)=>dialog.accept());
   await richHistoryDetail.locator('.revision-restore').click();
-  await historyOverlay.waitFor({ state: 'detached', timeout: 5000 });
+  await richHistoryOverlay.waitFor({ state: 'detached', timeout: 5000 });
 
   richInspector = page.locator('.editorial-inspector-overlay');
   await richInspector.waitFor({ state: 'visible', timeout: 5000 });
