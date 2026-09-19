@@ -47,7 +47,7 @@ const { buildApp } = await import('../dist/app.js');
 migrate();
 
 try {
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 10);
+  assert.equal(Number(db.pragma('user_version', { simple: true })), 11);
 
   const slots = db.prepare(`SELECT id,last_fired_on FROM schedule_slots
     WHERE project_id='legacy-project' AND weekday=1 AND time_hhmm='18:00' AND timezone='Europe/Moscow'`).all();
