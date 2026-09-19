@@ -14,6 +14,7 @@ const { db, migrate } = await import('../dist/db.js');
 const { commitContentEdit } = await import('../dist/content-versioning.js');
 const { buildApp } = await import('../dist/app.js');
 const { parseContentPlanV3, validateContentPlanV3, applyContentPlanV3 } = await import('../dist/content-plan-v3.js');
+const { parseRichTextJson, richTextToPlain } = await import('../dist/rich-text.js');
 migrate();
 const app = await buildApp();
 await app.ready();
@@ -136,12 +137,23 @@ try {
   }), 'sheet-targets');
   assert.equal(multiTarget.rows[0].classification, 'NEW');
   const multiResult = applyContentPlanV3(multiTarget, { actorSource: 'content_plan' });
-  const selectedOverrides = db.prepare(`SELECT account_id,override_text FROM post_targets
-    WHERE post_id=? AND enabled=1 ORDER BY account_id`).all(multiResult.postIds[0]);
-  assert.deepEqual(selectedOverrides, [
-    { account_id: 'tg-a', override_text: 'Shared Telegram override' },
-    { account_id: 'tg-b', override_text: 'Shared Telegram override' }
+  const selectedOverrides = db.prepare(`SELECT pt.account_id,pt.override_text,tr.text_rich_json,tr.text_plain
+    FROM post_targets pt
+    LEFT JOIN target_renditions tr ON tr.target_id=pt.id
+    WHERE pt.post_id=? AND pt.enabled=1 ORDER BY pt.account_id`).all(multiResult.postIds[0]);
+  assert.deepEqual(selectedOverrides.map((row) => ({
+    account_id: row.account_id,
+    override_text: row.override_text,
+    text_plain: row.text_plain
+  })), [
+    { account_id: 'tg-a', override_text: null, text_plain: 'Shared Telegram override' },
+    { account_id: 'tg-b', override_text: null, text_plain: 'Shared Telegram override' }
   ]);
+  for (const row of selectedOverrides) {
+    assert.ok(row.text_rich_json, 'new platform import override must own canonical rich JSON in TargetRendition');
+    assert.equal(richTextToPlain(parseRichTextJson(row.text_rich_json)), 'Shared Telegram override');
+    assert.equal(parseRichTextJson(row.text_rich_json).content[0].content[0].text, 'Shared Telegram override');
+  }
 
   const carousel = await preview(csv({ externalId: 'carousel-1', contentFormat: 'CAROUSEL' }), 'sheet-formats');
   assert.equal(carousel.rows[0].classification, 'ERROR');
