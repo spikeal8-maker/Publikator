@@ -67,6 +67,7 @@
 .revision-restore-area { display:grid; gap:7px; justify-items:start; }
 .revision-restore-blocked { padding:10px 12px; border-radius:8px; background:#fef2f2; color:#991b1b; }
 .revision-history-error { min-height:18px; margin-top:8px; }
+.revision-history-error:empty { display:none; }
 
 @media (max-width:760px) {
   .revision-history-modal { width:100%; height:100%; max-height:none; border-radius:0; }
