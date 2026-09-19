@@ -5,6 +5,12 @@ import { mediaPublicUrl } from './media.js';
 import { CapabilityValidationError, assertPlatformCapability, platformRequiresPublicHttpsMedia } from './platforms/capabilities.js';
 import { getPublisher } from './platforms/index.js';
 import { PlatformError, type PublishInput } from './platforms/types.js';
+import {
+  compilePlatformText,
+  resolveTargetRichText,
+  type PlatformTextContext,
+  type PlatformTextDiagnostic
+} from './platform-text.js';
 import { beginPublicationActivity } from './runtime-gate.js';
 import { getContentRevision, revisionMedia, revisionTargets, type ContentRevisionRow } from './content-versioning.js';
 import {
@@ -61,6 +67,7 @@ export type PreflightIssue = {
   accountId: string;
   platform: Platform;
   accountName: string;
+  severity: 'info' | 'warning' | 'error';
   message: string;
   code?: string;
 };
@@ -190,7 +197,23 @@ function resolvedContentFormat(value: string | null | undefined, fallback: strin
   return candidate as ContentFormat;
 }
 
-function buildRevisionPublishInput(target: PublishTargetRow, revision: ContentRevisionRow): PublishInput {
+function textContext(publicationKind: PublicationKind, mediaCount: number): PlatformTextContext {
+  if (publicationKind === 'STORY') return 'story_caption';
+  return mediaCount > 0 ? 'media_caption' : 'text';
+}
+
+function mergeCompilationDiagnostics(input: PublishInput, diagnostics: PlatformTextDiagnostic[]): PublishInput {
+  if (!input.textCompilation || diagnostics.length === 0) return input;
+  return {
+    ...input,
+    textCompilation: {
+      ...input.textCompilation,
+      diagnostics: [...diagnostics, ...input.textCompilation.diagnostics]
+    }
+  };
+}
+
+export function buildRevisionPublishInput(target: PublishTargetRow, revision: ContentRevisionRow): PublishInput {
   const targetSnapshot = revisionTargets(revision).find((item) => item.targetId === target.id && item.accountId === target.account_id && item.enabled);
   if (!targetSnapshot) throw new Error('Цель не входит в immutable READY revision');
   const media = revisionMedia(revision);
@@ -198,16 +221,42 @@ function buildRevisionPublishInput(target: PublishTargetRow, revision: ContentRe
   const publicationKind = resolvedPublicationKind(targetSnapshot.rendition?.publicationKind, revision.publication_kind);
   const contentFormat = resolvedContentFormat(targetSnapshot.rendition?.contentFormat, revision.content_format);
   const publicMediaUrls = platformRequiresPublicHttpsMedia(target.platform, contentFormat) ? media.map(mediaPublicUrl) : [];
-  return {
+  const resolvedText = resolveTargetRichText({
+    baseRichJson: revision.body_rich_json,
+    basePlain: revision.body,
+    renditionRichJson: targetSnapshot.rendition?.textRichJson,
+    renditionPlain: targetSnapshot.rendition?.textPlain,
+    legacyOverride: targetSnapshot.overrideText
+  });
+  const compilation = compilePlatformText(target.platform, resolvedText.document, textContext(publicationKind, media.length));
+  return mergeCompilationDiagnostics({
     postId: target.post_id,
     title: revision.title,
-    text: targetSnapshot.rendition?.textPlain ?? targetSnapshot.overrideText ?? revision.body,
+    text: compilation.plainText,
+    textCompilation: compilation,
     media,
     credentials,
     publicMediaUrls,
     publicationKind,
     contentFormat
-  };
+  }, resolvedText.diagnostics);
+}
+
+function compilerIssues(target: PublishTargetRow, input: PublishInput): PreflightIssue[] {
+  return (input.textCompilation?.diagnostics ?? []).map((diagnostic) => ({
+    targetId: target.id,
+    accountId: target.account_id,
+    platform: target.platform,
+    accountName: target.account_name || target.platform,
+    severity: diagnostic.severity,
+    message: diagnostic.message,
+    code: diagnostic.code
+  }));
+}
+
+function assertCompilationPublishable(input: PublishInput): void {
+  const errors = input.textCompilation?.diagnostics.filter((item) => item.severity === 'error') ?? [];
+  if (errors.length) throw new Error(`Rich-text compilation blocked: ${errors.map((item) => item.code).join(', ')}`);
 }
 
 export function preflightRevision(revisionId: string): PreflightResult {
@@ -216,15 +265,16 @@ export function preflightRevision(revisionId: string): PreflightResult {
   for (const snapshot of revisionTargets(revision).filter((target) => target.enabled)) {
     const target = revisionTargetRow(snapshot.targetId);
     if (!target || target.account_id !== snapshot.accountId) {
-      issues.push({ targetId: snapshot.targetId, accountId: snapshot.accountId, platform: 'telegram', accountName: snapshot.accountId, message: 'Цель READY revision больше не существует' });
+      issues.push({ targetId: snapshot.targetId, accountId: snapshot.accountId, platform: 'telegram', accountName: snapshot.accountId, severity: 'error', message: 'Цель READY revision больше не существует' });
       continue;
     }
     if (!target.account_enabled) {
-      issues.push({ targetId: target.id, accountId: target.account_id, platform: target.platform, accountName: target.account_name || target.platform, message: 'Аккаунт отключён' });
+      issues.push({ targetId: target.id, accountId: target.account_id, platform: target.platform, accountName: target.account_name || target.platform, severity: 'error', message: 'Аккаунт отключён' });
       continue;
     }
     try {
       const input = buildRevisionPublishInput(target, revision);
+      issues.push(...compilerIssues(target, input));
       assertPlatformCapability(target.platform, input);
       getPublisher(target.platform).validate(input);
     } catch (error) {
@@ -235,6 +285,7 @@ export function preflightRevision(revisionId: string): PreflightResult {
             accountId: target.account_id,
             platform: target.platform,
             accountName: target.account_name || target.platform,
+            severity: 'error',
             message: capabilityIssue.message,
             code: capabilityIssue.code
           });
@@ -245,12 +296,13 @@ export function preflightRevision(revisionId: string): PreflightResult {
           accountId: target.account_id,
           platform: target.platform,
           accountName: target.account_name || target.platform,
+          severity: 'error',
           message: error instanceof Error ? error.message : String(error)
         });
       }
     }
   }
-  return { ok: issues.length === 0, issues };
+  return { ok: !issues.some((issue) => issue.severity === 'error'), issues };
 }
 
 function isStorySequence(input: PublishInput): boolean {
@@ -343,6 +395,7 @@ async function publishTargetInternal(targetId: string, forcedRevisionId?: string
 
   try {
     input = buildRevisionPublishInput(target, revision);
+    assertCompilationPublishable(input);
     assertPlatformCapability(target.platform, input);
     platformPublisher.validate(input);
   } catch (error) {

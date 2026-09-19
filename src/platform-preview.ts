@@ -4,8 +4,10 @@ import { getTargetRendition, resolveTargetRendition, type CanonicalRendition } f
 import { listMedia } from './media.js';
 import { listContentMedia } from './rich-media.js';
 import { capabilityIssues, PLATFORM_CAPABILITIES, type CapabilityIssue } from './platforms/capabilities.js';
+import { compilePlatformText, resolveTargetRichText, type PlatformTextCompilation, type TargetTextSource } from './platform-text.js';
+import type { RichTextDocument } from './rich-text.js';
 
-export type PlatformPreviewIssue = CapabilityIssue & { severity: 'error' | 'warning' };
+export type PlatformPreviewIssue = CapabilityIssue & { severity: 'info' | 'warning' | 'error' };
 
 export type PlatformPreviewMedia = {
   id: string;
@@ -30,6 +32,9 @@ export type PlatformPreview = {
   publicationKind: PublicationKind;
   contentFormat: ContentFormat;
   text: string;
+  textSource: TargetTextSource;
+  resolvedRichText: RichTextDocument;
+  compilation: PlatformTextCompilation;
   media: PlatformPreviewMedia[];
   mediaCount: number;
   videoDurationMs: number | null;
@@ -99,7 +104,7 @@ function verticalAspectWarning(kind: PublicationKind, format: ContentFormat, ite
 }
 
 export function platformPreviews(postId: string): PlatformPreview[] {
-  const post = db.prepare(`SELECT id,title,body,publication_kind,content_format FROM posts WHERE id=?`).get(postId) as any;
+  const post = db.prepare(`SELECT id,title,body,body_rich_json,publication_kind,content_format FROM posts WHERE id=?`).get(postId) as any;
   if (!post) throw new Error('Пост не найден');
   const items = orderedPreviewMedia(postId);
   const publishMedia = primaryMedia(items).map((item) => ({
@@ -113,7 +118,7 @@ export function platformPreviews(postId: string): PlatformPreview[] {
     WHERE pt.post_id=? ORDER BY a.platform,a.name`).all(postId) as any[];
 
   const canonical: CanonicalRendition = {
-    textRichJson: null,
+    textRichJson: post.body_rich_json,
     textPlain: post.body,
     publicationKind: post.publication_kind,
     contentFormat: post.content_format,
@@ -124,8 +129,22 @@ export function platformPreviews(postId: string): PlatformPreview[] {
   return targets.map((target) => {
     const override = getTargetRendition(target.id);
     const resolved = resolveTargetRendition(canonical, override);
-    const text = override?.textPlain ?? target.override_text ?? resolved.textPlain;
-    const issues: PlatformPreviewIssue[] = [];
+    const textResolution = resolveTargetRichText({
+      baseRichJson: post.body_rich_json,
+      basePlain: post.body,
+      renditionRichJson: override?.textRichJson,
+      renditionPlain: override?.textPlain,
+      legacyOverride: target.override_text
+    });
+    const context = resolved.publicationKind === 'STORY' ? 'story_caption' : publishMedia.length ? 'media_caption' : 'text';
+    const compilation = compilePlatformText(target.platform as Platform, textResolution.document, context);
+    compilation.diagnostics = [...textResolution.diagnostics, ...compilation.diagnostics];
+    const text = compilation.plainText;
+    const issues: PlatformPreviewIssue[] = compilation.diagnostics.map((diagnostic) => ({
+      severity: diagnostic.severity,
+      code: diagnostic.code,
+      message: diagnostic.message
+    }));
     if (!target.account_enabled) issues.push({ severity: 'error', code: 'ACCOUNT_DISABLED', message: 'Аккаунт отключён' });
     if (override?.mediaPlanJson) {
       issues.push({ severity: 'warning', code: 'MEDIA_PLAN_NOT_EXECUTED', message: 'Target media plan сохранён, но текущий publisher ещё использует canonical media order' });
@@ -153,6 +172,9 @@ export function platformPreviews(postId: string): PlatformPreview[] {
       publicationKind: resolved.publicationKind,
       contentFormat: resolved.contentFormat,
       text,
+      textSource: textResolution.source,
+      resolvedRichText: textResolution.document,
+      compilation,
       media: items,
       mediaCount: primaryMedia(items).length,
       videoDurationMs: primaryMedia(items).find((item) => item.mimeType.startsWith('video/'))?.durationMs ?? null,
