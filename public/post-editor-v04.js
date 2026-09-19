@@ -153,8 +153,9 @@ function renderTargetCard(card, target, post, form) {
 function lockPublishedEditor(form, post, section) {
   if (!IMMUTABLE_POST_STATUSES.has(post.status)) return;
   section.insertAdjacentHTML('afterbegin', `<div class="editor-lock-notice">Пост имеет статус ${escapeHtml(post.status)}. Контент и площадки зафиксированы; доступны только безопасные действия восстановления для ошибочных публикаций.</div>`);
-  form.querySelectorAll('input, textarea, select, button[type="submit"], #mark-ready, #publish-now, .delete-media, .save-platform-text, .reset-platform-text, .move-media')
+  form.querySelectorAll('input, textarea, select, button[type="submit"], #mark-ready, #publish-now, .delete-media, .save-platform-text, .reset-platform-text, .move-media, .rich-text-toolbar button')
     .forEach((element) => { element.disabled = true; });
+  form.querySelector('[data-rich-text-editor]')?.richTextEditor?.setDisabled(true);
 }
 
 function hydrateScheduledAt(form, post) {

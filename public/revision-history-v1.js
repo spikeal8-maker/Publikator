@@ -1,4 +1,5 @@
 import { publicationFormatLabel, scheduleModeLabel, sourceLabel, statusLabel } from './presentation-labels.js';
+import { renderRichText } from './rich-text-editor-v1.js';
 
 function esc(value = '') {
   return String(value).replace(/[&<>'"]/g, (char) => ({
@@ -116,7 +117,9 @@ function detailMarkup(diff) {
     </div>
     <section class="card revision-section"><h3>Текст</h3>
       <div class="revision-title-diff"><strong>Заголовок</strong><div>${esc(diff.text.title.before)}</div><div>→ ${esc(diff.text.title.after)}</div></div>
-      <strong>Основной текст</strong>
+      <strong>Форматированная версия</strong>
+      <div class="rich-text-preview revision-rich-preview" data-revision-rich-preview></div>
+      <strong>Plain diff</strong>
       ${diffLinesMarkup(diff.text.body.diff)}
     </section>
     <section class="card revision-section"><h3>Публикация</h3>${publicationDiffMarkup(diff)}</section>
@@ -177,6 +180,8 @@ export async function openRevisionHistory(post, { onRestored } = {}) {
     if (errorBox) errorBox.textContent = '';
     currentDiff = await requestJson(`/api/posts/${encodeURIComponent(post.id)}/revisions/${encodeURIComponent(revisionId)}/diff`);
     detailHost.innerHTML = detailMarkup(currentDiff);
+    const richPreview=detailHost.querySelector('[data-revision-rich-preview]');
+    if(richPreview)renderRichText(richPreview,currentDiff.revision.bodyRich);
     overlay.querySelectorAll('.revision-history-item').forEach((button) => button.classList.toggle('active', button.dataset.revisionId === revisionId));
   };
 
