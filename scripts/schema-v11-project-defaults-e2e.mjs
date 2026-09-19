@@ -84,6 +84,12 @@ CREATE TABLE ingestion_connectors(
 const ts='2026-09-19T00:00:00.000Z';
 const rich=JSON.stringify({type:'doc',content:[{type:'paragraph',content:[{type:'text',text:'Schema 10 body',marks:[]}]}]});
 legacy.prepare('INSERT INTO projects(id,name,slug,created_at) VALUES (?,?,?,?)').run('p1','Existing project','existing',ts);
+legacy.prepare(`INSERT INTO social_accounts
+  (id,platform,name,credentials_encrypted,enabled,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`)
+  .run('acc-enabled','telegram','Enabled account','encrypted',1,ts,ts);
+legacy.prepare(`INSERT INTO social_accounts
+  (id,platform,name,credentials_encrypted,enabled,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`)
+  .run('acc-disabled','vk','Disabled account','encrypted',0,ts,ts);
 legacy.prepare(`INSERT INTO posts
   (id,project_id,title,body,body_rich_json,status,editorial_stage,schedule_mode,scheduled_at,content_version,
    created_at,updated_at,scheduled_at_utc,schedule_timezone,publication_kind,content_format)
@@ -98,11 +104,16 @@ legacy.prepare(`INSERT INTO content_revisions
 legacy.prepare(`INSERT INTO schedule_slots
   (id,project_id,weekday,time_hhmm,timezone,enabled,last_fired_on,created_at)
   VALUES (?,?,?,?,?,1,NULL,?)`).run('slot1','p1',1,'09:30','Europe/Moscow',ts);
+legacy.prepare(`INSERT INTO post_targets
+  (id,post_id,account_id,enabled,override_text,state,attempts,next_attempt_at,external_id,external_url,last_error,published_at,updated_at)
+  VALUES (?,?,?,?,?,'PENDING',0,NULL,NULL,NULL,NULL,NULL,?)`)
+  .run('target1','post1','acc-enabled',0,'historical override',ts);
 legacy.pragma('user_version = 10');
 
 const postBefore=legacy.prepare('SELECT * FROM posts WHERE id=?').get('post1');
 const revisionsBefore=legacy.prepare('SELECT * FROM content_revisions WHERE post_id=? ORDER BY content_version').all('post1');
 const schedulesBefore=legacy.prepare('SELECT * FROM schedule_slots WHERE project_id=? ORDER BY id').all('p1');
+const targetsBefore=legacy.prepare('SELECT * FROM post_targets WHERE post_id=? ORDER BY id').all('post1');
 legacy.close();
 
 const {db,migrate}=await import('../dist/db.js');
@@ -117,32 +128,48 @@ try{
   const projectColumns=new Set(db.prepare('PRAGMA table_info(projects)').all().map((row)=>row.name));
   assert.ok(projectColumns.has('default_timezone'));
   assert.equal(db.prepare('SELECT default_timezone FROM projects WHERE id=?').get('p1').default_timezone,'UTC');
+  const defaultTargetColumns=new Set(db.prepare('PRAGMA table_info(project_default_targets)').all().map((row)=>row.name));
+  assert.deepEqual([...defaultTargetColumns].sort(),['account_id','created_at','project_id']);
+  assert.deepEqual(
+    db.prepare('SELECT project_id,account_id,created_at FROM project_default_targets ORDER BY account_id').all(),
+    [{project_id:'p1',account_id:'acc-enabled',created_at:ts}]
+  );
 
   assert.deepEqual(db.prepare('SELECT * FROM posts WHERE id=?').get('post1'),postBefore);
   assert.deepEqual(db.prepare('SELECT * FROM content_revisions WHERE post_id=? ORDER BY content_version').all('post1'),revisionsBefore);
   assert.deepEqual(db.prepare('SELECT * FROM schedule_slots WHERE project_id=? ORDER BY id').all('p1'),schedulesBefore);
+  assert.deepEqual(db.prepare('SELECT * FROM post_targets WHERE post_id=? ORDER BY id').all('post1'),targetsBefore);
 
+  db.prepare('DELETE FROM project_default_targets WHERE project_id=?').run('p1');
   db.prepare('UPDATE projects SET default_timezone=? WHERE id=?').run('Asia/Tokyo','p1');
   migrateProjectDefaults(db);
   assert.equal(db.prepare('SELECT default_timezone FROM projects WHERE id=?').get('p1').default_timezone,'Asia/Tokyo');
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM project_default_targets WHERE project_id=?').get('p1').count,0);
 
   migrate();
   assert.equal(Number(db.pragma('user_version',{simple:true})),11);
   assert.equal(db.prepare('SELECT default_timezone FROM projects WHERE id=?').get('p1').default_timezone,'Asia/Tokyo');
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM project_default_targets WHERE project_id=?').get('p1').count,0);
   assert.deepEqual(db.prepare('SELECT * FROM posts WHERE id=?').get('post1'),postBefore);
   assert.deepEqual(db.prepare('SELECT * FROM content_revisions WHERE post_id=? ORDER BY content_version').all('post1'),revisionsBefore);
   assert.deepEqual(db.prepare('SELECT * FROM schedule_slots WHERE project_id=? ORDER BY id').all('p1'),schedulesBefore);
+  assert.deepEqual(db.prepare('SELECT * FROM post_targets WHERE post_id=? ORDER BY id').all('post1'),targetsBefore);
 
   console.log(JSON.stringify({
     ok:true,
     from:10,
     to:11,
     projectDefaultTimezone:true,
+    projectDefaultTargetsBackfilled:true,
+    defaultTargetCreatedAt:true,
+    disabledAccountExcluded:true,
     existingProjectUtc:true,
     postsUnchanged:true,
+    postTargetsUnchanged:true,
     revisionsUnchanged:true,
     schedulesUnchanged:true,
     rerunSafe:true,
+    emptyDefaultsRemainEmpty:true,
     databaseSchemaVersion:11
   },null,2));
 }finally{

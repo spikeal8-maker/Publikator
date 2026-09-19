@@ -20,15 +20,25 @@ migrate();
 assert.equal(Number(db.pragma('user_version',{simple:true})),11);
 
 const projectId=id('prj');
+const accountId=id('acc');
+const createdAt=nowIso();
 db.prepare('INSERT INTO projects(id,name,slug,default_timezone,created_at) VALUES (?,?,?,?,?)')
-  .run(projectId,'Backup v11 project','backup-v11-project','Asia/Tokyo',nowIso());
+  .run(projectId,'Backup v11 project','backup-v11-project','Asia/Tokyo',createdAt);
+db.prepare(`INSERT INTO social_accounts
+  (id,platform,name,credentials_encrypted,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)`)
+  .run(accountId,'telegram','Backup default target','encrypted',createdAt,createdAt);
+db.prepare('INSERT INTO project_default_targets(project_id,account_id,created_at) VALUES (?,?,?)')
+  .run(projectId,accountId,createdAt);
 
 const before=db.prepare('SELECT id,name,slug,default_timezone,created_at FROM projects WHERE id=?').get(projectId);
+const defaultsBefore=db.prepare(`SELECT project_id,account_id,created_at FROM project_default_targets
+  WHERE project_id=? ORDER BY account_id`).all(projectId);
 const bundle=await createBackupBundle('schema11-project-defaults');
 const bundlePath=resolveBackupBundle(bundle.name);
 assert.ok((await fs.stat(bundlePath)).size>0);
 
 db.prepare('UPDATE projects SET default_timezone=? WHERE id=?').run('UTC',projectId);
+db.prepare('DELETE FROM project_default_targets WHERE project_id=?').run(projectId);
 
 const staged=await stageRestoreBundle(bundlePath);
 assert.equal(staged.manifest.schemaVersion,11);
@@ -44,10 +54,16 @@ try{
     restored.prepare('SELECT id,name,slug,default_timezone,created_at FROM projects WHERE id=?').get(projectId),
     before
   );
+  assert.deepEqual(
+    restored.prepare(`SELECT project_id,account_id,created_at FROM project_default_targets
+      WHERE project_id=? ORDER BY account_id`).all(projectId),
+    defaultsBefore
+  );
   console.log(JSON.stringify({
     ok:true,
     schemaVersion:11,
     projectDefaultTimezoneRestored:true,
+    projectDefaultTargetsRestored:true,
     canonicalBackupRestore:true
   },null,2));
 }finally{

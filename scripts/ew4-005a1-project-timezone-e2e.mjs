@@ -27,10 +27,112 @@ async function api(method,url,payload,expected=200){
   return response;
 }
 
+const sortedIds=(values)=>[...values].sort();
+const enabledTargetIds=(post)=>sortedIds(post.targets.filter((target)=>Boolean(target.enabled)).map((target)=>target.account_id));
+
 try{
+  const telegram=(await api('POST','/api/accounts',{
+    platform:'telegram',name:'A3 Telegram',credentials:{token:'telegram'}
+  },201)).json();
+  const vk=(await api('POST','/api/accounts',{
+    platform:'vk',name:'A3 VK',credentials:{token:'vk'}
+  },201)).json();
+  const max=(await api('POST','/api/accounts',{
+    platform:'max',name:'A3 MAX',credentials:{token:'max'}
+  },201)).json();
+
   const initialProjects=(await api('GET','/api/projects')).json();
   assert.ok(initialProjects.length>=1);
   assert.ok(initialProjects.every((project)=>typeof project.default_timezone==='string'));
+  assert.ok(initialProjects.every((project)=>Array.isArray(project.defaultTargetAccountIds)));
+
+  const defaultsProject=(await api('POST','/api/projects',{
+    name:'Default targets project',
+    slug:'default-targets-project'
+  },201)).json();
+  assert.deepEqual(
+    sortedIds(defaultsProject.defaultTargetAccountIds),
+    sortedIds([telegram.id,vk.id,max.id])
+  );
+
+  await api('PATCH',`/api/projects/${defaultsProject.id}`,{
+    defaultTargetAccountIds:'not-an-array'
+  },400);
+
+  const explicitDefaults=(await api('PATCH',`/api/projects/${defaultsProject.id}`,{
+    defaultTargetAccountIds:[telegram.id,vk.id,telegram.id]
+  })).json();
+  assert.deepEqual(sortedIds(explicitDefaults.defaultTargetAccountIds),sortedIds([telegram.id,vk.id]));
+
+  const emptyDefaults=(await api('PATCH',`/api/projects/${defaultsProject.id}`,{
+    defaultTargetAccountIds:[]
+  })).json();
+  assert.deepEqual(emptyDefaults.defaultTargetAccountIds,[]);
+
+  await api('PATCH',`/api/projects/${defaultsProject.id}`,{
+    defaultTargetAccountIds:['acc_missing']
+  },400);
+  const afterUnknown=(await api('GET','/api/projects')).json().find((project)=>project.id===defaultsProject.id);
+  assert.deepEqual(afterUnknown.defaultTargetAccountIds,[]);
+
+  const restoredDefaults=(await api('PATCH',`/api/projects/${defaultsProject.id}`,{
+    defaultTargetAccountIds:[telegram.id,vk.id]
+  })).json();
+  assert.deepEqual(sortedIds(restoredDefaults.defaultTargetAccountIds),sortedIds([telegram.id,vk.id]));
+
+  const inheritedTargetsPost=(await api('POST','/api/posts',{
+    projectId:defaultsProject.id,
+    title:'Inherited project targets',
+    body:'Telegram and VK must be selected from project defaults'
+  },201)).json();
+  assert.deepEqual(enabledTargetIds(inheritedTargetsPost),sortedIds([telegram.id,vk.id]));
+
+  const overriddenTargets=(await api('PUT',`/api/posts/${inheritedTargetsPost.id}/targets`,{
+    accountIds:[max.id],
+    expectedContentVersion:1
+  })).json();
+  assert.deepEqual(enabledTargetIds(overriddenTargets),[max.id]);
+  const projectAfterOverride=(await api('GET','/api/projects')).json().find((project)=>project.id===defaultsProject.id);
+  assert.deepEqual(sortedIds(projectAfterOverride.defaultTargetAccountIds),sortedIds([telegram.id,vk.id]));
+
+  const safetyProject=(await api('POST','/api/projects',{
+    name:'Existing post safety',
+    slug:'existing-post-safety'
+  },201)).json();
+  await api('PATCH',`/api/projects/${safetyProject.id}`,{
+    defaultTargetAccountIds:[telegram.id]
+  });
+  const postA=(await api('POST','/api/posts',{
+    projectId:safetyProject.id,
+    title:'Post A',
+    body:'Old post must keep its inherited targets'
+  },201)).json();
+  assert.deepEqual(enabledTargetIds(postA),[telegram.id]);
+  const postATargetsBefore=db.prepare(`SELECT account_id,enabled,state FROM post_targets
+    WHERE post_id=? ORDER BY account_id`).all(postA.id);
+  const postAVersionBefore=db.prepare('SELECT content_version FROM posts WHERE id=?').get(postA.id).content_version;
+  const postARevisionCountBefore=db.prepare('SELECT COUNT(*) AS count FROM content_revisions WHERE post_id=?').get(postA.id).count;
+
+  const changedDefaults=(await api('PATCH',`/api/projects/${safetyProject.id}`,{
+    defaultTargetAccountIds:[vk.id,max.id]
+  })).json();
+  assert.deepEqual(sortedIds(changedDefaults.defaultTargetAccountIds),sortedIds([vk.id,max.id]));
+
+  const postAAfter=(await api('GET',`/api/posts/${postA.id}`)).json();
+  assert.deepEqual(enabledTargetIds(postAAfter),[telegram.id]);
+  assert.deepEqual(
+    db.prepare(`SELECT account_id,enabled,state FROM post_targets WHERE post_id=? ORDER BY account_id`).all(postA.id),
+    postATargetsBefore
+  );
+  assert.equal(db.prepare('SELECT content_version FROM posts WHERE id=?').get(postA.id).content_version,postAVersionBefore);
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM content_revisions WHERE post_id=?').get(postA.id).count,postARevisionCountBefore);
+
+  const postB=(await api('POST','/api/posts',{
+    projectId:safetyProject.id,
+    title:'Post B',
+    body:'New post must see changed project defaults'
+  },201)).json();
+  assert.deepEqual(enabledTargetIds(postB),sortedIds([vk.id,max.id]));
 
   const utcProject=(await api('POST','/api/projects',{
     name:'UTC project',
@@ -108,8 +210,17 @@ try{
 
   console.log(JSON.stringify({
     ok:true,
-    checkpoint:'EW4-005A1',
+    checkpoint:'EW4-005A3',
     schemaVersion:Number(db.pragma('user_version',{simple:true})),
+    migrationDefaultTargetBackfill:true,
+    newProjectInitialDefaults:true,
+    patchExplicitDefaults:true,
+    patchEmptyDefaults:true,
+    unknownAccountRejected:true,
+    newPostInheritsDefaults:true,
+    perPostOverrideIsolation:true,
+    oldPostUnchanged:true,
+    newPostSeesChangedDefaults:true,
     createDefaultUtc:true,
     createExplicitTimezone:true,
     invalidTimezone400:true,
