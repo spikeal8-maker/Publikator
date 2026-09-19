@@ -1,4 +1,5 @@
 import { statusLabel } from './presentation-labels.js';
+import { mountRichTextEditor, plainTextToRichDocument } from './rich-text-editor-v1.js';
 
 const operatorView = document.querySelector('#view');
 const operatorTitle = document.querySelector('#page-title');
@@ -278,10 +279,124 @@ async function renderSourcesPage() {
   }
 }
 
-function renderTemplatesPage() {
+
+function templateTargetSummary(template, accountsById) {
+  if (template.targetAccountIds === null) return 'По умолчанию проекта';
+  if (!template.targetAccountIds.length) return 'Не выбраны';
+  return template.targetAccountIds.map((accountId) => {
+    const account = accountsById.get(accountId);
+    return account ? `${OPERATOR_PLATFORM[account.platform]?.label || account.platform} / ${account.name}` : `Недоступен / ${accountId}`;
+  }).join(', ');
+}
+
+async function renderTemplateEditor(templateId = null) {
   operatorTitle.textContent = 'Шаблоны';
-  operatorView.innerHTML = `<div class="operator-page"><div class="operator-page-head"><div><h2>Шаблоны</h2><p>Здесь будут храниться повторно используемые заготовки текста, структуры и настроек публикации.</p></div></div><div class="operator-empty">Шаблоны пока не включены. До их появления создавайте и дублируйте материалы через раздел «Контент».</div><div class="operator-actions"><button id="operator-template-content" class="primary" type="button">Открыть контент</button></div></div>`;
-  document.querySelector('#operator-template-content').onclick = () => operatorGo('/content');
+  operatorView.innerHTML = '<div class="muted">Загрузка шаблона…</div>';
+  try {
+    const [templates, projects, accounts] = await Promise.all([
+      operatorApi('/api/templates'),
+      operatorApi('/api/projects'),
+      operatorApi('/api/accounts')
+    ]);
+    const template = templateId ? templates.find((item) => item.id === templateId) : null;
+    if (templateId && !template) throw new Error('Шаблон не найден');
+    const selectedTargets = new Set(template?.targetAccountIds || []);
+    const useProjectDefaults = template?.targetAccountIds === null || !template;
+    operatorView.innerHTML = `<div class="operator-page">
+      <div class="operator-page-head"><div><h2>${template ? 'Редактировать шаблон' : 'Новый шаблон'}</h2><p>Шаблон хранит снимок текста и настроек. Созданная публикация дальше живёт независимо.</p></div><button id="operator-template-back" class="secondary" type="button">К шаблонам</button></div>
+      <form id="operator-template-form" class="operator-form">
+        <label>Название<input name="name" required value="${operatorEsc(template?.name || '')}" placeholder="Например: Анонс урока"></label>
+        <label>Key<input name="key" required pattern="[A-Za-z0-9._:-]{1,128}" value="${operatorEsc(template?.key || '')}" placeholder="lesson-announcement"><span class="operator-field-help">Стабильный ключ для будущих интеграций.</span></label>
+        <label>Проект<select name="projectId">${projects.map((project) => `<option value="${operatorEsc(project.id)}" ${template?.projectId === project.id ? 'selected' : ''}>${operatorEsc(project.name)}</option>`).join('')}</select></label>
+        <label>Тип публикации<select name="publicationKind"><option value="FEED">Пост / FEED</option><option value="SHORT" ${template?.publicationKind === 'SHORT' ? 'selected' : ''}>Короткое видео / SHORT</option><option value="STORY" ${template?.publicationKind === 'STORY' ? 'selected' : ''}>История / STORY</option></select></label>
+        <label>Формат<select name="contentFormat"><option value="TEXT_ONLY">Только текст</option><option value="IMAGE" ${!template || template?.contentFormat === 'IMAGE' ? 'selected' : ''}>Изображение</option><option value="CAROUSEL" ${template?.contentFormat === 'CAROUSEL' ? 'selected' : ''}>Карусель</option><option value="VIDEO" ${template?.contentFormat === 'VIDEO' ? 'selected' : ''}>Видео</option><option value="VERTICAL_VIDEO" ${template?.contentFormat === 'VERTICAL_VIDEO' ? 'selected' : ''}>Вертикальное видео</option><option value="STORY_SEQUENCE" ${template?.contentFormat === 'STORY_SEQUENCE' ? 'selected' : ''}>Серия историй</option></select></label>
+        <label>Режим публикации<select name="scheduleMode"><option value="MANUAL">Вручную</option><option value="QUEUE" ${template?.scheduleMode === 'QUEUE' ? 'selected' : ''}>Очередь</option><option value="AT" ${template?.scheduleMode === 'AT' ? 'selected' : ''}>Указать время после создания</option></select><span class="operator-field-help">Шаблон не хранит абсолютную будущую дату.</span></label>
+        <div class="full rich-text-field"><span class="rich-text-label">Текст</span><div id="operator-template-rich" data-template-rich-editor></div></div>
+        <div class="full"><label class="target-check"><input id="operator-template-project-defaults" type="checkbox" ${useProjectDefaults ? 'checked' : ''}> Использовать площадки проекта по умолчанию</label>
+          <div class="target-picker" id="operator-template-targets">${accounts.map((account) => `<label class="target-check"><input type="checkbox" name="templateTarget" value="${operatorEsc(account.id)}" ${selectedTargets.has(account.id) ? 'checked' : ''}> ${operatorEsc(OPERATOR_PLATFORM[account.platform]?.label || account.platform)} — ${operatorEsc(account.name)}${account.enabled ? '' : ' · отключено'}</label>`).join('') || '<span class="muted">Нет подключённых соцсетей</span>'}</div>
+        </div>
+        <div id="operator-template-error" class="error full"></div>
+        <div class="row-actions full"><button class="primary" type="submit">Сохранить</button><button id="operator-template-cancel" class="secondary" type="button">Отмена</button></div>
+      </form>
+    </div>`;
+    const form = operatorView.querySelector('#operator-template-form');
+    const richEditor = mountRichTextEditor(form.querySelector('[data-template-rich-editor]'), {
+      document: template?.bodyRich || plainTextToRichDocument('')
+    });
+    const defaults = form.querySelector('#operator-template-project-defaults');
+    const syncTargetMode = () => form.querySelectorAll('input[name="templateTarget"]').forEach((input) => { input.disabled = defaults.checked; });
+    defaults.addEventListener('change', syncTargetMode);
+    syncTargetMode();
+    operatorView.querySelector('#operator-template-back').onclick = renderTemplatesPage;
+    operatorView.querySelector('#operator-template-cancel').onclick = renderTemplatesPage;
+    form.onsubmit = async (event) => {
+      event.preventDefault();
+      const error = form.querySelector('#operator-template-error');
+      error.textContent = '';
+      try {
+        const data = new FormData(form);
+        const payload = {
+          name: String(data.get('name') || '').trim(),
+          key: String(data.get('key') || '').trim(),
+          projectId: String(data.get('projectId') || ''),
+          bodyRich: richEditor.getDocument(),
+          publicationKind: String(data.get('publicationKind') || 'FEED'),
+          contentFormat: String(data.get('contentFormat') || 'IMAGE'),
+          scheduleMode: String(data.get('scheduleMode') || 'MANUAL'),
+          targetAccountIds: defaults.checked ? null : [...form.querySelectorAll('input[name="templateTarget"]:checked')].map((input) => input.value)
+        };
+        await operatorApi(template ? `/api/templates/${encodeURIComponent(template.id)}` : '/api/templates', {
+          method: template ? 'PATCH' : 'POST',
+          body: JSON.stringify(payload)
+        });
+        await renderTemplatesPage();
+      } catch (failure) {
+        error.textContent = failure instanceof Error ? failure.message : String(failure);
+      }
+    };
+  } catch (error) {
+    operatorView.innerHTML = `<div class="card error">${operatorEsc(error instanceof Error ? error.message : String(error))}</div>`;
+  }
+}
+
+async function renderTemplatesPage() {
+  operatorTitle.textContent = 'Шаблоны';
+  operatorView.innerHTML = '<div class="muted">Загрузка шаблонов…</div>';
+  try {
+    const [templates, accounts] = await Promise.all([operatorApi('/api/templates'), operatorApi('/api/accounts')]);
+    const accountsById = new Map(accounts.map((account) => [account.id, account]));
+    operatorView.innerHTML = `<div class="operator-page">
+      <div class="operator-page-head"><div><h2>Шаблоны</h2><p>Создавайте повторно используемые заготовки. При создании публикации текст и настройки копируются снимком.</p></div><button id="operator-new-template" class="primary" type="button">+ Новый шаблон</button></div>
+      <table class="table"><thead><tr><th>Название</th><th>Key</th><th>Проект</th><th>Тип</th><th>Площадки</th><th>Изменён</th><th>Действия</th></tr></thead>
+      <tbody>${templates.map((template) => `<tr data-template-id="${operatorEsc(template.id)}"><td><strong>${operatorEsc(template.name)}</strong></td><td>${operatorEsc(template.key)}</td><td>${operatorEsc(template.projectName || template.projectId)}</td><td>${operatorEsc(template.templateType)}</td><td class="small">${operatorEsc(templateTargetSummary(template, accountsById))}</td><td class="small">${operatorEsc(new Date(template.updatedAt).toLocaleString())}</td><td><div class="row-actions"><button class="primary operator-template-create-post" type="button">Создать публикацию</button><button class="secondary operator-template-edit" type="button">Редактировать</button><button class="secondary danger operator-template-delete" type="button">Удалить</button></div></td></tr>`).join('') || '<tr><td colspan="7">Шаблонов пока нет</td></tr>'}</tbody></table>
+      <div id="operator-template-result"></div>
+    </div>`;
+    operatorView.querySelector('#operator-new-template').onclick = () => renderTemplateEditor();
+    operatorView.querySelectorAll('.operator-template-edit').forEach((button) => button.onclick = () => renderTemplateEditor(button.closest('tr').dataset.templateId));
+    operatorView.querySelectorAll('.operator-template-delete').forEach((button) => button.onclick = async () => {
+      const row = button.closest('tr');
+      const template = templates.find((item) => item.id === row.dataset.templateId);
+      if (!window.confirm(`Удалить шаблон «${template?.name || ''}»?`)) return;
+      await operatorApi(`/api/templates/${encodeURIComponent(row.dataset.templateId)}`, { method: 'DELETE' });
+      await renderTemplatesPage();
+    });
+    operatorView.querySelectorAll('.operator-template-create-post').forEach((button) => button.onclick = async () => {
+      const row = button.closest('tr');
+      button.disabled = true;
+      try {
+        const created = await operatorApi(`/api/templates/${encodeURIComponent(row.dataset.templateId)}/create-post`, { method: 'POST', body: '{}' });
+        if (created.warnings?.length) {
+          window.alert(`Публикация создана. Недоступные площадки пропущены: ${created.warnings.map((warning) => warning.accountId).join(', ')}`);
+        }
+        operatorGo('/content');
+      } catch (error) {
+        button.disabled = false;
+        operatorView.querySelector('#operator-template-result').innerHTML = `<div class="operator-result error">${operatorEsc(error instanceof Error ? error.message : String(error))}</div>`;
+      }
+    });
+  } catch (error) {
+    operatorView.innerHTML = `<div class="card error">${operatorEsc(error instanceof Error ? error.message : String(error))}</div>`;
+  }
 }
 
 const CUSTOM_ROUTES = new Map([

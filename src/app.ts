@@ -27,6 +27,7 @@ import { registerGoogleSheetsRoutes } from './http/google-sheets.js';
 import { registerGoogleDriveMediaRoutes } from './http/google-drive-media.js';
 import { registerYandexDiskMediaRoutes } from './http/yandex-disk-media.js';
 import { registerRevisionHistoryRoutes } from './http/revision-history.js';
+import { registerTemplateRoutes } from './http/templates.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -47,6 +48,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await registerCalendarRoutes(app);
   await registerContentLibraryRoutes(app);
   await registerRevisionHistoryRoutes(app);
+  await registerTemplateRoutes(app);
   await registerPlatformCapabilityRoutes(app);
   await registerPlatformPreviewRoutes(app);
   await registerEditorialDashboardRoutes(app);
