@@ -198,8 +198,39 @@ function inlineFromDom(node,marks=[]){
   return [...element.childNodes].flatMap(child=>inlineFromDom(child,nextMarks));
 }
 
+const DOM_BLOCK_TAGS=new Set(['p','div','blockquote','ul','ol','pre']);
+
 function directInlineBlock(element){
   return {type:'paragraph',content:mergeText([...element.childNodes].flatMap(child=>inlineFromDom(child,[])))};
+}
+
+function blocksFromContainer(container){
+  const content=[];
+  let loose=[];
+  const flushLoose=()=>{
+    if(!loose.length)return;
+    const paragraph={type:'paragraph',content:mergeText(loose.flatMap(node=>inlineFromDom(node,[])))};
+    if(paragraph.content.length)content.push(paragraph);
+    loose=[];
+  };
+
+  for(const node of container.childNodes){
+    if(node.nodeType===Node.ELEMENT_NODE&&DOM_BLOCK_TAGS.has(node.tagName.toLowerCase())){
+      flushLoose();
+      const element=node;
+      const tag=element.tagName.toLowerCase();
+      if(tag==='div'&&[...element.children].some(child=>DOM_BLOCK_TAGS.has(child.tagName.toLowerCase()))){
+        content.push(...blocksFromContainer(element));
+      }else{
+        const block=blockFromDom(element);
+        if(block)content.push(block);
+      }
+    }else{
+      loose.push(node);
+    }
+  }
+  flushLoose();
+  return content;
 }
 
 function blockFromDom(element){
@@ -216,38 +247,22 @@ function blockFromDom(element){
     return {type:'code_block',content};
   }
   if(tag==='blockquote'){
-    const blocks=[...element.children].map(blockFromDom).filter(Boolean);
-    return {type:'blockquote',content:blocks.length?blocks:[directInlineBlock(element)]};
+    const content=blocksFromContainer(element);
+    return {type:'blockquote',content:content.length?content:[directInlineBlock(element)]};
   }
   if(tag==='ul'||tag==='ol'){
     return {type:tag==='ul'?'bullet_list':'ordered_list',content:[...element.children]
       .filter(child=>child.tagName?.toLowerCase()==='li').map(blockFromDom).filter(Boolean)};
   }
   if(tag==='li'){
-    const blockChildren=[...element.children].filter(child=>['p','div','blockquote','ul','ol','pre'].includes(child.tagName.toLowerCase()));
-    const content=blockChildren.length?blockChildren.map(blockFromDom).filter(Boolean):[directInlineBlock(element)];
-    return {type:'list_item',content};
+    const content=blocksFromContainer(element);
+    return {type:'list_item',content:content.length?content:[directInlineBlock(element)]};
   }
   return null;
 }
 
 function documentFromSurface(surface){
-  const content=[];
-  let loose=[];
-  const flushLoose=()=>{
-    if(!loose.length)return;
-    content.push({type:'paragraph',content:mergeText(loose.flatMap(node=>inlineFromDom(node,[])))});
-    loose=[];
-  };
-  for(const node of surface.childNodes){
-    if(node.nodeType===Node.ELEMENT_NODE&&['p','div','blockquote','ul','ol','pre'].includes(node.tagName.toLowerCase())){
-      flushLoose();
-      const block=blockFromDom(node);
-      if(block)content.push(block);
-    }else loose.push(node);
-  }
-  flushLoose();
-  return normalizeRichDocument({type:'doc',content});
+  return normalizeRichDocument({type:'doc',content:blocksFromContainer(surface)});
 }
 
 function insertTextAtSelection(text){
