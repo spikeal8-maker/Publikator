@@ -269,12 +269,13 @@ try {
 
   {
     const richLong={type:'doc',content:[{type:'paragraph',content:[
-      {type:'text',text:'я'.repeat(1021),marks:[]},
+      {type:'text',text:'я'.repeat(1022),marks:[]},
       {type:'text',text:'Ж🙂Ж',marks:[{type:'bold'}]}
     ]}]};
     const compiled=compilePlatformText('telegram',richLong,'media_caption');
     assert.equal(compiled.transport.kind,'telegram_entities');
     assert.ok(compiled.transport.text.length>1024);
+    assert.ok(Array.from(compiled.transport.text).length>1024,'caption limit uses Unicode characters, not UTF-16 units');
     const steps = [
       { telegramMethod: 'sendPhoto', check: (call) => { assert.equal(call.init.body.get('caption'), ''); assert.equal(call.init.body.get('caption_entities'), null); }, response: { ok: true, result: { message_id: 301 } } },
       { telegramMethod: 'sendMessage', check: (call) => {
