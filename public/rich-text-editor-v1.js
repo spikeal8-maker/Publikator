@@ -282,11 +282,12 @@ function insertTextAtSelection(text){
   selection.addRange(range);
 }
 
-function wrapSelection(tag){
+function wrapSelection(tag,attrs={}){
   const selection=window.getSelection();
-  if(!selection?.rangeCount||selection.isCollapsed)return;
+  if(!selection?.rangeCount||selection.isCollapsed)return null;
   const range=selection.getRangeAt(0);
   const wrapper=document.createElement(tag);
+  for(const [name,value] of Object.entries(attrs))wrapper.setAttribute(name,String(value));
   try{range.surroundContents(wrapper);}catch{
     const contents=range.extractContents();
     wrapper.append(contents);
@@ -296,6 +297,7 @@ function wrapSelection(tag){
   const next=document.createRange();
   next.selectNodeContents(wrapper);
   selection.addRange(next);
+  return wrapper;
 }
 
 const TOOLBAR=[
@@ -363,7 +365,9 @@ export function mountRichTextEditor(host,{document:initialDocument,onChange,disa
     const command=key==='b'?'bold':key==='i'?'italic':key==='u'?'underline':null;
     if(!command)return;
     event.preventDefault();
-    document.execCommand(command,false);
+    if(command==='bold')wrapSelection('strong');
+    else if(command==='italic')wrapSelection('em');
+    else wrapSelection('u');
     changed();
   });
 
@@ -373,8 +377,10 @@ export function mountRichTextEditor(host,{document:initialDocument,onChange,disa
     if(!button||button.disabled)return;
     const command=button.dataset.richCommand;
     surface.focus();
-    if(command==='bold'||command==='italic'||command==='underline')document.execCommand(command,false);
-    else if(command==='strike')document.execCommand('strikeThrough',false);
+    if(command==='bold')wrapSelection('strong');
+    else if(command==='italic')wrapSelection('em');
+    else if(command==='underline')wrapSelection('u');
+    else if(command==='strike')wrapSelection('s');
     else if(command==='bullet')document.execCommand('insertUnorderedList',false);
     else if(command==='ordered')document.execCommand('insertOrderedList',false);
     else if(command==='quote')document.execCommand('formatBlock',false,'blockquote');
@@ -387,7 +393,7 @@ export function mountRichTextEditor(host,{document:initialDocument,onChange,disa
       if(href){
         const safe=safeHref(href);
         if(!safe)window.alert('Разрешены только безопасные http/https ссылки без логина и пароля.');
-        else document.execCommand('createLink',false,safe);
+        else wrapSelection('a',{href:safe});
       }
     }
     changed();
