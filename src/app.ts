@@ -28,6 +28,7 @@ import { registerGoogleDriveMediaRoutes } from './http/google-drive-media.js';
 import { registerYandexDiskMediaRoutes } from './http/yandex-disk-media.js';
 import { registerRevisionHistoryRoutes } from './http/revision-history.js';
 import { registerTemplateRoutes } from './http/templates.js';
+import { registerIntegrationApiRoutes } from './http/integration-api.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -43,6 +44,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await registerMaintenanceGuard(app);
   await registerLegacyBackupBlocker(app);
   await registerRoutes(app);
+  await registerIntegrationApiRoutes(app);
   await registerVideoMediaRoutes(app);
   await registerEditorialLifecycleRoutes(app);
   await registerCalendarRoutes(app);

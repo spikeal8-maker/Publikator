@@ -6,7 +6,8 @@ import {
   ContentConflictError,
   ContentImmutableError,
   ContentNotFoundError,
-  commitContentEdit
+  commitContentEdit,
+  type RevisionActorSource
 } from './content-versioning.js';
 
 export type EditorialStage = 'IDEA' | 'DRAFT' | 'IN_REVIEW' | 'APPROVED' | 'ARCHIVED' | 'TRASHED';
@@ -123,6 +124,38 @@ export function restorePost(postId: string, expectedContentVersion: number): Lif
     return futureTransition(post, expectedContentVersion, 'DRAFT', 'post_restored', 'Публикация восстановлена как черновик');
   });
   return transaction();
+}
+
+
+export function requestReviewPost(
+  postId: string,
+  expectedContentVersion: number,
+  actorSource: RevisionActorSource = 'manual'
+): LifecycleResult {
+  return db.transaction((): LifecycleResult => {
+    const post = lifecyclePost(postId);
+    assertVersion(post, expectedContentVersion);
+    if (!FUTURE_STATUSES.has(post.status)) {
+      throw new ContentImmutableError('Request review доступен только для ещё не опубликованного поста');
+    }
+    if (post.editorial_stage === 'ARCHIVED' || post.editorial_stage === 'TRASHED') {
+      throw new ContentImmutableError('Сначала восстановите пост из архива или корзины');
+    }
+    const committed = commitContentEdit(
+      post.id,
+      expectedContentVersion,
+      actorSource,
+      () => undefined,
+      { editorialStage: 'IN_REVIEW', status: 'DRAFT' }
+    );
+    event({
+      postId: post.id,
+      type: 'post_review_requested',
+      message: 'Публикация отправлена на проверку',
+      data: { previousStage: post.editorial_stage, contentVersion: committed.contentVersion }
+    });
+    return { contentVersion: committed.contentVersion, editorialStage: 'IN_REVIEW', status: 'DRAFT' };
+  })();
 }
 
 export type EditorialActions = {

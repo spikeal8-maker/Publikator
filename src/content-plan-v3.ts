@@ -423,16 +423,25 @@ function existingSelectedTargets(postId: string, accounts: AccountRow[]): Resolv
   return resolveAccountIds(ids, accounts, [], 'existing targets');
 }
 
-function existingRichOverrides(postId: string): Array<{ accountId: string; richJson: string }> {
-  const rows = db.prepare(`SELECT pt.account_id,tr.text_rich_json
+function existingRichOverrides(postId: string): RichOverride[] {
+  const rows = db.prepare(`SELECT pt.account_id,a.platform,a.name,tr.text_rich_json,tr.text_plain
     FROM post_targets pt
+    JOIN social_accounts a ON a.id=pt.account_id
     JOIN target_renditions tr ON tr.target_id=pt.id
     WHERE pt.post_id=? AND pt.enabled=1 AND tr.text_rich_json IS NOT NULL
-    ORDER BY pt.account_id`).all(postId) as Array<{ account_id: string; text_rich_json: string }>;
-  return rows.map((row) => ({
-    accountId: row.account_id,
-    richJson: serializeRichText(parseRichTextJson(row.text_rich_json))
-  }));
+    ORDER BY pt.account_id`).all(postId) as Array<{
+      account_id: string; platform: Platform; name: string; text_rich_json: string; text_plain: string | null;
+    }>;
+  return rows.map((row) => {
+    const document = parseRichTextJson(row.text_rich_json);
+    return {
+      accountId: row.account_id,
+      platform: row.platform,
+      name: row.name,
+      richJson: serializeRichText(document),
+      text: row.text_plain ?? richTextToPlain(document)
+    };
+  });
 }
 
 function templateByKey(key: string, projectId: string, errors: string[]): TemplateSnapshotRow | null {
@@ -528,6 +537,245 @@ function semanticExistingMatch(existing: ExistingSourcePost, input: {
     .map((override) => ({ accountId: override.accountId, richJson: override.richJson }))
     .sort((a, b) => a.accountId.localeCompare(b.accountId));
   return JSON.stringify(currentOverrides) === JSON.stringify(nextOverrides);
+}
+
+
+export type EditorialDraftContractInput = {
+  project?: unknown;
+  externalId?: unknown;
+  templateKey?: unknown;
+  internalTitle?: unknown;
+  body?: unknown;
+  publicationKind?: unknown;
+  contentFormat?: unknown;
+  targets?: unknown;
+  overrides?: unknown;
+  schedule?: unknown;
+};
+
+export class EditorialDraftContractError extends Error {
+  constructor(public readonly issues: string[]) {
+    super(issues.join('; '));
+  }
+}
+
+function optionalString(value: unknown, field: string, errors: string[]): string {
+  if (value === undefined || value === null) return '';
+  if (typeof value !== 'string') {
+    errors.push(`${field}: string required`);
+    return '';
+  }
+  return value.trim();
+}
+
+function overrideCells(value: unknown, errors: string[]): V3Cells {
+  const cells = Object.fromEntries(CONTENT_PLAN_V3_COLUMNS.map((column) => [column, ''])) as V3Cells;
+  if (value === undefined || value === null) return cells;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    errors.push('overrides: object required');
+    return cells;
+  }
+  const columns: Record<string, 'telegram_body' | 'vk_body' | 'max_body' | 'instagram_body'> = {
+    telegram: 'telegram_body', vk: 'vk_body', max: 'max_body', instagram: 'instagram_body'
+  };
+  for (const [platform, raw] of Object.entries(value as Record<string, unknown>)) {
+    const column = columns[platform];
+    if (!column) {
+      errors.push(`overrides: unsupported platform ${platform}`);
+      continue;
+    }
+    if (typeof raw !== 'string') {
+      errors.push(`overrides.${platform}: string required`);
+      continue;
+    }
+    cells[column] = raw.trim();
+  }
+  return cells;
+}
+
+export function resolveEditorialDraftV3(
+  input: EditorialDraftContractInput,
+  identity: { externalId: string; sourceRevision: string }
+): V3Normalized {
+  const errors: string[] = [];
+  const project = optionalString(input.project, 'project', errors);
+  const projectRow = project
+    ? db.prepare('SELECT id,slug,default_timezone FROM projects WHERE slug=?').get(project) as ProjectRow | undefined
+    : undefined;
+  if (!project) errors.push('project is required');
+  else if (!projectRow) errors.push(`project not found: ${project}`);
+
+  const templateKey = optionalString(input.templateKey, 'templateKey', errors);
+  const template = projectRow && templateKey ? templateByKey(templateKey, projectRow.id, errors) : null;
+  const title = optionalString(input.internalTitle, 'internalTitle', errors);
+  if (!title) errors.push('internalTitle is required');
+
+  let body = '';
+  let bodyRichJson = serializeRichText(parsePortableRichText(''));
+  const explicitBody = optionalString(input.body, 'body', errors);
+  if (explicitBody) {
+    const parsed = portableContent(explicitBody, errors, 'body');
+    if (parsed) { body = parsed.plain; bodyRichJson = parsed.richJson; }
+  } else if (template) {
+    try {
+      const document = parseRichTextJson(template.body_rich_json);
+      bodyRichJson = serializeRichText(document);
+      body = richTextToPlain(document);
+    } catch (error) {
+      errors.push(`templateKey: template rich text is invalid: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  } else {
+    errors.push('body is required when templateKey is empty');
+  }
+  if (!body.trim() && !errors.some((issue) => issue.startsWith('body'))) errors.push('body must not be empty');
+
+  const publicationKind = publicationKindValue(
+    optionalString(input.publicationKind, 'publicationKind', errors),
+    template?.publication_kind ?? 'FEED',
+    errors
+  );
+  const contentFormat = contentFormatValue(
+    optionalString(input.contentFormat, 'contentFormat', errors),
+    template?.content_format ?? 'IMAGE',
+    errors
+  );
+
+  let scheduleRecord: Record<string, unknown> = {};
+  if (input.schedule !== undefined && input.schedule !== null) {
+    if (!input.schedule || typeof input.schedule !== 'object' || Array.isArray(input.schedule)) {
+      errors.push('schedule: object required');
+    } else scheduleRecord = input.schedule as Record<string, unknown>;
+  }
+  const scheduleModeRaw = optionalString(scheduleRecord.mode, 'schedule.mode', errors)
+    || template?.schedule_mode || 'MANUAL';
+  const scheduledAtRaw = optionalString(scheduleRecord.at, 'schedule.at', errors);
+  const scheduleTimezoneRaw = optionalString(scheduleRecord.timezone, 'schedule.timezone', errors);
+  const schedule = projectRow
+    ? parseSchedule(scheduleModeRaw, scheduledAtRaw, scheduleTimezoneRaw, projectRow.default_timezone, errors)
+    : null;
+  const scheduleMode = schedule?.mode ?? 'MANUAL';
+  const scheduledAt = schedule?.at ?? null;
+  const scheduleTimezone = schedule?.timezone ?? null;
+
+  const accounts = db.prepare('SELECT id,platform,name,enabled FROM social_accounts').all() as AccountRow[];
+  let targetMode: TargetMode = 'EXPLICIT';
+  let targets: ResolvedAccount[] = [];
+  if (Object.prototype.hasOwnProperty.call(input, 'targets')) {
+    if (!Array.isArray(input.targets)) errors.push('targets: array required');
+    else targets = parseTargets(JSON.stringify(input.targets), accounts, errors);
+  } else if (template && projectRow) {
+    const resolved = templateTargets(template, projectRow.id, accounts, errors);
+    targetMode = resolved.mode;
+    targets = resolved.targets;
+  } else if (projectRow) {
+    targetMode = 'PROJECT_DEFAULTS';
+    targets = projectDefaultTargets(projectRow.id, accounts);
+  }
+
+  const overrides = resolveOverrides(overrideCells(input.overrides, errors), targets, errors);
+  if (!/^[A-Za-z0-9._:-]{1,128}$/.test(identity.externalId)) {
+    errors.push('idempotency identity: 1-128 chars A-Z a-z 0-9 . _ : -');
+  }
+  const sourceRevision = identity.sourceRevision.trim();
+  if (!sourceRevision || sourceRevision.length > 160) errors.push('externalId is required (max 160 chars)');
+  if (errors.length) throw new EditorialDraftContractError(errors);
+
+  const hash = payloadHash({
+    action: 'UPSERT', projectId: projectRow!.id, templateKey, title, bodyRichJson,
+    publicationKind, contentFormat, scheduleMode, scheduledAt, scheduleTimezone, targets, overrides
+  });
+  return {
+    rowNumber: 1, externalId: identity.externalId, sourceRevision,
+    payloadHash: hash, action: 'UPSERT', projectId: projectRow!.id, project, templateKey,
+    title, body, bodyRichJson, publicationKind, contentFormat, scheduleMode, scheduledAt,
+    scheduleTimezone, targetMode, targets, overrides, classification: 'NEW',
+    postId: null, importedContentVersion: null
+  };
+}
+
+export type EditorialUpdateResolution = Pick<V3Normalized,
+  'title' | 'body' | 'bodyRichJson' | 'publicationKind' | 'contentFormat' |
+  'scheduleMode' | 'scheduledAt' | 'scheduleTimezone' | 'targets' | 'overrides'
+>;
+
+export function resolveEditorialUpdateV3(postId: string, input: EditorialDraftContractInput): EditorialUpdateResolution {
+  const errors: string[] = [];
+  if (Object.prototype.hasOwnProperty.call(input, 'templateKey')) errors.push('templateKey is snapshot-only on NEW');
+  if (Object.prototype.hasOwnProperty.call(input, 'project')) errors.push('project cannot be changed by Integration API update');
+  if (Object.prototype.hasOwnProperty.call(input, 'externalId')) errors.push('externalId cannot be changed');
+
+  const current = db.prepare(`SELECT p.*,pr.slug AS project_slug,pr.default_timezone
+    FROM posts p JOIN projects pr ON pr.id=p.project_id WHERE p.id=?`).get(postId) as
+    (ExistingSourcePost & { project_slug: string; default_timezone: string; body_rich_json: string }) | undefined;
+  if (!current) throw new EditorialDraftContractError(['post not found']);
+
+  const title = Object.prototype.hasOwnProperty.call(input, 'internalTitle')
+    ? optionalString(input.internalTitle, 'internalTitle', errors) : current.title;
+  if (!title) errors.push('internalTitle must not be empty');
+
+  let body = current.body;
+  let bodyRichJson = serializeRichText(parseRichTextJson(current.body_rich_json));
+  if (Object.prototype.hasOwnProperty.call(input, 'body')) {
+    const explicitBody = optionalString(input.body, 'body', errors);
+    if (!explicitBody) errors.push('body must not be empty');
+    else {
+      const parsed = portableContent(explicitBody, errors, 'body');
+      if (parsed) { body = parsed.plain; bodyRichJson = parsed.richJson; }
+    }
+  }
+
+  const publicationKind = publicationKindValue(
+    Object.prototype.hasOwnProperty.call(input, 'publicationKind')
+      ? optionalString(input.publicationKind, 'publicationKind', errors) : current.publication_kind,
+    current.publication_kind, errors
+  );
+  const contentFormat = contentFormatValue(
+    Object.prototype.hasOwnProperty.call(input, 'contentFormat')
+      ? optionalString(input.contentFormat, 'contentFormat', errors) : current.content_format,
+    current.content_format, errors
+  );
+
+  let scheduleMode = current.schedule_mode;
+  let scheduledAt = current.scheduled_at_utc;
+  let scheduleTimezone = current.schedule_timezone;
+  if (Object.prototype.hasOwnProperty.call(input, 'schedule')) {
+    if (!input.schedule || typeof input.schedule !== 'object' || Array.isArray(input.schedule)) {
+      errors.push('schedule: object required');
+    } else {
+      const scheduleRecord = input.schedule as Record<string, unknown>;
+      const modeRaw = optionalString(scheduleRecord.mode, 'schedule.mode', errors) || current.schedule_mode;
+      const atRaw = Object.prototype.hasOwnProperty.call(scheduleRecord, 'at')
+        ? optionalString(scheduleRecord.at, 'schedule.at', errors)
+        : (current.schedule_mode === 'AT' ? current.scheduled_at_utc ?? '' : '');
+      const timezoneRaw = Object.prototype.hasOwnProperty.call(scheduleRecord, 'timezone')
+        ? optionalString(scheduleRecord.timezone, 'schedule.timezone', errors)
+        : (current.schedule_mode === 'AT' ? current.schedule_timezone ?? '' : '');
+      const schedule = parseSchedule(modeRaw, atRaw, timezoneRaw, current.default_timezone, errors);
+      if (schedule) {
+        scheduleMode = schedule.mode;
+        scheduledAt = schedule.at;
+        scheduleTimezone = schedule.timezone;
+      }
+    }
+  }
+
+  const accounts = db.prepare('SELECT id,platform,name,enabled FROM social_accounts').all() as AccountRow[];
+  let targets = existingSelectedTargets(postId, accounts);
+  if (Object.prototype.hasOwnProperty.call(input, 'targets')) {
+    if (!Array.isArray(input.targets)) errors.push('targets: array required');
+    else targets = parseTargets(JSON.stringify(input.targets), accounts, errors);
+  }
+  let overrides = existingRichOverrides(postId).filter((override) =>
+    targets.some((target) => target.accountId === override.accountId)
+  );
+  if (Object.prototype.hasOwnProperty.call(input, 'overrides')) {
+    overrides = resolveOverrides(overrideCells(input.overrides, errors), targets, errors);
+  }
+  if (errors.length) throw new EditorialDraftContractError(errors);
+  return {
+    title, body, bodyRichJson, publicationKind, contentFormat,
+    scheduleMode, scheduledAt, scheduleTimezone, targets, overrides
+  };
 }
 
 export async function validateContentPlanV3(parsed: V3Parsed, sourceIdRaw: string): Promise<V3Validation> {
@@ -786,7 +1034,7 @@ export async function validateContentPlanV3(parsed: V3Parsed, sourceIdRaw: strin
   };
 }
 
-function applyTargetsAndOverrides(
+export function applyResolvedTargetsAndOverrides(
   postId: string,
   targetMode: TargetMode,
   targets: ResolvedAccount[],
@@ -854,7 +1102,7 @@ export function applyContentPlanV3(
           row.publicationKind, row.contentFormat,
           options.sourceTypeOverride ?? SOURCE_TYPE, ref, row.sourceRevision, row.payloadHash, batch, now, now, now
         );
-        applyTargetsAndOverrides(postId, row.targetMode, row.targets, row.overrides);
+        applyResolvedTargetsAndOverrides(postId, row.targetMode, row.targets, row.overrides);
         createInitialContentRevision(postId, options.actorSource);
         options.afterRow?.({ row, postId, classification: row.classification });
         const finalVersion = Number((db.prepare('SELECT content_version FROM posts WHERE id=?').get(postId) as { content_version: number }).content_version);
@@ -878,7 +1126,7 @@ export function applyContentPlanV3(
               row.projectId, row.title, row.body, row.bodyRichJson, row.publicationKind, row.contentFormat,
               row.scheduleMode, row.scheduledAt, row.scheduledAt, row.scheduleTimezone, postId
             );
-          applyTargetsAndOverrides(postId, row.targetMode, row.targets, row.overrides);
+          applyResolvedTargetsAndOverrides(postId, row.targetMode, row.targets, row.overrides);
         }
       }, outcome);
 
