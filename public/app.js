@@ -57,11 +57,40 @@ async function posts(){
 }
 function editorSectionHtml(titleText,note,index){return `<div class="ui-editor-section-title full"><span>${esc(index)}</span><div><strong>${esc(titleText)}</strong><small>${esc(note)}</small></div></div>`;}
 function syncPostEditorScheduleField(form){const mode=form.querySelector('select[name="scheduleMode"]');const input=form.querySelector('input[name="scheduledAt"]');const label=input?.closest('label');if(!mode||!label)return;const sync=()=>label.classList.toggle('hidden',mode.value!=='AT');mode.addEventListener('change',sync);sync();}
+
+const REUSABLE_BLOCK_TYPES=['SNIPPET','CTA','SIGNATURE','HASHTAG_SET'];
+const REUSABLE_BLOCK_LABELS={SNIPPET:'Фрагменты',CTA:'CTA',SIGNATURE:'Подписи',HASHTAG_SET:'Хэштеги'};
+function reusableBlockPickerHtml(){return `<div class="full"><div class="row-actions"><button id="toggle-reusable-blocks" class="secondary" type="button">Вставить заготовку</button></div><div id="reusable-block-picker" class="card hidden" style="margin-top:8px"><label class="full">Заготовка<select id="reusable-block-select"></select></label><div class="row-actions" style="margin-top:8px"><button id="apply-reusable-block" class="primary" type="button">Вставить</button></div></div></div>`;}
+function renderReusableBlockSelect(form,blocks){
+  const projectId=String(form.querySelector('select[name="projectId"]')?.value||'');
+  const select=form.querySelector('#reusable-block-select');
+  const apply=form.querySelector('#apply-reusable-block');
+  const groups=[];
+  for(const type of REUSABLE_BLOCK_TYPES){
+    const rows=blocks.filter((block)=>block.templateType===type&&block.projectId===projectId);
+    if(!rows.length)continue;
+    groups.push(`<optgroup label="${esc(REUSABLE_BLOCK_LABELS[type])}">${rows.map((block)=>`<option value="${esc(block.id)}">${esc(block.name)}</option>`).join('')}</optgroup>`);
+  }
+  select.innerHTML=groups.join('')||'<option value="">Нет заготовок для этого проекта</option>';
+  select.disabled=!groups.length;
+  apply.disabled=!groups.length;
+}
+function sameStringSet(left,right){
+  const a=[...new Set(left)].sort();
+  const b=[...new Set(right)].sort();
+  return a.length===b.length&&a.every((value,index)=>value===b[index]);
+}
+
 async function postEditor(postId){
   const post=postId?await api(`/api/posts/${postId}`):null;
-  const accounts=post?await api('/api/accounts'):[];
+  const [accounts,templateLibrary]=await Promise.all([
+    post?api('/api/accounts'):Promise.resolve([]),
+    api('/api/templates')
+  ]);
+  const reusableBlocks=templateLibrary.filter((template)=>REUSABLE_BLOCK_TYPES.includes(template.templateType));
   const selectedAccountIds=new Set((post?.targets||[]).filter((target)=>Boolean(target.enabled)).map((target)=>target.account_id));
-  const m=modal(`<h2>${post?'Публикация':'Новая публикация'}</h2><form id="post-form" class="form-grid ui-post-form" data-content-version="${post?.content_version||''}">${editorSectionHtml('Основное','Проект, режим публикации, заголовок и текст.','1')}<label>Проект<select name="projectId">${projects.map(p=>`<option value="${p.id}" ${post?.project_id===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label><label>Когда публиковать<select name="scheduleMode"><option value="MANUAL">${esc(scheduleModeLabel('MANUAL'))}</option><option value="QUEUE" ${post?.schedule_mode==='QUEUE'?'selected':''}>${esc(scheduleModeLabel('QUEUE'))}</option><option value="AT" ${post?.schedule_mode==='AT'?'selected':''}>${esc(scheduleModeLabel('AT'))}</option></select></label><label class="full">Заголовок<input name="title" value="${esc(post?.title||'')}" required></label><div class="full rich-text-field"><span class="rich-text-label">Текст</span><div data-rich-text-editor></div><textarea name="body" class="rich-text-plain-fallback" hidden aria-hidden="true"></textarea></div><label class="full${post?.schedule_mode==='AT'?'':' hidden'}" data-scheduled-field>Дата и время публикации<input name="scheduledAt" type="datetime-local"></label>${post?editorSectionHtml('Медиа','Добавьте изображения или видео и проверьте порядок файлов.','2'):editorSectionHtml('После сохранения','Сначала сохраните черновик — затем появятся загрузка медиа и выбор площадок.','2')}<div class="full"><strong>Медиа</strong><div class="media-list">${(post?.media||[]).map(x=>`<span><img src="/public-media/${x.relative_path}"><button type="button" class="secondary danger delete-media" data-id="${x.id}">Удалить</button></span>`).join('')}</div>${post?'<input id="media-file" type="file" accept="image/*">':'<div class="muted small">Сохраните черновик. После этого можно загрузить медиа и выбрать площадки.</div>'}</div>${post?`${editorSectionHtml('Площадки','Выберите подключения, куда должна уйти публикация.','3')}<div class="full"><strong>Куда публиковать</strong><div class="target-picker">${accounts.map(a=>`<label class="target-check"><input type="checkbox" name="accountId" value="${a.id}" ${selectedAccountIds.has(a.id)?'checked':''} ${a.enabled?'':'disabled'}> ${esc(platformLabel(a.platform))} · ${esc(a.name)}${a.enabled?'':' · отключено'}</label>`).join('')||'<span class="muted">Сначала подключите соцсеть</span>'}</div></div>`:''}<div class="full row-actions"><button class="primary" type="submit">Сохранить</button>${post?'<button type="button" id="mark-ready" class="secondary">Готов к публикации</button><button type="button" id="publish-now" class="secondary">Опубликовать сейчас</button>':''}<button type="button" id="close-modal" class="secondary">Закрыть</button></div></form><div id="post-error" class="error"></div>${post?targetsHtml(post.targets):''}`);
+  const initialTargetAccountIds=[...selectedAccountIds];
+  const m=modal(`<h2>${post?'Публикация':'Новая публикация'}</h2><form id="post-form" class="form-grid ui-post-form" data-content-version="${post?.content_version||''}">${editorSectionHtml('Основное','Проект, режим публикации, заголовок и текст.','1')}<label>Проект<select name="projectId">${projects.map(p=>`<option value="${p.id}" ${post?.project_id===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label><label>Когда публиковать<select name="scheduleMode"><option value="MANUAL">${esc(scheduleModeLabel('MANUAL'))}</option><option value="QUEUE" ${post?.schedule_mode==='QUEUE'?'selected':''}>${esc(scheduleModeLabel('QUEUE'))}</option><option value="AT" ${post?.schedule_mode==='AT'?'selected':''}>${esc(scheduleModeLabel('AT'))}</option></select></label><label class="full">Заголовок<input name="title" value="${esc(post?.title||'')}" required></label><div class="full rich-text-field"><span class="rich-text-label">Текст</span><div data-rich-text-editor></div><textarea name="body" class="rich-text-plain-fallback" hidden aria-hidden="true"></textarea></div>${reusableBlockPickerHtml()}<label class="full${post?.schedule_mode==='AT'?'':' hidden'}" data-scheduled-field>Дата и время публикации<input name="scheduledAt" type="datetime-local"></label>${post?editorSectionHtml('Медиа','Добавьте изображения или видео и проверьте порядок файлов.','2'):editorSectionHtml('После сохранения','Сначала сохраните черновик — затем появятся загрузка медиа и выбор площадок.','2')}<div class="full"><strong>Медиа</strong><div class="media-list">${(post?.media||[]).map(x=>`<span><img src="/public-media/${x.relative_path}"><button type="button" class="secondary danger delete-media" data-id="${x.id}">Удалить</button></span>`).join('')}</div>${post?'<input id="media-file" type="file" accept="image/*">':'<div class="muted small">Сохраните черновик. После этого можно загрузить медиа и выбрать площадки.</div>'}</div>${post?`${editorSectionHtml('Площадки','Выберите подключения, куда должна уйти публикация.','3')}<div class="full"><strong>Куда публиковать</strong><div class="target-picker">${accounts.map(a=>`<label class="target-check"><input type="checkbox" name="accountId" value="${a.id}" ${selectedAccountIds.has(a.id)?'checked':''} ${a.enabled?'':'disabled'}> ${esc(platformLabel(a.platform))} · ${esc(a.name)}${a.enabled?'':' · отключено'}</label>`).join('')||'<span class="muted">Сначала подключите соцсеть</span>'}</div></div>`:''}<div class="full row-actions"><button class="primary" type="submit">Сохранить</button>${post?'<button type="button" id="mark-ready" class="secondary">Готов к публикации</button><button type="button" id="publish-now" class="secondary">Опубликовать сейчас</button>':''}<button type="button" id="close-modal" class="secondary">Закрыть</button></div></form><div id="post-error" class="error"></div>${post?targetsHtml(post.targets):''}`);
   m.querySelector('#close-modal').onclick=()=>m.remove();
   const form=m.querySelector('#post-form');
   const bodyFallback=form.querySelector('textarea[name="body"]');
@@ -73,6 +102,20 @@ async function postEditor(postId){
       bodyFallback.dispatchEvent(new Event('input',{bubbles:true}));
     }
   });
+  const projectSelect=form.querySelector('select[name="projectId"]');
+  const blockPicker=form.querySelector('#reusable-block-picker');
+  const refreshReusableBlocks=()=>renderReusableBlockSelect(form,reusableBlocks);
+  projectSelect.addEventListener('change',refreshReusableBlocks);
+  refreshReusableBlocks();
+  form.querySelector('#toggle-reusable-blocks').onclick=()=>blockPicker.classList.toggle('hidden');
+  form.querySelector('#apply-reusable-block').onclick=()=>{
+    const blockId=String(form.querySelector('#reusable-block-select').value||'');
+    const block=reusableBlocks.find((item)=>item.id===blockId&&item.projectId===String(projectSelect.value));
+    if(!block)return;
+    richEditor.insertDocument(block.bodyRich);
+    blockPicker.classList.add('hidden');
+    richEditor.focus();
+  };
   syncPostEditorScheduleField(form);
   const saveDraft=async()=>{
     const f=new FormData(form);
@@ -85,9 +128,11 @@ async function postEditor(postId){
       setEditorVersion(form,patched.contentVersion);
       post.content_version=patched.contentVersion;
       const accountIds=[...form.querySelectorAll('input[name="accountId"]:checked')].map(x=>x.value);
-      const targeted=await api(`/api/posts/${post.id}/targets`,{method:'PUT',body:JSON.stringify({accountIds,expectedContentVersion:editorVersion(form)})});
-      setEditorVersion(form,targeted.contentVersion);
-      post.content_version=targeted.contentVersion;
+      if(!sameStringSet(accountIds,initialTargetAccountIds)){
+        const targeted=await api(`/api/posts/${post.id}/targets`,{method:'PUT',body:JSON.stringify({accountIds,expectedContentVersion:editorVersion(form)})});
+        setEditorVersion(form,targeted.contentVersion);
+        post.content_version=targeted.contentVersion;
+      }
       return post.id;
     }
     const created=await scheduleApi('/api/posts','POST',payload);

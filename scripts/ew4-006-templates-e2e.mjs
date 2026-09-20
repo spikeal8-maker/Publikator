@@ -13,6 +13,7 @@ process.env.PUBLIC_BASE_URL='https://publisher.example.test';
 
 const {db,migrate}=await import('../dist/db.js');
 const {buildApp}=await import('../dist/app.js');
+const {markReadyRevision}=await import('../dist/content-versioning.js');
 migrate();
 assert.equal(Number(db.pragma('user_version',{simple:true})),CURRENT_SCHEMA_VERSION);
 
@@ -113,6 +114,140 @@ try{
   const projectAfter=(await api('GET','/api/projects')).find((item)=>item.id===project.id);
   assert.deepEqual([...projectAfter.defaultTargetAccountIds].sort(),[telegram.id,vk.id].sort());
 
+
+  // EW4-006 Reusable Blocks: one library/domain, four immutable block types.
+  const reusableRichV1={
+    type:'doc',
+    content:[
+      {type:'paragraph',content:[
+        {type:'text',text:'Записаться ',marks:[{type:'bold'}]},
+        {type:'link',attrs:{href:'https://example.com/signup'},content:[
+          {type:'text',text:'сейчас',marks:[{type:'italic'}]}
+        ]}
+      ]},
+      {type:'bullet_list',content:[
+        {type:'list_item',content:[
+          {type:'paragraph',content:[{type:'text',text:'Первый шаг',marks:[]}]}
+        ]}
+      ]},
+      {type:'blockquote',content:[
+        {type:'paragraph',content:[{type:'text',text:'ASA Lab',marks:[]}]}
+      ]}
+    ]
+  };
+  const reusableByType={};
+  for(const [templateType,name,key,bodyRich] of [
+    ['SNIPPET','Вступление урока','snippet-intro',{type:'doc',content:[{type:'paragraph',content:[{type:'text',text:'Начинаем урок',marks:[]}]}]}],
+    ['CTA','Записаться на курс','cta-course',reusableRichV1],
+    ['SIGNATURE','ASA Lab','signature-asa',{type:'doc',content:[{type:'paragraph',content:[{type:'text',text:'ASA Lab',marks:[{type:'bold'}]}]}]}],
+    ['HASHTAG_SET','Робототехника','hashtags-robotics',{type:'doc',content:[{type:'paragraph',content:[{type:'text',text:'#robotics #arduino #asalab',marks:[]}]}]}]
+  ]){
+    const block=await api('POST','/api/templates',{
+      key,name,projectId:project.id,bodyRich,templateType
+    },201);
+    reusableByType[templateType]=block;
+    assert.equal(block.templateType,templateType);
+    assert.equal(block.projectId,project.id);
+    assert.equal(block.publicationKind,'FEED');
+    assert.equal(block.contentFormat,'TEXT_ONLY');
+    assert.equal(block.scheduleMode,'MANUAL');
+    assert.equal(block.targetAccountIds,null);
+    assert.deepEqual(block.bodyRich,bodyRich);
+  }
+
+  const otherProject=await api('POST','/api/projects',{
+    name:'Other reusable project',
+    slug:'other-reusable-project'
+  },201);
+  await api('PATCH',`/api/projects/${otherProject.id}`,{defaultTargetAccountIds:[]});
+  const otherSnippet=await api('POST','/api/templates',{
+    key:'other-project-snippet',
+    name:'Other project snippet',
+    projectId:otherProject.id,
+    bodyRich:{type:'doc',content:[{type:'paragraph',content:[{type:'text',text:'Other project',marks:[]}]}]},
+    templateType:'SNIPPET'
+  },201);
+  const reusableLibrary=await api('GET','/api/templates');
+  const projectReusable=reusableLibrary.filter((item)=>item.projectId===project.id&&['SNIPPET','CTA','SIGNATURE','HASHTAG_SET'].includes(item.templateType));
+  assert.equal(projectReusable.length,4);
+  assert.ok(!projectReusable.some((item)=>item.id===otherSnippet.id));
+
+  const ctaV1=reusableByType.CTA;
+  await api('PATCH',`/api/templates/${ctaV1.id}`,{templateType:'SIGNATURE'},400);
+  await api('POST',`/api/templates/${ctaV1.id}/create-post`,{},400);
+
+  const readySource=await api('POST','/api/posts',{
+    projectId:project.id,
+    title:'Reusable block Post A',
+    body:'До вставки',
+    scheduleMode:'MANUAL'
+  },201);
+  const readyRevision=db.prepare(
+    'SELECT id FROM content_revisions WHERE post_id=? AND content_version=1'
+  ).get(readySource.id);
+  markReadyRevision(readySource.id,1,readyRevision.id);
+  const readyBefore=await api('GET',`/api/posts/${readySource.id}`);
+  assert.equal(readyBefore.status,'READY');
+
+  const savedA=await api('PATCH',`/api/posts/${readySource.id}`,{
+    title:'Reusable block Post A',
+    bodyRich:ctaV1.bodyRich,
+    scheduleMode:'MANUAL',
+    expectedContentVersion:1
+  });
+  assert.equal(savedA.contentVersion,2);
+  const postBlockA=await api('GET',`/api/posts/${readySource.id}`);
+  assert.equal(postBlockA.status,'DRAFT');
+  assert.equal(postBlockA.editorial_stage,'DRAFT');
+  assert.equal(postBlockA.content_version,2);
+  assert.deepEqual(postBlockA.bodyRich,ctaV1.bodyRich);
+  assert.equal(
+    db.prepare('SELECT COUNT(*) AS count FROM content_revisions WHERE post_id=?').get(readySource.id).count,
+    2
+  );
+
+  const reusableRichV2={
+    type:'doc',
+    content:[
+      {type:'paragraph',content:[
+        {type:'text',text:'Записаться на новый курс',marks:[{type:'bold'}]}
+      ]}
+    ]
+  };
+  const ctaV2=await api('PATCH',`/api/templates/${ctaV1.id}`,{
+    name:'Записаться на новый курс',
+    bodyRich:reusableRichV2
+  });
+  assert.equal(ctaV2.templateType,'CTA');
+  assert.deepEqual(ctaV2.bodyRich,reusableRichV2);
+  assert.equal(ctaV2.publicationKind,'FEED');
+  assert.equal(ctaV2.contentFormat,'TEXT_ONLY');
+  assert.equal(ctaV2.scheduleMode,'MANUAL');
+  assert.equal(ctaV2.targetAccountIds,null);
+
+  const postAAfterBlockEdit=await api('GET',`/api/posts/${readySource.id}`);
+  assert.deepEqual(postAAfterBlockEdit.bodyRich,reusableRichV1);
+
+  const postBSource=await api('POST','/api/posts',{
+    projectId:project.id,
+    title:'Reusable block Post B',
+    body:'До вставки B',
+    scheduleMode:'MANUAL'
+  },201);
+  const savedB=await api('PATCH',`/api/posts/${postBSource.id}`,{
+    title:'Reusable block Post B',
+    bodyRich:ctaV2.bodyRich,
+    scheduleMode:'MANUAL',
+    expectedContentVersion:1
+  });
+  assert.equal(savedB.contentVersion,2);
+  const postBlockB=await api('GET',`/api/posts/${postBSource.id}`);
+  assert.deepEqual(postBlockB.bodyRich,reusableRichV2);
+
+  await api('DELETE',`/api/templates/${ctaV1.id}`,undefined,204);
+  assert.deepEqual((await api('GET',`/api/posts/${readySource.id}`)).bodyRich,reusableRichV1);
+  assert.deepEqual((await api('GET',`/api/posts/${postBSource.id}`)).bodyRich,reusableRichV2);
+
   const temporary=await api('POST','/api/accounts',{platform:'instagram',name:'Temporary target',credentials:{token:'temp'}},201);
   const unavailable=await api('POST','/api/templates',{
     key:'unavailable-target-template',
@@ -188,7 +323,20 @@ try{
     snapshotV1Preserved:true,
     newPostUsesV2:true,
     atWithoutAbsoluteTime:true,
-    auditEvent:true
+    auditEvent:true,
+    postTemplatesRegression:true,
+    snippetCrud:true,
+    ctaCrud:true,
+    signatureCrud:true,
+    hashtagSetCrud:true,
+    canonicalBlockRoundtrip:true,
+    projectScopedBlocks:true,
+    nonPostCreatePostRejected:true,
+    immutableTemplateType:true,
+    blockEditSnapshotIsolation:true,
+    blockDeleteSnapshotIsolation:true,
+    contentVersionIncrement:true,
+    readyInvalidation:true
   },null,2));
 }finally{
   await app.close();

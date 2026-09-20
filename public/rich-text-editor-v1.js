@@ -282,6 +282,95 @@ function insertTextAtSelection(text){
   selection.addRange(range);
 }
 
+
+function editorTopLevelChild(surface,node){
+  let current=node?.nodeType===Node.TEXT_NODE?node.parentNode:node;
+  while(current&&current!==surface&&current.parentNode!==surface)current=current.parentNode;
+  return current?.parentNode===surface?current:null;
+}
+
+function editorBlockHasContent(block){
+  if(!block)return false;
+  if(String(block.textContent||'').length)return true;
+  return [...block.childNodes].some(node=>node.nodeType===Node.ELEMENT_NODE&&node.tagName?.toLowerCase()!=='br');
+}
+
+function placeCaretAfter(node){
+  if(!node)return;
+  const selection=window.getSelection();
+  if(!selection)return;
+  const range=document.createRange();
+  range.setStartAfter(node);
+  range.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+function insertRichDocumentAtSelection(surface,documentValue){
+  const normalized=normalizeRichDocument(documentValue);
+  if(!normalized.content.length)return false;
+
+  const staging=document.createElement('div');
+  for(const block of normalized.content)staging.append(blockElement(block));
+  const inserted=[...staging.childNodes];
+  if(!inserted.length)return false;
+
+  const selection=window.getSelection();
+  const range=selection?.rangeCount?selection.getRangeAt(0):null;
+  const active=Boolean(
+    range
+    && surface.contains(range.startContainer)
+    && surface.contains(range.endContainer)
+  );
+
+  if(!active){
+    for(const node of inserted)surface.append(node);
+    placeCaretAfter(inserted.at(-1));
+    return true;
+  }
+
+  if(range.startContainer===surface&&range.endContainer===surface){
+    const reference=surface.childNodes[range.startOffset]||null;
+    range.deleteContents();
+    for(const node of inserted)surface.insertBefore(node,reference);
+    placeCaretAfter(inserted.at(-1));
+    return true;
+  }
+
+  const startTop=editorTopLevelChild(surface,range.startContainer);
+  const endTop=editorTopLevelChild(surface,range.endContainer);
+  const simpleTop=startTop&&startTop===endTop&&['p','div'].includes(startTop.tagName?.toLowerCase());
+
+  if(simpleTop){
+    const beforeRange=document.createRange();
+    beforeRange.selectNodeContents(startTop);
+    beforeRange.setEnd(range.startContainer,range.startOffset);
+    const afterRange=document.createRange();
+    afterRange.selectNodeContents(startTop);
+    afterRange.setStart(range.endContainer,range.endOffset);
+
+    const before=startTop.cloneNode(false);
+    before.append(beforeRange.cloneContents());
+    const after=startTop.cloneNode(false);
+    after.append(afterRange.cloneContents());
+    const reference=startTop.nextSibling;
+    startTop.remove();
+
+    if(editorBlockHasContent(before))surface.insertBefore(before,reference);
+    for(const node of inserted)surface.insertBefore(node,reference);
+    if(editorBlockHasContent(after))surface.insertBefore(after,reference);
+    placeCaretAfter(inserted.at(-1));
+    return true;
+  }
+
+  range.deleteContents();
+  const anchor=startTop&&surface.contains(startTop)?startTop:null;
+  const reference=anchor?.nextSibling||null;
+  for(const node of inserted)surface.insertBefore(node,reference);
+  placeCaretAfter(inserted.at(-1));
+  return true;
+}
+
 function wrapSelection(tag,attrs={}){
   const selection=window.getSelection();
   if(!selection?.rangeCount||selection.isCollapsed)return null;
@@ -344,11 +433,35 @@ export function mountRichTextEditor(host,{document:initialDocument,onChange,disa
 
   renderRichText(surface,initialDocument||{type:'doc',content:[]});
 
+  let savedRange=null;
+  const rememberSelection=()=>{
+    const selection=window.getSelection();
+    if(!selection?.rangeCount)return;
+    const range=selection.getRangeAt(0);
+    if(surface.contains(range.startContainer)&&surface.contains(range.endContainer))savedRange=range.cloneRange();
+  };
+  const restoreSelection=()=>{
+    if(!savedRange||!surface.isConnected)return false;
+    try{
+      const selection=window.getSelection();
+      if(!selection)return false;
+      selection.removeAllRanges();
+      selection.addRange(savedRange.cloneRange());
+      return true;
+    }catch{
+      savedRange=null;
+      return false;
+    }
+  };
+
   const changed=()=>{
     const value=documentFromSurface(surface);
     onChange?.(value,richDocumentToPlain(value));
   };
-  surface.addEventListener('input',changed);
+  surface.addEventListener('input',()=>{rememberSelection();changed();});
+  surface.addEventListener('mouseup',rememberSelection);
+  surface.addEventListener('keyup',rememberSelection);
+  surface.addEventListener('focus',rememberSelection);
   surface.addEventListener('paste',event=>{
     event.preventDefault();
     insertTextAtSelection(event.clipboardData?.getData('text/plain')||'');
@@ -402,7 +515,16 @@ export function mountRichTextEditor(host,{document:initialDocument,onChange,disa
   const api={
     getDocument:()=>documentFromSurface(surface),
     getPlainText:()=>richDocumentToPlain(documentFromSurface(surface)),
-    setDocument(value){renderRichText(surface,value);changed();},
+    setDocument(value){savedRange=null;renderRichText(surface,value);changed();},
+    insertDocument(value){
+      const selection=window.getSelection();
+      const currentRange=selection?.rangeCount?selection.getRangeAt(0):null;
+      const currentActive=Boolean(currentRange&&surface.contains(currentRange.startContainer)&&surface.contains(currentRange.endContainer));
+      if(!currentActive)restoreSelection();
+      const inserted=insertRichDocumentAtSelection(surface,value);
+      if(inserted){rememberSelection();changed();}
+      return inserted;
+    },
     setDisabled(value){
       surface.contentEditable=value?'false':'true';
       toolbar.querySelectorAll('button').forEach(button=>{button.disabled=Boolean(value);});

@@ -15,7 +15,7 @@ async function operatorApi(url, options = {}) {
     credentials: 'same-origin',
     ...options,
     headers: {
-      ...(options.body instanceof FormData ? {} : { 'content-type': 'application/json' }),
+      ...(options.body === undefined || options.body instanceof FormData ? {} : { 'content-type': 'application/json' }),
       ...(options.headers || {})
     }
   });
@@ -280,6 +280,18 @@ async function renderSourcesPage() {
 }
 
 
+const REUSABLE_TEMPLATE_TYPES = ['SNIPPET','CTA','SIGNATURE','HASHTAG_SET'];
+const REUSABLE_TEMPLATE_META = {
+  SNIPPET: { label: 'Фрагмент', plural: 'Фрагменты' },
+  CTA: { label: 'CTA', plural: 'CTA' },
+  SIGNATURE: { label: 'Подпись', plural: 'Подписи' },
+  HASHTAG_SET: { label: 'Набор хэштегов', plural: 'Хэштеги' }
+};
+
+function isReusableTemplateType(value) {
+  return REUSABLE_TEMPLATE_TYPES.includes(String(value || ''));
+}
+
 function templateTargetSummary(template, accountsById) {
   if (template.targetAccountIds === null) return 'По умолчанию проекта';
   if (!template.targetAccountIds.length) return 'Не выбраны';
@@ -359,24 +371,116 @@ async function renderTemplateEditor(templateId = null) {
   }
 }
 
+
+async function renderReusableBlockEditor(templateId = null, requestedType = 'SNIPPET') {
+  operatorTitle.textContent = 'Шаблоны';
+  operatorView.innerHTML = '<div class="muted">Загрузка заготовки…</div>';
+  try {
+    const [templates, projects] = await Promise.all([
+      operatorApi('/api/templates'),
+      operatorApi('/api/projects')
+    ]);
+    const template = templateId ? templates.find((item) => item.id === templateId) : null;
+    if (templateId && !template) throw new Error('Заготовка не найдена');
+    const templateType = template?.templateType || requestedType;
+    if (!isReusableTemplateType(templateType)) throw new Error('Неверный тип заготовки');
+    const meta = REUSABLE_TEMPLATE_META[templateType];
+
+    operatorView.innerHTML = `<div class="operator-page">
+      <div class="operator-page-head"><div><h2>${template ? 'Редактировать' : 'Новая'}: ${operatorEsc(meta.label)}</h2><p>Заготовка хранит canonical rich text. После вставки в публикацию это обычная копия текста.</p></div><button id="operator-template-back" class="secondary" type="button">К шаблонам</button></div>
+      <form id="operator-reusable-form" class="operator-form">
+        <label>Название<input name="name" required value="${operatorEsc(template?.name || '')}" placeholder="Например: Записаться на курс"></label>
+        <label>Key<input name="key" required pattern="[A-Za-z0-9._:-]{1,128}" value="${operatorEsc(template?.key || '')}" placeholder="course-cta"></label>
+        <label>Проект<select name="projectId">${projects.map((project) => `<option value="${operatorEsc(project.id)}" ${template?.projectId === project.id ? 'selected' : ''}>${operatorEsc(project.name)}</option>`).join('')}</select></label>
+        <label>Тип<input value="${operatorEsc(meta.label)}" disabled></label>
+        <div class="full rich-text-field"><span class="rich-text-label">Текст</span><div data-reusable-rich-editor></div></div>
+        <div id="operator-template-error" class="error full"></div>
+        <div class="row-actions full"><button class="primary" type="submit">Сохранить</button><button id="operator-template-cancel" class="secondary" type="button">Отмена</button></div>
+      </form>
+    </div>`;
+
+    const form = operatorView.querySelector('#operator-reusable-form');
+    const richEditor = mountRichTextEditor(form.querySelector('[data-reusable-rich-editor]'), {
+      document: template?.bodyRich || plainTextToRichDocument('')
+    });
+    operatorView.querySelector('#operator-template-back').onclick = renderTemplatesPage;
+    operatorView.querySelector('#operator-template-cancel').onclick = renderTemplatesPage;
+    form.onsubmit = async (event) => {
+      event.preventDefault();
+      const error = form.querySelector('#operator-template-error');
+      error.textContent = '';
+      try {
+        const data = new FormData(form);
+        const payload = {
+          name: String(data.get('name') || '').trim(),
+          key: String(data.get('key') || '').trim(),
+          projectId: String(data.get('projectId') || ''),
+          bodyRich: richEditor.getDocument(),
+          ...(template ? {} : { templateType })
+        };
+        await operatorApi(template ? `/api/templates/${encodeURIComponent(template.id)}` : '/api/templates', {
+          method: template ? 'PATCH' : 'POST',
+          body: JSON.stringify(payload)
+        });
+        await renderTemplatesPage();
+      } catch (failure) {
+        error.textContent = failure instanceof Error ? failure.message : String(failure);
+      }
+    };
+  } catch (error) {
+    operatorView.innerHTML = `<div class="card error">${operatorEsc(error instanceof Error ? error.message : String(error))}</div>`;
+  }
+}
+
 async function renderTemplatesPage() {
   operatorTitle.textContent = 'Шаблоны';
   operatorView.innerHTML = '<div class="muted">Загрузка шаблонов…</div>';
   try {
     const [templates, accounts] = await Promise.all([operatorApi('/api/templates'), operatorApi('/api/accounts')]);
     const accountsById = new Map(accounts.map((account) => [account.id, account]));
+    const postTemplates = templates.filter((template) => template.templateType === 'POST');
+    const reusableBlocks = templates.filter((template) => isReusableTemplateType(template.templateType));
+
     operatorView.innerHTML = `<div class="operator-page">
-      <div class="operator-page-head"><div><h2>Шаблоны</h2><p>Создавайте повторно используемые заготовки. При создании публикации текст и настройки копируются снимком.</p></div><button id="operator-new-template" class="primary" type="button">+ Новый шаблон</button></div>
-      <table class="table"><thead><tr><th>Название</th><th>Key</th><th>Проект</th><th>Тип</th><th>Площадки</th><th>Изменён</th><th>Действия</th></tr></thead>
-      <tbody>${templates.map((template) => `<tr data-template-id="${operatorEsc(template.id)}"><td><strong>${operatorEsc(template.name)}</strong></td><td>${operatorEsc(template.key)}</td><td>${operatorEsc(template.projectName || template.projectId)}</td><td>${operatorEsc(template.templateType)}</td><td class="small">${operatorEsc(templateTargetSummary(template, accountsById))}</td><td class="small">${operatorEsc(new Date(template.updatedAt).toLocaleString())}</td><td><div class="row-actions"><button class="primary operator-template-create-post" type="button">Создать публикацию</button><button class="secondary operator-template-edit" type="button">Редактировать</button><button class="secondary danger operator-template-delete" type="button">Удалить</button></div></td></tr>`).join('') || '<tr><td colspan="7">Шаблонов пока нет</td></tr>'}</tbody></table>
+      <div class="operator-page-head"><div><h2>Шаблоны</h2><p>Создавайте повторно используемые заготовки. При создании публикации текст и настройки копируются снимком.</p></div></div>
+
+      <section class="operator-section" data-template-section="post-templates">
+        <div class="operator-page-head"><div><h3>Шаблоны публикаций</h3><p>Полные снимки текста и настроек для создания нового DRAFT.</p></div><button id="operator-new-template" class="primary" type="button">+ Новый шаблон</button></div>
+        <table class="table"><thead><tr><th>Название</th><th>Key</th><th>Проект</th><th>Тип</th><th>Площадки</th><th>Изменён</th><th>Действия</th></tr></thead>
+        <tbody>${postTemplates.map((template) => `<tr data-template-id="${operatorEsc(template.id)}"><td><strong>${operatorEsc(template.name)}</strong></td><td>${operatorEsc(template.key)}</td><td>${operatorEsc(template.projectName || template.projectId)}</td><td>POST</td><td class="small">${operatorEsc(templateTargetSummary(template, accountsById))}</td><td class="small">${operatorEsc(new Date(template.updatedAt).toLocaleString())}</td><td><div class="row-actions"><button class="primary operator-template-create-post" type="button">Создать публикацию</button><button class="secondary operator-template-edit" type="button">Редактировать</button><button class="secondary danger operator-template-delete" type="button">Удалить</button></div></td></tr>`).join('') || '<tr><td colspan="7">Шаблонов пока нет</td></tr>'}</tbody></table>
+      </section>
+
+      <section class="operator-section" data-template-section="reusable-blocks">
+        <div class="operator-page-head"><div><h3>Заготовки</h3><p>Фрагменты canonical rich text для ручной вставки в основной текст публикации.</p></div><div class="row-actions">
+          <button class="secondary operator-new-block" data-template-type="SNIPPET" type="button">+ Фрагмент</button>
+          <button class="secondary operator-new-block" data-template-type="CTA" type="button">+ CTA</button>
+          <button class="secondary operator-new-block" data-template-type="SIGNATURE" type="button">+ Подпись</button>
+          <button class="secondary operator-new-block" data-template-type="HASHTAG_SET" type="button">+ Хэштеги</button>
+        </div></div>
+        <table class="table"><thead><tr><th>Название</th><th>Key</th><th>Проект</th><th>Тип</th><th>Превью текста</th><th>Изменён</th><th>Действия</th></tr></thead>
+        <tbody>${reusableBlocks.map((template) => `<tr data-template-id="${operatorEsc(template.id)}"><td><strong>${operatorEsc(template.name)}</strong></td><td>${operatorEsc(template.key)}</td><td>${operatorEsc(template.projectName || template.projectId)}</td><td>${operatorEsc(REUSABLE_TEMPLATE_META[template.templateType]?.label || template.templateType)}</td><td class="small">${operatorEsc(String(template.bodyPlain || '').slice(0, 160))}</td><td class="small">${operatorEsc(new Date(template.updatedAt).toLocaleString())}</td><td><div class="row-actions"><button class="secondary operator-template-edit" type="button">Редактировать</button><button class="secondary danger operator-template-delete" type="button">Удалить</button></div></td></tr>`).join('') || '<tr><td colspan="7">Заготовок пока нет</td></tr>'}</tbody></table>
+      </section>
+
       <div id="operator-template-result"></div>
     </div>`;
+
     operatorView.querySelector('#operator-new-template').onclick = () => renderTemplateEditor();
-    operatorView.querySelectorAll('.operator-template-edit').forEach((button) => button.onclick = () => renderTemplateEditor(button.closest('tr').dataset.templateId));
+    operatorView.querySelectorAll('.operator-new-block').forEach((button) => {
+      button.onclick = () => renderReusableBlockEditor(null, button.dataset.templateType);
+    });
+    operatorView.querySelectorAll('.operator-template-edit').forEach((button) => {
+      button.onclick = () => {
+        const templateId = button.closest('tr').dataset.templateId;
+        const template = templates.find((item) => item.id === templateId);
+        if (isReusableTemplateType(template?.templateType)) renderReusableBlockEditor(templateId);
+        else renderTemplateEditor(templateId);
+      };
+    });
     operatorView.querySelectorAll('.operator-template-delete').forEach((button) => button.onclick = async () => {
       const row = button.closest('tr');
       const template = templates.find((item) => item.id === row.dataset.templateId);
-      if (!window.confirm(`Удалить шаблон «${template?.name || ''}»?`)) return;
+      const noun = isReusableTemplateType(template?.templateType) ? 'заготовку' : 'шаблон';
+      if (!window.confirm(`Удалить ${noun} «${template?.name || ''}»?`)) return;
       await operatorApi(`/api/templates/${encodeURIComponent(row.dataset.templateId)}`, { method: 'DELETE' });
       await renderTemplatesPage();
     });

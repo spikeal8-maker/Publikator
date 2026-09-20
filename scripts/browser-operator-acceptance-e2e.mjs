@@ -18,6 +18,7 @@ const { saveImageVersioned } = await import('../dist/media.js');
 const { buildApp } = await import('../dist/app.js');
 const { config } = await import('../dist/config.js');
 const { publishPost } = await import('../dist/publisher.js');
+const { markReadyRevision } = await import('../dist/content-versioning.js');
 const { setPublisherForTests } = await import('../dist/platforms/index.js');
 migrate();
 const app = await buildApp();
@@ -512,6 +513,228 @@ try {
   assert.equal(await draftRow.isVisible(), true);
   assert.equal(await readyRow.isVisible(), true);
   assert.equal(await failedRow.isVisible(), true);
+
+
+  // EW4-006 Reusable Blocks: library, project filtering, caret insertion and snapshot semantics.
+  await page.goto(`${base}/templates`, { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Шаблоны');
+  await page.locator('[data-template-section="reusable-blocks"]').waitFor({ state: 'visible' });
+
+  await page.locator('.operator-new-block[data-template-type="CTA"]').click();
+  let reusableForm = page.locator('#operator-reusable-form');
+  await reusableForm.waitFor({ state: 'visible' });
+  await reusableForm.locator('input[name="name"]').fill('Browser CTA V1');
+  await reusableForm.locator('input[name="key"]').fill('browser-cta');
+  await reusableForm.locator('select[name="projectId"]').selectOption(fixtureProjectId);
+  const reusableSurface = reusableForm.locator('[data-reusable-rich-editor] .rich-text-surface');
+  await reusableSurface.fill('Записаться сейчас');
+  await reusableForm.locator('button.primary[type="submit"]').click();
+  await page.locator('#operator-reusable-form').waitFor({ state: 'detached', timeout: 5000 });
+
+  const browserCta=(await fixtureApi('GET','/api/templates')).find((item)=>item.key==='browser-cta');
+  assert.ok(browserCta);
+  assert.equal(browserCta.templateType,'CTA');
+  assert.equal(browserCta.projectId,fixtureProjectId);
+  assert.equal(browserCta.publicationKind,'FEED');
+  assert.equal(browserCta.contentFormat,'TEXT_ONLY');
+  assert.equal(browserCta.scheduleMode,'MANUAL');
+  assert.equal(browserCta.targetAccountIds,null);
+
+  const browserSnippet=await fixtureApi('POST','/api/templates',{
+    key:'browser-snippet',name:'Browser Snippet',projectId:fixtureProjectId,
+    bodyRich:{type:'doc',content:[
+      {type:'paragraph',content:[
+        {type:'text',text:'Фрагмент ',marks:[{type:'code'}]},
+        {type:'link',attrs:{href:'https://example.test/docs'},content:[{type:'text',text:'документация',marks:[{type:'italic'}]}]}
+      ]},
+      {type:'bullet_list',content:[{type:'list_item',content:[{type:'paragraph',content:[{type:'text',text:'Шаг',marks:[]}]}]}]},
+      {type:'blockquote',content:[{type:'paragraph',content:[{type:'text',text:'Важно',marks:[]}]}]},
+      {type:'code_block',content:[{type:'text',text:'const x = 1;',marks:[]}]}
+    ]},
+    templateType:'SNIPPET'
+  },201);
+  const browserSignature=await fixtureApi('POST','/api/templates',{
+    key:'browser-signature',name:'Browser Signature',projectId:fixtureProjectId,
+    bodyRich:{type:'doc',content:[{type:'paragraph',content:[{type:'text',text:'ASA Lab',marks:[{type:'bold'}]}]}]},
+    templateType:'SIGNATURE'
+  },201);
+  const browserHashtags=await fixtureApi('POST','/api/templates',{
+    key:'browser-hashtags',name:'Browser Hashtags',projectId:fixtureProjectId,
+    bodyRich:{type:'doc',content:[{type:'paragraph',content:[{type:'text',text:'#robotics #arduino',marks:[]}]}]},
+    templateType:'HASHTAG_SET'
+  },201);
+  const otherProjectCta=await fixtureApi('POST','/api/templates',{
+    key:'browser-other-cta',name:'Other Project CTA',projectId:ew4005Project.id,
+    bodyRich:{type:'doc',content:[{type:'paragraph',content:[{type:'text',text:'Другой проект',marks:[]}]}]},
+    templateType:'CTA'
+  },201);
+
+  await page.goto(`${base}/templates`, { waitUntil: 'domcontentloaded' });
+  await page.locator('[data-template-section="reusable-blocks"]').waitFor({ state: 'visible' });
+  const reusableSection=page.locator('[data-template-section="reusable-blocks"]');
+  const reusableHeaders=await reusableSection.locator('thead th').allTextContents();
+  assert.deepEqual(reusableHeaders,['Название','Key','Проект','Тип','Превью текста','Изменён','Действия']);
+  for(const [name,label] of [
+    ['Browser Snippet','Фрагмент'],
+    ['Browser CTA V1','CTA'],
+    ['Browser Signature','Подпись'],
+    ['Browser Hashtags','Набор хэштегов']
+  ]){
+    const row=reusableSection.locator('tbody tr').filter({hasText:name});
+    assert.equal(await row.count(),1,`reusable row missing: ${name}`);
+    assert.ok((await row.innerText()).includes(label),`wrong reusable type label: ${name}`);
+  }
+
+  const reusablePostA=await fixtureApi('POST','/api/posts',{
+    projectId:fixtureProjectId,
+    title:'Browser Reusable Post A',
+    body:'До после',
+    scheduleMode:'MANUAL'
+  },201);
+  const reusablePostARevision=db.prepare(
+    'SELECT id FROM content_revisions WHERE post_id=? AND content_version=1'
+  ).get(reusablePostA.id);
+  markReadyRevision(reusablePostA.id,1,reusablePostARevision.id);
+  assert.equal(db.prepare('SELECT status FROM posts WHERE id=?').get(reusablePostA.id).status,'READY');
+
+  await page.goto(`${base}/content`, { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Контент');
+  await page.waitForFunction((title)=>[...document.querySelectorAll('#view table.table tbody tr')]
+    .some((row)=>row.textContent?.includes(title)),'Browser Reusable Post A');
+  await page.locator('#view table.table tbody tr').filter({hasText:'Browser Reusable Post A'}).locator('.open-post').click();
+  let reusableInspector=page.locator('.editorial-inspector-overlay');
+  await reusableInspector.waitFor({state:'visible',timeout:5000});
+  await reusableInspector.locator('.inspector-edit').click();
+  await reusableInspector.waitFor({state:'detached',timeout:5000});
+
+  let reusablePostForm=page.locator('#post-form');
+  await reusablePostForm.waitFor({state:'visible'});
+  const baseSurface=reusablePostForm.locator('[data-rich-text-editor] .rich-text-surface');
+  assert.equal((await baseSurface.innerText()).trim(),'До после');
+  const caretSet=await page.evaluate(() => {
+    const surface=document.querySelector('#post-form [data-rich-text-editor] .rich-text-surface');
+    const walker=document.createTreeWalker(surface,NodeFilter.SHOW_TEXT);
+    while(walker.nextNode()){
+      const node=walker.currentNode;
+      const text=String(node.nodeValue||'');
+      const index=text.indexOf(' после');
+      if(index<0)continue;
+      const range=document.createRange();
+      range.setStart(node,index);
+      range.collapse(true);
+      const selection=window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      surface.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));
+      return true;
+    }
+    return false;
+  });
+  assert.equal(caretSet,true,'caret insertion point missing');
+
+  await reusablePostForm.locator('#toggle-reusable-blocks').click();
+  let reusableSelect=reusablePostForm.locator('#reusable-block-select');
+  assert.equal(await reusableSelect.locator('optgroup[label="Фрагменты"]').count(),1);
+  assert.equal(await reusableSelect.locator('optgroup[label="CTA"]').count(),1);
+  assert.equal(await reusableSelect.locator('optgroup[label="Подписи"]').count(),1);
+  assert.equal(await reusableSelect.locator('optgroup[label="Хэштеги"]').count(),1);
+  assert.equal(await reusableSelect.locator(`option[value="${browserCta.id}"]`).count(),1);
+  assert.equal(await reusableSelect.locator(`option[value="${otherProjectCta.id}"]`).count(),0);
+  await reusableSelect.selectOption(browserCta.id);
+  await reusablePostForm.locator('#apply-reusable-block').click();
+
+  const insertedText=(await baseSurface.innerText()).trim();
+  assert.ok(insertedText.indexOf('До') < insertedText.indexOf('Записаться сейчас'));
+  assert.ok(insertedText.indexOf('Записаться сейчас') < insertedText.indexOf('после'));
+
+  await reusablePostForm.locator('#toggle-reusable-blocks').click();
+  reusableSelect=reusablePostForm.locator('#reusable-block-select');
+  await reusableSelect.selectOption(browserSignature.id);
+  await reusablePostForm.locator('#apply-reusable-block').click();
+  assert.equal(await baseSurface.locator('strong').filter({hasText:'ASA Lab'}).count(),1);
+
+  await reusablePostForm.locator('#toggle-reusable-blocks').click();
+  reusableSelect=reusablePostForm.locator('#reusable-block-select');
+  await reusableSelect.selectOption(browserSnippet.id);
+  await reusablePostForm.locator('#apply-reusable-block').click();
+  assert.equal(await baseSurface.locator('a[href="https://example.test/docs"]').count(),1);
+  assert.equal(await baseSurface.locator('ul li').filter({hasText:'Шаг'}).count(),1);
+  assert.equal(await baseSurface.locator('blockquote').filter({hasText:'Важно'}).count(),1);
+  assert.equal(await baseSurface.locator('pre').filter({hasText:'const x = 1;'}).count(),1);
+  assert.equal(await baseSurface.locator('code').filter({hasText:'Фрагмент'}).count(),1);
+
+  await reusablePostForm.locator('#toggle-reusable-blocks').click();
+  await reusablePostForm.locator('select[name="projectId"]').selectOption(ew4005Project.id);
+  reusableSelect=reusablePostForm.locator('#reusable-block-select');
+  assert.equal(await reusableSelect.locator(`option[value="${browserCta.id}"]`).count(),0);
+  assert.equal(await reusableSelect.locator(`option[value="${otherProjectCta.id}"]`).count(),1);
+  assert.ok((await baseSurface.innerText()).includes('Записаться сейчас'));
+  await reusablePostForm.locator('select[name="projectId"]').selectOption(fixtureProjectId);
+  assert.equal(await reusableSelect.locator(`option[value="${browserCta.id}"]`).count(),1);
+
+  await reusablePostForm.locator('button.primary[type="submit"]').click();
+  await page.locator('#post-form').waitFor({state:'detached',timeout:5000});
+  const savedReusableA=db.prepare(
+    'SELECT body,body_rich_json,content_version,status,editorial_stage FROM posts WHERE id=?'
+  ).get(reusablePostA.id);
+  assert.equal(savedReusableA.content_version,2);
+  assert.equal(savedReusableA.status,'DRAFT');
+  assert.equal(savedReusableA.editorial_stage,'DRAFT');
+  assert.ok(savedReusableA.body.includes('Записаться сейчас'));
+  assert.ok(!savedReusableA.body.includes('Записаться на новый курс'));
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM content_revisions WHERE post_id=?').get(reusablePostA.id).count,2);
+  const postARichSnapshot=savedReusableA.body_rich_json;
+
+  await page.goto(`${base}/templates`,{waitUntil:'domcontentloaded'});
+  await page.locator('[data-template-section="reusable-blocks"]').waitFor({state:'visible'});
+  let ctaRow=page.locator('[data-template-section="reusable-blocks"] tbody tr').filter({hasText:'Browser CTA V1'});
+  await ctaRow.locator('.operator-template-edit').click();
+  reusableForm=page.locator('#operator-reusable-form');
+  await reusableForm.waitFor({state:'visible'});
+  await reusableForm.locator('input[name="name"]').fill('Browser CTA V2');
+  await reusableForm.locator('[data-reusable-rich-editor] .rich-text-surface').fill('Записаться на новый курс');
+  await reusableForm.locator('button.primary[type="submit"]').click();
+  await page.locator('#operator-reusable-form').waitFor({state:'detached',timeout:5000});
+  const browserCtaV2=(await fixtureApi('GET','/api/templates')).find((item)=>item.id===browserCta.id);
+  assert.equal(browserCtaV2.bodyPlain,'Записаться на новый курс');
+  assert.equal(db.prepare('SELECT body_rich_json FROM posts WHERE id=?').get(reusablePostA.id).body_rich_json,postARichSnapshot);
+
+  await page.goto(`${base}/content`,{waitUntil:'domcontentloaded'});
+  await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Контент');
+  await page.locator('#new-post').click();
+  let newReusablePostForm=page.locator('#post-form');
+  await newReusablePostForm.waitFor({state:'visible'});
+  await newReusablePostForm.locator('select[name="projectId"]').selectOption(fixtureProjectId);
+  await newReusablePostForm.locator('input[name="title"]').fill('Browser Reusable Post B');
+  await newReusablePostForm.locator('[data-rich-text-editor] .rich-text-surface').fill('Начало B');
+  await newReusablePostForm.locator('#toggle-reusable-blocks').click();
+  await newReusablePostForm.locator('#reusable-block-select').selectOption(browserCta.id);
+  await newReusablePostForm.locator('#apply-reusable-block').click();
+  assert.ok((await newReusablePostForm.locator('[data-rich-text-editor] .rich-text-surface').innerText()).includes('Записаться на новый курс'));
+  await newReusablePostForm.locator('button.primary[type="submit"]').click();
+  await page.locator('#post-form').waitFor({state:'detached',timeout:5000});
+
+  const savedReusableB=db.prepare(
+    'SELECT id,body,body_rich_json,content_version FROM posts WHERE title=? ORDER BY rowid DESC LIMIT 1'
+  ).get('Browser Reusable Post B');
+  assert.ok(savedReusableB?.id);
+  assert.equal(savedReusableB.content_version,1);
+  assert.ok(savedReusableB.body.includes('Записаться на новый курс'));
+  const postBRichSnapshot=savedReusableB.body_rich_json;
+
+  await page.goto(`${base}/templates`,{waitUntil:'domcontentloaded'});
+  await page.locator('[data-template-section="reusable-blocks"]').waitFor({state:'visible'});
+  ctaRow=page.locator('[data-template-section="reusable-blocks"] tbody tr').filter({hasText:'Browser CTA V2'});
+  page.once('dialog',(dialog)=>dialog.accept());
+  await ctaRow.locator('.operator-template-delete').click();
+  await page.waitForFunction((id)=>![...document.querySelectorAll('[data-template-section="reusable-blocks"] tbody tr')]
+    .some((row)=>row.dataset.templateId===id),browserCta.id);
+  assert.equal(db.prepare('SELECT body_rich_json FROM posts WHERE id=?').get(reusablePostA.id).body_rich_json,postARichSnapshot);
+  assert.equal(db.prepare('SELECT body_rich_json FROM posts WHERE id=?').get(savedReusableB.id).body_rich_json,postBRichSnapshot);
+
+  await page.goto(`${base}/content`,{waitUntil:'domcontentloaded'});
+  await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Контент');
+  await page.locator('#new-post').waitFor({state:'visible'});
 
   // EW4-005: new Post inherits project timezone and targets; per-post override stays isolated.
   const ewInheritedTitle = 'Browser EW4-005 inherited defaults';

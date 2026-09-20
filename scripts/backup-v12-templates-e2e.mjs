@@ -31,13 +31,21 @@ const template=createTemplate({
   scheduleMode:'MANUAL',
   targetAccountIds:[]
 });
+const block=createTemplate({
+  key:'backup-cta',
+  name:'Backup CTA',
+  projectId:project.id,
+  bodyRich:{type:'doc',content:[{type:'paragraph',content:[{type:'text',text:'Backup CTA body',marks:[{type:'italic'}]}]}]},
+  templateType:'CTA'
+});
 const before=db.prepare('SELECT * FROM templates WHERE id=?').get(template.id);
+const blockBefore=db.prepare('SELECT * FROM templates WHERE id=?').get(block.id);
 const bundle=await createBackupBundle('schema12-templates');
 const bundlePath=resolveBackupBundle(bundle.name);
 assert.ok((await fs.stat(bundlePath)).size>0);
 
 db.prepare('UPDATE templates SET name=?,body_plain=? WHERE id=?').run('Mutated','Mutated',template.id);
-db.prepare('DELETE FROM templates WHERE id=?').run(template.id);
+db.prepare('DELETE FROM templates WHERE id IN (?,?)').run(template.id,block.id);
 
 const staged=await stageRestoreBundle(bundlePath);
 assert.equal(staged.manifest.schemaVersion,CURRENT_SCHEMA_VERSION);
@@ -50,10 +58,12 @@ const restored=new Database(config.dbPath,{readonly:true,fileMustExist:true});
 try{
   assert.equal(Number(restored.pragma('user_version',{simple:true})),CURRENT_SCHEMA_VERSION);
   assert.deepEqual(restored.prepare('SELECT * FROM templates WHERE id=?').get(template.id),before);
+  assert.deepEqual(restored.prepare('SELECT * FROM templates WHERE id=?').get(block.id),blockBefore);
   console.log(JSON.stringify({
     ok:true,
     schemaVersion:CURRENT_SCHEMA_VERSION,
     templatesRestored:true,
+    reusableBlockRestored:true,
     canonicalBackupRestore:true
   },null,2));
 }finally{
