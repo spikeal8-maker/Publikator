@@ -6,6 +6,8 @@ const TEMPLATE_KEY = /^[A-Za-z0-9._:-]{1,128}$/;
 const PUBLICATION_KINDS = new Set(['FEED','SHORT','STORY']);
 const CONTENT_FORMATS = new Set(['TEXT_ONLY','IMAGE','CAROUSEL','VIDEO','VERTICAL_VIDEO','STORY_SEQUENCE']);
 const SCHEDULE_MODES = new Set(['MANUAL','AT','QUEUE']);
+const TEMPLATE_TYPES = new Set(['POST','SNIPPET','CTA','SIGNATURE','HASHTAG_SET']);
+const REUSABLE_BLOCK_TYPES = new Set(['SNIPPET','CTA','SIGNATURE','HASHTAG_SET']);
 
 export class TemplateValidationError extends Error {}
 export class TemplateNotFoundError extends Error {}
@@ -15,6 +17,7 @@ export type TemplateMutationInput = {
   name?: unknown;
   projectId?: unknown;
   bodyRich?: unknown;
+  templateType?: unknown;
   publicationKind?: unknown;
   contentFormat?: unknown;
   scheduleMode?: unknown;
@@ -99,6 +102,14 @@ function enumValue(value: unknown, allowed: Set<string>, field: string): string 
   return result;
 }
 
+function templateTypeValue(value: unknown): string {
+  return enumValue(value ?? 'POST', TEMPLATE_TYPES, 'templateType');
+}
+
+function isReusableBlockType(value: string): boolean {
+  return REUSABLE_BLOCK_TYPES.has(value);
+}
+
 function requireProject(projectId: string): void {
   if (!db.prepare('SELECT 1 FROM projects WHERE id=?').get(projectId)) {
     throw new TemplateValidationError('Проект не найден');
@@ -136,19 +147,27 @@ export function createTemplate(input: TemplateMutationInput): any {
   const bodyRichJson = serializeRichText(input.bodyRich);
   const bodyPlain = richTextToPlain(input.bodyRich).trim();
   if (!bodyPlain) throw new TemplateValidationError('Текст шаблона обязателен');
-  const publicationKind = enumValue(input.publicationKind ?? 'FEED', PUBLICATION_KINDS, 'publicationKind');
-  const contentFormat = enumValue(input.contentFormat ?? 'IMAGE', CONTENT_FORMATS, 'contentFormat');
-  const scheduleMode = enumValue(input.scheduleMode ?? 'MANUAL', SCHEDULE_MODES, 'scheduleMode');
-  const targetAccountIds = normalizeTargetIds(input.targetAccountIds);
+  const templateType = templateTypeValue(input.templateType);
+  const reusableBlock = isReusableBlockType(templateType);
+  const publicationKind = reusableBlock
+    ? 'FEED'
+    : enumValue(input.publicationKind ?? 'FEED', PUBLICATION_KINDS, 'publicationKind');
+  const contentFormat = reusableBlock
+    ? 'TEXT_ONLY'
+    : enumValue(input.contentFormat ?? 'IMAGE', CONTENT_FORMATS, 'contentFormat');
+  const scheduleMode = reusableBlock
+    ? 'MANUAL'
+    : enumValue(input.scheduleMode ?? 'MANUAL', SCHEDULE_MODES, 'scheduleMode');
+  const targetAccountIds = reusableBlock ? null : normalizeTargetIds(input.targetAccountIds);
   const templateId = id('tpl');
   const now = nowIso();
 
   db.prepare(`INSERT INTO templates
     (id,key,name,project_id,template_type,body_rich_json,body_plain,publication_kind,
      content_format,schedule_mode,target_account_ids_json,created_at,updated_at)
-    VALUES (?,?,?,?,'POST',?,?,?,?,?,?,?,?)`)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     .run(
-      templateId, key, name, projectId, bodyRichJson, bodyPlain, publicationKind,
+      templateId, key, name, projectId, templateType, bodyRichJson, bodyPlain, publicationKind,
       contentFormat, scheduleMode,
       targetAccountIds === null ? null : JSON.stringify(targetAccountIds),
       now, now
@@ -158,6 +177,13 @@ export function createTemplate(input: TemplateMutationInput): any {
 export function updateTemplate(templateId: string, input: TemplateMutationInput): any {
   const current = db.prepare('SELECT * FROM templates WHERE id=?').get(templateId) as TemplateRow | undefined;
   if (!current) throw new TemplateNotFoundError('Шаблон не найден');
+
+  if (input.templateType !== undefined) {
+    const requestedType = templateTypeValue(input.templateType);
+    if (requestedType !== current.template_type) {
+      throw new TemplateValidationError('templateType нельзя менять после создания');
+    }
+  }
 
   const key = input.key === undefined ? current.key : validateKey(input.key);
   const name = input.name === undefined ? current.name : requiredString(input.name, 'name');
@@ -173,18 +199,27 @@ export function updateTemplate(templateId: string, input: TemplateMutationInput)
     if (!bodyPlain) throw new TemplateValidationError('Текст шаблона обязателен');
   }
 
-  const publicationKind = input.publicationKind === undefined
-    ? current.publication_kind
-    : enumValue(input.publicationKind, PUBLICATION_KINDS, 'publicationKind');
-  const contentFormat = input.contentFormat === undefined
-    ? current.content_format
-    : enumValue(input.contentFormat, CONTENT_FORMATS, 'contentFormat');
-  const scheduleMode = input.scheduleMode === undefined
-    ? current.schedule_mode
-    : enumValue(input.scheduleMode, SCHEDULE_MODES, 'scheduleMode');
-  const targetAccountIds = input.targetAccountIds === undefined
-    ? targetIdsFromJson(current.target_account_ids_json)
-    : normalizeTargetIds(input.targetAccountIds);
+  const reusableBlock = isReusableBlockType(current.template_type);
+  const publicationKind = reusableBlock
+    ? 'FEED'
+    : input.publicationKind === undefined
+      ? current.publication_kind
+      : enumValue(input.publicationKind, PUBLICATION_KINDS, 'publicationKind');
+  const contentFormat = reusableBlock
+    ? 'TEXT_ONLY'
+    : input.contentFormat === undefined
+      ? current.content_format
+      : enumValue(input.contentFormat, CONTENT_FORMATS, 'contentFormat');
+  const scheduleMode = reusableBlock
+    ? 'MANUAL'
+    : input.scheduleMode === undefined
+      ? current.schedule_mode
+      : enumValue(input.scheduleMode, SCHEDULE_MODES, 'scheduleMode');
+  const targetAccountIds = reusableBlock
+    ? null
+    : input.targetAccountIds === undefined
+      ? targetIdsFromJson(current.target_account_ids_json)
+      : normalizeTargetIds(input.targetAccountIds);
 
   db.prepare(`UPDATE templates SET key=?,name=?,project_id=?,body_rich_json=?,body_plain=?,
     publication_kind=?,content_format=?,schedule_mode=?,target_account_ids_json=?,updated_at=?
