@@ -70,6 +70,8 @@ try {
   const { db, id, migrate, nowIso } = await import('../dist/db.js');
   const { commitContentEdit } = await import('../dist/content-versioning.js');
   const { buildApp } = await import('../dist/app.js');
+  const { createTemplate } = await import('../dist/templates.js');
+  const { parseRichTextJson } = await import('../dist/rich-text.js');
   migrate();
   let project = db.prepare('SELECT id,slug FROM projects ORDER BY created_at LIMIT 1').get();
   if (!project) {
@@ -77,10 +79,26 @@ try {
     db.prepare('INSERT INTO projects (id,name,slug,created_at) VALUES (?,?,?,?)').run(project.id, 'Main', project.slug, nowIso());
   }
 
-  const row = (externalId, title, body, revision) => [
-    '3', externalId, 'UPSERT', project.slug, '', title, body, 'FEED', 'IMAGE', 'MANUAL', '', 'UTC', '[]',
-    '', '', '', '', '', '', '', revision
+  const row = (externalId, title, body, revision, options = {}) => [
+    '3', externalId, 'UPSERT', project.slug, options.templateKey ?? '', title, body,
+    options.publicationKind ?? 'FEED', options.contentFormat ?? 'IMAGE', options.scheduleMode ?? 'MANUAL',
+    options.scheduledAt ?? '', options.timezone ?? 'UTC', options.targets ?? '[]',
+    options.telegramBody ?? '', options.vkBody ?? '', options.maxBody ?? '', options.instagramBody ?? '',
+    '', '', '', revision
   ];
+  const sheetTemplate = createTemplate({
+    key: 'google-sheet-template-v3',
+    name: 'Google Sheet template v3',
+    projectId: project.id,
+    templateType: 'POST',
+    bodyRich: {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Template body', marks: [{ type: 'bold' }] }] }]
+    },
+    publicationKind: 'FEED',
+    contentFormat: 'IMAGE',
+    scheduleMode: 'QUEUE'
+  });
   sheetValues = [header, row('sheet-001', 'From Google', 'Body v1', 'rev-1')];
 
   const app = await buildApp();
@@ -188,6 +206,48 @@ try {
   assert.equal(db.prepare("SELECT COUNT(*) AS count FROM posts WHERE source_type='google_sheets'").get().count, 2);
   writeBackFailure = false;
 
+  sheetValues = [header, row(
+    'sheet-editorial-v3',
+    'Editorial Sheet v3',
+    '**Новый модуль**\n[Подробнее](https://example.org)\n> Важно',
+    'rev-1',
+    {
+      templateKey: sheetTemplate.key,
+      publicationKind: 'STORY',
+      contentFormat: 'STORY_SEQUENCE',
+      scheduleMode: '',
+      timezone: ''
+    }
+  )];
+  const editorialV3Preview = await request('POST', `/api/google-sheets/connectors/${connector.id}/preview`, {});
+  assert.equal(editorialV3Preview.statusCode, 200, editorialV3Preview.body);
+  assert.equal(editorialV3Preview.json().summary.newRows, 1);
+  assert.equal(editorialV3Preview.json().canApply, true);
+  const normalizedV3 = editorialV3Preview.json().rows[0].normalized;
+  assert.equal(normalizedV3.templateKey, sheetTemplate.key);
+  assert.equal(normalizedV3.publicationKind, 'STORY');
+  assert.equal(normalizedV3.contentFormat, 'STORY_SEQUENCE');
+  assert.equal(normalizedV3.scheduleMode, 'QUEUE');
+
+  const editorialV3Apply = await request('POST', `/api/google-sheets/connectors/${connector.id}/apply`, {
+    confirm: 'IMPORT',
+    previewSha: editorialV3Preview.json().sourceSnapshotSha256
+  });
+  assert.equal(editorialV3Apply.statusCode, 200, editorialV3Apply.body);
+  assert.equal(editorialV3Apply.json().created, 1);
+  const editorialV3Post = db.prepare("SELECT * FROM posts WHERE source_type='google_sheets' AND source_ref=?")
+    .get(JSON.stringify([`gs:${connector.id}`, 'sheet-editorial-v3']));
+  assert.ok(editorialV3Post);
+  assert.equal(editorialV3Post.status, 'DRAFT');
+  assert.equal(editorialV3Post.publication_kind, 'STORY');
+  assert.equal(editorialV3Post.content_format, 'STORY_SEQUENCE');
+  assert.equal(editorialV3Post.schedule_mode, 'QUEUE');
+  const editorialV3Ast = parseRichTextJson(editorialV3Post.body_rich_json);
+  assert.ok(JSON.stringify(editorialV3Ast).includes('"type":"bold"'));
+  assert.ok(JSON.stringify(editorialV3Ast).includes('"type":"link"'));
+  assert.ok(JSON.stringify(editorialV3Ast).includes('"type":"blockquote"'));
+
+
   commitContentEdit(post.id, post.content_version, 'manual', () => {
     db.prepare('UPDATE posts SET body=? WHERE id=?').run('Manual local edit', post.id);
   });
@@ -200,7 +260,7 @@ try {
   sheetValues = [header];
   const deletedRowPreview = await request('POST', `/api/google-sheets/connectors/${connector.id}/preview`, {});
   assert.equal(deletedRowPreview.statusCode, 400, deletedRowPreview.body);
-  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM posts WHERE source_type='google_sheets'").get().count, 2, 'removing a Sheet row must never delete a post');
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM posts WHERE source_type='google_sheets'").get().count, 3, 'removing a Sheet row must never delete a post');
 
   const badAction = [header, [...row('sheet-003', 'Archive?', 'Body', 'rev-1').slice(0, 2), 'ARCHIVE', ...row('sheet-003', 'Archive?', 'Body', 'rev-1').slice(3)]];
   sheetValues = badAction;
@@ -220,7 +280,17 @@ try {
   assert.match(index, /google-sheets-v1\.js/);
 
   await app.close();
-  console.log('CP2-005 Google Sheets connector: PASS');
+  console.log(JSON.stringify({
+    ok: true,
+    checkpoint: 'CP2-005 / EW4-008',
+    connector: true,
+    templateKey: true,
+    portableRichText: true,
+    publicationKind: true,
+    contentFormat: true,
+    sharedEditorialContract: true,
+    writeBackPreserved: true
+  }, null, 2));
 } finally {
   globalThis.fetch = originalFetch;
   await fs.rm(dataDir, { recursive: true, force: true }).catch(() => undefined);

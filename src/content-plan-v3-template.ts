@@ -35,14 +35,19 @@ function exampleRows(): string[][] {
   const yandexSource = (db.prepare("SELECT name FROM ingestion_connectors WHERE enabled=1 AND type='yandex_disk' ORDER BY created_at,id LIMIT 1").get() as { name: string } | undefined)?.name ?? 'Мои файлы Яндекс Диск';
   const accounts = db.prepare('SELECT platform,name FROM social_accounts WHERE enabled=1 ORDER BY platform,name,id LIMIT 2').all() as Array<{ platform: string; name: string }>;
   const targets = accounts.map((account) => `${account.platform}:${account.name}`).join('; ');
+  const templateExample = db.prepare(`SELECT t.key,p.slug AS project
+    FROM templates t JOIN projects p ON p.id=t.project_id
+    WHERE t.template_type='POST'
+    ORDER BY t.updated_at DESC,t.key LIMIT 1`).get() as { key: string; project: string } | undefined;
 
   return [
     ['3','manual-001','UPSERT',project,'','Ручная публикация','Введите основной текст публикации','FEED','IMAGE','MANUAL','','','', '', '', '', '', '', '', '', '1'],
     ['3','drive-001','UPSERT',project,'','Изображение из Google Drive','Publikator найдёт файл по имени и сохранит его локально','FEED','IMAGE','MANUAL','','','', '', '', '', '', `${driveSource}|lesson-01.jpg`, '', '', '1'],
     ['3','yandex-001','UPSERT',project,'','Изображение из Яндекс Диска','Можно указывать подпапки относительно настроенного корня','FEED','IMAGE','MANUAL','','','', '', '', '', '', `${yandexSource}|september/post-02.jpg`, '', '', '1'],
-    ['3','at-001','UPSERT',project,'','Публикация по времени','Будет опубликована в указанное локальное время','FEED','IMAGE','AT','2026-09-20 14:00','Europe/Moscow','', '', '', '', '', '', '', '', '1'],
+    ['3','at-001','UPSERT',project,'','Публикация по времени','Будет опубликована в указанное локальное время','FEED','IMAGE','AT','2026-09-20T14:00','Europe/Moscow','', '', '', '', '', '', '', '', '1'],
     ['3','queue-001','UPSERT',project,'','Публикация в очередь','Будет ждать подходящего автоматического слота','FEED','IMAGE','QUEUE','','','', '', '', '', '', '', '', '', '1'],
-    ['3','targets-001','UPSERT',project,'','Публикация на площадки','Площадки можно перечислять через точку с запятой','FEED','IMAGE','MANUAL','','',targets,'Отдельный текст Telegram','Отдельный текст VK','','','','','','1']
+    ['3','targets-001','UPSERT',project,'','Публикация на площадки','Площадки можно перечислять через точку с запятой','FEED','IMAGE','MANUAL','','',targets,'**Отдельный текст Telegram**','_Отдельный текст VK_','','','','','','1'],
+    ['3','template-rich-001','UPSERT',templateExample?.project ?? project,templateExample?.key ?? '','Шаблон + rich text','**Новый модуль**\n[Подробнее](https://example.org)\n> Важно','STORY','STORY_SEQUENCE','MANUAL','','','', '', '', '', '', '', '', '', '1']
   ];
 }
 
@@ -51,19 +56,19 @@ const COLUMN_GUIDE = [
   ['ID публикации','Обязательно','Стабильный ID строки. Не меняйте его при редактировании одной и той же публикации.','До 160 символов','external_id'],
   ['Действие','Обязательно','Что сделать с публикацией','UPSERT; ARCHIVE; TRASH_REQUEST','action'],
   ['Проект','Для UPSERT','Проект из листа «Справочники»','slug проекта','project'],
-  ['Шаблон','Пока не используется','Оставьте пустым','—','template_key'],
-  ['Название','Для UPSERT','Понятное внутреннее название','Текст','internal_title'],
-  ['Текст','Для UPSERT','Основной текст публикации','Текст','body'],
-  ['Тип публикации','Для UPSERT','Сейчас используйте FEED','FEED','publication_kind'],
-  ['Формат','Для UPSERT','Для таблиц сейчас поддерживается IMAGE','IMAGE','content_format'],
+  ['Шаблон','Необязательно','POST template того же проекта. Используется снимком только при создании NEW.','Ключ из листа «Справочники»; пусто = без шаблона','template_key'],
+  ['Название','Для UPSERT','Понятное внутреннее название. Всегда задаётся явно в таблице.','Текст','internal_title'],
+  ['Текст','Для UPSERT','Основной portable rich text. Если пусто при NEW с template_key — берётся из шаблона.','**bold**; _italic_; ~~strike~~; `code`; [link](https://example.org); > quote','body'],
+  ['Тип публикации','Для UPSERT','Canonical publication kind. Пусто с template_key = значение шаблона.','FEED / SHORT / STORY','publication_kind'],
+  ['Формат','Для UPSERT','Canonical content format. Пусто с template_key = значение шаблона.','TEXT_ONLY / IMAGE / CAROUSEL / VIDEO / VERTICAL_VIDEO / STORY_SEQUENCE','content_format'],
   ['Режим публикации','Для UPSERT','MANUAL — вручную; AT — по времени; QUEUE — очередь','MANUAL / AT / QUEUE','schedule_mode'],
-  ['Дата и время','Только AT','Когда опубликовать','YYYY-MM-DD HH:MM или ISO','scheduled_at'],
+  ['Дата и время','Только AT','Когда опубликовать','YYYY-MM-DDTHH:mm или ISO с Z/offset','scheduled_at'],
   ['Часовой пояс','Рекомендуется для AT','Часовой пояс публикации','Например Europe/Moscow','timezone'],
   ['Площадки','Необязательно','Куда публиковать','telegram:Имя; vk:Имя или старый JSON','targets'],
-  ['Текст Telegram','Необязательно','Отдельный текст только для Telegram','Пусто = основной текст','telegram_body'],
-  ['Текст VK','Необязательно','Отдельный текст только для VK','Пусто = основной текст','vk_body'],
-  ['Текст MAX','Необязательно','Отдельный текст только для MAX','Пусто = основной текст','max_body'],
-  ['Текст Instagram','Необязательно','Отдельный текст только для Instagram','Пусто = основной текст','instagram_body'],
+  ['Текст Telegram','Необязательно','Portable rich override только для Telegram','Тот же neutral syntax, что у основного текста','telegram_body'],
+  ['Текст VK','Необязательно','Portable rich override только для VK','Тот же neutral syntax, что у основного текста','vk_body'],
+  ['Текст MAX','Необязательно','Portable rich override только для MAX','Тот же neutral syntax, что у основного текста','max_body'],
+  ['Текст Instagram','Необязательно','Portable rich override только для Instagram','Тот же neutral syntax, что у основного текста','instagram_body'],
   ['Медиа','Google Sheets','Файл из подключённого Google Drive/Яндекс Диска','Источник|путь/файл.jpg; несколько через ;','media'],
   ['Теги','Пока не используется','Оставьте пустым','—','tags'],
   ['Заметка','Пока не используется','Оставьте пустым','—','source_note'],
@@ -78,18 +83,23 @@ async function appendSafeRows(sheet: any, rows: string[][]): Promise<void> {
 }
 function listRows(): string[][] {
   const projects = db.prepare('SELECT slug FROM projects ORDER BY slug').all() as Array<{ slug: string }>;
+  const templates = db.prepare("SELECT key FROM templates WHERE template_type='POST' ORDER BY key").all() as Array<{ key: string }>;
   const accounts = db.prepare('SELECT platform,name FROM social_accounts WHERE enabled=1 ORDER BY platform,name').all() as Array<{ platform: string; name: string }>;
   const sources = db.prepare("SELECT type,name FROM ingestion_connectors WHERE enabled=1 AND type IN ('google_drive','yandex_disk') ORDER BY type,name").all() as Array<{ type: string; name: string }>;
-  const max = Math.max(projects.length, accounts.length, sources.length, 3);
+  const kinds = ['FEED','SHORT','STORY'];
+  const formats = ['TEXT_ONLY','IMAGE','CAROUSEL','VIDEO','VERTICAL_VIDEO','STORY_SEQUENCE'];
+  const modes = ['MANUAL','AT','QUEUE'];
+  const actions = ['UPSERT','ARCHIVE','TRASH_REQUEST'];
+  const max = Math.max(projects.length, templates.length, accounts.length, sources.length, kinds.length, formats.length, modes.length, actions.length);
   const rows: string[][] = [];
   for (let index = 0; index < max; index += 1) rows.push([
     projects[index]?.slug ?? '',
+    templates[index]?.key ?? '',
     accounts[index]?.platform ?? '',
     accounts[index]?.name ?? '',
     sources[index]?.name ?? '',
     sources[index]?.type === 'google_drive' ? 'Google Drive' : sources[index]?.type === 'yandex_disk' ? 'Яндекс Диск' : '',
-    ['FEED'][index] ?? '', ['IMAGE'][index] ?? '', ['MANUAL','AT','QUEUE'][index] ?? '',
-    ['UPSERT','ARCHIVE','TRASH_REQUEST'][index] ?? ''
+    kinds[index] ?? '', formats[index] ?? '', modes[index] ?? '', actions[index] ?? ''
   ]);
   return rows;
 }
@@ -125,8 +135,8 @@ export async function createCanonicalContentPlanV3Template(): Promise<Buffer> {
     await posts.close();
 
     const lists = await workbook.addWorksheet('Справочники');
-    setWidths(lists, [24,20,34,34,22,22,22,24,24]);
-    await lists.appendRow(styledRow(['Проект','Платформа','Подключение','Источник медиа','Тип источника','Тип публикации','Формат','Режим публикации','Действие'], HEADER_STYLE));
+    setWidths(lists, [24,28,20,34,34,22,22,24,24,24]);
+    await lists.appendRow(styledRow(['Проект','Шаблон','Платформа','Подключение','Источник медиа','Тип источника','Тип публикации','Формат','Режим публикации','Действие'], HEADER_STYLE));
     await appendSafeRows(lists, listRows());
     await lists.close();
 

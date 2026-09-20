@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -20,14 +21,18 @@ const { config } = await import('../dist/config.js');
 const { publishPost } = await import('../dist/publisher.js');
 const { markReadyRevision } = await import('../dist/content-versioning.js');
 const { setPublisherForTests } = await import('../dist/platforms/index.js');
+const { createTemplate } = await import('../dist/templates.js');
+const { createIngestionConnector } = await import('../dist/integration-security.js');
 migrate();
 const app = await buildApp();
 
 const fixtureLogin = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { password: process.env.ADMIN_PASSWORD } });
 assert.equal(fixtureLogin.statusCode, 200, fixtureLogin.body);
 const fixtureCookie = String(fixtureLogin.headers['set-cookie']).split(';')[0];
-const fixtureProjectId = db.prepare('SELECT id FROM projects ORDER BY created_at LIMIT 1').get()?.id;
-assert.ok(fixtureProjectId, 'browser Library fixture project missing');
+const fixtureProject = db.prepare('SELECT id,slug FROM projects ORDER BY created_at LIMIT 1').get();
+assert.ok(fixtureProject?.id, 'browser Library fixture project missing');
+const fixtureProjectId = fixtureProject.id;
+const fixtureProjectSlug = fixtureProject.slug;
 
 async function createLibraryPresentationFixture(title, { publicationKind, contentFormat, sourceType, editorialStage, status }) {
   const response = await app.inject({
@@ -218,6 +223,81 @@ for (const [platform, credentials, name] of [
     VALUES (?,?,?,0,'PENDING',0,?)`)
     .run(id('target'), contentDraft.id, accountId, createdAt);
 }
+
+
+const browserSheetTemplate = createTemplate({
+  key: 'browser-sheet-template-v3',
+  name: 'Browser Sheet Template v3',
+  projectId: fixtureProjectId,
+  templateType: 'POST',
+  bodyRich: {
+    type: 'doc',
+    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Template snapshot body', marks: [{ type: 'bold' }] }] }]
+  },
+  publicationKind: 'FEED',
+  contentFormat: 'IMAGE',
+  scheduleMode: 'QUEUE',
+  targetAccountIds: [editorAccountId]
+});
+const { privateKey: browserSheetPrivateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+const browserSheetCredentials = {
+  type: 'service_account',
+  client_email: 'browser-sheet@test-project.iam.gserviceaccount.com',
+  private_key: browserSheetPrivateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
+  token_uri: 'https://oauth2.googleapis.com/token'
+};
+const browserSheetConnector = createIngestionConnector({
+  type: 'google_sheets',
+  name: 'Browser Editorial Sheet v3',
+  config: {
+    spreadsheetId: 'browser_sheet_v3_12345',
+    sheetName: 'Posts',
+    writeBack: false,
+    serviceAccountEmail: browserSheetCredentials.client_email,
+    pollingEnabled: false,
+    pollIntervalMinutes: 15,
+    autoApplyEnabled: false,
+    autoReadyEnabled: false
+  },
+  credentials: browserSheetCredentials
+});
+const browserSheetHeader = [
+  'schema_version','external_id','action','project','template_key','internal_title','body',
+  'publication_kind','content_format','schedule_mode','scheduled_at','timezone','targets',
+  'telegram_body','vk_body','max_body','instagram_body','media','tags','source_note','source_revision'
+];
+const browserSheetExternalId = 'browser-sheet-editorial-v3';
+const browserSheetTitle = 'Browser Sheet Editorial v3';
+const browserSheetPortableBody = '**Новый модуль**\n[Подробнее](https://example.org)\n> Важно';
+let browserGoogleSheetValues = [
+  browserSheetHeader,
+  [
+    '3', browserSheetExternalId, 'UPSERT', fixtureProjectSlug, browserSheetTemplate.key,
+    browserSheetTitle, browserSheetPortableBody, 'STORY', 'STORY_SEQUENCE',
+    '', '', '', '[]', '', '', '', '', '', '', '', 'rev-1'
+  ]
+];
+const browserGoogleOriginalFetch = globalThis.fetch;
+globalThis.fetch = async (input, init = {}) => {
+  const url = String(input);
+  if (url === 'https://oauth2.googleapis.com/token') {
+    return new Response(JSON.stringify({ access_token: 'browser-sheet-token', expires_in: 3600, token_type: 'Bearer' }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    });
+  }
+  if (url.includes('sheets.googleapis.com') && url.includes('/values/')) {
+    return new Response(JSON.stringify({
+      range: "'Posts'!A1:U10001",
+      majorDimension: 'ROWS',
+      values: browserGoogleSheetValues
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    });
+  }
+  return browserGoogleOriginalFetch(input, init);
+};
 
 const ew4005Project = await fixtureApi('POST', '/api/projects', {
   name: 'Browser EW4-005 Project',
@@ -1612,10 +1692,70 @@ try {
   }
   assert.match(sourcesText, /Google Sheets/, 'Google Sheets live source section is missing');
   assert.match(sourcesText, /Google Drive \/ Яндекс Диск/, 'cloud media source card is missing');
+
+  const editorialSheetCard = page.locator(`.gs-connector[data-gs-id="${browserSheetConnector.id}"]`);
+  await editorialSheetCard.waitFor({ state: 'visible', timeout: 5000 });
+  await editorialSheetCard.locator('.gs-preview').click();
+  await page.waitForFunction((connectorId) => {
+    const card = document.querySelector(`.gs-connector[data-gs-id="${connectorId}"]`);
+    return Boolean(card?.querySelector('[data-raw-classification="NEW"]'));
+  }, browserSheetConnector.id);
+  let editorialSheetResult = page.locator(`.gs-connector[data-gs-id="${browserSheetConnector.id}"] .gs-result`);
+  const editorialPreviewText = await editorialSheetResult.innerText();
+  assert.match(editorialPreviewText, /Предпросмотр готов/);
+  assert.ok(!editorialPreviewText.includes('template_key is not supported'));
+  assert.ok(!editorialPreviewText.includes('publication_kind=FEED'));
+  assert.ok(!editorialPreviewText.includes('content_format=IMAGE'));
+
+  const applySheetCard = page.locator(`.gs-connector[data-gs-id="${browserSheetConnector.id}"]`);
+  page.once('dialog', (dialog) => dialog.accept());
+  await applySheetCard.locator('.gs-apply').click();
+  editorialSheetResult = page.locator(`.gs-connector[data-gs-id="${browserSheetConnector.id}"] .gs-result`);
+  await page.waitForFunction((connectorId) => {
+    const result = document.querySelector(`.gs-connector[data-gs-id="${connectorId}"] .gs-result`);
+    return result?.textContent?.includes('Google Sheets синхронизирован.');
+  }, browserSheetConnector.id);
+
+  const browserSheetPost = db.prepare("SELECT * FROM posts WHERE source_type='google_sheets' AND source_ref=?")
+    .get(JSON.stringify([`gs:${browserSheetConnector.id}`, browserSheetExternalId]));
+  assert.ok(browserSheetPost, 'Google Sheets browser Apply must create the canonical Post');
+  assert.equal(browserSheetPost.status, 'DRAFT');
+  assert.equal(browserSheetPost.publication_kind, 'STORY');
+  assert.equal(browserSheetPost.content_format, 'STORY_SEQUENCE');
+  assert.equal(browserSheetPost.schedule_mode, 'QUEUE');
+  assert.deepEqual(
+    db.prepare('SELECT account_id FROM post_targets WHERE post_id=? AND enabled=1 ORDER BY account_id')
+      .all(browserSheetPost.id).map((row) => row.account_id),
+    [editorAccountId]
+  );
+
   await page.goto(`${base}/content`, { waitUntil: 'domcontentloaded' });
-  await page.locator('#app').waitFor({ state: 'visible' });
+  await page.waitForFunction((title) => [...document.querySelectorAll('#view table.table tbody tr')]
+    .some((row) => row.textContent?.includes(title)), browserSheetTitle);
+  const editorialSheetRow = contentRow(browserSheetTitle);
+  assert.equal(await editorialSheetRow.count(), 1, 'Google Sheets v3 Post must render once in Content');
+  await editorialSheetRow.locator('.open-post').click();
+  const editorialSheetInspector = page.locator('.editorial-inspector-overlay');
+  await editorialSheetInspector.waitFor({ state: 'visible', timeout: 5000 });
+  assert.equal(await editorialSheetInspector.locator('[data-inspector-rich-text] strong').filter({ hasText: 'Новый модуль' }).count(), 1);
+  assert.equal(await editorialSheetInspector.locator('[data-inspector-rich-text] a[href^="https://example.org"]').count(), 1);
+  assert.equal(await editorialSheetInspector.locator('[data-inspector-rich-text] blockquote').filter({ hasText: 'Важно' }).count(), 1);
+  const expectedStoryFormat = await page.evaluate(async () =>
+    (await import('/presentation-labels.js')).publicationFormatLabel('STORY', 'STORY_SEQUENCE')
+  );
+  const expectedQueueMode = await page.evaluate(async () =>
+    (await import('/presentation-labels.js')).scheduleModeLabel('QUEUE')
+  );
+  const editorialInspectorText = await editorialSheetInspector.innerText();
+  assert.ok(editorialInspectorText.includes(expectedStoryFormat), 'Content Inspector must preserve STORY/STORY_SEQUENCE');
+  assert.ok(editorialInspectorText.includes(expectedQueueMode), 'Content Inspector must preserve template schedule snapshot');
+  assert.ok(editorialInspectorText.includes('Browser editor channel'), 'Content Inspector must preserve template target snapshot');
+  await editorialSheetInspector.locator('.inspector-close').click();
+  await editorialSheetInspector.waitFor({ state: 'detached', timeout: 5000 });
+
   await page.goto(`${base}/sources`, { waitUntil: 'domcontentloaded' });
   await page.locator('#operator-google-sheets-live').waitFor({ state: 'visible' });
+
   assert.equal(await page.locator('#operator-google-sheets-live').count(), 1, 'Google Sheets live section must mount exactly once after route re-entry');
 
   await page.goto(`${base}/overview`, { waitUntil: 'domcontentloaded' });
@@ -1673,10 +1813,12 @@ try {
     instagramRichTextDowngrade: true,
     compilerPreviewParity: true,
     compilerPublisherParity: true,
+    googleSheetsEditorialV3: true,
     noBodyOverflow: true,
     pageErrors: 0
   }, null, 2));
 } finally {
+  globalThis.fetch = browserGoogleOriginalFetch;
   if (browser) await browser.close().catch(() => undefined);
   await app.close().catch(() => undefined);
   db.close();

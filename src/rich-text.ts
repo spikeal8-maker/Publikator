@@ -319,3 +319,136 @@ export function canonicalPlainRichJson(text: string): string {
 }
 
 export const EMPTY_RICH_TEXT_JSON = canonicalPlainRichJson('');
+
+function portableMarksWith(marks: RichTextMark[], type: RichTextMarkType): RichTextMark[] {
+  return normalizedMarks([...marks, { type }]);
+}
+
+function portableNextSpecial(text: string, from: number): number {
+  const starts = [
+    text.indexOf('**', from),
+    text.indexOf('~~', from),
+    text.indexOf('`', from),
+    text.indexOf('[', from),
+    text.indexOf('_', from)
+  ].filter((index) => index >= 0);
+  return starts.length ? Math.min(...starts) : text.length;
+}
+
+function portableInline(text: string, marks: RichTextMark[] = []): RichTextInlineNode[] {
+  const out: RichTextInlineNode[] = [];
+  let index = 0;
+  const pushText = (value: string, nodeMarks = marks) => {
+    if (value) out.push({ type: 'text', text: value, marks: nodeMarks });
+  };
+
+  while (index < text.length) {
+    if (text.startsWith('**', index)) {
+      const end = text.indexOf('**', index + 2);
+      if (end >= 0) {
+        out.push(...portableInline(text.slice(index + 2, end), portableMarksWith(marks, 'bold')));
+        index = end + 2;
+        continue;
+      }
+    }
+    if (text.startsWith('~~', index)) {
+      const end = text.indexOf('~~', index + 2);
+      if (end >= 0) {
+        out.push(...portableInline(text.slice(index + 2, end), portableMarksWith(marks, 'strike')));
+        index = end + 2;
+        continue;
+      }
+    }
+    if (text[index] === '`') {
+      const end = text.indexOf('`', index + 1);
+      if (end >= 0) {
+        pushText(text.slice(index + 1, end), portableMarksWith(marks, 'code'));
+        index = end + 1;
+        continue;
+      }
+    }
+    if (text[index] === '[') {
+      const labelEnd = text.indexOf('](', index + 1);
+      const hrefEnd = labelEnd >= 0 ? text.indexOf(')', labelEnd + 2) : -1;
+      if (labelEnd >= 0 && hrefEnd >= 0) {
+        const label = text.slice(index + 1, labelEnd);
+        const href = text.slice(labelEnd + 2, hrefEnd).trim();
+        const labelNodes = portableInline(label, marks).flatMap((node): RichTextTextNode[] => {
+          if (node.type === 'text') return [node];
+          if (node.type === 'link') return node.content;
+          return [{ type: 'text', text: '\n', marks }];
+        });
+        out.push({ type: 'link', attrs: { href }, content: labelNodes });
+        index = hrefEnd + 1;
+        continue;
+      }
+    }
+    if (text[index] === '_') {
+      const end = text.indexOf('_', index + 1);
+      if (end >= 0) {
+        out.push(...portableInline(text.slice(index + 1, end), portableMarksWith(marks, 'italic')));
+        index = end + 1;
+        continue;
+      }
+    }
+
+    const next = portableNextSpecial(text, index + 1);
+    pushText(text.slice(index, next));
+    index = next;
+  }
+  return out;
+}
+
+function portableParagraph(lines: string[]): RichTextParagraphNode {
+  const content: RichTextInlineNode[] = [];
+  lines.forEach((line, index) => {
+    if (index > 0) content.push({ type: 'hard_break' });
+    content.push(...portableInline(line));
+  });
+  return { type: 'paragraph', content };
+}
+
+export function parsePortableRichText(text: string): RichTextDocument {
+  if (typeof text !== 'string') throw new Error('Portable rich text must be text');
+  if (Buffer.byteLength(text, 'utf8') > RICH_TEXT_LIMITS.maxTextBytes) {
+    throw new Error('Rich-text text exceeds size limit');
+  }
+  if (!text) return { type: 'doc', content: [] };
+
+  const blocks: Array<Exclude<RichTextBlockNode, RichTextListItemNode>> = [];
+  let paragraph: string[] = [];
+  let quote: string[] = [];
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    blocks.push(portableParagraph(paragraph));
+    paragraph = [];
+  };
+  const flushQuote = () => {
+    if (!quote.length) return;
+    blocks.push({ type: 'blockquote', content: [portableParagraph(quote)] });
+    quote = [];
+  };
+
+  for (const rawLine of text.replace(/\r\n?/g, '\n').split('\n')) {
+    const quoteMatch = rawLine.match(/^\s*>\s?(.*)$/);
+    if (quoteMatch) {
+      flushParagraph();
+      quote.push(quoteMatch[1] ?? '');
+      continue;
+    }
+    if (!rawLine.trim()) {
+      flushParagraph();
+      flushQuote();
+      continue;
+    }
+    flushQuote();
+    paragraph.push(rawLine);
+  }
+  flushParagraph();
+  flushQuote();
+  return normalizeRichText({ type: 'doc', content: blocks });
+}
+
+export function portableRichTextJson(text: string): string {
+  return serializeRichText(parsePortableRichText(text));
+}
