@@ -138,10 +138,11 @@ for (const [name, source, esc] of [
   assert.ok(source.includes(`${esc}(statusLabel(row.classification))`), `${name} must render human classification`);
 }
 
-const templatesDescription = 'Здесь будут храниться повторно используемые заготовки текста, структуры и настроек публикации.';
-const templatesEmptyState = 'Шаблоны пока не включены. До их появления создавайте и дублируйте материалы через раздел «Контент».';
+const templatesDescription = 'Создавайте повторно используемые заготовки. При создании публикации текст и настройки копируются снимком.';
+const templatesEmptyState = 'Шаблонов пока нет';
 assert.ok(operator.includes(templatesDescription), 'final templates description must remain renderer-owned');
 assert.ok(operator.includes(templatesEmptyState), 'final templates empty state must remain renderer-owned');
+assert.ok(!operator.includes('Шаблоны пока не включены'), 'templates placeholder must be removed');
 assert.ok(operator.includes("['/templates', renderTemplatesPage]"), '/templates must remain registered');
 
 const socialsDescription = 'Подключите площадку, проверьте токен и укажите конкретный канал, группу или чат. Сохранить можно только проверенное подключение.';
