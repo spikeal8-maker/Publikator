@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { CURRENT_SCHEMA_VERSION } from './current-schema-version.mjs';
 
 const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'publikator-content-v3-'));
 process.env.NODE_ENV = 'test';
@@ -48,7 +49,7 @@ function insertAccount(id, name) {
 }
 
 try {
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 11);
+  assert.equal(Number(db.pragma('user_version', { simple: true })),CURRENT_SCHEMA_VERSION);
   const postColumns = db.prepare('PRAGMA table_info(posts)').all().map((row) => row.name);
   for (const name of ['source_type','source_ref','source_revision','source_payload_hash','source_batch_id','imported_at','imported_content_version']) {
     assert.ok(postColumns.includes(name), name);

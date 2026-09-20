@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import { CURRENT_SCHEMA_VERSION } from './current-schema-version.mjs';
 
 const dataDir=await fs.mkdtemp(path.join(os.tmpdir(),'publikator-backup-v11-'));
 process.env.NODE_ENV='test';
@@ -17,7 +18,7 @@ const {createBackupBundle,resolveBackupBundle,stageRestoreBundle}=await import('
 const {applyPendingRestore}=await import('../dist/restore-bootstrap.js');
 
 migrate();
-assert.equal(Number(db.pragma('user_version',{simple:true})),11);
+assert.equal(Number(db.pragma('user_version',{simple:true})),CURRENT_SCHEMA_VERSION);
 
 const projectId=id('prj');
 const accountId=id('acc');
@@ -41,7 +42,7 @@ db.prepare('UPDATE projects SET default_timezone=?,default_targets_explicit=0 WH
 db.prepare('DELETE FROM project_default_targets WHERE project_id=?').run(projectId);
 
 const staged=await stageRestoreBundle(bundlePath);
-assert.equal(staged.manifest.schemaVersion,11);
+assert.equal(staged.manifest.schemaVersion,CURRENT_SCHEMA_VERSION);
 db.close();
 
 const applied=await applyPendingRestore();
@@ -49,7 +50,7 @@ assert.equal(applied.applied,true);
 
 const restored=new Database(config.dbPath,{readonly:true,fileMustExist:true});
 try{
-  assert.equal(Number(restored.pragma('user_version',{simple:true})),11);
+  assert.equal(Number(restored.pragma('user_version',{simple:true})),CURRENT_SCHEMA_VERSION);
   assert.deepEqual(
     restored.prepare('SELECT id,name,slug,default_timezone,default_targets_explicit,created_at FROM projects WHERE id=?').get(projectId),
     before
@@ -61,7 +62,7 @@ try{
   );
   console.log(JSON.stringify({
     ok:true,
-    schemaVersion:11,
+    schemaVersion:CURRENT_SCHEMA_VERSION,
     projectDefaultTimezoneRestored:true,
     projectDefaultTargetsExplicitRestored:true,
     projectDefaultTargetsRestored:true,

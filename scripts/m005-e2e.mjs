@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { CURRENT_SCHEMA_VERSION } from './current-schema-version.mjs';
 
 const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'publikator-m0-005-'));
 process.env.NODE_ENV = 'test';
@@ -20,7 +21,7 @@ const sharp = (await import('sharp')).default;
 const { saveImageVersioned, deleteMediaVersioned } = await import('../dist/media.js');
 
 migrate();
-assert.equal(Number(db.pragma('user_version', { simple: true })), 11);
+assert.equal(Number(db.pragma('user_version', { simple: true })),CURRENT_SCHEMA_VERSION);
 assert.throws(() => time.resolveLocalSchedule('2026-03-08T02:30:00', 'America/New_York'), /does not exist/i);
 assert.throws(() => time.resolveLocalSchedule('2026-11-01T01:30:00', 'America/New_York'), /ambiguous/i);
 const earlier = time.resolveLocalSchedule('2026-11-01T01:30:00', 'America/New_York', 'earlier');
@@ -162,7 +163,7 @@ assert.equal(db.prepare('SELECT content_format FROM posts WHERE id=?').get(media
 console.log(JSON.stringify({
   ok: true,
   checkpoint: 'M0-005',
-  schemaVersion: 11,
+  schemaVersion:CURRENT_SCHEMA_VERSION,
   dstNonexistentRejected: true,
   dstAmbiguousRequiresChoice: true,
   queueToAtConfirmation: true,

@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { CURRENT_SCHEMA_VERSION } from './current-schema-version.mjs';
 
 const PHASE = process.env.CX3_RESTART_PHASE || '';
 const ADMIN_PASSWORD = 'cx3-009-ci-password';
@@ -138,7 +139,7 @@ async function seedPhase() {
     assert.equal(projected.schedule_timezone, 'UTC');
 
     const schemaVersion = db.prepare('PRAGMA user_version').get().user_version;
-    assert.equal(schemaVersion, 11);
+    assert.equal(schemaVersion,CURRENT_SCHEMA_VERSION);
 
     await fs.writeFile(
       stateFile,
@@ -159,7 +160,7 @@ async function verifyPhase() {
   try {
     const schemaVersion = db.prepare('PRAGMA user_version').get().user_version;
     assert.equal(schemaVersion, expected.schemaVersion);
-    assert.equal(schemaVersion, 11);
+    assert.equal(schemaVersion,CURRENT_SCHEMA_VERSION);
 
     const response = await request(
       'GET',

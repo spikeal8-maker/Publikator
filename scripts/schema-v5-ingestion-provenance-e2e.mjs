@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import { CURRENT_SCHEMA_VERSION } from './current-schema-version.mjs';
 
 const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'publikator-schema-v5-'));
 const dbPath = path.join(dataDir, 'publikator.sqlite');
@@ -39,7 +40,7 @@ legacy.close();
 const { db, migrate } = await import('../dist/db.js');
 migrate();
 try {
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 11);
+  assert.equal(Number(db.pragma('user_version', { simple: true })),CURRENT_SCHEMA_VERSION);
   const columns = db.prepare('PRAGMA table_info(posts)').all().map((row) => row.name);
   for (const name of ['source_type','source_ref','source_revision','source_payload_hash','source_batch_id','imported_at','imported_content_version']) {
     assert.ok(columns.includes(name), name);

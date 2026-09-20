@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import { CURRENT_SCHEMA_VERSION } from './current-schema-version.mjs';
 
 const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'publikator-backup-v5-'));
 process.env.NODE_ENV = 'test';
@@ -45,17 +46,17 @@ db.prepare(`UPDATE posts SET source_revision='mutated',source_payload_hash=?,sou
   .run('b'.repeat(64), postId);
 const mutated = db.prepare(selectProvenance).get(postId);
 assert.notDeepEqual(mutated, before);const staged = await stageRestoreBundle(bundlePath);
-assert.equal(staged.manifest.schemaVersion, 11);
+assert.equal(staged.manifest.schemaVersion,CURRENT_SCHEMA_VERSION);
 
 db.close();
 const applied = await applyPendingRestore();
 assert.equal(applied.applied, true);
 
 const restoredDb = new Database(config.dbPath, { readonly: true, fileMustExist: true });try {
-  assert.equal(Number(restoredDb.pragma('user_version', { simple: true })), 11);
+  assert.equal(Number(restoredDb.pragma('user_version', { simple: true })),CURRENT_SCHEMA_VERSION);
   const after = restoredDb.prepare(selectProvenance).get(postId);
   assert.deepEqual(after, before);
-  console.log(JSON.stringify({ ok: true, schemaVersion: 11, canonicalBundle: true, pendingRestoreApplied: true, ingestionProvenancePreserved: true }, null, 2));
+  console.log(JSON.stringify({ ok: true, schemaVersion:CURRENT_SCHEMA_VERSION, canonicalBundle: true, pendingRestoreApplied: true, ingestionProvenancePreserved: true }, null, 2));
 } finally {
   restoredDb.close();
   await fs.rm(dataDir, { recursive: true, force: true });

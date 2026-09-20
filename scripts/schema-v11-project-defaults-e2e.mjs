@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import { CURRENT_SCHEMA_VERSION } from './current-schema-version.mjs';
 
 const dataDir=await fs.mkdtemp(path.join(os.tmpdir(),'publikator-schema-v11-'));
 const dbPath=path.join(dataDir,'publikator.sqlite');
@@ -122,8 +123,8 @@ const {migrateProjectDefaults}=await import('../dist/project-defaults-migration.
 
 migrate();
 try{
-  assert.equal(DATABASE_SCHEMA_VERSION,11);
-  assert.equal(Number(db.pragma('user_version',{simple:true})),11);
+  assert.equal(DATABASE_SCHEMA_VERSION,CURRENT_SCHEMA_VERSION);
+  assert.equal(Number(db.pragma('user_version',{simple:true})),CURRENT_SCHEMA_VERSION);
 
   const projectColumns=new Set(db.prepare('PRAGMA table_info(projects)').all().map((row)=>row.name));
   assert.ok(projectColumns.has('default_timezone'));
@@ -150,7 +151,7 @@ try{
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM project_default_targets WHERE project_id=?').get('p1').count,0);
 
   migrate();
-  assert.equal(Number(db.pragma('user_version',{simple:true})),11);
+  assert.equal(Number(db.pragma('user_version',{simple:true})),CURRENT_SCHEMA_VERSION);
   assert.equal(db.prepare('SELECT default_timezone FROM projects WHERE id=?').get('p1').default_timezone,'Asia/Tokyo');
   assert.equal(db.prepare('SELECT default_targets_explicit FROM projects WHERE id=?').get('p1').default_targets_explicit,0);
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM project_default_targets WHERE project_id=?').get('p1').count,0);
@@ -175,7 +176,7 @@ try{
     schedulesUnchanged:true,
     rerunSafe:true,
     emptyDefaultsRemainEmpty:true,
-    databaseSchemaVersion:11
+    databaseSchemaVersion:CURRENT_SCHEMA_VERSION
   },null,2));
 }finally{
   db.close();

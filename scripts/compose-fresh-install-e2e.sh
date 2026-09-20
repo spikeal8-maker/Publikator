@@ -3,6 +3,7 @@ set -euo pipefail
 
 ENV_FILE=/tmp/publikator-compose-fresh.env
 export COMPOSE_PROJECT_NAME=publikator-ci-fresh
+CURRENT_SCHEMA_VERSION="$(node scripts/current-schema-version.mjs)"
 
 cleanup() {
   docker compose --env-file "$ENV_FILE" down -v --remove-orphans >/dev/null 2>&1 || true
@@ -38,7 +39,7 @@ wait_healthy() {
 
 wait_healthy
 HEALTH="$(curl -fsS http://127.0.0.1:18084/api/health)"
-jq -e '.ok == true and .schemaVersion == 11' <<<"$HEALTH"
+jq -e --argjson schemaVersion "$CURRENT_SCHEMA_VERSION" '.ok == true and .schemaVersion == $schemaVersion' <<<"$HEALTH"
 
 MOUNT="$(docker inspect publikator --format '{{range .Mounts}}{{if eq .Destination "/app/data"}}{{.Type}}:{{.Name}}{{end}}{{end}}')"
 [[ "$MOUNT" == volume:* ]]

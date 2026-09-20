@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import { CURRENT_SCHEMA_VERSION } from './current-schema-version.mjs';
 
 const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'publikator-schema-v7-'));
 const dbPath = path.join(dataDir, 'publikator.sqlite');
@@ -36,7 +37,7 @@ legacy.close();
 const { db, migrate } = await import('../dist/db.js');
 migrate();
 try {
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 11);
+  assert.equal(Number(db.pragma('user_version', { simple: true })),CURRENT_SCHEMA_VERSION);
   const post = db.prepare(`SELECT scheduled_at_utc,schedule_timezone,publication_kind,content_format
     FROM posts WHERE id='post1'`).get();
   assert.deepEqual(post, {
@@ -57,7 +58,7 @@ try {
     assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table), table);
   }
   migrate();
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 11);
+  assert.equal(Number(db.pragma('user_version', { simple: true })),CURRENT_SCHEMA_VERSION);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM publication_units").get().n, 0);
   console.log(JSON.stringify({
     ok: true, from: 6, to: 9, utcBackfill: true, timezoneFallback: 'UTC',

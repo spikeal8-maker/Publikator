@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import { CURRENT_SCHEMA_VERSION } from './current-schema-version.mjs';
 
 const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'publikator-schema-v8-'));
 const dbPath = path.join(dataDir, 'publikator.sqlite');
@@ -38,7 +39,7 @@ legacy.close();
 const { db, migrate, nowIso } = await import('../dist/db.js');
 migrate();
 try {
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 11);
+  assert.equal(Number(db.pragma('user_version', { simple: true })),CURRENT_SCHEMA_VERSION);
   const mediaColumns = new Set(db.prepare('PRAGMA table_info(media)').all().map((row) => row.name));
   for (const column of ['duration_ms','fps','video_codec','audio_codec','container','poster_asset_id']) assert.ok(mediaColumns.has(column), column);
   assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='content_media'").get());
@@ -66,7 +67,7 @@ try {
     VALUES ('bad','story','img1',0,'story_item',?,?)`).run(nowIso(), nowIso()), /same post/);
 
   migrate();
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 11);
+  assert.equal(Number(db.pragma('user_version', { simple: true })),CURRENT_SCHEMA_VERSION);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM content_media WHERE post_id='image'").get().n, 3);
   console.log(JSON.stringify({
     ok: true, from: 7, to: 9, videoMetadataColumns: true, contentMediaBackfill: true,

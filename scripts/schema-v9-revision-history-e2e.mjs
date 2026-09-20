@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import { CURRENT_SCHEMA_VERSION } from './current-schema-version.mjs';
 
 const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'publikator-schema-v9-'));
 const dbPath = path.join(dataDir, 'publikator.sqlite');
@@ -90,8 +91,8 @@ const { db, migrate } = await import('../dist/db.js');
 const { DATABASE_SCHEMA_VERSION } = await import('../dist/schema.js');
 migrate();
 try {
-  assert.equal(DATABASE_SCHEMA_VERSION, 11);
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 11);
+  assert.equal(DATABASE_SCHEMA_VERSION,CURRENT_SCHEMA_VERSION);
+  assert.equal(Number(db.pragma('user_version', { simple: true })),CURRENT_SCHEMA_VERSION);
 
   const columns = new Set(db.prepare('PRAGMA table_info(content_revisions)').all().map((row) => row.name));
   assert.ok(columns.has('editorial_stage'), 'editorial_stage');
@@ -113,7 +114,7 @@ try {
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM content_revisions').get().count, 2, 'migration must not fabricate historical gaps');
 
   migrate();
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 11);
+  assert.equal(Number(db.pragma('user_version', { simple: true })),CURRENT_SCHEMA_VERSION);
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM content_revisions').get().count, 2);
   assert.equal(db.prepare('SELECT editorial_stage FROM content_revisions WHERE id=?').get('rev-published').editorial_stage, 'APPROVED');
 

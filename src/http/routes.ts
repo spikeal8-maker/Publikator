@@ -3,7 +3,8 @@ import { config } from '../config.js';
 import { createSessionToken, decryptJson, encryptJson, securePasswordEqual, verifySessionToken } from '../crypto.js';
 import { db, event, id, nowIso, type Platform } from '../db.js';
 import { deleteMediaVersioned, listMedia, saveImageVersioned } from '../media.js';
-import { commitContentEdit, createInitialContentRevision, markReadyRevision, snapshotContentRevision } from '../content-versioning.js';
+import { commitContentEdit, markReadyRevision, snapshotContentRevision } from '../content-versioning.js';
+import { createDraftPost } from '../post-creation.js';
 import { contentMutationError, expectedContentVersion } from './content-version.js';
 import {
   confirmRecoveryNotPublished,
@@ -317,7 +318,6 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     try { content = resolvedPostBody(body); }
     catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) }); }
     if (!title || !content.body.trim()) return reply.code(400).send({ error: 'Заголовок и текст обязательны' });
-    const postId = id('post');
     const mode = ['MANUAL','AT','QUEUE'].includes(body.scheduleMode) ? body.scheduleMode : 'MANUAL';
     let schedule: ScheduleMutation;
     const scheduleInput = mode === 'AT' && body.scheduleTimezone === undefined
@@ -325,14 +325,17 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       : body;
     try { schedule = scheduleMutation(mode, scheduleInput); }
     catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) }); }
-    const created = db.transaction(() => {
-      const now = nowIso();
-      db.prepare('INSERT INTO posts (id,project_id,title,body,body_rich_json,status,schedule_mode,scheduled_at,scheduled_at_utc,schedule_timezone,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
-        .run(postId, projectId, title, content.body, content.bodyRichJson, 'DRAFT', mode, schedule.scheduledAt, schedule.scheduledAtUtc, schedule.scheduleTimezone, now, now);
-      ensureTargets(postId);
-      createInitialContentRevision(postId, 'manual');
-      return db.prepare('SELECT * FROM posts WHERE id=?').get(postId);
-    })();
+    const created = createDraftPost({
+      projectId,
+      title,
+      body: content.body,
+      bodyRichJson: content.bodyRichJson,
+      scheduleMode: mode as 'MANUAL' | 'AT' | 'QUEUE',
+      scheduledAt: schedule.scheduledAt,
+      scheduledAtUtc: schedule.scheduledAtUtc,
+      scheduleTimezone: schedule.scheduleTimezone,
+      actorSource: 'manual'
+    });
     return reply.code(201).send(postView(created));
   });
   app.patch('/api/posts/:id', async (request, reply) => {

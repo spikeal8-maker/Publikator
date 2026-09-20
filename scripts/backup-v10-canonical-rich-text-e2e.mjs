@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import { CURRENT_SCHEMA_VERSION } from './current-schema-version.mjs';
 
 const dataDir=await fs.mkdtemp(path.join(os.tmpdir(),'publikator-backup-v10-'));
 process.env.NODE_ENV='test';
@@ -19,7 +20,7 @@ const { applyPendingRestore }=await import('../dist/restore-bootstrap.js');
 const { serializeRichText,richTextToPlain,parseRichTextJson }=await import('../dist/rich-text.js');
 
 migrate();
-assert.equal(Number(db.pragma('user_version',{simple:true})),11);
+assert.equal(Number(db.pragma('user_version',{simple:true})),CURRENT_SCHEMA_VERSION);
 
 const projectId=id('prj');
 const postId=id('post');
@@ -64,14 +65,14 @@ db.prepare('UPDATE posts SET body=?,body_rich_json=? WHERE id=?').run('corrupt',
 db.prepare('UPDATE content_revisions SET body=?,body_rich_json=? WHERE post_id=?').run('corrupt',corruptRich,postId);
 
 const staged=await stageRestoreBundle(bundlePath);
-assert.equal(staged.manifest.schemaVersion,11);
+assert.equal(staged.manifest.schemaVersion,CURRENT_SCHEMA_VERSION);
 db.close();
 const applied=await applyPendingRestore();
 assert.equal(applied.applied,true);
 
 const restoredDb=new Database(config.dbPath,{readonly:true,fileMustExist:true});
 try{
-  assert.equal(Number(restoredDb.pragma('user_version',{simple:true})),11);
+  assert.equal(Number(restoredDb.pragma('user_version',{simple:true})),CURRENT_SCHEMA_VERSION);
   assert.deepEqual(
     restoredDb.prepare('SELECT title,body,body_rich_json,status,editorial_stage,content_version,ready_revision_id FROM posts WHERE id=?').get(postId),
     beforePost
@@ -82,7 +83,7 @@ try{
   for(const row of afterRevisions) assert.equal(richTextToPlain(parseRichTextJson(row.body_rich_json)),row.body);
   console.log(JSON.stringify({
     ok:true,
-    schemaVersion:11,
+    schemaVersion:CURRENT_SCHEMA_VERSION,
     exactAstRestored:true,
     plainFallbackRestored:true,
     revisionsRestored:true,

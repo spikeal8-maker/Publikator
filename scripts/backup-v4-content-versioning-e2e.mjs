@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import { CURRENT_SCHEMA_VERSION } from './current-schema-version.mjs';
 
 const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'publikator-backup-v4-'));
 process.env.NODE_ENV = 'test';
@@ -44,19 +45,19 @@ db.prepare("UPDATE posts SET status='DRAFT',editorial_stage='DRAFT',content_vers
 db.prepare('DELETE FROM content_revisions WHERE id=?').run(revisionId);
 
 const staged = await stageRestoreBundle(bundlePath);
-assert.equal(staged.manifest.schemaVersion, 11);
+assert.equal(staged.manifest.schemaVersion,CURRENT_SCHEMA_VERSION);
 db.close();
 const applied = await applyPendingRestore();
 assert.equal(applied.applied, true);
 
 const restored = new Database(config.dbPath, { readonly: true, fileMustExist: true });
 try {
-  assert.equal(Number(restored.pragma('user_version', { simple: true })), 11);
+  assert.equal(Number(restored.pragma('user_version', { simple: true })),CURRENT_SCHEMA_VERSION);
   assert.deepEqual(restored.prepare(postSelect).get(postId), postBefore);
   assert.deepEqual(restored.prepare(revisionSelect).get(revisionId), revisionBefore);
   console.log(JSON.stringify({
     ok: true,
-    schemaVersion: 11,
+    schemaVersion:CURRENT_SCHEMA_VERSION,
     contentVersionPreserved: true,
     readyRevisionPreserved: true,
     canonicalRevisionPreserved: true,
