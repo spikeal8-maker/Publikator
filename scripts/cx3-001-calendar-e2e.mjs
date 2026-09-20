@@ -64,21 +64,35 @@ const manual = await request('POST', '/api/posts', {
   projectId, title: 'Manual unscheduled', body: 'No calendar instant', scheduleMode: 'MANUAL'
 });
 assert.equal(manual.statusCode, 201, manual.body);
+const queued = await request('POST', '/api/posts', {
+  projectId, title: 'Queue editable', body: 'Queue lane', scheduleMode: 'QUEUE'
+});
+assert.equal(queued.statusCode, 201, queued.body);
 
 const calendar = await request('GET', `/api/calendar?from=${encodeURIComponent(start.toISOString())}&to=${encodeURIComponent(end.toISOString())}`);
 assert.equal(calendar.statusCode, 200, calendar.body);
 const body = calendar.json();
 assert.equal(body.count, 498);
 assert.equal(body.items.length, 498);
+assert.equal(body.queueCount, 1);
+assert.equal(body.queueItems.length, 1);
 assert.ok(!body.items.some((item) => item.id === posts[1].id));
 assert.ok(!body.items.some((item) => item.id === posts[2].id));
 assert.ok(!body.items.some((item) => item.id === manual.json().id));
+assert.ok(!body.items.some((item) => item.id === queued.json().id));
+const queueProjected = body.queueItems[0];
+assert.equal(queueProjected.id, queued.json().id);
+assert.equal(queueProjected.project_id, projectId);
+assert.equal(queueProjected.content_version, 1);
+assert.equal(queueProjected.schedule_mode, 'QUEUE');
 for (let index = 1; index < body.items.length; index += 1) {
   assert.ok(body.items[index - 1].scheduled_at_utc <= body.items[index].scheduled_at_utc);
 }
 const projected = body.items.find((item) => item.id === sample.id);
 assert.ok(projected);
 assert.equal(projected.thumbnail_path, `${sample.id}/calendar.jpg`);
+assert.equal(projected.project_id, projectId);
+assert.equal(projected.content_version, 1);
 assert.deepEqual(projected.platforms, ['telegram']);
 assert.equal(projected.source_type, 'google_sheets');
 assert.equal(projected.source_ref, 'calendar-fixture');
@@ -114,6 +128,8 @@ console.log(JSON.stringify({
   archivedAndTrashExcluded: true,
   manualUnscheduledExcluded: true,
   thumbnailPlatformSourceTimezone: true,
+  projectAndContentVersionProjection: true,
+  queueLaneProjection: true,
   monthWeekDayAgendaShell: true,
   inspectorTrigger: true,
   rangeGuard: true,

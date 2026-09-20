@@ -931,7 +931,7 @@ Status: **ACCEPTED / MERGED**. PR #106 merged in main `88c536c418218aa6cfc864585
 
 Post Templates: **ACCEPTED / MERGED**. PR #107 merged in main `c78f1409f146881256eba6baa9b7d91e97de20f7`.
 
-Reusable Blocks: **IMPLEMENTED CANDIDATE** in Draft PR #108 / branch `ew4-006/reusable-blocks`.
+Reusable Blocks: **ACCEPTED / MERGED**. PR #108 merged in main `52d19dc8c2175b63eeecbf60d01cad235fe091d1`.
 
 - schema remains 12 `templates`; no new table or migration;
 - Post Template CRUD/create-post/snapshot behavior remains unchanged;
@@ -945,11 +945,16 @@ Reusable Blocks: **IMPLEMENTED CANDIDATE** in Draft PR #108 / branch `ew4-006/re
 
 ### EW4-007 — Calendar editing
 
-- drag/drop reschedule;
-- create from empty slot;
-- quick edit;
-- bulk operations;
-- conflict warnings.
+Calendar Editing Core: **IMPLEMENTED CANDIDATE** in Draft PR #109 / branch `ew4-007/calendar-editing`.
+
+- Month keeps the calendar grid and supports date drag while preserving displayed clock time;
+- Week / Day use hourly time slots with exact-slot create and drag/drop reschedule;
+- QUEUE has a separate lane and explicit QUEUE → AT confirmation;
+- quick edit uses the canonical Post mutation and existing timezone/DST validation;
+- every calendar mutation carries the projected ContentVersion and refreshes on stale 409;
+- READY invalidation remains owned by canonical ContentVersion/ContentRevision behavior;
+- single click keeps Content Inspector behavior;
+- bulk operations = **NOT STARTED**.
 
 ### EW4-008 — XLSX/Google Sheets Template v3
 

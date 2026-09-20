@@ -9,6 +9,8 @@ let calendarAnchor = new Date();
 let calendarData = { items: [], queueItems: [] };
 let calendarDragPostId = '';
 let calendarSuppressClickUntil = 0;
+let calendarNoticeMessage = '';
+let calendarNoticeError = false;
 
 function calEsc(value=''){return String(value).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));}
 async function calApi(url,options={}){
@@ -43,8 +45,9 @@ function zonedParts(value,timeZone){
 }
 function displayParts(item){return zonedParts(item.scheduled_at_utc,CALENDAR_DISPLAY_TIMEZONE);}
 function dateKey(item){const p=displayParts(item);return `${p.year}-${p.month}-${p.day}`;}
-function timeLabel(item){const p=displayParts(item);return `${p.hour||'??'}:${p.minute||'??'}`;}
-function timeKey(item){const p=displayParts(item);return `${p.year}-${p.month}-${p.day}T${String(Number(p.hour)||0).padStart(2,'0')}`;}
+function normalizedHour(value){const parsed=Number(value);return Number.isFinite(parsed)?parsed%24:0;}
+function timeLabel(item){const p=displayParts(item);return `${String(normalizedHour(p.hour)).padStart(2,'0')}:${p.minute||'00'}`;}
+function timeKey(item){const p=displayParts(item);return `${p.year}-${p.month}-${p.day}T${String(normalizedHour(p.hour)).padStart(2,'0')}`;}
 function rangeTitle(range){
   const fmt=new Intl.DateTimeFormat('ru-RU',{day:'numeric',month:'long',year:'numeric'});
   if(calendarMode==='month')return new Intl.DateTimeFormat('ru-RU',{month:'long',year:'numeric'}).format(calendarAnchor);
@@ -105,11 +108,16 @@ function renderAgenda(items,range){
 }
 function openInspector(postId){
   if(Date.now()<calendarSuppressClickUntil)return;
+  if(typeof window.PublikatorEditorial?.openContentInspector==='function'){
+    window.PublikatorEditorial.openContentInspector(postId).catch(showCalendarError);
+    return;
+  }
   const trigger=document.createElement('button');trigger.type='button';trigger.className='open-post';trigger.dataset.id=postId;trigger.hidden=true;document.body.append(trigger);trigger.click();trigger.remove();
 }
 function setNotice(message,isError=false){
+  calendarNoticeMessage=message||'';calendarNoticeError=Boolean(isError);
   const notice=document.querySelector('#calendar-notice');if(!notice)return;
-  notice.textContent=message||'';notice.className=`calendar-notice${isError?' error':''}${message?'':' hidden'}`;
+  notice.textContent=calendarNoticeMessage;notice.className=`calendar-notice${calendarNoticeError?' error':''}${calendarNoticeMessage?'':' hidden'}`;
 }
 function isStaleConflict(error){
   const message=String(error?.payload?.error||error?.message||'');
@@ -146,11 +154,11 @@ async function rescheduleExact(item,exact,{confirmQueue=false}={}){
 }
 function monthTargetExact(item,targetDay){
   const parts=displayParts(item);const [year,month,day]=targetDay.split('-').map(Number);
-  return new Date(year,month-1,day,Number(parts.hour)||0,Number(parts.minute)||0,0,0).toISOString();
+  return new Date(year,month-1,day,normalizedHour(parts.hour),Number(parts.minute)||0,0,0).toISOString();
 }
 function localScheduleParts(item){
   const parts=zonedParts(item.scheduled_at_utc,item.schedule_timezone||'UTC');
-  return {date:`${parts.year}-${parts.month}-${parts.day}`,time:`${parts.hour}:${parts.minute}`};
+  return {date:`${parts.year}-${parts.month}-${parts.day}`,time:`${String(normalizedHour(parts.hour)).padStart(2,'0')}:${parts.minute}`};
 }
 function calendarModal(html){
   const el=document.createElement('div');el.className='modal calendar-edit-modal';el.innerHTML=`<div class="modal-card">${html}</div>`;
@@ -224,6 +232,7 @@ async function renderCalendar(){
   document.querySelectorAll('.nav').forEach(x=>x.classList.remove('active'));document.querySelector('#calendar-nav')?.classList.add('active');
   const range=rangeForMode();
   view.innerHTML=`<div class="calendar-shell"><div class="calendar-toolbar"><div class="calendar-toolbar-group"><button class="secondary" id="calendar-prev">←</button><button class="secondary" id="calendar-today">Сегодня</button><button class="secondary" id="calendar-next">→</button><span class="calendar-range-title">${calEsc(rangeTitle(range))}</span><span class="small muted">Часовой пояс: ${calEsc(CALENDAR_DISPLAY_TIMEZONE)}</span></div><div class="calendar-toolbar-group">${CALENDAR_MODES.map(mode=>`<button type="button" class="secondary calendar-mode ${mode===calendarMode?'active':''}" data-calendar-mode="${mode}">${MODE_LABELS[mode]}</button>`).join('')}</div></div><div id="calendar-notice" class="calendar-notice hidden"></div><div id="calendar-queue" class="card calendar-empty">Загрузка очереди…</div><div id="calendar-content" class="card calendar-empty">Загрузка…</div></div>`;
+  setNotice(calendarNoticeMessage,calendarNoticeError);
   document.querySelector('#calendar-prev').onclick=()=>{moveAnchor(-1);renderCalendar().catch(showCalendarError);};
   document.querySelector('#calendar-next').onclick=()=>{moveAnchor(1);renderCalendar().catch(showCalendarError);};
   document.querySelector('#calendar-today').onclick=()=>{calendarAnchor=new Date();renderCalendar().catch(showCalendarError);};

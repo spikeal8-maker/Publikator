@@ -336,6 +336,8 @@ try {
   await templateForm.locator(`input[name="templateTarget"][value="${browserPlatformAccounts.vk}"]`).check();
   await templateForm.locator('button.primary[type="submit"]').click();
   await page.locator('#operator-template-form').waitFor({ state: 'detached', timeout: 5000 });
+  await page.waitForFunction((title) => [...document.querySelectorAll('#view table.table tbody tr')]
+    .some((row) => row.textContent?.includes(title)), 'Browser Template Snapshot');
 
   let templateRow = page.locator('#view table.table tbody tr').filter({ hasText: 'Browser Template Snapshot' });
   assert.equal(await templateRow.count(), 1, 'saved template must render once');
@@ -1256,6 +1258,244 @@ try {
   await page.waitForFunction((id) => document.querySelector(`.calendar-card[data-calendar-post="${id}"]`) !== null, calendarFixture.id);
   calendarFixtureCard = page.locator(`.calendar-card[data-calendar-post="${calendarFixture.id}"]`);
   assert.ok((await calendarFixtureCard.innerText()).includes('Google Sheets'), 'Calendar presentation must survive mode rerender');
+
+
+  // EW4-007: Calendar Editing Core browser acceptance.
+  await page.locator('[data-calendar-mode="week"]').click();
+  await page.locator('.calendar-time-grid').waitFor({ state: 'visible', timeout: 5000 });
+  assert.equal(await page.locator('.calendar-hour-label').count(), 24, 'Week must expose 24 hourly rows');
+  assert.equal(await page.locator('.calendar-time-slot').count(), 24 * 7, 'Week must expose 7 days x 24 slots');
+  assert.equal(await page.locator('.calendar-queue-lane').count(), 1, 'Calendar queue lane missing');
+  await page.locator('[data-calendar-mode="day"]').click();
+  await page.locator('.calendar-time-grid').waitFor({ state: 'visible', timeout: 5000 });
+  assert.equal(await page.locator('.calendar-hour-label').count(), 24, 'Day must expose 24 hourly rows');
+  assert.equal(await page.locator('.calendar-time-slot').count(), 24, 'Day must expose one day x 24 slots');
+  await page.locator('[data-calendar-mode="week"]').click();
+  await page.locator('.calendar-time-grid').waitFor({ state: 'visible', timeout: 5000 });
+  const weekOverflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  assert.ok(weekOverflow <= 1, `Calendar Week body overflow: ${weekOverflow}px`);
+
+  const candidateSlots = await page.evaluate(() => [...document.querySelectorAll('.calendar-time-slot')]
+    .filter((slot) => !slot.querySelector('[data-calendar-post]') && Date.parse(slot.dataset.calendarSlot || '') > Date.now() + 60 * 60 * 1000)
+    .map((slot) => slot.dataset.calendarSlot)
+    .slice(0, 10));
+  assert.ok(candidateSlots.length >= 8, `Expected at least 8 future Calendar slots, got ${candidateSlots.length}`);
+
+  const slotCreateExact = candidateSlots[0];
+  await page.locator(`.calendar-time-slot[data-calendar-slot="${slotCreateExact}"]`).click();
+  let calendarPostForm = page.locator('#post-form');
+  await calendarPostForm.waitFor({ state: 'visible', timeout: 5000 });
+  assert.equal(await calendarPostForm.locator('select[name="scheduleMode"]').inputValue(), 'AT');
+  assert.equal(await calendarPostForm.getAttribute('data-exact-scheduled-at'), slotCreateExact);
+  assert.ok(await calendarPostForm.locator('input[name="scheduledAt"]').inputValue(), 'exact slot must prefill datetime field');
+  await calendarPostForm.locator('select[name="projectId"]').selectOption(fixtureProjectId);
+  await calendarPostForm.locator('input[name="title"]').fill('Browser Calendar Slot Create');
+  await calendarPostForm.locator('[data-rich-text-editor] .rich-text-surface').fill('Calendar exact slot body');
+  await calendarPostForm.locator('button.primary[type="submit"]').click();
+  await page.locator('#post-form').waitFor({ state: 'detached', timeout: 5000 });
+
+  const calendarCreated = db.prepare(
+    'SELECT id,scheduled_at_utc,schedule_timezone,content_version,status FROM posts WHERE title=? ORDER BY rowid DESC LIMIT 1'
+  ).get('Browser Calendar Slot Create');
+  assert.ok(calendarCreated?.id);
+  assert.equal(calendarCreated.scheduled_at_utc, slotCreateExact);
+  assert.equal(calendarCreated.content_version, 1);
+  assert.equal(calendarCreated.status, 'DRAFT');
+  await page.waitForFunction(({ id, exact }) =>
+    document.querySelector(`.calendar-time-slot[data-calendar-slot="${exact}"] [data-calendar-post="${id}"]`) !== null,
+    { id: calendarCreated.id, exact: slotCreateExact }
+  );
+
+  const slotDragExact = candidateSlots[1];
+  let editableCalendarCard = page.locator(`[data-calendar-post="${calendarCreated.id}"]`);
+  await editableCalendarCard.dragTo(page.locator(`.calendar-time-slot[data-calendar-slot="${slotDragExact}"]`));
+  await page.waitForFunction(({ id, exact }) =>
+    document.querySelector(`.calendar-time-slot[data-calendar-slot="${exact}"] [data-calendar-post="${id}"]`) !== null,
+    { id: calendarCreated.id, exact: slotDragExact }
+  );
+  assert.equal(await page.locator('.editorial-inspector-overlay').count(), 0, 'drag must not open Inspector');
+  let calendarCreatedAfter = db.prepare(
+    'SELECT scheduled_at_utc,schedule_timezone,content_version,status FROM posts WHERE id=?'
+  ).get(calendarCreated.id);
+  assert.equal(calendarCreatedAfter.scheduled_at_utc, slotDragExact);
+  assert.equal(calendarCreatedAfter.schedule_timezone, calendarCreated.schedule_timezone);
+  assert.equal(calendarCreatedAfter.content_version, 2);
+
+  editableCalendarCard = page.locator(`[data-calendar-post="${calendarCreated.id}"]`);
+  await editableCalendarCard.locator('.calendar-quick-edit').click();
+  let quickForm = page.locator('#calendar-quick-form');
+  await quickForm.waitFor({ state: 'visible', timeout: 5000 });
+  assert.equal(await page.locator('.editorial-inspector-overlay').count(), 0, 'quick edit must not open Inspector');
+  const quickTarget = new Date(new Date(calendarCreatedAfter.scheduled_at_utc).getTime() + 15 * 60 * 1000);
+  await quickForm.locator('input[name="date"]').fill(quickTarget.toISOString().slice(0, 10));
+  await quickForm.locator('input[name="time"]').fill(quickTarget.toISOString().slice(11, 16));
+  await quickForm.locator('input[name="timezone"]').fill('UTC');
+  await quickForm.locator('button.primary[type="submit"]').click();
+  await page.locator('#calendar-quick-form').waitFor({ state: 'detached', timeout: 5000 });
+  calendarCreatedAfter = db.prepare(
+    'SELECT scheduled_at_utc,schedule_timezone,content_version,status FROM posts WHERE id=?'
+  ).get(calendarCreated.id);
+  assert.equal(calendarCreatedAfter.scheduled_at_utc, quickTarget.toISOString());
+  assert.equal(calendarCreatedAfter.schedule_timezone, 'UTC');
+  assert.equal(calendarCreatedAfter.content_version, 3);
+
+  const readyCalendar = await fixtureApi('POST', '/api/posts', {
+    projectId: fixtureProjectId,
+    title: 'Browser Calendar READY Drag',
+    body: 'READY calendar body',
+    scheduleMode: 'AT',
+    scheduledAt: candidateSlots[2],
+    scheduleTimezone: 'UTC'
+  }, 201);
+  const readyCalendarRevision = db.prepare(
+    'SELECT id FROM content_revisions WHERE post_id=? AND content_version=1'
+  ).get(readyCalendar.id);
+  markReadyRevision(readyCalendar.id, 1, readyCalendarRevision.id);
+  await page.evaluate(() => window.publikatorRenderCalendar());
+  await page.waitForFunction((id) => document.querySelector(`[data-calendar-post="${id}"]`) !== null, readyCalendar.id);
+  let readyCalendarCard = page.locator(`[data-calendar-post="${readyCalendar.id}"]`);
+  await readyCalendarCard.dragTo(page.locator(`.calendar-time-slot[data-calendar-slot="${candidateSlots[3]}"]`));
+  await page.waitForFunction(({ id, exact }) =>
+    document.querySelector(`.calendar-time-slot[data-calendar-slot="${exact}"] [data-calendar-post="${id}"]`) !== null,
+    { id: readyCalendar.id, exact: candidateSlots[3] }
+  );
+  const readyCalendarAfter = db.prepare(
+    'SELECT status,editorial_stage,ready_revision_id,content_version,scheduled_at_utc FROM posts WHERE id=?'
+  ).get(readyCalendar.id);
+  assert.equal(readyCalendarAfter.status, 'DRAFT');
+  assert.equal(readyCalendarAfter.editorial_stage, 'DRAFT');
+  assert.equal(readyCalendarAfter.ready_revision_id, null);
+  assert.equal(readyCalendarAfter.content_version, 2);
+  assert.equal(readyCalendarAfter.scheduled_at_utc, candidateSlots[3]);
+
+  const queueCalendar = await fixtureApi('POST', '/api/posts', {
+    projectId: fixtureProjectId,
+    title: 'Browser Calendar Queue Drag',
+    body: 'QUEUE calendar body',
+    scheduleMode: 'QUEUE'
+  }, 201);
+  await page.evaluate(() => window.publikatorRenderCalendar());
+  let queueCalendarCard = page.locator(`.calendar-card.queue[data-calendar-post="${queueCalendar.id}"]`);
+  await queueCalendarCard.waitFor({ state: 'visible', timeout: 5000 });
+  assert.ok((await queueCalendarCard.innerText()).includes('QUEUE'));
+  const queueTargetSlot = page.locator(`.calendar-time-slot[data-calendar-slot="${candidateSlots[4]}"]`);
+  let queueTransfer = await page.evaluateHandle(() => new DataTransfer());
+  await queueCalendarCard.dispatchEvent('dragstart', { dataTransfer: queueTransfer });
+  await queueTargetSlot.dispatchEvent('dragover', { dataTransfer: queueTransfer });
+  const queueCancelDialog = page.waitForEvent('dialog');
+  const queueCancelDrop = queueTargetSlot.dispatchEvent('drop', { dataTransfer: queueTransfer });
+  const cancelDialog = await queueCancelDialog;
+  assert.match(cancelDialog.message(), /QUEUE → AT/);
+  await cancelDialog.dismiss();
+  await queueCancelDrop;
+  await queueCalendarCard.dispatchEvent('dragend', { dataTransfer: queueTransfer });
+  await queueTransfer.dispose();
+  let queueCalendarRow = db.prepare(
+    'SELECT schedule_mode,scheduled_at_utc,content_version FROM posts WHERE id=?'
+  ).get(queueCalendar.id);
+  assert.equal(queueCalendarRow.schedule_mode, 'QUEUE');
+  assert.equal(queueCalendarRow.scheduled_at_utc, null);
+  assert.equal(queueCalendarRow.content_version, 1);
+
+  await page.evaluate(() => window.publikatorRenderCalendar());
+  queueCalendarCard = page.locator(`.calendar-card.queue[data-calendar-post="${queueCalendar.id}"]`);
+  await queueCalendarCard.waitFor({ state: 'visible', timeout: 5000 });
+  queueTransfer = await page.evaluateHandle(() => new DataTransfer());
+  await queueCalendarCard.dispatchEvent('dragstart', { dataTransfer: queueTransfer });
+  await queueTargetSlot.dispatchEvent('dragover', { dataTransfer: queueTransfer });
+  const queueConfirmDialog = page.waitForEvent('dialog');
+  const queueConfirmDrop = queueTargetSlot.dispatchEvent('drop', { dataTransfer: queueTransfer });
+  const confirmDialog = await queueConfirmDialog;
+  assert.match(confirmDialog.message(), /QUEUE → AT/);
+  await confirmDialog.accept();
+  await queueConfirmDrop;
+  await queueCalendarCard.dispatchEvent('dragend', { dataTransfer: queueTransfer }).catch(() => {});
+  await queueTransfer.dispose();
+  await page.waitForFunction((id) => {
+    const node = document.querySelector(`[data-calendar-post="${id}"]`);
+    return Boolean(node && !node.classList.contains('queue') && node.closest('[data-calendar-slot]'));
+  }, queueCalendar.id);
+  const queueRenderedSlot = await page.locator(`[data-calendar-post="${queueCalendar.id}"]`).evaluate(
+    (node) => node.closest('[data-calendar-slot]')?.dataset.calendarSlot || ''
+  );
+  assert.equal(queueRenderedSlot, candidateSlots[4], 'QUEUE converted card must render in exact target slot');
+  queueCalendarRow = db.prepare(
+    'SELECT schedule_mode,scheduled_at_utc,content_version FROM posts WHERE id=?'
+  ).get(queueCalendar.id);
+  assert.equal(queueCalendarRow.schedule_mode, 'AT');
+  assert.equal(queueCalendarRow.scheduled_at_utc, candidateSlots[4]);
+  assert.equal(queueCalendarRow.content_version, 2);
+
+  const staleCalendar = await fixtureApi('POST', '/api/posts', {
+    projectId: fixtureProjectId,
+    title: 'Browser Calendar Stale Drag',
+    body: 'stale v1',
+    scheduleMode: 'AT',
+    scheduledAt: candidateSlots[5],
+    scheduleTimezone: 'UTC'
+  }, 201);
+  await page.evaluate(() => window.publikatorRenderCalendar());
+  let staleCalendarCard = page.locator(`[data-calendar-post="${staleCalendar.id}"]`);
+  await staleCalendarCard.waitFor({ state: 'visible', timeout: 5000 });
+  const staleBackendEdit = await fixtureApi('PATCH', `/api/posts/${staleCalendar.id}`, {
+    body: 'stale v2 from another editor',
+    expectedContentVersion: 1
+  });
+  assert.equal(staleBackendEdit.contentVersion, 2);
+  await staleCalendarCard.dragTo(page.locator(`.calendar-time-slot[data-calendar-slot="${candidateSlots[6]}"]`));
+  const conflictNotice = page.locator('#calendar-notice');
+  await page.waitForFunction(() =>
+    document.querySelector('#calendar-notice')?.textContent?.trim() === 'Публикация уже была изменена. Обновите календарь.'
+  );
+  assert.equal((await conflictNotice.textContent())?.trim(), 'Публикация уже была изменена. Обновите календарь.');
+  const staleAfter = db.prepare(
+    'SELECT scheduled_at_utc,content_version FROM posts WHERE id=?'
+  ).get(staleCalendar.id);
+  assert.equal(staleAfter.scheduled_at_utc, candidateSlots[5]);
+  assert.equal(staleAfter.content_version, 2);
+
+  const immutableCalendar = await fixtureApi('POST', '/api/posts', {
+    projectId: fixtureProjectId,
+    title: 'Browser Calendar Published',
+    body: 'published calendar body',
+    scheduleMode: 'AT',
+    scheduledAt: candidateSlots[7],
+    scheduleTimezone: 'UTC'
+  }, 201);
+  db.prepare("UPDATE posts SET status='PUBLISHED',editorial_stage='APPROVED' WHERE id=?").run(immutableCalendar.id);
+  await page.evaluate(() => window.publikatorRenderCalendar());
+  const immutableCalendarCard = page.locator(`[data-calendar-post="${immutableCalendar.id}"]`);
+  await immutableCalendarCard.waitFor({ state: 'visible', timeout: 5000 });
+  assert.equal(await immutableCalendarCard.getAttribute('draggable'), 'false');
+  assert.equal(await immutableCalendarCard.locator('.calendar-quick-edit').count(), 0);
+
+  await page.locator('[data-calendar-mode="month"]').click();
+  await page.waitForFunction((id) => document.querySelector(`.calendar-card[data-calendar-post="${id}"]`) !== null, calendarCreated.id);
+  editableCalendarCard = page.locator(`.calendar-card[data-calendar-post="${calendarCreated.id}"]`);
+  const monthClockBefore = ((await editableCalendarCard.locator('.calendar-card-title').innerText()).split(' · ')[0] || '').trim();
+  const currentDayKey = await editableCalendarCard.evaluate((node) => node.closest('[data-calendar-day]')?.dataset.calendarDay || '');
+  const targetDayKey = await page.evaluate((current) => [...document.querySelectorAll('.calendar-day-cell[data-calendar-day]')]
+    .map((cell) => cell.dataset.calendarDay)
+    .find((day) => day && day !== current), currentDayKey);
+  assert.ok(targetDayKey && targetDayKey !== currentDayKey);
+  const targetDayCell = page.locator(`.calendar-day-cell[data-calendar-day="${targetDayKey}"]`);
+  await editableCalendarCard.dragTo(targetDayCell);
+  await page.waitForFunction(({ id, day }) =>
+    document.querySelector(`.calendar-day-cell[data-calendar-day="${day}"] [data-calendar-post="${id}"]`) !== null,
+    { id: calendarCreated.id, day: targetDayKey }
+  );
+  editableCalendarCard = page.locator(`.calendar-card[data-calendar-post="${calendarCreated.id}"]`);
+  const monthClockAfter = ((await editableCalendarCard.locator('.calendar-card-title').innerText()).split(' · ')[0] || '').trim();
+  assert.equal(monthClockAfter, monthClockBefore, 'Month drag must preserve visible clock time');
+
+  await page.waitForTimeout(500);
+  await editableCalendarCard.click({ position: { x: 10, y: 10 } });
+  const calendarInspector = page.locator('.editorial-inspector-overlay');
+  await calendarInspector.waitFor({ state: 'visible', timeout: 5000 });
+  assert.match(await calendarInspector.innerText(), /Browser Calendar Slot Create/);
+  await calendarInspector.locator('.inspector-close').click();
+  await calendarInspector.waitFor({ state: 'detached', timeout: 5000 });
+
 
   await page.goto(`${base}/library`, { waitUntil: 'domcontentloaded' });
   await page.locator('#app').waitFor({ state: 'visible' });
