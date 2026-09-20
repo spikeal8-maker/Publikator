@@ -929,16 +929,19 @@ Status: **ACCEPTED / MERGED**. PR #106 merged in main `88c536c418218aa6cfc864585
 
 ### EW4-006 — Templates/snippets
 
-Status: **POST TEMPLATE VERTICAL CANDIDATE** in Draft PR #107 / branch `ew4-006/templates`.
+Post Templates: **ACCEPTED / MERGED**. PR #107 merged in main `c78f1409f146881256eba6baa9b7d91e97de20f7`.
 
-- schema candidate 12 `templates`;
-- Post Template library CRUD and canonical rich text;
-- Project-default fallback or explicit template target snapshot;
-- create ordinary DRAFT from template with initial ContentRevision;
-- template edit never mutates already-created Posts; new Posts receive the new template snapshot;
-- `template.applied` audit event;
-- existing `/templates` operator page provides create/edit/delete/create-publication UX;
-- Snippet/CTA/Signature/Hashtag insertion = **NOT STARTED**.
+Reusable Blocks: **IMPLEMENTED CANDIDATE** in Draft PR #108 / branch `ew4-006/reusable-blocks`.
+
+- schema remains 12 `templates`; no new table or migration;
+- Post Template CRUD/create-post/snapshot behavior remains unchanged;
+- `SNIPPET`, `CTA`, `SIGNATURE`, `HASHTAG_SET` reuse the same Template entity with canonical rich text;
+- reusable-block type is immutable; post-only storage fields use neutral internal defaults and are not block semantics;
+- existing `/templates` UI separates Post Templates from reusable blocks;
+- existing Base Post editor inserts project-scoped blocks through canonical rich-editor `insertDocument()`;
+- inserted content becomes ordinary Post content with no live reference back to the block;
+- normal Post save owns ContentVersion/ContentRevision and READY invalidation;
+- editing or deleting a block never mutates Posts that already contain its copied content.
 
 ### EW4-007 — Calendar editing
 

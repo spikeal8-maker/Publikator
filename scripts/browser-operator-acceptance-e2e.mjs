@@ -528,17 +528,6 @@ try {
   await reusableForm.locator('select[name="projectId"]').selectOption(fixtureProjectId);
   const reusableSurface = reusableForm.locator('[data-reusable-rich-editor] .rich-text-surface');
   await reusableSurface.fill('Записаться сейчас');
-  await page.evaluate(() => {
-    const surface=document.querySelector('[data-reusable-rich-editor] .rich-text-surface');
-    const node=surface?.querySelector('p')?.firstChild;
-    if(!node)return;
-    const range=document.createRange();
-    range.selectNodeContents(node);
-    const selection=window.getSelection();
-    selection.removeAllRanges();
-    selection.addRange(range);
-  });
-  await reusableForm.locator('[data-reusable-rich-editor] [data-rich-command="bold"]').click();
   await reusableForm.locator('button.primary[type="submit"]').click();
   await page.locator('#operator-reusable-form').waitFor({ state: 'detached', timeout: 5000 });
 
@@ -553,7 +542,15 @@ try {
 
   const browserSnippet=await fixtureApi('POST','/api/templates',{
     key:'browser-snippet',name:'Browser Snippet',projectId:fixtureProjectId,
-    bodyRich:{type:'doc',content:[{type:'paragraph',content:[{type:'text',text:'Фрагмент урока',marks:[]}]}]},
+    bodyRich:{type:'doc',content:[
+      {type:'paragraph',content:[
+        {type:'text',text:'Фрагмент ',marks:[{type:'code'}]},
+        {type:'link',attrs:{href:'https://example.test/docs'},content:[{type:'text',text:'документация',marks:[{type:'italic'}]}]}
+      ]},
+      {type:'bullet_list',content:[{type:'list_item',content:[{type:'paragraph',content:[{type:'text',text:'Шаг',marks:[]}]}]}]},
+      {type:'blockquote',content:[{type:'paragraph',content:[{type:'text',text:'Важно',marks:[]}]}]},
+      {type:'code_block',content:[{type:'text',text:'const x = 1;',marks:[]}]}
+    ]},
     templateType:'SNIPPET'
   },201);
   const browserSignature=await fixtureApi('POST','/api/templates',{
@@ -605,6 +602,10 @@ try {
   await page.waitForFunction((title)=>[...document.querySelectorAll('#view table.table tbody tr')]
     .some((row)=>row.textContent?.includes(title)),'Browser Reusable Post A');
   await page.locator('#view table.table tbody tr').filter({hasText:'Browser Reusable Post A'}).locator('.open-post').click();
+  let reusableInspector=page.locator('.editorial-inspector-overlay');
+  await reusableInspector.waitFor({state:'visible',timeout:5000});
+  await reusableInspector.locator('.inspector-edit').click();
+  await reusableInspector.waitFor({state:'detached',timeout:5000});
 
   let reusablePostForm=page.locator('#post-form');
   await reusablePostForm.waitFor({state:'visible'});
@@ -645,7 +646,22 @@ try {
   const insertedText=(await baseSurface.innerText()).trim();
   assert.ok(insertedText.indexOf('До') < insertedText.indexOf('Записаться сейчас'));
   assert.ok(insertedText.indexOf('Записаться сейчас') < insertedText.indexOf('после'));
-  assert.equal(await baseSurface.locator('strong').filter({hasText:'Записаться сейчас'}).count(),1);
+
+  await reusablePostForm.locator('#toggle-reusable-blocks').click();
+  reusableSelect=reusablePostForm.locator('#reusable-block-select');
+  await reusableSelect.selectOption(browserSignature.id);
+  await reusablePostForm.locator('#apply-reusable-block').click();
+  assert.equal(await baseSurface.locator('strong').filter({hasText:'ASA Lab'}).count(),1);
+
+  await reusablePostForm.locator('#toggle-reusable-blocks').click();
+  reusableSelect=reusablePostForm.locator('#reusable-block-select');
+  await reusableSelect.selectOption(browserSnippet.id);
+  await reusablePostForm.locator('#apply-reusable-block').click();
+  assert.equal(await baseSurface.locator('a[href="https://example.test/docs"]').count(),1);
+  assert.equal(await baseSurface.locator('ul li').filter({hasText:'Шаг'}).count(),1);
+  assert.equal(await baseSurface.locator('blockquote').filter({hasText:'Важно'}).count(),1);
+  assert.equal(await baseSurface.locator('pre').filter({hasText:'const x = 1;'}).count(),1);
+  assert.equal(await baseSurface.locator('code').filter({hasText:'Фрагмент'}).count(),1);
 
   await reusablePostForm.locator('#toggle-reusable-blocks').click();
   await reusablePostForm.locator('select[name="projectId"]').selectOption(ew4005Project.id);
@@ -715,6 +731,10 @@ try {
     .some((row)=>row.dataset.templateId===id),browserCta.id);
   assert.equal(db.prepare('SELECT body_rich_json FROM posts WHERE id=?').get(reusablePostA.id).body_rich_json,postARichSnapshot);
   assert.equal(db.prepare('SELECT body_rich_json FROM posts WHERE id=?').get(savedReusableB.id).body_rich_json,postBRichSnapshot);
+
+  await page.goto(`${base}/content`,{waitUntil:'domcontentloaded'});
+  await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Контент');
+  await page.locator('#new-post').waitFor({state:'visible'});
 
   // EW4-005: new Post inherits project timezone and targets; per-post override stays isolated.
   const ewInheritedTitle = 'Browser EW4-005 inherited defaults';

@@ -15,7 +15,7 @@ async function operatorApi(url, options = {}) {
     credentials: 'same-origin',
     ...options,
     headers: {
-      ...(options.body instanceof FormData ? {} : { 'content-type': 'application/json' }),
+      ...(options.body === undefined || options.body instanceof FormData ? {} : { 'content-type': 'application/json' }),
       ...(options.headers || {})
     }
   });
