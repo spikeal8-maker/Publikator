@@ -5,10 +5,12 @@ type CalendarRow = {
   id: string;
   title: string;
   body: string;
+  project_id: string;
+  content_version: number;
   status: string;
   editorial_stage: string;
   schedule_mode: string;
-  scheduled_at_utc: string;
+  scheduled_at_utc: string | null;
   schedule_timezone: string | null;
   publication_kind: string;
   content_format: string;
@@ -28,7 +30,7 @@ function parseRangeValue(value: unknown, field: string): string {
 
 function calendarRows(from: string, to: string): CalendarRow[] {
   return db.prepare(`SELECT
-      p.id,p.title,p.body,p.status,p.editorial_stage,p.schedule_mode,
+      p.id,p.title,p.body,p.project_id,p.content_version,p.status,p.editorial_stage,p.schedule_mode,
       p.scheduled_at_utc,p.schedule_timezone,p.publication_kind,p.content_format,
       p.source_type,p.source_ref,pr.name AS project_name,
       (SELECT m.relative_path FROM media m WHERE m.post_id=p.id
@@ -44,6 +46,31 @@ function calendarRows(from: string, to: string): CalendarRow[] {
     LIMIT 5000`).all(from, to) as CalendarRow[];
 }
 
+function queueRows(): CalendarRow[] {
+  return db.prepare(`SELECT
+      p.id,p.title,p.body,p.project_id,p.content_version,p.status,p.editorial_stage,p.schedule_mode,
+      p.scheduled_at_utc,p.schedule_timezone,p.publication_kind,p.content_format,
+      p.source_type,p.source_ref,pr.name AS project_name,
+      (SELECT m.relative_path FROM media m WHERE m.post_id=p.id
+        ORDER BY m.sort_order,m.created_at,m.id LIMIT 1) AS thumbnail_path,
+      (SELECT GROUP_CONCAT(DISTINCT a.platform)
+        FROM post_targets pt JOIN social_accounts a ON a.id=pt.account_id
+        WHERE pt.post_id=p.id AND pt.enabled=1) AS platforms_csv
+    FROM posts p JOIN projects pr ON pr.id=p.project_id
+    WHERE p.editorial_stage NOT IN ('ARCHIVED','TRASHED')
+      AND p.schedule_mode='QUEUE'
+      AND p.status NOT IN ('PUBLISHING','PARTIAL','PUBLISHED')
+    ORDER BY p.updated_at DESC,p.created_at DESC,p.id
+    LIMIT 1000`).all() as CalendarRow[];
+}
+
+function calendarView(row: CalendarRow): any {
+  return {
+    ...row,
+    platforms: row.platforms_csv ? row.platforms_csv.split(',').filter(Boolean) : []
+  };
+}
+
 export async function registerCalendarRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/calendar', async (request, reply) => {
     try {
@@ -56,11 +83,9 @@ export async function registerCalendarRoutes(app: FastifyInstance): Promise<void
       if (toMs - fromMs > 1000 * 60 * 60 * 24 * 93) {
         return reply.code(400).send({ error: 'Диапазон календаря не может превышать 93 дня' });
       }
-      const items = calendarRows(from, to).map((row) => ({
-        ...row,
-        platforms: row.platforms_csv ? row.platforms_csv.split(',').filter(Boolean) : []
-      }));
-      return { from, to, count: items.length, items };
+      const items = calendarRows(from, to).map(calendarView);
+      const queueItems = queueRows().map(calendarView);
+      return { from, to, count: items.length, queueCount: queueItems.length, items, queueItems };
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }

@@ -80,9 +80,20 @@ function sameStringSet(left,right){
   const b=[...new Set(right)].sort();
   return a.length===b.length&&a.every((value,index)=>value===b[index]);
 }
+function exactToLocalInput(value){
+  if(!value)return '';
+  const date=new Date(value);
+  if(Number.isNaN(date.getTime()))return '';
+  const pad=(part)=>String(part).padStart(2,'0');
+  return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
-async function postEditor(postId){
+async function postEditor(postId,options={}){
   const post=postId?await api(`/api/posts/${postId}`):null;
+  const prefill=!post&&options&&typeof options==='object'?options:{};
+  const initialScheduleMode=post?.schedule_mode||prefill.scheduleMode||'MANUAL';
+  const initialExactScheduledAt=!post&&typeof prefill.scheduledAt==='string'?prefill.scheduledAt:'';
+  const initialScheduledLocal=initialExactScheduledAt?exactToLocalInput(initialExactScheduledAt):'';
   const [accounts,templateLibrary]=await Promise.all([
     post?api('/api/accounts'):Promise.resolve([]),
     api('/api/templates')
@@ -90,9 +101,12 @@ async function postEditor(postId){
   const reusableBlocks=templateLibrary.filter((template)=>REUSABLE_BLOCK_TYPES.includes(template.templateType));
   const selectedAccountIds=new Set((post?.targets||[]).filter((target)=>Boolean(target.enabled)).map((target)=>target.account_id));
   const initialTargetAccountIds=[...selectedAccountIds];
-  const m=modal(`<h2>${post?'Публикация':'Новая публикация'}</h2><form id="post-form" class="form-grid ui-post-form" data-content-version="${post?.content_version||''}">${editorSectionHtml('Основное','Проект, режим публикации, заголовок и текст.','1')}<label>Проект<select name="projectId">${projects.map(p=>`<option value="${p.id}" ${post?.project_id===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label><label>Когда публиковать<select name="scheduleMode"><option value="MANUAL">${esc(scheduleModeLabel('MANUAL'))}</option><option value="QUEUE" ${post?.schedule_mode==='QUEUE'?'selected':''}>${esc(scheduleModeLabel('QUEUE'))}</option><option value="AT" ${post?.schedule_mode==='AT'?'selected':''}>${esc(scheduleModeLabel('AT'))}</option></select></label><label class="full">Заголовок<input name="title" value="${esc(post?.title||'')}" required></label><div class="full rich-text-field"><span class="rich-text-label">Текст</span><div data-rich-text-editor></div><textarea name="body" class="rich-text-plain-fallback" hidden aria-hidden="true"></textarea></div>${reusableBlockPickerHtml()}<label class="full${post?.schedule_mode==='AT'?'':' hidden'}" data-scheduled-field>Дата и время публикации<input name="scheduledAt" type="datetime-local"></label>${post?editorSectionHtml('Медиа','Добавьте изображения или видео и проверьте порядок файлов.','2'):editorSectionHtml('После сохранения','Сначала сохраните черновик — затем появятся загрузка медиа и выбор площадок.','2')}<div class="full"><strong>Медиа</strong><div class="media-list">${(post?.media||[]).map(x=>`<span><img src="/public-media/${x.relative_path}"><button type="button" class="secondary danger delete-media" data-id="${x.id}">Удалить</button></span>`).join('')}</div>${post?'<input id="media-file" type="file" accept="image/*">':'<div class="muted small">Сохраните черновик. После этого можно загрузить медиа и выбрать площадки.</div>'}</div>${post?`${editorSectionHtml('Площадки','Выберите подключения, куда должна уйти публикация.','3')}<div class="full"><strong>Куда публиковать</strong><div class="target-picker">${accounts.map(a=>`<label class="target-check"><input type="checkbox" name="accountId" value="${a.id}" ${selectedAccountIds.has(a.id)?'checked':''} ${a.enabled?'':'disabled'}> ${esc(platformLabel(a.platform))} · ${esc(a.name)}${a.enabled?'':' · отключено'}</label>`).join('')||'<span class="muted">Сначала подключите соцсеть</span>'}</div></div>`:''}<div class="full row-actions"><button class="primary" type="submit">Сохранить</button>${post?'<button type="button" id="mark-ready" class="secondary">Готов к публикации</button><button type="button" id="publish-now" class="secondary">Опубликовать сейчас</button>':''}<button type="button" id="close-modal" class="secondary">Закрыть</button></div></form><div id="post-error" class="error"></div>${post?targetsHtml(post.targets):''}`);
+  const m=modal(`<h2>${post?'Публикация':'Новая публикация'}</h2><form id="post-form" class="form-grid ui-post-form" data-content-version="${post?.content_version||''}">${editorSectionHtml('Основное','Проект, режим публикации, заголовок и текст.','1')}<label>Проект<select name="projectId">${projects.map(p=>`<option value="${p.id}" ${post?.project_id===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label><label>Когда публиковать<select name="scheduleMode"><option value="MANUAL" ${initialScheduleMode==='MANUAL'?'selected':''}>${esc(scheduleModeLabel('MANUAL'))}</option><option value="QUEUE" ${initialScheduleMode==='QUEUE'?'selected':''}>${esc(scheduleModeLabel('QUEUE'))}</option><option value="AT" ${initialScheduleMode==='AT'?'selected':''}>${esc(scheduleModeLabel('AT'))}</option></select></label><label class="full">Заголовок<input name="title" value="${esc(post?.title||'')}" required></label><div class="full rich-text-field"><span class="rich-text-label">Текст</span><div data-rich-text-editor></div><textarea name="body" class="rich-text-plain-fallback" hidden aria-hidden="true"></textarea></div>${reusableBlockPickerHtml()}<label class="full${initialScheduleMode==='AT'?'':' hidden'}" data-scheduled-field>Дата и время публикации<input name="scheduledAt" type="datetime-local" value="${esc(initialScheduledLocal)}"></label>${post?editorSectionHtml('Медиа','Добавьте изображения или видео и проверьте порядок файлов.','2'):editorSectionHtml('После сохранения','Сначала сохраните черновик — затем появятся загрузка медиа и выбор площадок.','2')}<div class="full"><strong>Медиа</strong><div class="media-list">${(post?.media||[]).map(x=>`<span><img src="/public-media/${x.relative_path}"><button type="button" class="secondary danger delete-media" data-id="${x.id}">Удалить</button></span>`).join('')}</div>${post?'<input id="media-file" type="file" accept="image/*">':'<div class="muted small">Сохраните черновик. После этого можно загрузить медиа и выбрать площадки.</div>'}</div>${post?`${editorSectionHtml('Площадки','Выберите подключения, куда должна уйти публикация.','3')}<div class="full"><strong>Куда публиковать</strong><div class="target-picker">${accounts.map(a=>`<label class="target-check"><input type="checkbox" name="accountId" value="${a.id}" ${selectedAccountIds.has(a.id)?'checked':''} ${a.enabled?'':'disabled'}> ${esc(platformLabel(a.platform))} · ${esc(a.name)}${a.enabled?'':' · отключено'}</label>`).join('')||'<span class="muted">Сначала подключите соцсеть</span>'}</div></div>`:''}<div class="full row-actions"><button class="primary" type="submit">Сохранить</button>${post?'<button type="button" id="mark-ready" class="secondary">Готов к публикации</button><button type="button" id="publish-now" class="secondary">Опубликовать сейчас</button>':''}<button type="button" id="close-modal" class="secondary">Закрыть</button></div></form><div id="post-error" class="error"></div>${post?targetsHtml(post.targets):''}`);
   m.querySelector('#close-modal').onclick=()=>m.remove();
   const form=m.querySelector('#post-form');
+  form.dataset.exactScheduledAt=initialExactScheduledAt;
+  const scheduledInput=form.querySelector('input[name="scheduledAt"]');
+  scheduledInput?.addEventListener('input',()=>{form.dataset.exactScheduledAt='';});
   const bodyFallback=form.querySelector('textarea[name="body"]');
   const initialRichDocument=post?.bodyRich || plainTextToRichDocument(post?.body || '');
   const richEditor=mountRichTextEditor(form.querySelector('[data-rich-text-editor]'),{
@@ -119,7 +133,13 @@ async function postEditor(postId){
   syncPostEditorScheduleField(form);
   const saveDraft=async()=>{
     const f=new FormData(form);
-    const payload={projectId:f.get('projectId'),title:f.get('title'),body:f.get('body'),bodyRich:richEditor.getDocument(),scheduleMode:f.get('scheduleMode'),scheduledAtLocal:f.get('scheduledAt')||null};
+    const scheduleMode=String(f.get('scheduleMode')||'MANUAL');
+    const payload={projectId:f.get('projectId'),title:f.get('title'),body:f.get('body'),bodyRich:richEditor.getDocument(),scheduleMode};
+    if(scheduleMode==='AT'){
+      const exactScheduledAt=String(form.dataset.exactScheduledAt||'');
+      if(exactScheduledAt)payload.scheduledAt=exactScheduledAt;
+      else payload.scheduledAtLocal=f.get('scheduledAt')||null;
+    }
     if(post) payload.scheduleTimezone=post.schedule_timezone||Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC';
     if(post?.schedule_mode==='QUEUE'&&payload.scheduleMode==='AT')payload.confirmQueueToAt=window.confirm('Преобразовать публикацию из очереди в точное время?');
     if(post){
@@ -138,7 +158,7 @@ async function postEditor(postId){
     const created=await scheduleApi('/api/posts','POST',payload);
     return created.id;
   };
-  form.onsubmit=async e=>{e.preventDefault();try{await saveDraft();m.remove();await posts();}catch(err){m.querySelector('#post-error').textContent=err.message;}};
+  form.onsubmit=async e=>{e.preventDefault();try{const savedId=await saveDraft();m.remove();if(typeof options.afterSave==='function')await options.afterSave(savedId);else await posts();}catch(err){m.querySelector('#post-error').textContent=err.message;}};
   if(post){
     m.querySelector('#media-file').onchange=async e=>{try{const file=e.target.files[0];if(!file)return;const data=new FormData();data.set('file',file);const uploaded=await api(`/api/posts/${post.id}/media`,{method:'POST',body:data,headers:{'x-content-version':String(editorVersion(form))}});setEditorVersion(form,uploaded.contentVersion);post.content_version=uploaded.contentVersion;m.remove();await postEditor(post.id);}catch(err){m.querySelector('#post-error').textContent=err.message;}};
     m.querySelector('#mark-ready').onclick=async()=>{try{await saveDraft();const ready=await api(`/api/posts/${post.id}/ready`,{method:'POST',body:JSON.stringify({expectedContentVersion:editorVersion(form)})});setEditorVersion(form,ready.contentVersion);post.content_version=ready.contentVersion;m.remove();await posts();}catch(err){m.querySelector('#post-error').textContent=err.message;}};
@@ -147,6 +167,7 @@ async function postEditor(postId){
     m.querySelectorAll('.retry-target').forEach(b=>b.onclick=async()=>{try{await api(`/api/targets/${b.dataset.id}/retry`,{method:'POST'});m.remove();await postEditor(post.id);}catch(err){m.querySelector('#post-error').textContent=err.message;}});
   }
 }
+window.publikatorPostEditor=postEditor;
 function targetsHtml(targets=[]){return `<h3>Площадки</h3><table class="table"><thead><tr><th>Площадка</th><th>Статус</th><th>Попытки</th><th>Ошибка</th><th></th></tr></thead><tbody>${targets.map(t=>`<tr><td>${esc(t.platform)} / ${esc(t.account_name)}</td><td>${badge(t.state)}</td><td>${t.attempts}</td><td class="small error">${esc(t.last_error||'')}</td><td>${['FAILED','RETRY','RECOVERY_NEEDED'].includes(t.state)?`<button class="secondary retry-target" data-id="${t.id}">Повторить</button>`:''}</td></tr>`).join('')||'<tr><td colspan="5">Цели появятся после READY</td></tr>'}</tbody></table>`;}
 async function projectsPage(){
   await loadProjects();

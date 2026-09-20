@@ -244,6 +244,11 @@ async function openContentInspector(postId) {
   });
 }
 
+window.PublikatorEditorial = {
+  ...(window.PublikatorEditorial || {}),
+  openContentInspector
+};
+
 function showEditorialPageError(error) {
   const view = document.querySelector('#view');
   if (!view) return;

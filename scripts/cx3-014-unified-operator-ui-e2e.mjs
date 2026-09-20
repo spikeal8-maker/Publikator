@@ -87,7 +87,7 @@ assert.ok(app.includes("badge(p.status,'content')"), 'Content rows must declare 
 assert.ok(app.includes('data-raw-schedule="${esc(p.schedule_mode)}"'), 'Content schedule cell must preserve raw mode');
 assert.ok(app.includes('scheduleModeLabel(p.schedule_mode)'), 'Content schedule cell must render shared human label');
 
-const postEditorStart = app.indexOf('async function postEditor(postId)');
+const postEditorStart = app.indexOf('async function postEditor(postId,options={})');
 const targetsStart = app.indexOf('function targetsHtml', postEditorStart);
 assert.ok(postEditorStart >= 0 && targetsStart > postEditorStart, 'postEditor source boundary missing');
 const postEditorSource = app.slice(postEditorStart, targetsStart);
