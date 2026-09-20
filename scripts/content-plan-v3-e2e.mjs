@@ -75,7 +75,21 @@ try {
   assert.equal((await app.inject({ method: 'GET', url: '/api/content-plan/v2/schema', headers: { cookie } })).statusCode, 404);
   const v3Schema = await app.inject({ method: 'GET', url: '/api/content-plan/v3/schema', headers: { cookie } });
   assert.equal(v3Schema.statusCode, 200);
-  assert.equal(v3Schema.json().version, 3);
+  const v3SchemaBody = v3Schema.json();
+  assert.equal(v3SchemaBody.version, 3);
+  assert.deepEqual(v3SchemaBody.foundationLimits.publicationKinds, ['FEED','SHORT','STORY']);
+  assert.deepEqual(v3SchemaBody.foundationLimits.contentFormats, [
+    'TEXT_ONLY','IMAGE','CAROUSEL','VIDEO','VERTICAL_VIDEO','STORY_SEQUENCE'
+  ]);
+  assert.ok(v3SchemaBody.columns.includes('template_key'));
+  assert.match(v3SchemaBody.humanInput.template_key, /POST template/i);
+  assert.match(v3SchemaBody.humanInput.template_key, /same Project/i);
+  assert.match(v3SchemaBody.humanInput.template_key, /snapshot/i);
+  assert.deepEqual(v3SchemaBody.humanInput.portableRichText.fields, [
+    'body','telegram_body','vk_body','max_body','instagram_body'
+  ]);
+  assert.match(v3SchemaBody.humanInput.portableRichText.contract, /canonical rich AST/i);
+  assert.match(v3SchemaBody.foundationLimits.timezone, /Project\.default_timezone/);
   const mainProject = db.prepare("SELECT id,slug,default_timezone FROM projects WHERE slug='main'").get();
   assert.ok(mainProject);
 
