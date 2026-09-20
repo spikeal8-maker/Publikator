@@ -1275,6 +1275,13 @@ try {
   const weekOverflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   assert.ok(weekOverflow <= 1, `Calendar Week body overflow: ${weekOverflow}px`);
 
+  const previousFirstSlot = await page.locator('.calendar-time-slot').first().getAttribute('data-calendar-slot');
+  await page.locator('#calendar-next').click();
+  await page.waitForFunction((previous) => {
+    const current = document.querySelector('.calendar-time-slot')?.dataset.calendarSlot;
+    return Boolean(current && current !== previous);
+  }, previousFirstSlot);
+
   const candidateSlots = await page.evaluate(() => [...document.querySelectorAll('.calendar-time-slot')]
     .filter((slot) => !slot.querySelector('[data-calendar-post]') && Date.parse(slot.dataset.calendarSlot || '') > Date.now() + 60 * 60 * 1000)
     .map((slot) => slot.dataset.calendarSlot)
