@@ -264,26 +264,31 @@ function planCsv(externalId,title,body,sourceRevision){
   );
 }
 
-const importLiteral='**hello from sheet**';
-const parsedPlan=await parseContentPlanV3('rich-plan.csv',planCsv('ew4-rich-cp','Content Plan literal',importLiteral,'r1'));
+const importPortable='**hello from sheet**';
+const importPlain='hello from sheet';
+const parsedPlan=await parseContentPlanV3('rich-plan.csv',planCsv('ew4-rich-cp','Content Plan portable',importPortable,'r1'));
 const validatedPlan=await validateContentPlanV3(parsedPlan,'ew4-rich-plan');
 assert.equal(validatedPlan.canApply,true,JSON.stringify(validatedPlan.rows));
 const appliedPlan=applyContentPlanV3(validatedPlan,{actorSource:'content_plan'});
 assert.equal(appliedPlan.created,1);
 const planPost=db.prepare('SELECT id,body,body_rich_json FROM posts WHERE id=?').get(appliedPlan.postIds[0]);
-assert.equal(planPost.body,importLiteral);
-assert.equal(richTextToPlain(parseRichTextJson(planPost.body_rich_json)),importLiteral);
-assert.equal(parseRichTextJson(planPost.body_rich_json).content[0].content[0].text,importLiteral);
+const planAst=parseRichTextJson(planPost.body_rich_json);
+assert.equal(planPost.body,importPlain);
+assert.equal(richTextToPlain(planAst),importPlain);
+assert.equal(planAst.content[0].content[0].text,importPlain);
+assert.ok(planAst.content[0].content[0].marks.some((mark)=>mark.type==='bold'));
 assert.equal(db.prepare('SELECT actor_source FROM content_revisions WHERE post_id=? AND content_version=1').get(planPost.id).actor_source,'content_plan');
 
-const parsedSheet=await parseContentPlanV3('sheet.csv',planCsv('ew4-rich-sheet','Sheets literal',importLiteral,'s1'));
+const parsedSheet=await parseContentPlanV3('sheet.csv',planCsv('ew4-rich-sheet','Sheets portable',importPortable,'s1'));
 const validatedSheet=await validateContentPlanV3(parsedSheet,'ew4-rich-sheet-source');
 assert.equal(validatedSheet.canApply,true,JSON.stringify(validatedSheet.rows));
 const appliedSheet=applyContentPlanV3(validatedSheet,{actorSource:'google_sheets',sourceTypeOverride:'google_sheets'});
 assert.equal(appliedSheet.created,1);
 const sheetPost=db.prepare('SELECT id,body,body_rich_json FROM posts WHERE id=?').get(appliedSheet.postIds[0]);
-assert.equal(sheetPost.body,importLiteral);
-assert.equal(richTextToPlain(parseRichTextJson(sheetPost.body_rich_json)),importLiteral);
+const sheetAst=parseRichTextJson(sheetPost.body_rich_json);
+assert.equal(sheetPost.body,importPlain);
+assert.equal(richTextToPlain(sheetAst),importPlain);
+assert.ok(sheetAst.content[0].content[0].marks.some((mark)=>mark.type==='bold'));
 assert.equal(db.prepare('SELECT actor_source FROM content_revisions WHERE post_id=? AND content_version=1').get(sheetPost.id).actor_source,'google_sheets');
 
 const publishAst={type:'doc',content:[{type:'paragraph',content:[
