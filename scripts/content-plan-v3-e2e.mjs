@@ -12,9 +12,10 @@ process.env.APP_MASTER_KEY = 'content-v3-master-key-that-is-longer-than-32-chara
 process.env.PUBLIC_BASE_URL = 'https://publisher.example.test';
 
 const { db, migrate } = await import('../dist/db.js');
-const { commitContentEdit } = await import('../dist/content-versioning.js');
+const { commitContentEdit, markReadyRevision } = await import('../dist/content-versioning.js');
 const { buildApp } = await import('../dist/app.js');
 const { parseContentPlanV3, validateContentPlanV3, applyContentPlanV3 } = await import('../dist/content-plan-v3.js');
+const { createTemplate, updateTemplate } = await import('../dist/templates.js');
 const { parseRichTextJson, richTextToPlain } = await import('../dist/rich-text.js');
 migrate();
 const app = await buildApp();
@@ -26,26 +27,38 @@ const columns = [
   'telegram_body','vk_body','max_body','instagram_body','media','tags','source_note','source_revision'
 ];
 
-function csv({
-  externalId = 'post-001', action = 'UPSERT', body = 'First body', revision = 'rev-1',
-  contentFormat = 'IMAGE', targets = [], telegramBody = '', title = 'Imported title'
+function rowValues({
+  externalId = 'post-001', action = 'UPSERT', project = 'main', templateKey = '',
+  body = 'First body', revision = 'rev-1', publicationKind = 'FEED', contentFormat = 'IMAGE',
+  scheduleMode = 'MANUAL', scheduledAt = '', timezone = 'UTC', targets = [],
+  telegramBody = '', vkBody = '', maxBody = '', instagramBody = '', title = 'Imported title'
 } = {}) {
-  const values = [
-    '3', externalId, action, 'main', '', title, body, 'FEED', contentFormat,
-    'MANUAL', '', 'UTC', JSON.stringify(targets), telegramBody, '', '', '', '', '', '', revision
+  return [
+    '3', externalId, action, project, templateKey, title, body, publicationKind, contentFormat,
+    scheduleMode, scheduledAt, timezone, JSON.stringify(targets),
+    telegramBody, vkBody, maxBody, instagramBody, '', '', '', revision
   ];
-  const encoded = values.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(';');
-  return Buffer.from('\uFEFF' + columns.join(';') + '\r\n' + encoded + '\r\n');
+}
+
+function csvRows(rows) {
+  const encodedRows = rows.map((values) =>
+    values.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(';')
+  );
+  return Buffer.from('\uFEFF' + columns.join(';') + '\r\n' + encodedRows.join('\r\n') + '\r\n');
+}
+
+function csv(options = {}) {
+  return csvRows([rowValues(options)]);
 }
 
 async function preview(buffer, source = 'sheet-alpha') {
   return validateContentPlanV3(await parseContentPlanV3('content.csv', buffer), source);
 }
 
-function insertAccount(id, name) {
+function insertAccount(id, name, platform = 'telegram') {
   const now = new Date().toISOString();
   db.prepare(`INSERT INTO social_accounts (id,platform,name,credentials_encrypted,enabled,created_at,updated_at)
-    VALUES (?, 'telegram', ?, 'encrypted-test', 1, ?, ?)`).run(id, name, now, now);
+    VALUES (?, ?, ?, 'encrypted-test', 1, ?, ?)`).run(id, platform, name, now, now);
 }
 
 try {
@@ -62,7 +75,23 @@ try {
   assert.equal((await app.inject({ method: 'GET', url: '/api/content-plan/v2/schema', headers: { cookie } })).statusCode, 404);
   const v3Schema = await app.inject({ method: 'GET', url: '/api/content-plan/v3/schema', headers: { cookie } });
   assert.equal(v3Schema.statusCode, 200);
-  assert.equal(v3Schema.json().version, 3);
+  const v3SchemaBody = v3Schema.json();
+  assert.equal(v3SchemaBody.version, 3);
+  assert.deepEqual(v3SchemaBody.foundationLimits.publicationKinds, ['FEED','SHORT','STORY']);
+  assert.deepEqual(v3SchemaBody.foundationLimits.contentFormats, [
+    'TEXT_ONLY','IMAGE','CAROUSEL','VIDEO','VERTICAL_VIDEO','STORY_SEQUENCE'
+  ]);
+  assert.ok(v3SchemaBody.columns.includes('template_key'));
+  assert.match(v3SchemaBody.humanInput.template_key, /POST template/i);
+  assert.match(v3SchemaBody.humanInput.template_key, /same Project/i);
+  assert.match(v3SchemaBody.humanInput.template_key, /snapshot/i);
+  assert.deepEqual(v3SchemaBody.humanInput.portableRichText.fields, [
+    'body','telegram_body','vk_body','max_body','instagram_body'
+  ]);
+  assert.match(v3SchemaBody.humanInput.portableRichText.contract, /canonical rich AST/i);
+  assert.match(v3SchemaBody.foundationLimits.timezone, /Project\.default_timezone/);
+  const mainProject = db.prepare("SELECT id,slug,default_timezone FROM projects WHERE slug='main'").get();
+  assert.ok(mainProject);
 
   let validation = await preview(csv());
   assert.equal(validation.rows[0].classification, 'NEW');
@@ -156,9 +185,271 @@ try {
     assert.equal(parseRichTextJson(row.text_rich_json).content[0].content[0].text, 'Shared Telegram override');
   }
 
-  const carousel = await preview(csv({ externalId: 'carousel-1', contentFormat: 'CAROUSEL' }), 'sheet-formats');
-  assert.equal(carousel.rows[0].classification, 'ERROR');
-  assert.match(carousel.rows[0].errors.join(' '), /content_format=IMAGE/);
+  insertAccount('tpl-tg', 'Template TG', 'telegram');
+  insertAccount('tpl-vk', 'Template VK', 'vk');
+  insertAccount('tpl-max', 'Template MAX', 'max');
+
+  const templateV1Rich = {
+    type: 'doc',
+    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Версия 1', marks: [{ type: 'bold' }] }] }]
+  };
+  const template = createTemplate({
+    key: 'template-v1',
+    name: 'Template v1',
+    projectId: mainProject.id,
+    templateType: 'POST',
+    bodyRich: templateV1Rich,
+    publicationKind: 'FEED',
+    contentFormat: 'IMAGE',
+    scheduleMode: 'MANUAL',
+    targetAccountIds: ['tpl-tg', 'tpl-vk']
+  });
+
+  const templateRowV1 = {
+    externalId: 'template-post-a',
+    templateKey: template.key,
+    body: '',
+    publicationKind: '',
+    contentFormat: '',
+    scheduleMode: '',
+    timezone: '',
+    targets: [],
+    title: 'Template Post A',
+    revision: 'rev-1'
+  };
+  let templatePreview = await preview(csv(templateRowV1), 'sheet-template');
+  assert.equal(templatePreview.rows[0].classification, 'NEW');
+  assert.equal(templatePreview.canApply, true);
+  const templateCreateA = applyContentPlanV3(templatePreview, { actorSource: 'content_plan' });
+  const templatePostA = db.prepare('SELECT * FROM posts WHERE id=?').get(templateCreateA.postIds[0]);
+  assert.equal(templatePostA.status, 'DRAFT');
+  assert.equal(templatePostA.body, 'Версия 1');
+  assert.equal(templatePostA.publication_kind, 'FEED');
+  assert.equal(templatePostA.content_format, 'IMAGE');
+  assert.equal(parseRichTextJson(templatePostA.body_rich_json).content[0].content[0].marks[0].type, 'bold');
+  assert.deepEqual(
+    db.prepare('SELECT account_id FROM post_targets WHERE post_id=? AND enabled=1 ORDER BY account_id').all(templatePostA.id).map((row) => row.account_id),
+    ['tpl-tg', 'tpl-vk']
+  );
+
+  const templateV2Rich = {
+    type: 'doc',
+    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Версия 2', marks: [{ type: 'bold' }] }] }]
+  };
+  updateTemplate(template.id, { bodyRich: templateV2Rich });
+  assert.equal(db.prepare('SELECT body FROM posts WHERE id=?').get(templatePostA.id).body, 'Версия 1');
+  templatePreview = await preview(csv(templateRowV1), 'sheet-template');
+  assert.equal(templatePreview.rows[0].classification, 'UNCHANGED', 'template edit must not reapply to existing imported Post');
+
+  const templatePreviewB = await preview(csv({ ...templateRowV1, externalId: 'template-post-b', title: 'Template Post B' }), 'sheet-template');
+  const templateCreateB = applyContentPlanV3(templatePreviewB, { actorSource: 'content_plan' });
+  const templatePostB = db.prepare('SELECT body,body_rich_json FROM posts WHERE id=?').get(templateCreateB.postIds[0]);
+  assert.equal(templatePostB.body, 'Версия 2');
+  assert.equal(parseRichTextJson(templatePostB.body_rich_json).content[0].content[0].marks[0].type, 'bold');
+
+  const explicitTemplatePreview = await preview(csv({
+    externalId: 'template-explicit',
+    templateKey: template.key,
+    title: 'Template Explicit',
+    body: '**Explicit body**',
+    publicationKind: 'SHORT',
+    contentFormat: 'VERTICAL_VIDEO',
+    scheduleMode: 'MANUAL',
+    timezone: '',
+    targets: [{ accountId: 'tpl-max' }],
+    revision: 'rev-1'
+  }), 'sheet-template-explicit');
+  assert.equal(explicitTemplatePreview.rows[0].classification, 'NEW');
+  const explicitTemplateCreate = applyContentPlanV3(explicitTemplatePreview, { actorSource: 'content_plan' });
+  const explicitTemplatePost = db.prepare('SELECT * FROM posts WHERE id=?').get(explicitTemplateCreate.postIds[0]);
+  assert.equal(explicitTemplatePost.body, 'Explicit body');
+  assert.equal(explicitTemplatePost.publication_kind, 'SHORT');
+  assert.equal(explicitTemplatePost.content_format, 'VERTICAL_VIDEO');
+  assert.deepEqual(
+    db.prepare('SELECT account_id FROM post_targets WHERE post_id=? AND enabled=1').all(explicitTemplatePost.id).map((row) => row.account_id),
+    ['tpl-max']
+  );
+
+  const otherProjectId = 'prj-template-other';
+  db.prepare('INSERT INTO projects (id,name,slug,created_at) VALUES (?,?,?,?)')
+    .run(otherProjectId, 'Other Template Project', 'template-other', new Date().toISOString());
+  const otherTemplate = createTemplate({
+    key: 'template-other-project',
+    name: 'Other project template',
+    projectId: otherProjectId,
+    templateType: 'POST',
+    bodyRich: templateV1Rich,
+    publicationKind: 'FEED',
+    contentFormat: 'IMAGE',
+    scheduleMode: 'MANUAL'
+  });
+  const reusableTemplate = createTemplate({
+    key: 'template-snippet-only',
+    name: 'Snippet only',
+    projectId: mainProject.id,
+    templateType: 'SNIPPET',
+    bodyRich: templateV1Rich
+  });
+  for (const [key, pattern] of [
+    ['template-missing', /template not found/],
+    [reusableTemplate.key, /is not POST/],
+    [otherTemplate.key, /another project/]
+  ]) {
+    const invalidTemplate = await preview(csv({
+      externalId: 'invalid-' + key,
+      templateKey: key,
+      body: '',
+      publicationKind: '',
+      contentFormat: '',
+      scheduleMode: '',
+      timezone: ''
+    }), 'sheet-template-errors');
+    assert.equal(invalidTemplate.rows[0].classification, 'ERROR');
+    assert.match(invalidTemplate.rows[0].errors.join(' '), pattern);
+  }
+
+  const portableBody = '**Новый модуль**\n[Подробнее](https://example.org)\n> Важно';
+  const portablePreview = await preview(csv({
+    externalId: 'portable-rich-body',
+    body: portableBody,
+    publicationKind: 'FEED',
+    contentFormat: 'TEXT_ONLY',
+    targets: [{ accountId: 'tpl-max' }]
+  }), 'sheet-portable');
+  const portableCreate = applyContentPlanV3(portablePreview, { actorSource: 'content_plan' });
+  const portablePost = db.prepare('SELECT body,body_rich_json FROM posts WHERE id=?').get(portableCreate.postIds[0]);
+  const portableAst = parseRichTextJson(portablePost.body_rich_json);
+  assert.ok(JSON.stringify(portableAst).includes('"type":"bold"'));
+  assert.ok(JSON.stringify(portableAst).includes('"type":"link"'));
+  assert.ok(JSON.stringify(portableAst).includes('"type":"blockquote"'));
+  assert.equal(portablePost.body, richTextToPlain(portableAst));
+
+  const overridePreview = await preview(csv({
+    externalId: 'portable-rich-override',
+    body: 'Base body',
+    targets: [{ accountId: 'tpl-tg' }],
+    telegramBody: '**TG bold**\n[Подробнее](https://example.org)\n> TG quote'
+  }), 'sheet-portable-overrides');
+  const overrideCreate = applyContentPlanV3(overridePreview, { actorSource: 'content_plan' });
+  const overrideRow = db.prepare(`SELECT tr.text_rich_json,tr.text_plain
+    FROM post_targets pt JOIN target_renditions tr ON tr.target_id=pt.id
+    WHERE pt.post_id=? AND pt.account_id='tpl-tg'`).get(overrideCreate.postIds[0]);
+  const overrideAst = parseRichTextJson(overrideRow.text_rich_json);
+  assert.ok(JSON.stringify(overrideAst).includes('"type":"bold"'));
+  assert.ok(JSON.stringify(overrideAst).includes('"type":"link"'));
+  assert.ok(JSON.stringify(overrideAst).includes('"type":"blockquote"'));
+  assert.equal(overrideRow.text_plain, richTextToPlain(overrideAst));
+
+  const formatRows = [
+    rowValues({ externalId: 'format-feed-text', body: 'Feed text', publicationKind: 'FEED', contentFormat: 'TEXT_ONLY' }),
+    rowValues({ externalId: 'format-short-video', body: 'Short video', publicationKind: 'SHORT', contentFormat: 'VERTICAL_VIDEO' }),
+    rowValues({ externalId: 'format-story-sequence', body: 'Story sequence', publicationKind: 'STORY', contentFormat: 'STORY_SEQUENCE' })
+  ];
+  const formatPreview = await preview(csvRows(formatRows), 'sheet-formats');
+  assert.deepEqual(formatPreview.rows.map((row) => row.classification), ['NEW','NEW','NEW']);
+  const formatCreate = applyContentPlanV3(formatPreview, { actorSource: 'content_plan' });
+  const formatPosts = db.prepare(`SELECT publication_kind,content_format,status
+    FROM posts WHERE id IN (?,?,?) ORDER BY publication_kind,content_format`)
+    .all(...formatCreate.postIds);
+  assert.equal(formatPosts.length, 3);
+  assert.ok(formatPosts.every((row) => row.status === 'DRAFT'));
+  assert.ok(formatPosts.some((row) => row.publication_kind === 'FEED' && row.content_format === 'TEXT_ONLY'));
+  assert.ok(formatPosts.some((row) => row.publication_kind === 'SHORT' && row.content_format === 'VERTICAL_VIDEO'));
+  assert.ok(formatPosts.some((row) => row.publication_kind === 'STORY' && row.content_format === 'STORY_SEQUENCE'));
+
+  insertAccount('default-tg', 'Default TG', 'telegram');
+  db.prepare('DELETE FROM project_default_targets WHERE project_id=?').run(mainProject.id);
+  db.prepare('INSERT INTO project_default_targets (project_id,account_id,created_at) VALUES (?,?,?)')
+    .run(mainProject.id, 'default-tg', new Date().toISOString());
+  const defaultTargetPreview = await preview(csv({
+    externalId: 'project-default-targets',
+    body: 'Project targets',
+    targets: []
+  }), 'sheet-project-defaults');
+  const defaultTargetCreate = applyContentPlanV3(defaultTargetPreview, { actorSource: 'content_plan' });
+  assert.deepEqual(
+    db.prepare('SELECT account_id FROM post_targets WHERE post_id=? AND enabled=1').all(defaultTargetCreate.postIds[0]).map((row) => row.account_id),
+    ['default-tg']
+  );
+
+  db.prepare("UPDATE projects SET default_timezone='Europe/Moscow' WHERE id=?").run(mainProject.id);
+  const timezonePreview = await preview(csv({
+    externalId: 'project-default-timezone',
+    body: 'Timezone fallback',
+    scheduleMode: 'AT',
+    scheduledAt: '2026-10-20T14:00',
+    timezone: ''
+  }), 'sheet-project-timezone');
+  const timezoneCreate = applyContentPlanV3(timezonePreview, { actorSource: 'content_plan' });
+  const timezonePost = db.prepare('SELECT scheduled_at_utc,schedule_timezone FROM posts WHERE id=?').get(timezoneCreate.postIds[0]);
+  assert.equal(timezonePost.scheduled_at_utc, '2026-10-20T11:00:00.000Z');
+  assert.equal(timezonePost.schedule_timezone, 'Europe/Moscow');
+
+  let readyPreview = await preview(csv({
+    externalId: 'ready-versioning',
+    body: 'Ready v1',
+    revision: 'rev-1'
+  }), 'sheet-ready-versioning');
+  const readyCreate = applyContentPlanV3(readyPreview, { actorSource: 'content_plan' });
+  const readyId = readyCreate.postIds[0];
+  const readyRevision = db.prepare('SELECT id FROM content_revisions WHERE post_id=? AND content_version=1').get(readyId);
+  markReadyRevision(readyId, 1, readyRevision.id);
+  readyPreview = await preview(csv({
+    externalId: 'ready-versioning',
+    body: 'Ready v2',
+    revision: 'rev-2'
+  }), 'sheet-ready-versioning');
+  assert.equal(readyPreview.rows[0].classification, 'UPDATE');
+  applyContentPlanV3(readyPreview, { actorSource: 'content_plan' });
+  const readyAfter = db.prepare('SELECT status,editorial_stage,ready_revision_id,content_version FROM posts WHERE id=?').get(readyId);
+  assert.equal(readyAfter.status, 'DRAFT');
+  assert.equal(readyAfter.editorial_stage, 'DRAFT');
+  assert.equal(readyAfter.ready_revision_id, null);
+  assert.equal(readyAfter.content_version, 2);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM content_revisions WHERE post_id=?').get(readyId).n, 2);
+
+  const seed100 = [
+    ...Array.from({ length: 20 }, (_, i) => rowValues({ externalId: `batch-upd-${i}`, body: `seed upd ${i}`, revision: 'rev-1' })),
+    ...Array.from({ length: 10 }, (_, i) => rowValues({ externalId: `batch-same-${i}`, body: `seed same ${i}`, revision: 'rev-1' })),
+    ...Array.from({ length: 5 }, (_, i) => rowValues({ externalId: `batch-conflict-${i}`, body: `seed conflict ${i}`, revision: 'rev-1' })),
+    ...Array.from({ length: 3 }, (_, i) => rowValues({ externalId: `batch-archive-${i}`, body: `seed archive ${i}`, revision: 'rev-1' }))
+  ];
+  const seed100Preview = await preview(csvRows(seed100), 'sheet-100');
+  assert.equal(seed100Preview.summary.newRows, 38);
+  applyContentPlanV3(seed100Preview, { actorSource: 'content_plan' });
+
+  for (let i = 0; i < 5; i += 1) {
+    const ref = JSON.stringify(['sheet-100', `batch-conflict-${i}`]);
+    const existing = db.prepare("SELECT id,content_version FROM posts WHERE source_type='content-plan-v3' AND source_ref=?").get(ref);
+    commitContentEdit(existing.id, existing.content_version, 'manual', () => {
+      db.prepare('UPDATE posts SET body=? WHERE id=?').run(`local conflict ${i}`, existing.id);
+    });
+  }
+
+  const final100Rows = [
+    ...Array.from({ length: 60 }, (_, i) => rowValues({ externalId: `batch-new-${i}`, body: `new ${i}`, revision: 'rev-1' })),
+    ...Array.from({ length: 20 }, (_, i) => rowValues({ externalId: `batch-upd-${i}`, body: `updated ${i}`, revision: 'rev-2' })),
+    ...Array.from({ length: 10 }, (_, i) => rowValues({ externalId: `batch-same-${i}`, body: `seed same ${i}`, revision: 'rev-1' })),
+    ...Array.from({ length: 5 }, (_, i) => rowValues({ externalId: `batch-conflict-${i}`, body: `sheet conflict ${i}`, revision: 'rev-2' })),
+    ...Array.from({ length: 3 }, (_, i) => rowValues({ externalId: `batch-archive-${i}`, action: 'ARCHIVE', revision: 'rev-2' })),
+    rowValues({ externalId: 'batch-error-project', project: 'missing-project', body: 'error', revision: 'rev-1' }),
+    rowValues({ externalId: 'batch-error-body', body: '', templateKey: '', revision: 'rev-1' })
+  ];
+  const acceptance100 = await preview(csvRows(final100Rows), 'sheet-100');
+  assert.equal(acceptance100.summary.totalRows, 100);
+  assert.equal(acceptance100.summary.newRows, 60);
+  assert.equal(acceptance100.summary.updateRows, 20);
+  assert.equal(acceptance100.summary.unchangedRows, 10);
+  assert.equal(acceptance100.summary.conflicts, 5);
+  assert.equal(acceptance100.summary.requests, 3);
+  assert.equal(acceptance100.summary.errors, 2);
+  assert.equal(acceptance100.canApply, false);
+  const acceptance100Repeat = await preview(csvRows(final100Rows), 'sheet-100');
+  assert.deepEqual(acceptance100Repeat.summary, acceptance100.summary);
+  assert.equal(
+    db.prepare("SELECT COUNT(*) AS n FROM posts WHERE source_type='content-plan-v3' AND source_ref LIKE ?").get('%sheet-100%').n,
+    38
+  );
 
   const archiveSeed = await preview(csv({ externalId: 'archive-1', body: 'Archive me', revision: 'rev-1' }), 'sheet-actions');
   const archiveCreate = applyContentPlanV3(archiveSeed, { actorSource: 'content_plan' });
@@ -187,8 +478,8 @@ try {
 
   console.log(JSON.stringify({
     ok: true,
-    checkpoint: 'M0-003',
-    schemaVersion: 8,
+    checkpoint: 'M0-003 / EW4-008',
+    schemaVersion: CURRENT_SCHEMA_VERSION,
     idempotent: true,
     sourcePayloadHash: true,
     sourceRevisionReuseRejected: true,
@@ -197,7 +488,17 @@ try {
     sourceScopedIdentity: true,
     ambiguousAccountRejected: true,
     platformOverrideFanout: true,
-    imageOnlyFoundation: true,
+    templateKey: true,
+    templateSnapshotIsolation: true,
+    templateExplicitOverride: true,
+    portableRichBody: true,
+    portableRichOverrides: true,
+    canonicalPublicationKinds: true,
+    canonicalContentFormats: true,
+    projectTargetFallback: true,
+    projectTimezoneFallback: true,
+    updateVersioning: true,
+    hundredRowAcceptance: true,
     previewApplyParity: true,
     v1Compatible: true,
     v2NotPublic: true

@@ -945,7 +945,7 @@ Reusable Blocks: **ACCEPTED / MERGED**. PR #108 merged in main `52d19dc8c2175b63
 
 ### EW4-007 — Calendar editing
 
-Calendar Editing Core: **IMPLEMENTED CANDIDATE** in Draft PR #109 / branch `ew4-007/calendar-editing`.
+Calendar Editing Core: **ACCEPTED / MERGED**. PR #109 plus the accepted CI-flake repair PR #110 are merged; current main includes the repaired canonical acceptance.
 
 - Month keeps the calendar grid and supports date drag while preserving displayed clock time;
 - Week / Day use hourly time slots with exact-slot create and drag/drop reschedule;
@@ -954,16 +954,20 @@ Calendar Editing Core: **IMPLEMENTED CANDIDATE** in Draft PR #109 / branch `ew4-
 - every calendar mutation carries the projected ContentVersion and refreshes on stale 409;
 - READY invalidation remains owned by canonical ContentVersion/ContentRevision behavior;
 - single click keeps Content Inspector behavior;
-- bulk operations = **NOT STARTED**.
+- bulk operations = **DEFERRED**.
 
 ### EW4-008 — XLSX/Google Sheets Template v3
 
-- downloadable XLSX;
-- Google Sheets template;
-- Lists/Instructions/Examples tabs;
-- portable rich text;
-- explicit action field;
-- sync preview/diff/conflict.
+Status: **IMPLEMENTED CANDIDATE** in branch `ew4-008/editorial-sheet-v3`.
+
+- existing CSV/XLSX/Google Sheets Preview → Apply pipeline remains the owner;
+- `template_key` resolves POST templates in the same Project and applies snapshot defaults only to NEW Posts;
+- portable rich text maps one neutral syntax to canonical rich AST for Base body and platform overrides;
+- canonical `publication_kind` and `content_format` enums are accepted as editable DRAFT data;
+- Project default targets and Project default timezone remain fallback semantics for Sheet-created Posts;
+- UPDATE continues through canonical ContentVersion/ContentRevision with READY invalidation and local conflict detection;
+- canonical XLSX v3 lists real POST template keys, full kind/format enums, portable-rich examples and field descriptions;
+- Google Sheets polling / auto-apply / auto-ready / scheduled publication / write-back reuse the same shared validation and apply contract.
 
 ### EW4-009 — Integration API editorial contract
 

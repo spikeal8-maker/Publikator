@@ -30,6 +30,19 @@ try {
   db.prepare("INSERT INTO social_accounts (id,platform,name,credentials_encrypted,enabled,created_at,updated_at) VALUES ('tg-template','telegram','Основной Telegram','test',1,?,?)").run(now, now);
   db.prepare("INSERT INTO social_accounts (id,platform,name,credentials_encrypted,enabled,created_at,updated_at) VALUES ('vk-template','vk','Школа VK','test',1,?,?)").run(now, now);
   const { createIngestionConnector } = await import('../dist/integration-security.js');
+  const { createTemplate } = await import('../dist/templates.js');
+  const project = db.prepare('SELECT id FROM projects ORDER BY created_at,id LIMIT 1').get();
+  const editorialTemplate = createTemplate({
+    key: 'sheet-template-v3',
+    name: 'Sheet Template v3',
+    projectId: project.id,
+    templateType: 'POST',
+    bodyRich: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Template', marks: [{ type: 'bold' }] }] }] },
+    publicationKind: 'FEED',
+    contentFormat: 'IMAGE',
+    scheduleMode: 'MANUAL',
+    targetAccountIds: ['tg-template','vk-template']
+  });
   createIngestionConnector({ type: 'google_drive', name: 'ASA Media', config: { rootFolderId: 'root-drive', rootFolderName: 'Drive Root' }, credentials: { test: 'drive' } });
   createIngestionConnector({ type: 'yandex_disk', name: 'Yandex Media', config: { rootPath: 'disk:/Publikator', rootFolderName: 'Yandex Root' }, credentials: { test: 'yandex' } });
 
@@ -54,14 +67,17 @@ try {
     assert.deepEqual(posts[0], [...CONTENT_PLAN_V3_RU_COLUMNS]);
 
     const lists = await sheetRows(workbook, 'Справочники');
-    assert.deepEqual(lists[0], ['Проект','Платформа','Подключение','Источник медиа','Тип источника','Тип публикации','Формат','Режим публикации','Действие']);
+    assert.deepEqual(lists[0], ['Проект','Шаблон','Платформа','Подключение','Источник медиа','Тип источника','Тип публикации','Формат','Режим публикации','Действие']);
     assert.ok(lists.some((row) => row.includes('Основной Telegram')));
     assert.ok(lists.some((row) => row.includes('Школа VK')));
     assert.ok(lists.some((row) => row.includes('ASA Media') && row.includes('Google Drive')));
     assert.ok(lists.some((row) => row.includes('Yandex Media') && row.includes('Яндекс Диск')));
+    assert.ok(lists.some((row) => row.includes(editorialTemplate.key)));
+    for (const value of ['FEED','SHORT','STORY']) assert.ok(lists.some((row) => row.includes(value)));
+    for (const value of ['TEXT_ONLY','IMAGE','CAROUSEL','VIDEO','VERTICAL_VIDEO','STORY_SEQUENCE']) assert.ok(lists.some((row) => row.includes(value)));
 
     const examples = await sheetRows(workbook, 'Примеры');
-    assert.equal(examples.length, 7);
+    assert.equal(examples.length, 8);
     assert.deepEqual(examples[0], [...CONTENT_PLAN_V3_RU_COLUMNS]);
     assert.equal(examples[1][5], 'Ручная публикация');
     assert.equal(examples[3][5], 'Изображение из Яндекс Диска');
@@ -83,6 +99,11 @@ try {
     assert.match(targetsGuide.join(' '), /telegram:Имя/);
     const mediaGuide = fieldGuide.find((row) => row[0] === 'Медиа');
     assert.match(mediaGuide.join(' '), /Источник\|путь/);
+    const templateGuide = fieldGuide.find((row) => row[0] === 'Шаблон');
+    assert.match(templateGuide.join(' '), /POST template/);
+    const bodyGuide = fieldGuide.find((row) => row[0] === 'Текст');
+    assert.match(bodyGuide.join(' '), /\*\*bold\*\*/);
+    assert.match(bodyGuide.join(' '), /\[link\]/);
     assert.equal(JSON.stringify([help, lists, examples, fieldGuide]).includes(String.fromCharCode(92) + 'u04'), false, 'template must contain readable Cyrillic');
     const smokePath = path.join(dataDir, 'template-human-smoke.xlsx');
     const smokeBook = await createWriteOnlyWorkbook(toFile(smokePath));
@@ -93,16 +114,24 @@ try {
     await smokeSheet.appendRow([...CONTENT_PLAN_V3_RU_COLUMNS]);
     await smokeSheet.appendRow(examples[1]);
     await smokeSheet.appendRow(examples[6]);
+    await smokeSheet.appendRow(examples[7]);
     await smokeSheet.close();
     await smokeBook.finalize();
     const smokeBuffer = await fs.readFile(smokePath);
     const smokeParsed = await parseContentPlanV3('template-human-smoke.xlsx', smokeBuffer);
     const smokeValidation = await validateContentPlanV3(smokeParsed, 'template-human-smoke');
     assert.equal(smokeValidation.canApply, true, JSON.stringify(smokeValidation));
-    assert.equal(smokeValidation.rows.length, 2);
+    assert.equal(smokeValidation.rows.length, 3);
     assert.equal(smokeValidation.rows[0].classification, 'NEW');
     assert.equal(smokeValidation.rows[1].classification, 'NEW');
+    assert.equal(smokeValidation.rows[2].classification, 'NEW');
     assert.deepEqual(smokeValidation.rows[1].normalized.targets.map((target) => target.accountId).sort(), ['tg-template','vk-template']);
+    assert.equal(smokeValidation.rows[2].normalized.templateKey, editorialTemplate.key);
+    assert.equal(smokeValidation.rows[2].normalized.publicationKind, 'STORY');
+    assert.equal(smokeValidation.rows[2].normalized.contentFormat, 'STORY_SEQUENCE');
+    assert.ok(JSON.stringify(JSON.parse(smokeValidation.rows[2].normalized.bodyRichJson)).includes('"type":"bold"'));
+    assert.ok(JSON.stringify(JSON.parse(smokeValidation.rows[2].normalized.bodyRichJson)).includes('"type":"link"'));
+    assert.ok(JSON.stringify(JSON.parse(smokeValidation.rows[2].normalized.bodyRichJson)).includes('"type":"blockquote"'));
 
     const machinePath = path.join(dataDir, 'template-machine-smoke.xlsx');
     const machineBook = await createWriteOnlyWorkbook(toFile(machinePath));

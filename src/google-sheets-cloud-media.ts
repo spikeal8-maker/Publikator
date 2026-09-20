@@ -412,8 +412,8 @@ function applyAtomicMediaPlan(plan: AtomicMediaPlan): void {
       file.mediaId, plan.postId, file.originalName, file.relativePath, 'image/jpeg', file.sizeBytes,
       file.width, file.height, file.sha256, createdAt, index
     ));
-    const format = plan.staged.length > 1 ? 'CAROUSEL' : 'IMAGE';
-    db.prepare("UPDATE posts SET publication_kind='FEED',content_format=? WHERE id=?").run(format, plan.postId);
+    // publication_kind/content_format are canonical source-row fields owned by content-plan-v3.
+    // Cloud media localization must not rewrite the editorial contract.
   });
 }
 
