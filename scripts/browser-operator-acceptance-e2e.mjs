@@ -1581,7 +1581,12 @@ try {
     .find((day) => day && day !== current), currentDayKey);
   assert.ok(targetDayKey && targetDayKey !== currentDayKey);
   const targetDayCell = page.locator(`.calendar-day-cell[data-calendar-day="${targetDayKey}"]`);
-  await editableCalendarCard.dragTo(targetDayCell);
+  const monthTransfer = await page.evaluateHandle(() => new DataTransfer());
+  await editableCalendarCard.dispatchEvent('dragstart', { dataTransfer: monthTransfer });
+  await targetDayCell.dispatchEvent('dragover', { dataTransfer: monthTransfer });
+  await targetDayCell.dispatchEvent('drop', { dataTransfer: monthTransfer });
+  await editableCalendarCard.dispatchEvent('dragend', { dataTransfer: monthTransfer }).catch(() => {});
+  await monthTransfer.dispose();
   await page.waitForFunction(({ id, day }) =>
     document.querySelector(`.calendar-day-cell[data-calendar-day="${day}"] [data-calendar-post="${id}"]`) !== null,
     { id: calendarCreated.id, day: targetDayKey }
