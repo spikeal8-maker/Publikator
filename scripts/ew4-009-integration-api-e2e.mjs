@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import sharp from 'sharp';
 
 const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'publikator-ew4-009-'));
 process.env.NODE_ENV = 'test';
@@ -65,6 +66,20 @@ const external = (method, url, token, payload, extraHeaders = {}) => app.inject(
   headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), ...extraHeaders },
   ...(payload === undefined ? {} : { payload })
 });
+const externalUpload = (method, url, token, filename, mimeType, buffer, extraHeaders = {}) => {
+  const boundary = '----publikator-integration-media';
+  const before = Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${mimeType}\r\n\r\n`);
+  const after = Buffer.from(`\r\n--${boundary}--\r\n`);
+  return app.inject({
+    method, url,
+    headers: {
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      'content-type': `multipart/form-data; boundary=${boundary}`,
+      ...extraHeaders
+    },
+    payload: Buffer.concat([before, buffer, after])
+  });
+};
 
 async function createKey(name, scopes) {
   const response = await admin('POST', '/api/integration-keys', { name, scopes });
@@ -77,7 +92,7 @@ try {
   assert.equal(anonymousKeys.statusCode, 401, anonymousKeys.body);
 
   const full = await createKey('EW4 full', [
-    'content:draft:write','content:read','schedule:write','approval:request'
+    'content:draft:write','content:read','media:write','schedule:write','approval:request'
   ]);
   assert.match(full.token, /^pk_[A-Za-z0-9_-]{40,}$/);
   assert.ok(full.key.prefix);
@@ -99,7 +114,7 @@ try {
   const draftOnly = await createKey('EW4 draft only', ['content:draft:write']);
   const readOnly = await createKey('EW4 read only', ['content:read']);
   const second = await createKey('EW4 second full', [
-    'content:draft:write','content:read','schedule:write','approval:request'
+    'content:draft:write','content:read','media:write','schedule:write','approval:request'
   ]);
 
   const unauth = await external('GET', '/api/integration/v1/drafts', null);
@@ -231,6 +246,55 @@ try {
   assert.equal(JSON.stringify(list.json()).includes('key_hash'), false);
   assert.equal(JSON.stringify(list.json()).includes(full.token), false);
 
+  const mediaDraft = await external('POST', '/api/integration/v1/drafts', full.token, {
+    project: project.slug,
+    externalId: 'api-media-001',
+    internalTitle: 'Media API',
+    body: 'Media body',
+    publicationKind: 'FEED',
+    contentFormat: 'IMAGE'
+  }, { 'idempotency-key': 'idem-media-001' });
+  assert.equal(mediaDraft.statusCode, 201, mediaDraft.body);
+  const mediaPostId = mediaDraft.json().post.id;
+  const png = await sharp({ create: { width: 4, height: 4, channels: 3, background: { r: 20, g: 40, b: 60 } } }).png().toBuffer();
+
+  const mediaScopeDenied = await externalUpload('POST', `/api/integration/v1/drafts/${mediaPostId}/media`, draftOnly.token,
+    'denied.png', 'image/png', png, { 'x-content-version': '1' });
+  assert.equal(mediaScopeDenied.statusCode, 403, mediaScopeDenied.body);
+  assert.equal(mediaScopeDenied.json().error.code, 'SCOPE_REQUIRED');
+  assert.equal(mediaScopeDenied.json().error.details.scope, 'media:write');
+
+  const uploaded = await externalUpload('POST', `/api/integration/v1/drafts/${mediaPostId}/media`, full.token,
+    'api-image.png', 'image/png', png, { 'x-content-version': '1' });
+  assert.equal(uploaded.statusCode, 201, uploaded.body);
+  assert.equal(uploaded.json().post.contentVersion, 2);
+  assert.equal(uploaded.json().post.media.length, 1);
+  assert.equal(uploaded.json().post.media[0].mimeType, 'image/jpeg');
+  const mediaId = uploaded.json().post.media[0].id;
+  assert.deepEqual(
+    db.prepare('SELECT content_version,actor_source FROM content_revisions WHERE post_id=? ORDER BY content_version').all(mediaPostId),
+    [
+      { content_version: 1, actor_source: 'integration_api' },
+      { content_version: 2, actor_source: 'integration_api' }
+    ]
+  );
+
+  const staleMedia = await externalUpload('POST', `/api/integration/v1/drafts/${mediaPostId}/media`, full.token,
+    'api-image.png', 'image/png', png, { 'x-content-version': '1' });
+  assert.equal(staleMedia.statusCode, 409, staleMedia.body);
+  assert.equal(staleMedia.json().error.code, 'CONTENT_VERSION_CONFLICT');
+
+  const deletedMedia = await external('DELETE', `/api/integration/v1/drafts/${mediaPostId}/media/${mediaId}`, full.token, undefined, {
+    'x-content-version': '2'
+  });
+  assert.equal(deletedMedia.statusCode, 200, deletedMedia.body);
+  assert.equal(deletedMedia.json().post.contentVersion, 3);
+  assert.equal(deletedMedia.json().post.media.length, 0);
+  assert.equal(
+    db.prepare('SELECT actor_source FROM content_revisions WHERE post_id=? AND content_version=3').get(mediaPostId).actor_source,
+    'integration_api'
+  );
+
   const read = await external('GET', `/api/integration/v1/drafts/${postId}`, full.token);
   assert.equal(read.statusCode, 200, read.body);
   assert.equal(read.json().id, postId);
@@ -298,6 +362,8 @@ try {
   assert.equal(openapi.json().openapi, '3.1.0');
   const openapiText = JSON.stringify(openapi.json());
   assert.ok(openapiText.includes('/drafts/{id}/request-review'));
+  assert.ok(openapiText.includes('/drafts/{id}/media'));
+  assert.ok(openapiText.includes('/drafts/{id}/video'));
   assert.equal(openapiText.includes('publish-now'), false);
   assert.equal(openapiText.includes('media/upload'), false);
 
@@ -328,6 +394,8 @@ try {
   assert.ok(auditRows.some((row) => row.event_type === 'api.draft_created'));
   assert.ok(auditRows.some((row) => row.event_type === 'api.draft_updated'));
   assert.ok(auditRows.some((row) => row.event_type === 'api.review_requested'));
+  assert.ok(auditRows.some((row) => row.event_type === 'api.media_uploaded'));
+  assert.ok(auditRows.some((row) => row.event_type === 'api.media_deleted'));
   const auditJson = JSON.stringify(auditRows);
   assert.equal(auditJson.includes(full.token), false);
   assert.equal(auditJson.includes('Authorization'), false);
@@ -358,6 +426,9 @@ try {
     KEY_REVOKE: 'PASS',
     BEARER_AUTH: 'PASS',
     SCOPE_ENFORCEMENT: 'PASS',
+    MEDIA_WRITE_SCOPE: 'PASS',
+    MEDIA_UPLOAD_VERSIONING: 'PASS',
+    MEDIA_DELETE_VERSIONING: 'PASS',
     RATE_LIMIT: 'PASS',
     DRAFT_CREATE: 'PASS',
     TEMPLATE_KEY: 'PASS',
