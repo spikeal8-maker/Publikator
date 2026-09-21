@@ -9,6 +9,9 @@ let operatorInitialRouted = false;
 let operatorSourceFile = null;
 let operatorSourcePreview = null;
 let operatorSourcePreviewId = '';
+let operatorBundleFile = null;
+let operatorBundlePreview = null;
+let operatorBundlePreviewId = '';
 
 async function operatorApi(url, options = {}) {
   const response = await fetch(url, {
@@ -235,6 +238,55 @@ async function applySourceFile() {
 }
 
 
+
+async function previewContentBundleFile() {
+  const sourceId=String(document.querySelector('#operator-bundle-source-id')?.value||'').trim();
+  const result=document.querySelector('#operator-bundle-result');
+  const apply=document.querySelector('#operator-bundle-apply');
+  if(!/^[A-Za-z0-9._:-]{1,128}$/.test(sourceId)){result.innerHTML='<div class="operator-result error">ID набора: 1–128 символов A-Z, a-z, 0-9, . _ : -</div>';return;}
+  if(!operatorBundleFile){result.innerHTML='<div class="operator-result error">Выберите ZIP bundle.</div>';return;}
+  operatorBundlePreview=null;operatorBundlePreviewId='';apply.disabled=true;
+  result.innerHTML='<div class="operator-result">Проверяю ZIP, таблицу и медиа без изменения базы…</div>';
+  try{
+    const data=new FormData();data.set('file',operatorBundleFile);
+    const preview=await operatorApi(`/api/content-bundle/v1/preview?sourceId=${encodeURIComponent(sourceId)}`,{method:'POST',body:data});
+    operatorBundlePreview=preview;operatorBundlePreviewId=sourceId;
+    localStorage.setItem('publikator.operator.bundleSourceId',sourceId);
+    result.innerHTML=`<div class="operator-result ${preview.canApply?'ok':'error'}"><strong>${preview.canApply?'Bundle готов к применению.':'Применение заблокировано.'}</strong> Preview не меняет canonical DB и не публикует наружу.</div>
+      <div class="operator-result">Контент: ${operatorEsc(preview.contentFile||'—')} · медиа: ${Number(preview.media?.length||0)} · SHA: <code>${operatorEsc(preview.bundleSha256||'')}</code></div>
+      ${sourceSummary(preview.summary)}${sourcePreviewRows(preview)}`;
+    apply.disabled=!preview.canApply;
+  }catch(error){
+    result.innerHTML=`<div class="operator-result error">${operatorEsc(error instanceof Error?error.message:String(error))}</div>`;
+  }
+}
+
+async function applyContentBundleFile() {
+  const sourceId=String(document.querySelector('#operator-bundle-source-id')?.value||'').trim();
+  const result=document.querySelector('#operator-bundle-result');
+  const apply=document.querySelector('#operator-bundle-apply');
+  if(!operatorBundleFile||!operatorBundlePreview?.canApply||operatorBundlePreviewId!==sourceId){
+    result.innerHTML='<div class="operator-result error">После изменения ZIP или ID набора выполните Preview заново.</div>';return;
+  }
+  if(!window.confirm('Применить проверенный ZIP Content Bundle? Новые/изменённые записи останутся внутри Publikator и не будут автоматически опубликованы.'))return;
+  apply.disabled=true;
+  result.innerHTML='<div class="operator-result">Применяю проверенный bundle…</div>';
+  try{
+    const data=new FormData();data.set('file',operatorBundleFile);
+    const applied=await operatorApi(`/api/content-bundle/v1/apply?sourceId=${encodeURIComponent(sourceId)}`,{
+      method:'POST',body:data,
+      headers:{'x-publikator-content-bundle':'IMPORT','x-content-bundle-sha256':operatorBundlePreview.bundleSha256}
+    });
+    result.innerHTML=`<div class="operator-result ok"><strong>Content Bundle применён.</strong> Создано: ${Number(applied.created||0)}, обновлено: ${Number(applied.updated||0)}, без изменений: ${Number(applied.unchanged||0)}, медиа: ${Number(applied.mediaFiles||0)}.</div>
+      <div class="row-actions" style="margin-top:10px"><button id="operator-open-content-after-bundle" class="primary" type="button">Открыть контент</button></div>`;
+    document.querySelector('#operator-open-content-after-bundle').onclick=()=>operatorGo('/content');
+    operatorBundlePreview=null;operatorBundlePreviewId='';
+  }catch(error){
+    apply.disabled=false;
+    result.innerHTML=`<div class="operator-result error">${operatorEsc(error instanceof Error?error.message:String(error))}</div>`;
+  }
+}
+
 const INTEGRATION_API_UI_SCOPES = [
   ['content:draft:write', 'Создание и редактирование DRAFT'],
   ['content:read', 'Чтение Integration API публикаций'],
@@ -380,6 +432,9 @@ async function renderSourcesPage() {
     operatorSourceFile = null;
     operatorSourcePreview = null;
     operatorSourcePreviewId = '';
+    operatorBundleFile = null;
+    operatorBundlePreview = null;
+    operatorBundlePreviewId = '';
     operatorView.innerHTML = `<div class="operator-page">
       <div class="operator-page-head"><div><h2>Источники / Интеграции</h2><p>Загружайте контент пачками из Excel/CSV или подключайте Google Sheets. Повторная версия одного набора обновляет строки вместо создания дублей.</p></div></div>
       <div class="operator-source-layout">
@@ -396,6 +451,13 @@ async function renderSourcesPage() {
           <div class="operator-connector-card" style="margin-top:10px"><strong>Google Drive / Яндекс Диск</strong><span>Поддерживаются как источники изображений для Google Sheets; файлы после импорта сохраняются локально в Publikator.</span></div>
         </aside>
       </div>
+      <section class="operator-section" id="operator-content-bundle" style="min-width:0">
+        <div class="operator-page-head"><div><h3>ZIP Content Bundle</h3><p>Один ZIP: <code>content.xlsx</code> или <code>content.csv</code> + <code>media/&lt;external_id&gt;__01.jpg/mp4</code>. Сначала Preview, затем Apply exact SHA.</p></div></div>
+        <div class="operator-form"><label class="full">Название набора<input id="operator-bundle-source-id" value="${operatorEsc(localStorage.getItem('publikator.operator.bundleSourceId') || 'content-bundle')}" pattern="[A-Za-z0-9._:-]{1,128}" required></label></div>
+        <label class="operator-drop"><input id="operator-bundle-file" type="file" accept=".zip,application/zip"><strong>Выбрать content-bundle.zip</strong><span id="operator-bundle-file-name">Файл не выбран</span></label>
+        <div class="operator-actions" style="margin-top:14px"><button id="operator-bundle-preview" class="primary" type="button" disabled>1. Проверить ZIP</button><button id="operator-bundle-apply" class="secondary" type="button" disabled>2. Импортировать bundle</button></div>
+        <div id="operator-bundle-result"></div>
+      </section>
       <section class="operator-section" id="operator-integration-api" style="min-width:0">
         <div class="operator-page-head"><div><h3>Integration API</h3><p>Создайте Bearer API key для бота или AI. Полный token показывается только один раз.</p></div><button id="operator-new-api-key" class="primary" type="button">+ Новый API-ключ</button></div>
         <div class="operator-preview-table"><table class="table"><thead><tr><th>Название</th><th>Prefix</th><th>Scopes</th><th>Создан</th><th>Последнее использование</th><th>Статус</th><th>Действия</th></tr></thead><tbody><tr><td colspan="7">Загрузка…</td></tr></tbody></table></div>
@@ -416,6 +478,22 @@ async function renderSourcesPage() {
     });
     preview.onclick = previewSourceFile;
     apply.onclick = applySourceFile;
+
+    const bundleFile=document.querySelector('#operator-bundle-file');
+    const bundlePreview=document.querySelector('#operator-bundle-preview');
+    const bundleApply=document.querySelector('#operator-bundle-apply');
+    const bundleSource=document.querySelector('#operator-bundle-source-id');
+    const invalidateBundle=()=>{operatorBundlePreview=null;operatorBundlePreviewId='';bundleApply.disabled=true;document.querySelector('#operator-bundle-result').innerHTML='';};
+    bundleSource.addEventListener('input',invalidateBundle);
+    bundleFile.addEventListener('change',()=>{
+      operatorBundleFile=bundleFile.files?.[0]||null;
+      invalidateBundle();
+      document.querySelector('#operator-bundle-file-name').textContent=operatorBundleFile?`${operatorBundleFile.name} · ${(operatorBundleFile.size/1024/1024).toFixed(1)} МБ`:'Файл не выбран';
+      bundlePreview.disabled=!operatorBundleFile;
+    });
+    bundlePreview.onclick=previewContentBundleFile;
+    bundleApply.onclick=applyContentBundleFile;
+
     document.querySelector('#operator-new-api-key').onclick = integrationKeyForm;
     await loadIntegrationApiKeys();
   } catch (error) {
