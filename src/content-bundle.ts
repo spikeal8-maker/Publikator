@@ -26,6 +26,16 @@ import { prepareVideoUpload, type PreparedVideoUpload } from './video-media.js';
 
 const SOURCE_TYPE='content-bundle';
 const MAX_IMAGE_DIMENSION=7680;
+const BUNDLE_LIMITS = {
+  ...DEFAULT_BUNDLE_LIMITS,
+  maxEntries: config.maxBundleMediaFiles + 8,
+  maxCompressedBytes: config.maxBundleUploadBytes,
+  maxExpandedBytes: config.maxBundleExpandedBytes,
+  maxEntryExpandedBytes: Math.min(
+    config.maxBundleExpandedBytes,
+    Math.max(config.maxVideoBytes, config.maxImageBytes, 20 * 1024 * 1024)
+  )
+};
 const EOCD_SIGNATURE=0x06054b50;
 const CENTRAL_SIGNATURE=0x02014b50;
 const LOCAL_SIGNATURE=0x04034b50;
@@ -167,7 +177,7 @@ function extractEntry(buffer:Buffer,entry:Omit<ZipEntry,'data'>):Buffer{
 
 function readZip(buffer:Buffer):ZipEntry[]{
   if(buffer.length<22)throw new Error('ZIP file is too small');
-  if(buffer.length>DEFAULT_BUNDLE_LIMITS.maxCompressedBytes)throw new Error('Bundle exceeds compressed-size limit');
+  if(buffer.length>config.maxBundleUploadBytes)throw new Error('Bundle exceeds configured upload-size limit');
   const eocd=findEocd(buffer);
   const disk=buffer.readUInt16LE(eocd+4);
   const centralDisk=buffer.readUInt16LE(eocd+6);
@@ -211,7 +221,7 @@ function readZip(buffer:Buffer):ZipEntry[]{
   const meta:BundleEntryMeta[]=entries.map((entry)=>({
     path:entry.path,kind:entry.kind,compressedSize:entry.compressedSize,expandedSize:entry.expandedSize
   }));
-  validateBundleEntries(meta);
+  validateBundleEntries(meta,BUNDLE_LIMITS);
   return entries.map((entry)=>({...entry,data:extractEntry(buffer,entry)}));
 }
 
@@ -301,8 +311,9 @@ async function buildBundle(buffer:Buffer,sourceIdRaw:string):Promise<InternalBun
   const mediaByExternalId=new Map<string,Array<BundleMediaPreview & {data:Buffer;originalName:string}>>();
   const mediaPreview:BundleMediaPreview[]=[];
   const orderKeys=new Set<string>();
-  for(const entry of files){
-    if(!entry.path.startsWith('media/'))continue;
+  const mediaFiles=files.filter((entry)=>entry.path.startsWith('media/'));
+  if(mediaFiles.length>config.maxBundleMediaFiles)throw new Error(`Bundle has more than ${config.maxBundleMediaFiles} media files`);
+  for(const entry of mediaFiles){
     const identity=mediaName(entry.path);
     if(!identity)throw new Error(`Bundle media filename must be media/<external_id>__NN.ext: ${entry.path}`);
     const mime=sniffMediaMime(entry.data);
