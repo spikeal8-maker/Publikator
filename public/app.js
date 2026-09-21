@@ -124,6 +124,7 @@ function syncPublicationCompositionFields(form){
   sync();
 }
 async function postEditor(postId,options={}){
+  window.dispatchEvent(new CustomEvent('publikator:post-editor-opening',{detail:{postId:postId||null}}));
   const post=postId?await api(`/api/posts/${postId}`):null;
   const prefill=!post&&options&&typeof options==='object'?options:{};
   const initialScheduleMode=post?.schedule_mode||prefill.scheduleMode||'MANUAL';
