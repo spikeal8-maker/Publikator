@@ -309,7 +309,9 @@ function sourceAction(values: unknown[][]): void {
     const row = values[index] ?? [];
     if (row.every((item) => String(item ?? '').trim() === '')) continue;
     const action = String(row[2] ?? '').trim().toUpperCase();
-    if (action !== 'UPSERT') throw new Error('Google Sheets sync currently accepts action=UPSERT only; row deletion never deletes a Publikator post');
+    if (!['UPSERT','ARCHIVE','TRASH_REQUEST'].includes(action)) {
+      throw new Error('Google Sheets action must be UPSERT, ARCHIVE or TRASH_REQUEST; row deletion never deletes a Publikator post');
+    }
   }
 }
 
@@ -320,6 +322,9 @@ function reclassifyForGoogleSheets(validation: V3Validation, connectorId: string
     const existing = db.prepare(`SELECT id,content_version,imported_content_version,source_revision,source_payload_hash,status
       FROM posts WHERE source_type='google_sheets' AND source_ref=?`).get(sourceRef(connectorId, row.externalId)) as any;
     if (!existing) {
+      if (row.action !== 'UPSERT') {
+        return { ...input, classification: 'ERROR' as V3Classification, errors: [`${row.action}: post for external_id does not exist`], normalized: null };
+      }
       row.classification = 'NEW';
       row.postId = null;
       row.importedContentVersion = null;
@@ -341,8 +346,13 @@ function reclassifyForGoogleSheets(validation: V3Validation, connectorId: string
       row.classification = 'CONFLICT';
       return { ...input, classification: 'CONFLICT' as V3Classification, normalized: row };
     }
-    row.classification = 'UPDATE';
-    return { ...input, classification: 'UPDATE' as V3Classification, normalized: row };
+    const classification: V3Classification = row.action === 'ARCHIVE'
+      ? 'ARCHIVE_REQUEST'
+      : row.action === 'TRASH_REQUEST'
+        ? 'TRASH_REQUEST'
+        : 'UPDATE';
+    row.classification = classification;
+    return { ...input, classification, normalized: row };
   });
   const count = (kind: V3Classification) => rows.filter((row) => row.classification === kind).length;
   const conflicts = count('CONFLICT');
@@ -356,7 +366,7 @@ function reclassifyForGoogleSheets(validation: V3Validation, connectorId: string
       updateRows: count('UPDATE'),
       unchangedRows: count('UNCHANGED'),
       conflicts,
-      requests: 0,
+      requests: count('ARCHIVE_REQUEST') + count('TRASH_REQUEST'),
       errors
     },
     rows
