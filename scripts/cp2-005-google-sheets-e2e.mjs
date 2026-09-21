@@ -80,7 +80,7 @@ try {
   }
 
   const row = (externalId, title, body, revision, options = {}) => [
-    '3', externalId, 'UPSERT', project.slug, options.templateKey ?? '', title, body,
+    '3', externalId, options.action ?? 'UPSERT', project.slug, options.templateKey ?? '', title, body,
     options.publicationKind ?? 'FEED', options.contentFormat ?? 'IMAGE', options.scheduleMode ?? 'MANUAL',
     options.scheduledAt ?? '', options.timezone ?? 'UTC', options.targets ?? '[]',
     options.telegramBody ?? '', options.vkBody ?? '', options.maxBody ?? '', options.instagramBody ?? '',
@@ -302,11 +302,38 @@ try {
   assert.equal(deletedRowPreview.statusCode, 400, deletedRowPreview.body);
   assert.equal(db.prepare("SELECT COUNT(*) AS count FROM posts WHERE source_type='google_sheets'").get().count, 3, 'removing a Sheet row must never delete a post');
 
-  const badAction = [header, [...row('sheet-003', 'Archive?', 'Body', 'rev-1').slice(0, 2), 'ARCHIVE', ...row('sheet-003', 'Archive?', 'Body', 'rev-1').slice(3)]];
-  sheetValues = badAction;
-  const archiveAttempt = await request('POST', `/api/google-sheets/connectors/${connector.id}/preview`, {});
-  assert.equal(archiveAttempt.statusCode, 400, archiveAttempt.body);
-  assert.match(archiveAttempt.json().error, /UPSERT only/i);
+  sheetValues = [
+    header,
+    row('sheet-001', '', '', 'rev-6', { action: 'ARCHIVE', scheduleMode: '', timezone: '' }),
+    row('sheet-002', '', '', 'rev-2', { action: 'TRASH_REQUEST', scheduleMode: '', timezone: '' })
+  ];
+  const lifecyclePreview = await request('POST', `/api/google-sheets/connectors/${connector.id}/preview`, {});
+  assert.equal(lifecyclePreview.statusCode, 200, lifecyclePreview.body);
+  assert.equal(lifecyclePreview.json().summary.requests, 2);
+  assert.deepEqual(lifecyclePreview.json().rows.map((item) => item.classification), ['ARCHIVE_REQUEST','TRASH_REQUEST']);
+  assert.equal(lifecyclePreview.json().canApply, true);
+
+  const lifecycleApply = await request('POST', `/api/google-sheets/connectors/${connector.id}/apply`, {
+    confirm: 'IMPORT',
+    previewSha: lifecyclePreview.json().sourceSnapshotSha256
+  });
+  assert.equal(lifecycleApply.statusCode, 200, lifecycleApply.body);
+  assert.equal(lifecycleApply.json().archived, 1);
+  assert.equal(lifecycleApply.json().trashed, 1);
+  assert.deepEqual(
+    db.prepare('SELECT editorial_stage,status FROM posts WHERE id=?').get(post.id),
+    { editorial_stage: 'ARCHIVED', status: 'DRAFT' }
+  );
+  const sheet2 = db.prepare("SELECT id,editorial_stage,status FROM posts WHERE source_type='google_sheets' AND source_ref=?")
+    .get(JSON.stringify([`gs:${connector.id}`, 'sheet-002']));
+  assert.deepEqual(
+    { editorial_stage: sheet2.editorial_stage, status: sheet2.status },
+    { editorial_stage: 'TRASHED', status: 'DRAFT' }
+  );
+
+  const lifecycleUnchanged = await request('POST', `/api/google-sheets/connectors/${connector.id}/preview`, {});
+  assert.equal(lifecycleUnchanged.statusCode, 200, lifecycleUnchanged.body);
+  assert.equal(lifecycleUnchanged.json().summary.unchangedRows, 2);
 
   assert.ok(metadataCalls >= 2);
   assert.ok(valuesCalls >= 6);
@@ -336,6 +363,9 @@ try {
     conflictKeepPublikator: true,
     conflictUseSheet: true,
     staleConflictSnapshotBlocked: true,
+    explicitArchiveRequest: true,
+    explicitTrashRequest: true,
+    rowDeletionStillNoDelete: true,
     writeBackPreserved: true
   }, null, 2));
 } finally {
