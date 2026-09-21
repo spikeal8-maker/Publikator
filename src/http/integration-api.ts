@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { config } from '../config.js';
 import { db, event } from '../db.js';
 import {
   authenticateIntegrationApiKey,
@@ -26,7 +27,9 @@ import {
   commitContentEdit
 } from '../content-versioning.js';
 import { requestReviewPost } from '../editorial-lifecycle.js';
+import { deleteMediaVersioned, listMedia, saveImageVersioned, saveVideoVersioned } from '../media.js';
 import { parseRichTextJson } from '../rich-text.js';
+import { VideoSizeLimitError } from '../video-media.js';
 
 const SOURCE_TYPE = 'integration-api';
 const BODY_LIMIT = 256 * 1024;
@@ -34,6 +37,7 @@ const IDEMPOTENCY_KEY = /^[A-Za-z0-9._:-]{1,128}$/;
 const UI_SCOPES = new Set<IntegrationScope>([
   'content:draft:write',
   'content:read',
+  'media:write',
   'schedule:write',
   'approval:request'
 ]);
@@ -142,6 +146,21 @@ function integrationDto(postId: string): any | undefined {
     publicationKind: row.publication_kind,
     contentFormat: row.content_format,
     targets: integrationTargets(postId),
+    media: listMedia(postId).map((media) => ({
+      id: media.id,
+      originalName: media.original_name,
+      mimeType: media.mime_type,
+      sizeBytes: media.size_bytes,
+      width: media.width,
+      height: media.height,
+      sortOrder: media.sort_order,
+      durationMs: media.duration_ms ?? null,
+      fps: media.fps ?? null,
+      videoCodec: media.video_codec ?? null,
+      audioCodec: media.audio_codec ?? null,
+      container: media.container ?? null,
+      posterAssetId: media.poster_asset_id ?? null
+    })),
     schedule: { mode: row.schedule_mode, at: row.scheduled_at_utc ?? null, timezone: row.schedule_timezone ?? null },
     editorialStage: row.editorial_stage,
     publicationStatus: row.status,
@@ -213,6 +232,15 @@ function openApiDocument(): Record<string, unknown> {
       '/drafts/{id}': {
         get: { summary: 'Read one Integration API post' },
         patch: { summary: 'Update editable DRAFT using expectedContentVersion' }
+      },
+      '/drafts/{id}/media': {
+        post: { summary: 'Upload image media using media:write and X-Content-Version' }
+      },
+      '/drafts/{id}/video': {
+        post: { summary: 'Upload canonical MP4/H.264 video using media:write and X-Content-Version' }
+      },
+      '/drafts/{id}/media/{mediaId}': {
+        delete: { summary: 'Delete media using media:write and X-Content-Version' }
       },
       '/drafts/{id}/request-review': { post: { summary: 'Move editable DRAFT to IN_REVIEW' } }
     }
@@ -335,6 +363,95 @@ export async function registerIntegrationApiRoutes(app: FastifyInstance): Promis
       });
       return { post: integrationDto(params.id) };
     } catch (error) { return mutationError(reply, error); }
+  });
+
+  app.post('/api/integration/v1/drafts/:id/media', async (request, reply) => {
+    const key = authenticate(request, reply, 'media:write');
+    if (!key) return reply;
+    const params = request.params as { id: string };
+    const current = integrationRow(params.id);
+    if (!current) return sendError(reply, 404, 'NOT_FOUND', 'Draft not found');
+    if (IMMUTABLE.has(current.status)) return sendError(reply, 409, 'IMMUTABLE_POST', 'Post is immutable after publication begins');
+    const expected = Number(request.headers['x-content-version']);
+    if (!Number.isInteger(expected) || expected < 1) return sendError(reply, 400, 'VALIDATION_ERROR', 'X-Content-Version header is required');
+    let part;
+    try {
+      part = await request.file({ limits: { fileSize: config.maxImageBytes, files: 1 } });
+    } catch (error) {
+      return sendError(reply, 413, 'MEDIA_TOO_LARGE', error instanceof Error ? error.message : String(error));
+    }
+    if (!part) return sendError(reply, 400, 'VALIDATION_ERROR', 'Image file is required');
+    if (!part.mimetype.startsWith('image/')) {
+      part.file.resume();
+      return sendError(reply, 400, 'UNSUPPORTED_MEDIA', 'Image endpoint accepts image/* only');
+    }
+    try {
+      const buffer = await part.toBuffer();
+      const saved = await saveImageVersioned(params.id, part.filename, buffer, expected, 'integration_api');
+      event({
+        postId: params.id, type: 'api.media_uploaded', message: 'Integration API image uploaded',
+        data: { apiKeyId: key.id, prefix: key.prefix, mediaId: saved.media.id, contentVersion: saved.contentVersion }
+      });
+      return reply.code(201).send({ media: saved.media, post: integrationDto(params.id) });
+    } catch (error) {
+      return mutationError(reply, error);
+    }
+  });
+
+  app.post('/api/integration/v1/drafts/:id/video', async (request, reply) => {
+    const key = authenticate(request, reply, 'media:write');
+    if (!key) return reply;
+    const params = request.params as { id: string };
+    const current = integrationRow(params.id);
+    if (!current) return sendError(reply, 404, 'NOT_FOUND', 'Draft not found');
+    if (IMMUTABLE.has(current.status)) return sendError(reply, 409, 'IMMUTABLE_POST', 'Post is immutable after publication begins');
+    const expected = Number(request.headers['x-content-version']);
+    if (!Number.isInteger(expected) || expected < 1) return sendError(reply, 400, 'VALIDATION_ERROR', 'X-Content-Version header is required');
+    let part;
+    try {
+      part = await request.file({ limits: { fileSize: config.maxVideoBytes, files: 1 } });
+    } catch (error) {
+      return sendError(reply, 413, 'MEDIA_TOO_LARGE', error instanceof Error ? error.message : String(error));
+    }
+    if (!part) return sendError(reply, 400, 'VALIDATION_ERROR', 'Video file is required');
+    if (part.mimetype !== 'video/mp4') {
+      part.file.resume();
+      return sendError(reply, 400, 'UNSUPPORTED_MEDIA', 'Video v1 accepts MIME video/mp4 only');
+    }
+    try {
+      const saved = await saveVideoVersioned(params.id, part.filename, part.file, expected, 'integration_api');
+      event({
+        postId: params.id, type: 'api.media_uploaded', message: 'Integration API video uploaded',
+        data: { apiKeyId: key.id, prefix: key.prefix, mediaId: saved.media.id, contentVersion: saved.contentVersion }
+      });
+      return reply.code(201).send({ media: saved.media, poster: saved.poster, post: integrationDto(params.id) });
+    } catch (error) {
+      if (error instanceof VideoSizeLimitError) return sendError(reply, 413, 'MEDIA_TOO_LARGE', error.message);
+      return mutationError(reply, error);
+    }
+  });
+
+  app.delete('/api/integration/v1/drafts/:id/media/:mediaId', async (request, reply) => {
+    const key = authenticate(request, reply, 'media:write');
+    if (!key) return reply;
+    const params = request.params as { id: string; mediaId: string };
+    const current = integrationRow(params.id);
+    if (!current) return sendError(reply, 404, 'NOT_FOUND', 'Draft not found');
+    if (IMMUTABLE.has(current.status)) return sendError(reply, 409, 'IMMUTABLE_POST', 'Post is immutable after publication begins');
+    const expected = Number(request.headers['x-content-version']);
+    if (!Number.isInteger(expected) || expected < 1) return sendError(reply, 400, 'VALIDATION_ERROR', 'X-Content-Version header is required');
+    const media = db.prepare('SELECT id FROM media WHERE id=? AND post_id=?').get(params.mediaId, params.id);
+    if (!media) return sendError(reply, 404, 'NOT_FOUND', 'Media not found');
+    try {
+      const deleted = await deleteMediaVersioned(params.mediaId, expected, 'integration_api');
+      event({
+        postId: params.id, type: 'api.media_deleted', message: 'Integration API media deleted',
+        data: { apiKeyId: key.id, prefix: key.prefix, mediaId: params.mediaId, contentVersion: deleted.contentVersion }
+      });
+      return { post: integrationDto(params.id) };
+    } catch (error) {
+      return mutationError(reply, error);
+    }
   });
 
   app.post('/api/integration/v1/drafts/:id/request-review', { bodyLimit: BODY_LIMIT }, async (request, reply) => {
