@@ -123,62 +123,6 @@ function syncPublicationCompositionFields(form){
   kind.addEventListener('change',sync);
   sync();
 }
-function editorPrimaryMedia(media){
-  const posterIds=new Set((media||[]).map(function(item){return item.poster_asset_id;}).filter(Boolean));
-  return (media||[]).filter(function(item){return !posterIds.has(item.id);});
-}
-function editorMediaHtml(media){
-  const visible=editorPrimaryMedia(media);
-  if(!visible.length)return '<span class="muted">Медиа пока нет</span>';
-  return visible.map(function(item,index){
-    const isVideo=String(item.mime_type||'').startsWith('video/');
-    const poster=(media||[]).find(function(candidate){return candidate.id===item.poster_asset_id;});
-    const preview=isVideo
-      ? '<video controls preload="metadata" '+(poster?'poster="/public-media/'+esc(poster.relative_path)+'"':'')+'><source src="/public-media/'+esc(item.relative_path)+'" type="'+esc(item.mime_type)+'"></video>'
-      : '<img src="/public-media/'+esc(item.relative_path)+'" alt="">';
-    return '<span class="media-editor-item" data-media-editor-id="'+esc(item.id)+'">'+preview+
-      '<span class="small">'+esc(item.original_name||item.mime_type||'media')+'</span>'+
-      '<div class="row-actions">'+
-      '<button type="button" class="secondary media-move" data-id="'+esc(item.id)+'" data-direction="-1" '+(index===0?'disabled':'')+'>↑</button>'+
-      '<button type="button" class="secondary media-move" data-id="'+esc(item.id)+'" data-direction="1" '+(index===visible.length-1?'disabled':'')+'>↓</button>'+
-      '<button type="button" class="secondary danger delete-media" data-id="'+esc(item.id)+'">Удалить</button>'+
-      '</div></span>';
-  }).join('');
-}
-function mediaIdsAfterMove(media,mediaId,direction){
-  const visible=editorPrimaryMedia(media);
-  const index=visible.findIndex(function(item){return item.id===mediaId;});
-  const target=index+Number(direction);
-  if(index<0||target<0||target>=visible.length)return (media||[]).map(function(item){return item.id;});
-  const moved=[...visible];
-  const tmp=moved[index];moved[index]=moved[target];moved[target]=tmp;
-  const byPoster=new Map((media||[]).filter(function(item){return item.poster_asset_id;}).map(function(item){return [item.poster_asset_id,item];}));
-  const result=[];
-  for(const item of moved){
-    result.push(item.id);
-    if(item.poster_asset_id)result.push(item.poster_asset_id);
-  }
-  for(const item of (media||[])){
-    if(!result.includes(item.id))result.push(item.id);
-  }
-  return result;
-}
-function targetEditorCards(accounts,post,selectedAccountIds){
-  const byAccount=new Map((post?.targets||[]).map(function(target){return [target.account_id,target];}));
-  if(!accounts.length)return '<span class="muted">Сначала подключите соцсеть</span>';
-  return accounts.map(function(account){
-    const target=byAccount.get(account.id);
-    const selected=selectedAccountIds.has(account.id);
-    const custom=Boolean(target?.textRich);
-    return '<div class="card target-editor-card" data-target-editor-card="'+esc(account.id)+'">'+
-      '<label class="target-check"><input type="checkbox" name="accountId" value="'+esc(account.id)+'" '+(selected?'checked':'')+' '+(account.enabled?'':'disabled')+'> '+
-      esc(platformLabel(account.platform))+' · '+esc(account.name)+(account.enabled?'':' · отключено')+'</label>'+
-      '<label class="target-check"><input type="checkbox" class="target-override-toggle" data-account-id="'+esc(account.id)+'" '+(custom?'checked':'')+' '+(selected&&account.enabled?'':'disabled')+'> Свой текст для этой площадки</label>'+
-      '<div class="target-override-editor '+(custom?'':'hidden')+'" data-target-override-wrap="'+esc(account.id)+'"><div data-target-rich-editor="'+esc(account.id)+'"></div></div>'+
-      '</div>';
-  }).join('');
-}
-
 async function postEditor(postId,options={}){
   const post=postId?await api(`/api/posts/${postId}`):null;
   const prefill=!post&&options&&typeof options==='object'?options:{};
@@ -193,8 +137,7 @@ async function postEditor(postId,options={}){
   const selectedAccountIds=new Set((post?.targets||[]).filter((target)=>Boolean(target.enabled)).map((target)=>target.account_id));
   const initialTargetAccountIds=[...selectedAccountIds];
   const initialRichDocument=post?.bodyRich || plainTextToRichDocument(post?.body || '');
-  const initialTargetOverrides=new Map((post?.targets||[]).filter((target)=>Boolean(target.textRich)).map((target)=>[target.account_id,JSON.stringify(target.textRich)]));
-  const m=modal(`<h2>${post?'Публикация':'Новая публикация'}</h2><form id="post-form" class="form-grid ui-post-form" data-content-version="${post?.content_version||''}">${editorSectionHtml('Основное','Проект, режим публикации, заголовок и текст.','1')}<label>Проект<select name="projectId">${projects.map(p=>`<option value="${p.id}" ${post?.project_id===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label><label>Когда публиковать<select name="scheduleMode"><option value="MANUAL" ${initialScheduleMode==='MANUAL'?'selected':''}>${esc(scheduleModeLabel('MANUAL'))}</option><option value="QUEUE" ${initialScheduleMode==='QUEUE'?'selected':''}>${esc(scheduleModeLabel('QUEUE'))}</option><option value="AT" ${initialScheduleMode==='AT'?'selected':''}>${esc(scheduleModeLabel('AT'))}</option></select></label><label>Тип публикации<select name="publicationKind">${publicationKindOptions(post?.publication_kind||prefill.publicationKind||'FEED')}</select></label><label>Формат<select name="contentFormat">${contentFormatOptions(post?.content_format||prefill.contentFormat||'IMAGE')}</select></label><label class="full">Заголовок<input name="title" value="${esc(post?.title||'')}" required></label><div class="full rich-text-field"><span class="rich-text-label">Текст</span><div data-rich-text-editor></div><textarea name="body" class="rich-text-plain-fallback" hidden aria-hidden="true"></textarea></div>${reusableBlockPickerHtml()}${editorSectionHtml('Внутренние данные','Эти поля нужны редакции и никогда не отправляются в соцсети.','2')}<label>Кампания<input name="campaign" value="${esc(post?.campaign||'')}" placeholder="Например: Осень 2026"></label><label>Теги<input name="tags" value="${esc((post?.tags||[]).join(', '))}" placeholder="школа, робототехника, сентябрь"></label><label class="full">Редакторская заметка<textarea name="editorNote" rows="2" placeholder="Что проверить перед публикацией">${esc(post?.editor_note||'')}</textarea></label><label class="full">Заметка источника<textarea name="sourceNote" rows="2" placeholder="Откуда материал / контекст">${esc(post?.source_note||'')}</textarea></label><label class="full${initialScheduleMode==='AT'?'':' hidden'}" data-scheduled-field>Дата и время публикации<input name="scheduledAt" type="datetime-local" value="${esc(initialScheduledLocal)}"></label>${post?editorSectionHtml('Медиа','Добавьте изображения или видео и проверьте порядок файлов.','2'):editorSectionHtml('После сохранения','Сначала сохраните черновик — затем появятся загрузка медиа и выбор площадок.','2')}<div class="full"><strong>Медиа</strong><div class="media-list">${editorMediaHtml(post?.media||[])}</div>${post?'<div class="row-actions" style="margin-top:8px"><label class="secondary" style="display:inline-flex;align-items:center;gap:6px">+ Изображение<input id="media-file" type="file" accept="image/*" hidden></label><label class="secondary" style="display:inline-flex;align-items:center;gap:6px">+ MP4<input id="video-file" type="file" accept="video/mp4" hidden></label></div>':'<div class="muted small">Сохраните черновик. После этого можно загрузить изображения или MP4 и выбрать площадки.</div>'}</div>${post?`${editorSectionHtml('Площадки','Выберите подключения, куда должна уйти публикация.','3')}<div class="full"><strong>Куда публиковать</strong><div class="target-picker">${targetEditorCards(accounts,post,selectedAccountIds)}</div></div>`:''}<div class="full row-actions"><button class="primary" type="submit">Сохранить</button>${post?'<button type="button" id="mark-ready" class="secondary">Готов к публикации</button><button type="button" id="publish-now" class="secondary">Опубликовать сейчас</button>':''}<button type="button" id="close-modal" class="secondary">Закрыть</button></div></form><div id="post-error" class="error"></div>${post?targetsHtml(post.targets):''}`);
+  const m=modal(`<h2>${post?'Публикация':'Новая публикация'}</h2><form id="post-form" class="form-grid ui-post-form" data-content-version="${post?.content_version||''}">${editorSectionHtml('Основное','Проект, режим публикации, заголовок и текст.','1')}<label>Проект<select name="projectId">${projects.map(p=>`<option value="${p.id}" ${post?.project_id===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label><label>Когда публиковать<select name="scheduleMode"><option value="MANUAL" ${initialScheduleMode==='MANUAL'?'selected':''}>${esc(scheduleModeLabel('MANUAL'))}</option><option value="QUEUE" ${initialScheduleMode==='QUEUE'?'selected':''}>${esc(scheduleModeLabel('QUEUE'))}</option><option value="AT" ${initialScheduleMode==='AT'?'selected':''}>${esc(scheduleModeLabel('AT'))}</option></select></label><label>Тип публикации<select name="publicationKind">${publicationKindOptions(post?.publication_kind||prefill.publicationKind||'FEED')}</select></label><label>Формат<select name="contentFormat">${contentFormatOptions(post?.content_format||prefill.contentFormat||'IMAGE')}</select></label><label class="full">Заголовок<input name="title" value="${esc(post?.title||'')}" required></label><div class="full rich-text-field"><span class="rich-text-label">Текст</span><div data-rich-text-editor></div><textarea name="body" class="rich-text-plain-fallback" hidden aria-hidden="true"></textarea></div>${reusableBlockPickerHtml()}${editorSectionHtml('Внутренние данные','Эти поля нужны редакции и никогда не отправляются в соцсети.','2')}<label>Кампания<input name="campaign" value="${esc(post?.campaign||'')}" placeholder="Например: Осень 2026"></label><label>Теги<input name="tags" value="${esc((post?.tags||[]).join(', '))}" placeholder="школа, робототехника, сентябрь"></label><label class="full">Редакторская заметка<textarea name="editorNote" rows="2" placeholder="Что проверить перед публикацией">${esc(post?.editor_note||'')}</textarea></label><label class="full">Заметка источника<textarea name="sourceNote" rows="2" placeholder="Откуда материал / контекст">${esc(post?.source_note||'')}</textarea></label><label class="full${initialScheduleMode==='AT'?'':' hidden'}" data-scheduled-field>Дата и время публикации<input name="scheduledAt" type="datetime-local" value="${esc(initialScheduledLocal)}"></label>${post?editorSectionHtml('Медиа','Добавьте изображения или видео и проверьте порядок файлов.','2'):editorSectionHtml('После сохранения','Сначала сохраните черновик — затем появятся загрузка медиа и выбор площадок.','2')}<div class="full"><strong>Медиа</strong><div class="media-list">${(post?.media||[]).map(x=>`<span><img src="/public-media/${x.relative_path}"><button type="button" class="secondary danger delete-media" data-id="${x.id}">Удалить</button></span>`).join('')}</div>${post?'<input id="media-file" type="file" accept="image/*">':'<div class="muted small">Сохраните черновик. После этого можно загрузить медиа и выбрать площадки.</div>'}}</div>${post?`${editorSectionHtml('Площадки','Выберите подключения, куда должна уйти публикация.','3')}<div class="full"><strong>Куда публиковать</strong><div class="target-picker">${accounts.map(a=>`<label class="target-check"><input type="checkbox" name="accountId" value="${a.id}" ${selectedAccountIds.has(a.id)?'checked':''} ${a.enabled?'':'disabled'}> ${esc(platformLabel(a.platform))} · ${esc(a.name)}${a.enabled?'':' · отключено'}</label>`).join('')||'<span class="muted">Сначала подключите соцсеть</span>'}</div></div>`:''}<div class="full row-actions"><button class="primary" type="submit">Сохранить</button>${post?'<button type="button" id="mark-ready" class="secondary">Готов к публикации</button><button type="button" id="publish-now" class="secondary">Опубликовать сейчас</button>':''}<button type="button" id="close-modal" class="secondary">Закрыть</button></div></form><div id="post-error" class="error"></div>${post?targetsHtml(post.targets):''}`);
   m.querySelector('#close-modal').onclick=()=>m.remove();
   const form=m.querySelector('#post-form');
   form.dataset.exactScheduledAt=initialExactScheduledAt;
@@ -208,28 +151,6 @@ async function postEditor(postId,options={}){
       bodyFallback.dispatchEvent(new Event('input',{bubbles:true}));
     }
   });
-  const targetEditors=new Map();
-  if(post){
-    const targetByAccount=new Map((post.targets||[]).map((target)=>[target.account_id,target]));
-    for(const account of accounts){
-      const host=form.querySelector('[data-target-rich-editor="'+CSS.escape(account.id)+'"]');
-      const toggle=form.querySelector('.target-override-toggle[data-account-id="'+CSS.escape(account.id)+'"]');
-      const checkbox=form.querySelector('input[name="accountId"][value="'+CSS.escape(account.id)+'"]');
-      const wrap=form.querySelector('[data-target-override-wrap="'+CSS.escape(account.id)+'"]');
-      if(!host||!toggle||!checkbox||!wrap)continue;
-      const existing=targetByAccount.get(account.id);
-      const editor=mountRichTextEditor(host,{document:existing?.textRich||initialRichDocument});
-      targetEditors.set(account.id,editor);
-      const sync=()=>{
-        const selected=checkbox.checked&&!checkbox.disabled;
-        toggle.disabled=!selected;
-        wrap.classList.toggle('hidden',!selected||!toggle.checked);
-      };
-      checkbox.addEventListener('change',sync);
-      toggle.addEventListener('change',sync);
-      sync();
-    }
-  }
   const projectSelect=form.querySelector('select[name="projectId"]');
   const blockPicker=form.querySelector('#reusable-block-picker');
   const refreshReusableBlocks=()=>renderReusableBlockSelect(form,reusableBlocks);
@@ -266,16 +187,8 @@ async function postEditor(postId,options={}){
       setEditorVersion(form,patched.contentVersion);
       post.content_version=patched.contentVersion;
       const accountIds=[...form.querySelectorAll('input[name="accountId"]:checked')].map(x=>x.value);
-      const overrides={};
-      for(const accountId of accountIds){
-        const toggle=form.querySelector('.target-override-toggle[data-account-id="'+CSS.escape(accountId)+'"]');
-        if(toggle?.checked&&targetEditors.has(accountId))overrides[accountId]=targetEditors.get(accountId).getDocument();
-      }
-      const initialOverrideEntries=[...initialTargetOverrides.entries()].filter(([accountId])=>initialTargetAccountIds.includes(accountId)).sort(([a],[b])=>a.localeCompare(b));
-      const nextOverrideEntries=Object.entries(overrides).map(([accountId,document])=>[accountId,JSON.stringify(document)]).sort(([a],[b])=>a.localeCompare(b));
-      const overridesChanged=JSON.stringify(initialOverrideEntries)!==JSON.stringify(nextOverrideEntries);
-      if(!sameStringSet(accountIds,initialTargetAccountIds)||overridesChanged){
-        const targeted=await api(`/api/posts/${post.id}/targets`,{method:'PUT',body:JSON.stringify({accountIds,overrides,expectedContentVersion:editorVersion(form)})});
+      if(!sameStringSet(accountIds,initialTargetAccountIds)){
+        const targeted=await api(`/api/posts/${post.id}/targets`,{method:'PUT',body:JSON.stringify({accountIds,expectedContentVersion:editorVersion(form)})});
         setEditorVersion(form,targeted.contentVersion);
         post.content_version=targeted.contentVersion;
       }
@@ -286,9 +199,7 @@ async function postEditor(postId,options={}){
   };
   form.onsubmit=async e=>{e.preventDefault();try{const savedId=await saveDraft();m.remove();if(typeof options.afterSave==='function')await options.afterSave(savedId);else await posts();}catch(err){m.querySelector('#post-error').textContent=err.message;}};
   if(post){
-    m.querySelector('#media-file').onchange=async e=>{try{const file=e.target.files[0];if(!file)return;await saveDraft();const data=new FormData();data.set('file',file);const uploaded=await api(`/api/posts/${post.id}/media`,{method:'POST',body:data,headers:{'x-content-version':String(editorVersion(form))}});setEditorVersion(form,uploaded.contentVersion);post.content_version=uploaded.contentVersion;m.remove();await postEditor(post.id);}catch(err){m.querySelector('#post-error').textContent=err.message;}};
-    m.querySelector('#video-file').onchange=async e=>{try{const file=e.target.files[0];if(!file)return;await saveDraft();const data=new FormData();data.set('file',file);const uploaded=await api(`/api/posts/${post.id}/video`,{method:'POST',body:data,headers:{'x-content-version':String(editorVersion(form))}});setEditorVersion(form,uploaded.contentVersion);post.content_version=uploaded.contentVersion;m.remove();await postEditor(post.id);}catch(err){m.querySelector('#post-error').textContent=err.message;}};
-    m.querySelectorAll('.media-move').forEach(b=>b.onclick=async()=>{try{const mediaIds=mediaIdsAfterMove(post.media||[],b.dataset.id,Number(b.dataset.direction));const reordered=await api(`/api/posts/${post.id}/media-order`,{method:'PUT',body:JSON.stringify({mediaIds,expectedContentVersion:editorVersion(form)})});setEditorVersion(form,reordered.contentVersion);post.content_version=reordered.contentVersion;m.remove();await postEditor(post.id);}catch(err){m.querySelector('#post-error').textContent=err.message;}});
+    m.querySelector('#media-file').onchange=async e=>{try{const file=e.target.files[0];if(!file)return;const data=new FormData();data.set('file',file);const uploaded=await api(`/api/posts/${post.id}/media`,{method:'POST',body:data,headers:{'x-content-version':String(editorVersion(form))}});setEditorVersion(form,uploaded.contentVersion);post.content_version=uploaded.contentVersion;m.remove();await postEditor(post.id);}catch(err){m.querySelector('#post-error').textContent=err.message;}};
     m.querySelector('#mark-ready').onclick=async()=>{try{await saveDraft();const ready=await api(`/api/posts/${post.id}/ready`,{method:'POST',body:JSON.stringify({expectedContentVersion:editorVersion(form)})});setEditorVersion(form,ready.contentVersion);post.content_version=ready.contentVersion;m.remove();await posts();}catch(err){m.querySelector('#post-error').textContent=err.message;}};
     m.querySelector('#publish-now').onclick=async()=>{try{m.querySelector('#post-error').textContent='Публикация…';await saveDraft();const ready=await api(`/api/posts/${post.id}/ready`,{method:'POST',body:JSON.stringify({expectedContentVersion:editorVersion(form)})});setEditorVersion(form,ready.contentVersion);post.content_version=ready.contentVersion;await api(`/api/posts/${post.id}/publish-now`,{method:'POST'});m.remove();await posts();}catch(err){m.querySelector('#post-error').textContent=err.message;}};
     m.querySelectorAll('.delete-media').forEach(b=>b.onclick=async()=>{try{const deleted=await api(`/api/media/${b.dataset.id}`,{method:'DELETE',headers:{'x-content-version':String(editorVersion(form))}});setEditorVersion(form,deleted.contentVersion);post.content_version=deleted.contentVersion;m.remove();await postEditor(post.id);}catch(err){m.querySelector('#post-error').textContent=err.message;}});
