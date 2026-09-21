@@ -143,7 +143,9 @@ function sourceAction(values: unknown[][]): void {
     const row = values[index] ?? [];
     if (row.every((item) => String(item ?? '').trim() === '')) continue;
     const action = String(row[2] ?? '').trim().toUpperCase();
-    if (action !== 'UPSERT') throw new Error('Google Sheets sync currently accepts action=UPSERT only; row deletion never deletes a Publikator post');
+    if (!['UPSERT','ARCHIVE','TRASH_REQUEST'].includes(action)) {
+      throw new Error('Google Sheets action must be UPSERT, ARCHIVE or TRASH_REQUEST; row deletion never deletes a Publikator post');
+    }
   }
 }
 
@@ -207,11 +209,17 @@ async function previewFromValues(connectorId: string, configValue: SheetConfig, 
     const normalized: any = { ...input.normalized };
     let mediaPreview: { managed: boolean; items: MediaPreviewItem[] } = { managed: false, items: [] };
     try {
-      const resolved = await resolveCloudMediaCell(rawMediaCell(values, input.rowNumber));
-      mediaPreview = { managed: resolved.managed, items: resolved.resolved.map(mediaManifestItem) };
-      if (resolved.managed) {
-        manifest.push({ rowNumber: input.rowNumber, items: mediaPreview.items });
-        normalized.payloadHash = sha256(JSON.stringify({ base: normalized.payloadHash, media: mediaPreview.items }));
+      const mediaCell = rawMediaCell(values, input.rowNumber);
+      if (normalized.action !== 'UPSERT' && mediaCell) {
+        throw new Error('media must be empty for ARCHIVE/TRASH_REQUEST');
+      }
+      if (normalized.action === 'UPSERT') {
+        const resolved = await resolveCloudMediaCell(mediaCell);
+        mediaPreview = { managed: resolved.managed, items: resolved.resolved.map(mediaManifestItem) };
+        if (resolved.managed) {
+          manifest.push({ rowNumber: input.rowNumber, items: mediaPreview.items });
+          normalized.payloadHash = sha256(JSON.stringify({ base: normalized.payloadHash, media: mediaPreview.items }));
+        }
       }
     } catch (error) {
       rows.push({
@@ -228,9 +236,14 @@ async function previewFromValues(connectorId: string, configValue: SheetConfig, 
     let classification: V3Classification;
     const errors = [...input.errors];
     if (!existing) {
-      classification = 'NEW';
-      normalized.postId = null;
-      normalized.importedContentVersion = null;
+      if (normalized.action !== 'UPSERT') {
+        classification = 'ERROR';
+        errors.push(`${normalized.action}: post for external_id does not exist`);
+      } else {
+        classification = 'NEW';
+        normalized.postId = null;
+        normalized.importedContentVersion = null;
+      }
     } else {
       normalized.postId = existing.id;
       normalized.importedContentVersion = existing.imported_content_version;
@@ -239,7 +252,7 @@ async function previewFromValues(connectorId: string, configValue: SheetConfig, 
       const payloadUnchanged = existing.source_payload_hash === normalized.payloadHash;
       const currentMediaCount = Number((db.prepare(`SELECT COUNT(*) AS count FROM media
         WHERE post_id=? AND (poster_asset_id IS NULL OR mime_type NOT LIKE 'image/%')`).get(existing.id) as { count: number }).count);
-      const managedMediaMissing = mediaPreview.managed && currentMediaCount !== mediaPreview.items.length;
+      const managedMediaMissing = normalized.action === 'UPSERT' && mediaPreview.managed && currentMediaCount !== mediaPreview.items.length;
 
       if (!editable && !payloadUnchanged) {
         classification = 'ERROR';
@@ -251,6 +264,10 @@ async function previewFromValues(connectorId: string, configValue: SheetConfig, 
       } else if (existing.source_revision === normalized.sourceRevision && !managedMediaMissing) {
         classification = 'ERROR';
         errors.push('source_revision was reused with a different payload');
+      } else if (normalized.action === 'ARCHIVE') {
+        classification = 'ARCHIVE_REQUEST';
+      } else if (normalized.action === 'TRASH_REQUEST') {
+        classification = 'TRASH_REQUEST';
       } else {
         classification = 'UPDATE';
       }
