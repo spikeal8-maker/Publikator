@@ -398,7 +398,7 @@ async function renderSourcesPage() {
       </div>
       <section class="operator-section" id="operator-integration-api">
         <div class="operator-page-head"><div><h3>Integration API</h3><p>Создайте Bearer API key для бота или AI. Полный token показывается только один раз.</p></div><button id="operator-new-api-key" class="primary" type="button">+ Новый API-ключ</button></div>
-        <table class="table"><thead><tr><th>Название</th><th>Prefix</th><th>Scopes</th><th>Создан</th><th>Последнее использование</th><th>Статус</th><th>Действия</th></tr></thead><tbody><tr><td colspan="7">Загрузка…</td></tr></tbody></table>
+        <div class="operator-preview-table"><table class="table"><thead><tr><th>Название</th><th>Prefix</th><th>Scopes</th><th>Создан</th><th>Последнее использование</th><th>Статус</th><th>Действия</th></tr></thead><tbody><tr><td colspan="7">Загрузка…</td></tr></tbody></table></div>
         <div class="integration-api-result error"></div>
       </section>
     </div>`;
