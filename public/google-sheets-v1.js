@@ -348,7 +348,7 @@ async function mountGoogleSheets() {
     const host = document.createElement('section');
     host.id = 'operator-google-sheets-live';
     host.className = 'operator-section gs-live-section';
-    host.innerHTML = `<div class="operator-page-head"><div><h3>Google Sheets</h3><p>Publikator читает лист «Публикации», показывает изменения до импорта и сохраняет канонические данные внутри Publikator.</p></div><a class="button-link secondary" href="/api/content-plan/v3/template.xlsx" download>Скачать XLSX шаблон</a></div><div id="gs-connect-form-host"></div><div id="gs-connectors-list"><div class="muted">Загрузка connectors…</div></div>`;
+    host.innerHTML = `<div class="operator-page-head"><div><h3>Google Sheets</h3><p>Publikator читает лист `Posts`, показывает изменения до импорта и сохраняет канонические данные внутри Publikator.</p></div><a class="button-link secondary" href="/api/content-plan/v3/template.xlsx" download>Скачать XLSX шаблон</a></div><div id="gs-connect-form-host"></div><div id="gs-connectors-list"><div class="muted">Загрузка connectors…</div></div>`;
     layout.after(host);
     card?.querySelector('#gs-open-connect')?.addEventListener('click', () => renderGoogleConnectForm(host));
     await loadGoogleConnectors(host);
