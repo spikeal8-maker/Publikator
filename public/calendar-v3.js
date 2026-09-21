@@ -11,6 +11,8 @@ let calendarDragPostId = '';
 let calendarSuppressClickUntil = 0;
 let calendarNoticeMessage = '';
 let calendarNoticeError = false;
+const calendarSelected = new Set();
+let calendarContextMenu = null;
 
 function calEsc(value=''){return String(value).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));}
 async function calApi(url,options={}){
@@ -62,10 +64,10 @@ function quickEditButton(item){return editable(item)&&item.schedule_mode==='AT'?
 function calendarCard(item,queue=false){
   const draggable=editable(item)?'true':'false';
   const time=queue?'QUEUE':timeLabel(item);
-  return `<div class="calendar-card${queue?' queue':''}" role="button" tabindex="0" data-calendar-post="${calEsc(item.id)}" data-calendar-kind="${queue?'QUEUE':'AT'}" draggable="${draggable}">${thumb(item)}<span class="calendar-card-main"><span class="calendar-card-title">${calEsc(time)} · ${calEsc(item.title)}</span><span class="calendar-card-meta">${calEsc(item.project_name)} · ${calEsc(platformLabel(item))}</span><span class="calendar-source">${calEsc(sourceLabel(item.source_type||'manual'))} · ${calendarStatus(item.status)}${queue?'':` · ${calEsc(item.schedule_timezone||'UTC')}`}</span></span>${queue?'':quickEditButton(item)}</div>`;
+  return `<div class="calendar-card${queue?' queue':''}" role="button" tabindex="0" data-calendar-post="${calEsc(item.id)}" data-calendar-kind="${queue?'QUEUE':'AT'}" draggable="${draggable}"><label class="calendar-card-select" style="display:flex;align-items:center;gap:4px"><input type="checkbox" data-calendar-select="${calEsc(item.id)}" ${calendarSelected.has(item.id)?'checked':''}> <span class="small">выбрать</span></label>${thumb(item)}<span class="calendar-card-main"><span class="calendar-card-title">${calEsc(time)} · ${calEsc(item.title)}</span><span class="calendar-card-meta">${calEsc(item.project_name)} · ${calEsc(platformLabel(item))}</span><span class="calendar-source">${calEsc(sourceLabel(item.source_type||'manual'))} · ${calendarStatus(item.status)}${queue?'':` · ${calEsc(item.schedule_timezone||'UTC')}`}</span></span>${queue?'':quickEditButton(item)}</div>`;
 }
 function listCard(item){
-  return `<div class="calendar-list-card" role="button" tabindex="0" data-calendar-post="${calEsc(item.id)}" data-calendar-kind="AT" draggable="${editable(item)?'true':'false'}"><span class="calendar-time">${calEsc(timeLabel(item))}</span>${thumb(item)}<span><strong>${calEsc(item.title)}</strong><span class="small muted" style="display:block">${calEsc(item.project_name)} · ${calEsc(platformLabel(item))}</span><span class="calendar-source">Источник: ${calEsc(sourceLabel(item.source_type||'manual'))} · план: ${calEsc(item.schedule_timezone||'UTC')} · просмотр: ${calEsc(CALENDAR_DISPLAY_TIMEZONE)}</span></span><span class="calendar-statuses">${calendarStatus(item.editorial_stage)}${calendarStatus(item.status)}</span>${quickEditButton(item)}</div>`;
+  return `<div class="calendar-list-card" role="button" tabindex="0" data-calendar-post="${calEsc(item.id)}" data-calendar-kind="AT" draggable="${editable(item)?'true':'false'}"><label class="calendar-card-select" style="display:flex;align-items:center;gap:4px"><input type="checkbox" data-calendar-select="${calEsc(item.id)}" ${calendarSelected.has(item.id)?'checked':''}> <span class="small">выбрать</span></label><span class="calendar-time">${calEsc(timeLabel(item))}</span>${thumb(item)}<span><strong>${calEsc(item.title)}</strong><span class="small muted" style="display:block">${calEsc(item.project_name)} · ${calEsc(platformLabel(item))}</span><span class="calendar-source">Источник: ${calEsc(sourceLabel(item.source_type||'manual'))} · план: ${calEsc(item.schedule_timezone||'UTC')} · просмотр: ${calEsc(CALENDAR_DISPLAY_TIMEZONE)}</span></span><span class="calendar-statuses">${calendarStatus(item.editorial_stage)}${calendarStatus(item.status)}</span>${quickEditButton(item)}</div>`;
 }
 function grouped(items){const map=new Map();for(const item of items){const key=dateKey(item);if(!map.has(key))map.set(key,[]);map.get(key).push(item);}return map;}
 function itemById(id){return [...calendarData.items,...calendarData.queueItems].find(item=>item.id===id);}
@@ -180,10 +182,73 @@ function createFromSlot(exact){
   if(typeof window.publikatorPostEditor!=='function'){setNotice('Редактор публикации недоступен.',true);return;}
   window.publikatorPostEditor(null,{scheduleMode:'AT',scheduledAt:exact,afterSave:async()=>{calendarAnchor=new Date(exact);await renderCalendar();}});
 }
+function editCalendarPost(item){
+  if(typeof window.publikatorPostEditor!=='function'){setNotice('Редактор публикации недоступен.',true);return;}
+  window.publikatorPostEditor(item.id,{afterSave:async()=>{await renderCalendar();}});
+}
+async function calendarLifecycle(item,action,extra={}){
+  return calApi(`/api/posts/${encodeURIComponent(item.id)}/${action}`,{method:'POST',body:JSON.stringify({expectedContentVersion:item.content_version,...extra})});
+}
+function closeCalendarContextMenu(){
+  calendarContextMenu?.remove();
+  calendarContextMenu=null;
+}
+async function moveCalendarItem(item){
+  const local=item.schedule_mode==='AT'?localScheduleParts(item):{date:isoDay(new Date()),time:'12:00'};
+  const value=window.prompt('Новая дата и время: YYYY-MM-DDTHH:MM',`${local.date}T${local.time}`);
+  if(!value)return;
+  const timezone=window.prompt('Timezone IANA',item.schedule_timezone||'Europe/Moscow')||item.schedule_timezone||'Europe/Moscow';
+  const result=await patchPostSchedule(item,{scheduleMode:'AT',scheduledAtLocal:value,scheduleTimezone:timezone,...(item.schedule_mode==='QUEUE'?{confirmQueueToAt:true}:{})});
+  if(result)await renderCalendar();
+}
+function showCalendarContextMenu(item,event){
+  closeCalendarContextMenu();
+  const menu=document.createElement('div');
+  menu.className='card calendar-context-menu';
+  menu.style.cssText=`position:fixed;z-index:10050;left:${Math.min(event.clientX,window.innerWidth-220)}px;top:${Math.min(event.clientY,window.innerHeight-260)}px;display:grid;gap:6px;padding:8px;min-width:200px`;
+  menu.innerHTML=`<button class="secondary" data-calendar-action="edit">Редактировать</button><button class="secondary" data-calendar-action="duplicate">Дублировать</button><button class="secondary" data-calendar-action="move">Перенести</button><button class="secondary" data-calendar-action="archive">В архив</button><button class="secondary danger" data-calendar-action="trash">В корзину</button>`;
+  document.body.append(menu);calendarContextMenu=menu;
+  menu.querySelectorAll('[data-calendar-action]').forEach(button=>button.onclick=async()=>{
+    const action=button.dataset.calendarAction;closeCalendarContextMenu();
+    try{
+      if(action==='edit'){editCalendarPost(item);return;}
+      if(action==='move'){await moveCalendarItem(item);return;}
+      if(action==='duplicate'){const result=await calendarLifecycle(item,'duplicate');if(result?.id&&window.PublikatorEditorial?.openContentInspector)await window.PublikatorEditorial.openContentInspector(result.id);await renderCalendar();return;}
+      if(action==='archive'){await calendarLifecycle(item,'archive');await renderCalendar();return;}
+      if(action==='trash'){if(!window.confirm('Переместить публикацию в корзину?'))return;await calendarLifecycle(item,'trash');await renderCalendar();}
+    }catch(error){setNotice(error instanceof Error?error.message:String(error),true);}
+  });
+  setTimeout(()=>document.addEventListener('click',closeCalendarContextMenu,{once:true}),0);
+}
+function selectedCalendarItems(){return [...calendarData.items,...calendarData.queueItems].filter(item=>calendarSelected.has(item.id));}
+async function calendarBulkRun(label,worker){
+  const items=selectedCalendarItems();if(!items.length)throw new Error('Сначала выберите публикации');
+  let done=0;const errors=[];
+  for(const item of items){try{await worker(item);done+=1;}catch(error){errors.push(`${item.title}: ${error instanceof Error?error.message:String(error)}`);}}
+  calendarSelected.clear();await renderCalendar();
+  setNotice(errors.length?`${label}: ${done}, ошибок: ${errors.length}. ${errors.slice(0,3).join(' | ')}`:`${label}: ${done}`,errors.length>0);
+}
+async function calendarBulkTargets(){
+  const accounts=(await calApi('/api/accounts')).filter(a=>a.enabled);
+  const raw=window.prompt(`Площадки через ; в формате platform:name. Пустая строка = снять все.\n\n${accounts.map(a=>`${a.platform}:${a.name}`).join('; ')}`,'');
+  if(raw===null)return;
+  const tokens=raw.split(';').map(x=>x.trim()).filter(Boolean);
+  const accountIds=tokens.map(token=>{const i=token.indexOf(':');const p=i>0?token.slice(0,i).trim():'';const n=i>0?token.slice(i+1).trim():'';const match=accounts.find(a=>a.platform===p&&a.name===n);if(!match)throw new Error(`Не найдена площадка ${token}`);return match.id;});
+  return calendarBulkRun('Площадки изменены',item=>calApi(`/api/posts/${encodeURIComponent(item.id)}/targets`,{method:'PUT',body:JSON.stringify({accountIds,expectedContentVersion:item.content_version})}));
+}
+async function calendarBulkMove(){
+  const value=window.prompt('Новая дата и время для выбранных: YYYY-MM-DDTHH:MM','');if(!value)return;
+  const timezone=window.prompt('Timezone IANA','Europe/Moscow')||'Europe/Moscow';
+  return calendarBulkRun('Публикации перенесены',item=>calApi(`/api/posts/${encodeURIComponent(item.id)}`,{method:'PATCH',body:JSON.stringify({scheduleMode:'AT',scheduledAtLocal:value,scheduleTimezone:timezone,expectedContentVersion:item.content_version,...(item.schedule_mode==='QUEUE'?{confirmQueueToAt:true}:{})})}));
+}
+async function calendarBulkArchive(){if(!window.confirm('Архивировать выбранные публикации?'))return;return calendarBulkRun('Архивировано',item=>calendarLifecycle(item,'archive'));}
+
 function bindCards(){
   document.querySelectorAll('[data-calendar-post]').forEach(card=>{
-    card.addEventListener('click',event=>{if(event.target.closest('[data-calendar-quick-edit]'))return;openInspector(card.dataset.calendarPost);});
-    card.addEventListener('keydown',event=>{if((event.key==='Enter'||event.key===' ')&&!event.target.closest('[data-calendar-quick-edit]')){event.preventDefault();openInspector(card.dataset.calendarPost);}});
+    card.addEventListener('click',event=>{if(event.target.closest('[data-calendar-quick-edit],[data-calendar-select]'))return;openInspector(card.dataset.calendarPost);});
+    card.addEventListener('dblclick',event=>{if(event.target.closest('[data-calendar-quick-edit],[data-calendar-select]'))return;const item=itemById(card.dataset.calendarPost);if(item){event.preventDefault();editCalendarPost(item);}});
+    card.addEventListener('contextmenu',event=>{const item=itemById(card.dataset.calendarPost);if(!item)return;event.preventDefault();showCalendarContextMenu(item,event);});
+    card.addEventListener('keydown',event=>{if(event.target.closest('[data-calendar-quick-edit],[data-calendar-select]'))return;const item=itemById(card.dataset.calendarPost);if(!item)return;if(event.key==='Enter'){event.preventDefault();editCalendarPost(item);}else if(event.key===' '){event.preventDefault();openInspector(item.id);}});
     card.addEventListener('dragstart',event=>{
       const item=itemById(card.dataset.calendarPost);if(!item||!editable(item)){event.preventDefault();return;}
       calendarDragPostId=item.id;event.dataTransfer.effectAllowed='move';event.dataTransfer.setData('text/plain',item.id);card.classList.add('dragging');
@@ -191,6 +256,8 @@ function bindCards(){
     card.addEventListener('dragend',()=>{card.classList.remove('dragging');calendarDragPostId='';calendarSuppressClickUntil=Date.now()+350;});
   });
   document.querySelectorAll('[data-calendar-quick-edit]').forEach(button=>button.addEventListener('click',event=>{event.stopPropagation();const item=itemById(button.dataset.calendarQuickEdit);if(item)openQuickEdit(item);}));
+  document.querySelectorAll('[data-calendar-select]').forEach(input=>input.addEventListener('click',event=>event.stopPropagation()));
+  document.querySelectorAll('[data-calendar-select]').forEach(input=>input.addEventListener('change',()=>{if(input.checked)calendarSelected.add(input.dataset.calendarSelect);else calendarSelected.delete(input.dataset.calendarSelect);const count=document.querySelector('#calendar-selected-count');if(count)count.textContent=String(calendarSelected.size);document.querySelectorAll('[data-calendar-bulk]').forEach(button=>button.disabled=calendarSelected.size===0);}));
 }
 function bindTimeSlots(){
   document.querySelectorAll('[data-calendar-slot]').forEach(slot=>{
@@ -231,14 +298,20 @@ async function renderCalendar(){
   title.textContent='Календарь';
   document.querySelectorAll('.nav').forEach(x=>x.classList.remove('active'));document.querySelector('#calendar-nav')?.classList.add('active');
   const range=rangeForMode();
-  view.innerHTML=`<div class="calendar-shell"><div class="calendar-toolbar"><div class="calendar-toolbar-group"><button class="secondary" id="calendar-prev">←</button><button class="secondary" id="calendar-today">Сегодня</button><button class="secondary" id="calendar-next">→</button><span class="calendar-range-title">${calEsc(rangeTitle(range))}</span><span class="small muted">Часовой пояс: ${calEsc(CALENDAR_DISPLAY_TIMEZONE)}</span></div><div class="calendar-toolbar-group">${CALENDAR_MODES.map(mode=>`<button type="button" class="secondary calendar-mode ${mode===calendarMode?'active':''}" data-calendar-mode="${mode}">${MODE_LABELS[mode]}</button>`).join('')}</div></div><div id="calendar-notice" class="calendar-notice hidden"></div><div id="calendar-queue" class="card calendar-empty">Загрузка очереди…</div><div id="calendar-content" class="card calendar-empty">Загрузка…</div></div>`;
+  view.innerHTML=`<div class="calendar-shell"><div class="calendar-toolbar"><div class="calendar-toolbar-group"><button class="secondary" id="calendar-prev">←</button><button class="secondary" id="calendar-today">Сегодня</button><button class="secondary" id="calendar-next">→</button><span class="calendar-range-title">${calEsc(rangeTitle(range))}</span><span class="small muted">Часовой пояс: ${calEsc(CALENDAR_DISPLAY_TIMEZONE)}</span></div><div class="calendar-toolbar-group">${CALENDAR_MODES.map(mode=>`<button type="button" class="secondary calendar-mode ${mode===calendarMode?'active':''}" data-calendar-mode="${mode}">${MODE_LABELS[mode]}</button>`).join('')}</div></div><div class="calendar-toolbar" style="margin-top:8px"><div class="calendar-toolbar-group"><span>Выбрано: <strong id="calendar-selected-count">${calendarSelected.size}</strong></span><button class="secondary" data-calendar-bulk="move" ${calendarSelected.size?'':'disabled'}>Перенести</button><button class="secondary" data-calendar-bulk="targets" ${calendarSelected.size?'':'disabled'}>Площадки</button><button class="secondary" data-calendar-bulk="archive" ${calendarSelected.size?'':'disabled'}>В архив</button><button class="secondary" id="calendar-clear-selected" ${calendarSelected.size?'':'disabled'}>Снять выделение</button></div><span class="small muted">ПКМ по карточке: Edit / Duplicate / Move / Archive / Trash</span></div><div id="calendar-notice" class="calendar-notice hidden"></div><div id="calendar-queue" class="card calendar-empty">Загрузка очереди…</div><div id="calendar-content" class="card calendar-empty">Загрузка…</div></div>`;
   setNotice(calendarNoticeMessage,calendarNoticeError);
   document.querySelector('#calendar-prev').onclick=()=>{moveAnchor(-1);renderCalendar().catch(showCalendarError);};
   document.querySelector('#calendar-next').onclick=()=>{moveAnchor(1);renderCalendar().catch(showCalendarError);};
   document.querySelector('#calendar-today').onclick=()=>{calendarAnchor=new Date();renderCalendar().catch(showCalendarError);};
   document.querySelectorAll('[data-calendar-mode]').forEach(button=>button.addEventListener('click',()=>{calendarMode=button.dataset.calendarMode;renderCalendar().catch(showCalendarError);}));
+  document.querySelector('[data-calendar-bulk="move"]')?.addEventListener('click',()=>calendarBulkMove().catch(showCalendarError));
+  document.querySelector('[data-calendar-bulk="targets"]')?.addEventListener('click',()=>calendarBulkTargets().catch(showCalendarError));
+  document.querySelector('[data-calendar-bulk="archive"]')?.addEventListener('click',()=>calendarBulkArchive().catch(showCalendarError));
+  document.querySelector('#calendar-clear-selected')?.addEventListener('click',()=>{calendarSelected.clear();renderCalendar().catch(showCalendarError);});
   const data=await calApi(`/api/calendar?from=${encodeURIComponent(range.start.toISOString())}&to=${encodeURIComponent(range.end.toISOString())}`);
   calendarData={items:data.items||[],queueItems:data.queueItems||[]};
+  const visibleIds=new Set([...calendarData.items,...calendarData.queueItems].map(item=>item.id));
+  for(const id of [...calendarSelected])if(!visibleIds.has(id))calendarSelected.delete(id);
   const queue=document.querySelector('#calendar-queue');if(queue){queue.className='';queue.innerHTML=renderQueue(calendarData.queueItems);}
   const content=document.querySelector('#calendar-content');if(!content)return;content.className='';
   if(calendarMode==='month')content.innerHTML=renderMonth(calendarData.items,range);
