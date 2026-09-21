@@ -9,7 +9,7 @@ import { commitContentEdit, createInitialContentRevision, type RevisionActorSour
 import { ensureTargets, setTargetSelection } from './publisher.js';
 import { spreadsheetSafeText } from './ingestion-security.js';
 import { normalizeIanaTimezone, resolveExactSchedule, resolveLocalSchedule } from './schedule-time.js';
-import { parsePortableRichText, parseRichTextJson, richTextToPlain, serializeRichText } from './rich-text.js';
+import { parsePortableRichText, parseRichTextJson, richTextToPlain, richTextToPortable, serializeRichText } from './rich-text.js';
 
 export const CONTENT_PLAN_V3_VERSION = 3;
 export const CONTENT_PLAN_V3_COLUMNS = [
@@ -1260,18 +1260,25 @@ export async function exportContentPlanV3(sourceIdRaw: string): Promise<Buffer> 
       try { pair = JSON.parse(String(post.source_ref)); } catch { continue; }
       if (!Array.isArray(pair) || pair[0] !== sourceId) continue;
       const externalId = String(pair[1] ?? '');
-      const targets = db.prepare(`SELECT pt.enabled,pt.override_text,a.id,a.platform,a.name
+      const targets = db.prepare(`SELECT pt.enabled,pt.override_text,a.id,a.platform,a.name,
+          tr.text_rich_json,tr.text_plain
         FROM post_targets pt JOIN social_accounts a ON a.id=pt.account_id
+        LEFT JOIN target_renditions tr ON tr.target_id=pt.id
         WHERE pt.post_id=? ORDER BY a.platform,a.name,a.id`).all(String(post.id)) as Array<{
           enabled: number; override_text: string | null; id: string; platform: Platform; name: string;
+          text_rich_json: string | null; text_plain: string | null;
         }>;
       const selected = targets.filter((target) => target.enabled).map((target) => ({ accountId: target.id, platform: target.platform, name: target.name }));
       const platformBody = (platform: Platform) => {
-        const values = targets.filter((target) => target.enabled && target.platform === platform && target.override_text).map((target) => target.override_text!);
+        const values = targets.filter((target) => target.enabled && target.platform === platform).map((target) => {
+          if (target.text_rich_json) return richTextToPortable(parseRichTextJson(target.text_rich_json));
+          return target.text_plain ?? target.override_text ?? '';
+        }).filter(Boolean);
         return values.length && values.every((value) => value === values[0]) ? values[0]! : '';
       };
+      const bodyPortable = richTextToPortable(parseRichTextJson(String(post.body_rich_json)));
       const exportRow = [
-        '3', externalId, 'UPSERT', String(post.project_slug), '', String(post.title), String(post.body),
+        '3', externalId, 'UPSERT', String(post.project_slug), '', String(post.title), bodyPortable,
         String(post.publication_kind ?? 'FEED'), String(post.content_format ?? 'IMAGE'), String(post.schedule_mode), post.scheduled_at_utc ? String(post.scheduled_at_utc) : '', String(post.schedule_timezone ?? ''),
         JSON.stringify(selected), platformBody('telegram'), platformBody('vk'), platformBody('max'), platformBody('instagram'),
         '', String(post.tags_json ?? '[]'), String(post.source_note ?? ''), String(post.source_revision ?? '')
