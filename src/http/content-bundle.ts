@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { DEFAULT_BUNDLE_LIMITS } from '../ingestion-security.js';
+import { config } from '../config.js';
 import { applyContentBundle, previewContentBundle } from '../content-bundle.js';
 import { beginExclusiveRuntimeMaintenance } from '../runtime-gate.js';
 
@@ -11,7 +11,7 @@ function sourceId(request:FastifyRequest):string{
 }
 
 async function uploaded(request:FastifyRequest):Promise<{filename:string;buffer:Buffer}>{
-  const part=await request.file({limits:{files:1,fileSize:DEFAULT_BUNDLE_LIMITS.maxCompressedBytes}});
+  const part=await request.file({limits:{files:1,fileSize:config.maxBundleUploadBytes}});
   if(!part)throw new Error('ZIP bundle не передан');
   const filename=path.basename(part.filename||'content-bundle.zip');
   if(path.extname(filename).toLowerCase()!=='.zip')throw new Error('Content Bundle должен быть .zip');
