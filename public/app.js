@@ -197,6 +197,7 @@ async function postEditor(postId,options={}){
     const created=await scheduleApi('/api/posts','POST',payload);
     return created.id;
   };
+  form.publikatorSaveDraft=saveDraft;
   form.onsubmit=async e=>{e.preventDefault();try{const savedId=await saveDraft();m.remove();if(typeof options.afterSave==='function')await options.afterSave(savedId);else await posts();}catch(err){m.querySelector('#post-error').textContent=err.message;}};
   if(post){
     m.querySelector('#media-file').onchange=async e=>{try{const file=e.target.files[0];if(!file)return;const data=new FormData();data.set('file',file);const uploaded=await api(`/api/posts/${post.id}/media`,{method:'POST',body:data,headers:{'x-content-version':String(editorVersion(form))}});setEditorVersion(form,uploaded.contentVersion);post.content_version=uploaded.contentVersion;m.remove();await postEditor(post.id);}catch(err){m.querySelector('#post-error').textContent=err.message;}};
