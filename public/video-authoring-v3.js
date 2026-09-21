@@ -171,9 +171,15 @@ function syncPlatformPreviews(form, post) {
     const warning = card.querySelector('.platform-warning');
     if (!warning) return;
     if (!items.length) {
-      const message = 'Добавьте медиа — без него READY запрещён.';
-      if (warning.textContent !== message) warning.textContent = message;
-      warning.classList.remove('hidden');
+      if (post.content_format === 'TEXT_ONLY') {
+        const message = 'TEXT_ONLY: медиа не требуется; READY определяется capability выбранных площадок.';
+        if (warning.textContent !== message) warning.textContent = message;
+        warning.classList.add('hidden');
+      } else {
+        const message = 'Добавьте медиа для выбранного формата — capability preflight проверит требования перед READY.';
+        if (warning.textContent !== message) warning.textContent = message;
+        warning.classList.remove('hidden');
+      }
     } else if (first?.isVideo) {
       const message = 'Видео сохранено. Возможность отправки на эту площадку проверяется capability preflight перед READY.';
       if (warning.textContent !== message) warning.textContent = message;
@@ -216,6 +222,22 @@ async function enhanceEditor(form, postId) {
         setError(form, '');
         const file = fileInput.files?.[0];
         if (!file) return;
+        const selectedKind = form.querySelector('select[name="publicationKind"]')?.value || post.publication_kind;
+        const selectedFormat = form.querySelector('select[name="contentFormat"]')?.value || post.content_format;
+        if (selectedKind !== post.publication_kind || selectedFormat !== post.content_format) {
+          const savedComposition = await requestJson(`/api/posts/${encodeURIComponent(post.id)}`, {
+            method: 'PATCH',
+            body: JSON.stringify({
+              publicationKind: selectedKind,
+              contentFormat: selectedFormat,
+              expectedContentVersion: currentVersion(form)
+            })
+          });
+          form.dataset.contentVersion = String(savedComposition.contentVersion);
+          post.content_version = savedComposition.contentVersion;
+          post.publication_kind = savedComposition.post.publication_kind;
+          post.content_format = savedComposition.post.content_format;
+        }
         const projection = publicationMediaProjection(post);
         const isVideo = file.type === 'video/mp4';
         const isImage = String(file.type || '').startsWith('image/');
