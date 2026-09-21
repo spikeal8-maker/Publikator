@@ -130,6 +130,9 @@ jobs:
       - name: EW4-007 calendar editing core
         run: node scripts/ew4-007-calendar-editing-e2e.mjs
 
+      - name: EW4-009 Integration API editorial contract
+        run: node scripts/ew4-009-integration-api-e2e.mjs
+
       - name: CX3-001 visual calendar shell
         run: node scripts/cx3-001-calendar-e2e.mjs
 

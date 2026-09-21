@@ -958,7 +958,7 @@ Calendar Editing Core: **ACCEPTED / MERGED**. PR #109 plus the accepted CI-flake
 
 ### EW4-008 — XLSX/Google Sheets Template v3
 
-Status: **IMPLEMENTED CANDIDATE** in branch `ew4-008/editorial-sheet-v3`.
+Status: **DONE / MERGED** in main `eaba9c0f095c1ed40f35f0e863c23b08c6f55f26`.
 
 - existing CSV/XLSX/Google Sheets Preview → Apply pipeline remains the owner;
 - `template_key` resolves POST templates in the same Project and applies snapshot defaults only to NEW Posts;
@@ -967,18 +967,27 @@ Status: **IMPLEMENTED CANDIDATE** in branch `ew4-008/editorial-sheet-v3`.
 - Project default targets and Project default timezone remain fallback semantics for Sheet-created Posts;
 - UPDATE continues through canonical ContentVersion/ContentRevision with READY invalidation and local conflict detection;
 - canonical XLSX v3 lists real POST template keys, full kind/format enums, portable-rich examples and field descriptions;
-- Google Sheets polling / auto-apply / auto-ready / scheduled publication / write-back reuse the same shared validation and apply contract.
+- Google Sheets polling / auto-apply / auto-ready / scheduled publication / write-back reuse the same shared validation and apply contract;
+- rich export round-trip remains a separate FOLLOW_UP.
 
 ### EW4-009 — Integration API editorial contract
 
-- rich text;
-- templateKey;
-- targets;
-- schedule;
-- editorial stage;
-- idempotency/revision conflict.
+Status: **IMPLEMENTED CANDIDATE** in branch `ew4-009/integration-api-v1`.
+
+- browser-session Sources UI creates, rotates and revokes Integration API keys; full token is one-time only;
+- external namespace is `/api/integration/v1` with Bearer authentication, existing scopes and existing rate limiter;
+- create reuses EW4-008 template/portable-rich/targets/timezone semantics and always creates ordinary DRAFT content;
+- durable idempotency uses existing `posts(source_type,source_ref)` identity plus semantic payload hash; no schema migration;
+- read/list expose editorial DTOs with pagination and no secret fields;
+- update uses canonical ContentVersion/ContentRevision optimistic concurrency and READY invalidation;
+- request-review is the only external lifecycle transition and moves content to IN_REVIEW;
+- READY/approve/publish/media-upload endpoints are intentionally absent;
+- external errors are structured and audit events contain key id/prefix, never the full token or sensitive payload;
+- checked OpenAPI describes only the implemented v1 endpoints.
 
 ### EW4-010 — Editorial acceptance
+
+Status: **NOT STARTED**.
 
 Full workflow acceptance on manual + XLSX + Sheets + API sources.
 
