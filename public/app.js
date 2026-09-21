@@ -88,6 +88,97 @@ function exactToLocalInput(value){
   return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+
+const CONTENT_FORMATS_BY_KIND={
+  FEED:['TEXT_ONLY','IMAGE','CAROUSEL','VIDEO'],
+  SHORT:['VERTICAL_VIDEO'],
+  STORY:['IMAGE','VERTICAL_VIDEO','STORY_SEQUENCE']
+};
+const CONTENT_FORMAT_LABELS={
+  TEXT_ONLY:'Только текст',IMAGE:'Изображение',CAROUSEL:'Карусель',VIDEO:'Видео',
+  VERTICAL_VIDEO:'Вертикальное видео',STORY_SEQUENCE:'Серия историй'
+};
+function publicationKindOptions(selected){
+  return [['FEED','Пост / FEED'],['SHORT','Короткое видео / SHORT'],['STORY','История / STORY']]
+    .map(function(item){return '<option value="'+item[0]+'" '+(selected===item[0]?'selected':'')+'>'+item[1]+'</option>';}).join('');
+}
+function contentFormatOptions(selected){
+  return Object.keys(CONTENT_FORMAT_LABELS).map(function(value){
+    return '<option value="'+value+'" '+(selected===value?'selected':'')+'>'+CONTENT_FORMAT_LABELS[value]+'</option>';
+  }).join('');
+}
+function syncPublicationCompositionFields(form){
+  const kind=form.querySelector('select[name="publicationKind"]');
+  const format=form.querySelector('select[name="contentFormat"]');
+  if(!kind||!format)return;
+  const sync=function(){
+    const allowed=CONTENT_FORMATS_BY_KIND[kind.value]||[];
+    [...format.options].forEach(function(option){
+      const active=allowed.includes(option.value);
+      option.disabled=!active;
+      option.hidden=!active;
+    });
+    if(!allowed.includes(format.value))format.value=allowed[0]||'IMAGE';
+  };
+  kind.addEventListener('change',sync);
+  sync();
+}
+function editorPrimaryMedia(media){
+  const posterIds=new Set((media||[]).map(function(item){return item.poster_asset_id;}).filter(Boolean));
+  return (media||[]).filter(function(item){return !posterIds.has(item.id);});
+}
+function editorMediaHtml(media){
+  const visible=editorPrimaryMedia(media);
+  if(!visible.length)return '<span class="muted">Медиа пока нет</span>';
+  return visible.map(function(item,index){
+    const isVideo=String(item.mime_type||'').startsWith('video/');
+    const poster=(media||[]).find(function(candidate){return candidate.id===item.poster_asset_id;});
+    const preview=isVideo
+      ? '<video controls preload="metadata" '+(poster?'poster="/public-media/'+esc(poster.relative_path)+'"':'')+'><source src="/public-media/'+esc(item.relative_path)+'" type="'+esc(item.mime_type)+'"></video>'
+      : '<img src="/public-media/'+esc(item.relative_path)+'" alt="">';
+    return '<span class="media-editor-item" data-media-editor-id="'+esc(item.id)+'">'+preview+
+      '<span class="small">'+esc(item.original_name||item.mime_type||'media')+'</span>'+
+      '<div class="row-actions">'+
+      '<button type="button" class="secondary media-move" data-id="'+esc(item.id)+'" data-direction="-1" '+(index===0?'disabled':'')+'>↑</button>'+
+      '<button type="button" class="secondary media-move" data-id="'+esc(item.id)+'" data-direction="1" '+(index===visible.length-1?'disabled':'')+'>↓</button>'+
+      '<button type="button" class="secondary danger delete-media" data-id="'+esc(item.id)+'">Удалить</button>'+
+      '</div></span>';
+  }).join('');
+}
+function mediaIdsAfterMove(media,mediaId,direction){
+  const visible=editorPrimaryMedia(media);
+  const index=visible.findIndex(function(item){return item.id===mediaId;});
+  const target=index+Number(direction);
+  if(index<0||target<0||target>=visible.length)return (media||[]).map(function(item){return item.id;});
+  const moved=[...visible];
+  const tmp=moved[index];moved[index]=moved[target];moved[target]=tmp;
+  const byPoster=new Map((media||[]).filter(function(item){return item.poster_asset_id;}).map(function(item){return [item.poster_asset_id,item];}));
+  const result=[];
+  for(const item of moved){
+    result.push(item.id);
+    if(item.poster_asset_id)result.push(item.poster_asset_id);
+  }
+  for(const item of (media||[])){
+    if(!result.includes(item.id))result.push(item.id);
+  }
+  return result;
+}
+function targetEditorCards(accounts,post,selectedAccountIds){
+  const byAccount=new Map((post?.targets||[]).map(function(target){return [target.account_id,target];}));
+  if(!accounts.length)return '<span class="muted">Сначала подключите соцсеть</span>';
+  return accounts.map(function(account){
+    const target=byAccount.get(account.id);
+    const selected=selectedAccountIds.has(account.id);
+    const custom=Boolean(target?.textRich);
+    return '<div class="card target-editor-card" data-target-editor-card="'+esc(account.id)+'">'+
+      '<label class="target-check"><input type="checkbox" name="accountId" value="'+esc(account.id)+'" '+(selected?'checked':'')+' '+(account.enabled?'':'disabled')+'> '+
+      esc(platformLabel(account.platform))+' · '+esc(account.name)+(account.enabled?'':' · отключено')+'</label>'+
+      '<label class="target-check"><input type="checkbox" class="target-override-toggle" data-account-id="'+esc(account.id)+'" '+(custom?'checked':'')+' '+(selected&&account.enabled?'':'disabled')+'> Свой текст для этой площадки</label>'+
+      '<div class="target-override-editor '+(custom?'':'hidden')+'" data-target-override-wrap="'+esc(account.id)+'"><div data-target-rich-editor="'+esc(account.id)+'"></div></div>'+
+      '</div>';
+  }).join('');
+}
+
 async function postEditor(postId,options={}){
   const post=postId?await api(`/api/posts/${postId}`):null;
   const prefill=!post&&options&&typeof options==='object'?options:{};
