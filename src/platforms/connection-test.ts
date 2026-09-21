@@ -106,6 +106,12 @@ async function vkTest(credentials: Record<string, unknown>): Promise<ConnectionT
     const user = Array.isArray(users) ? users[0] : null;
     if (!user?.id) throw new Error('VK: users.get не вернул владельца access token');
     const userId = normalizeVkUserId(user.id);
+    if (credentials.userId !== undefined && credentials.userId !== null && String(credentials.userId).trim()) {
+      const configuredUserId = normalizeVkUserId(credentials.userId);
+      if (configuredUserId !== userId) {
+        throw new Error(`VK: access token принадлежит id${userId}, а подключение настроено на id${configuredUserId}`);
+      }
+    }
     const server = await vkCall('photos.getWallUploadServer', common);
     if (!server?.upload_url) throw new Error('VK: токен не дал upload_url для личной стены');
     const name = vkDisplayName(user, `id${userId}`);
