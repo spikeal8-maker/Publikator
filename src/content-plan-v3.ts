@@ -422,7 +422,9 @@ function payloadHash(input: {
 }
 
 function validationSourceType(sourceId: string): string {
-  return sourceId.startsWith('gs:') ? 'google_sheets' : SOURCE_TYPE;
+  if (sourceId.startsWith('gs:')) return 'google_sheets';
+  if (sourceId.startsWith('bundle:')) return 'content-bundle';
+  return SOURCE_TYPE;
 }
 
 function resolveAccountIds(
