@@ -581,7 +581,9 @@ function semanticExistingMatch(existing: ExistingSourcePost, input: {
   if ((existing.scheduled_at_utc ?? null) !== (input.scheduledAt ?? null)) return false;
   if ((existing.schedule_timezone ?? null) !== (input.scheduleTimezone ?? null)) return false;
   if (!sameIds(existingSelectedTargets(existing.id, accounts), input.targets)) return false;
-  const currentOverrides = existingRichOverrides(existing.id);
+  const currentOverrides = existingRichOverrides(existing.id)
+    .map((override) => ({ accountId: override.accountId, richJson: override.richJson }))
+    .sort((a, b) => a.accountId.localeCompare(b.accountId));
   const nextOverrides = input.overrides
     .map((override) => ({ accountId: override.accountId, richJson: override.richJson }))
     .sort((a, b) => a.accountId.localeCompare(b.accountId));
