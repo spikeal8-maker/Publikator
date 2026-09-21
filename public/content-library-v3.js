@@ -17,7 +17,7 @@ let libraryLayout = localStorage.getItem('publikator-library-layout') === 'list'
 const librarySelected = new Set();
 
 function libEsc(value=''){return String(value).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));}
-async function libApi(url){const r=await fetch(url,{credentials:'same-origin'});const b=await r.json().catch(()=>({}));if(!r.ok)throw new Error(b?.error||`HTTP ${r.status}`);return b;}
+async function libApi(url,options={}){const r=await fetch(url,{credentials:'same-origin',...options,headers:{...(options.body?{'content-type':'application/json'}:{}),...(options.headers||{})}});const b=await r.json().catch(()=>({}));if(!r.ok)throw new Error(b?.error||b?.message||`HTTP ${r.status}`);return b;}
 function libBadge(value, role){const raw=String(value||'');return `<span class="badge ${libEsc(raw)}" data-raw-status="${libEsc(raw)}" data-presentation-owner="library" data-status-role="${libEsc(role)}">${libEsc(role)} · ${libEsc(statusLabel(raw))}</span>`;}
 function libTime(item){
   if(item.schedule_mode==='AT'&&item.scheduled_at_utc){const d=new Date(item.scheduled_at_utc);return `${d.toLocaleString()} · ${item.schedule_timezone||'UTC'}`;}
@@ -64,7 +64,8 @@ function libraryToolbar(data){
   <div class="library-filter-row"><div class="library-view-tabs">${LIBRARY_VIEWS.map(([key,label])=>`<button type="button" class="secondary library-view ${libraryView===key?'active':''}" data-library-view="${key}">${label}</button>`).join('')}</div>
     <label class="library-format">Формат <select id="library-format">${LIBRARY_FORMATS.map(([key,label])=>`<option value="${key}" ${libraryFormat===key?'selected':''}>${label}</option>`).join('')}</select></label>
   </div>
-  <div class="library-selection-bar"><span>Найдено: <strong>${data.total}</strong></span><span>Выбрано: <strong id="library-selected-count">${librarySelected.size}</strong></span><button id="library-clear-selection" class="secondary" type="button">Снять выделение</button></div>`;
+  <div class="library-selection-bar"><span>Найдено: <strong>${data.total}</strong></span><span>Выбрано: <strong id="library-selected-count">${librarySelected.size}</strong></span>
+    <div class="row-actions"><select id="library-bulk-action" aria-label="Массовое действие"><option value="">Массовое действие…</option><option value="project">Сменить проект</option><option value="targets">Сменить площадки</option><option value="schedule">Режим / время</option><option value="review">Отправить на проверку</option><option value="approve">Одобрить</option><option value="ready">Mark READY</option><option value="duplicate">Дублировать</option><option value="archive">В архив</option><option value="trash">В корзину</option><option value="publish-now">Опубликовать сейчас</option></select><button id="library-bulk-run" class="primary" type="button" ${librarySelected.size?'':'disabled'}>Применить</button><button id="library-clear-selection" class="secondary" type="button">Снять выделение</button></div></div>`;
 }
 
 function libraryPager(data){
@@ -82,13 +83,84 @@ async function waitForLegacyEditor(postId){
   }
 }
 
+async function libraryPost(id){return libApi(`/api/editorial/posts/${encodeURIComponent(id)}`);}
+async function libraryPostMutation(id,action,method='POST',extra={}){
+  const post=await libraryPost(id);
+  return libApi(`/api/posts/${encodeURIComponent(id)}/${action}`,{method,body:JSON.stringify({expectedContentVersion:post.content_version,...extra})});
+}
+async function libraryPatch(id,payload){
+  const post=await libraryPost(id);
+  return libApi(`/api/posts/${encodeURIComponent(id)}`,{method:'PATCH',body:JSON.stringify({...payload,expectedContentVersion:post.content_version})});
+}
+async function libraryTargets(id,accountIds){
+  const post=await libraryPost(id);
+  return libApi(`/api/posts/${encodeURIComponent(id)}/targets`,{method:'PUT',body:JSON.stringify({accountIds,expectedContentVersion:post.content_version})});
+}
+async function runSelected(label,worker){
+  const ids=[...librarySelected];
+  if(!ids.length)throw new Error('Сначала выберите публикации');
+  let done=0;const failures=[];
+  for(const id of ids){
+    try{await worker(id);done+=1;}catch(error){failures.push(`${id}: ${error instanceof Error?error.message:String(error)}`);}
+  }
+  librarySelected.clear();
+  await renderContentLibrary();
+  if(failures.length)window.alert(`${label}: выполнено ${done}, ошибок ${failures.length}\n\n${failures.slice(0,8).join('\n')}`);
+  else window.alert(`${label}: выполнено ${done}`);
+}
+async function executeLibraryBulk(action){
+  if(!action)throw new Error('Выберите массовое действие');
+  if(action==='project'){
+    const projects=await libApi('/api/projects');
+    const hint=projects.map(p=>`${p.slug} — ${p.name}`).join('\n');
+    const slug=window.prompt(`Укажите slug проекта:\n\n${hint}`,'');
+    if(!slug)return;
+    const project=projects.find(p=>p.slug===slug.trim());
+    if(!project)throw new Error('Проект с таким slug не найден');
+    return runSelected('Проект изменён',id=>libraryPatch(id,{projectId:project.id}));
+  }
+  if(action==='targets'){
+    const accounts=(await libApi('/api/accounts')).filter(a=>a.enabled);
+    const hint=accounts.map(a=>`${a.platform}:${a.name}`).join('; ');
+    const raw=window.prompt(`Площадки через ; в формате platform:name. Пустая строка = снять все.\n\nДоступно: ${hint}`,'');
+    if(raw===null)return;
+    const tokens=raw.split(';').map(x=>x.trim()).filter(Boolean);
+    const ids=tokens.map(token=>{const i=token.indexOf(':');const platform=i>0?token.slice(0,i).trim():'';const name=i>0?token.slice(i+1).trim():'';const match=accounts.find(a=>a.platform===platform&&a.name===name);if(!match)throw new Error(`Не найдена площадка ${token}`);return match.id;});
+    return runSelected('Площадки изменены',id=>libraryTargets(id,ids));
+  }
+  if(action==='schedule'){
+    const mode=String(window.prompt('Режим: MANUAL, QUEUE или AT','MANUAL')||'').trim().toUpperCase();
+    if(!['MANUAL','QUEUE','AT'].includes(mode))throw new Error('Неверный режим');
+    if(mode!=='AT')return runSelected('Режим изменён',id=>libraryPatch(id,{scheduleMode:mode}));
+    const local=window.prompt('Дата и время: YYYY-MM-DDTHH:MM','');
+    if(!local)return;
+    const timezone=window.prompt('Timezone IANA','Europe/Moscow')||'Europe/Moscow';
+    return runSelected('Время изменено',id=>libraryPatch(id,{scheduleMode:'AT',scheduledAtLocal:local,scheduleTimezone:timezone}));
+  }
+  if(action==='review')return runSelected('Отправлено на проверку',id=>libraryPostMutation(id,'request-review'));
+  if(action==='approve')return runSelected('Одобрено',id=>libraryPostMutation(id,'approve'));
+  if(action==='ready')return runSelected('READY применён',id=>libraryPostMutation(id,'ready'));
+  if(action==='duplicate')return runSelected('Копии созданы',id=>libraryPostMutation(id,'duplicate'));
+  if(action==='archive')return runSelected('Архивировано',id=>libraryPostMutation(id,'archive'));
+  if(action==='trash'){
+    if(!window.confirm('Переместить выбранные публикации в корзину?'))return;
+    return runSelected('Перемещено в корзину',id=>libraryPostMutation(id,'trash'));
+  }
+  if(action==='publish-now'){
+    if(!window.confirm('Опубликовать выбранные READY-публикации сейчас? Это внешняя публикация.'))return;
+    return runSelected('Publish now',id=>libraryPostMutation(id,'publish-now'));
+  }
+  throw new Error('Неизвестное массовое действие');
+}
+
 function bindLibrary(data){
   document.querySelector('#library-search-form')?.addEventListener('submit',event=>{event.preventDefault();librarySearch=document.querySelector('#library-search')?.value.trim()||'';libraryPage=1;librarySelected.clear();renderContentLibrary().catch(showLibraryError);});
   document.querySelectorAll('[data-library-view]').forEach(button=>button.addEventListener('click',()=>{libraryView=button.dataset.libraryView;libraryPage=1;librarySelected.clear();renderContentLibrary().catch(showLibraryError);}));
   document.querySelector('#library-format')?.addEventListener('change',event=>{libraryFormat=event.target.value;libraryPage=1;librarySelected.clear();renderContentLibrary().catch(showLibraryError);});
   document.querySelectorAll('[data-layout]').forEach(button=>button.addEventListener('click',()=>{libraryLayout=button.dataset.layout;localStorage.setItem('publikator-library-layout',libraryLayout);renderContentLibrary().catch(showLibraryError);}));
-  document.querySelectorAll('[data-library-select]').forEach(input=>input.addEventListener('change',()=>{if(input.checked)librarySelected.add(input.dataset.librarySelect);else librarySelected.delete(input.dataset.librarySelect);const counter=document.querySelector('#library-selected-count');if(counter)counter.textContent=String(librarySelected.size);}));
+  document.querySelectorAll('[data-library-select]').forEach(input=>input.addEventListener('change',()=>{if(input.checked)librarySelected.add(input.dataset.librarySelect);else librarySelected.delete(input.dataset.librarySelect);const counter=document.querySelector('#library-selected-count');if(counter)counter.textContent=String(librarySelected.size);const run=document.querySelector('#library-bulk-run');if(run)run.disabled=librarySelected.size===0;}));
   document.querySelector('#library-clear-selection')?.addEventListener('click',()=>{librarySelected.clear();document.querySelectorAll('[data-library-select]').forEach(input=>{input.checked=false;});const counter=document.querySelector('#library-selected-count');if(counter)counter.textContent='0';});
+  document.querySelector('#library-bulk-run')?.addEventListener('click',()=>executeLibraryBulk(document.querySelector('#library-bulk-action')?.value||'').catch(showLibraryError));
   document.querySelector('#library-prev')?.addEventListener('click',()=>{if(libraryPage>1){libraryPage-=1;renderContentLibrary().catch(showLibraryError);}});
   document.querySelector('#library-next')?.addEventListener('click',()=>{if(libraryPage<data.totalPages){libraryPage+=1;renderContentLibrary().catch(showLibraryError);}});
   document.querySelector('#library-page-size')?.addEventListener('change',event=>{libraryPageSize=Number(event.target.value)||24;libraryPage=1;renderContentLibrary().catch(showLibraryError);});
