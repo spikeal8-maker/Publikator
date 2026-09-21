@@ -31,10 +31,35 @@ function gsSummary(summary = {}) {
 function gsPreviewRows(validation) {
   const rows = (validation.rows || []).slice(0, 60);
   if (!rows.length) return '<div class="muted">В таблице нет строк для preview.</div>';
-  return `<div class="operator-preview-table"><table class="table"><thead><tr><th>Строка</th><th>Результат</th><th>Материал</th><th>Проект</th><th>Что исправить</th></tr></thead><tbody>${rows.map((row) => {
+  return `<div class="operator-preview-table"><table class="table"><thead><tr><th>Строка</th><th>Результат</th><th>Материал</th><th>Проект</th><th>Что исправить</th><th>Конфликт</th></tr></thead><tbody>${rows.map((row) => {
     const normalized = row.normalized;
-    return `<tr><td>${Number(row.rowNumber || 0)}</td><td><span class="operator-classification ${gsEsc(row.classification)}" data-raw-classification="${gsEsc(row.classification)}">${gsEsc(statusLabel(row.classification))}</span></td><td>${normalized ? gsEsc(normalized.title) : '—'}</td><td>${normalized ? gsEsc(normalized.project) : '—'}</td><td class="small error">${gsEsc((row.errors || []).join('; '))}</td></tr>`;
+    const conflict = row.classification === 'CONFLICT' && normalized
+      ? `<div class="row-actions"><button class="secondary gs-conflict-action" data-resolution="COMPARE" data-external-id="${gsEsc(normalized.externalId)}" type="button">Сравнить</button><button class="secondary gs-conflict-action" data-resolution="KEEP_PUBLIKATOR" data-external-id="${gsEsc(normalized.externalId)}" type="button">Оставить Publikator</button><button class="primary gs-conflict-action" data-resolution="USE_SHEET" data-external-id="${gsEsc(normalized.externalId)}" type="button">Использовать Sheet</button></div>`
+      : '—';
+    return `<tr><td>${Number(row.rowNumber || 0)}</td><td><span class="operator-classification ${gsEsc(row.classification)}" data-raw-classification="${gsEsc(row.classification)}">${gsEsc(statusLabel(row.classification))}</span></td><td>${normalized ? gsEsc(normalized.title) : '—'}</td><td>${normalized ? gsEsc(normalized.project) : '—'}</td><td class="small error">${gsEsc((row.errors || []).join('; '))}</td><td>${conflict}</td></tr>`;
   }).join('')}</tbody></table></div>`;
+}
+
+function gsConflictCompareModal(data) {
+  const local = data.local || {};
+  const sheet = data.sheet || {};
+  const targetText = (value) => Array.isArray(value) ? value.map((item) => `${item.platform || ''}:${item.name || item.accountId || ''}`).join(', ') : '—';
+  const overlay = document.createElement('div');
+  overlay.className = 'modal';
+  overlay.innerHTML = `<div class="modal-card"><div class="operator-page-head"><div><h2>Конфликт Google Sheets</h2><p>Слева — текущий Publikator, справа — версия из Sheet. Сравнение ничего не изменяет.</p></div><button class="secondary gs-conflict-close" type="button">Закрыть</button></div>
+    <div class="operator-preview-table"><table class="table"><thead><tr><th>Поле</th><th>Publikator</th><th>Google Sheet</th></tr></thead><tbody>
+      <tr><td>Название</td><td>${gsEsc(local.internalTitle || '')}</td><td>${gsEsc(sheet.internalTitle || '')}</td></tr>
+      <tr><td>Текст</td><td>${gsEsc(local.body || '')}</td><td>${gsEsc(sheet.body || '')}</td></tr>
+      <tr><td>Теги</td><td>${gsEsc((local.tags || []).join(', '))}</td><td>${gsEsc((sheet.tags || []).join(', '))}</td></tr>
+      <tr><td>Заметка источника</td><td>${gsEsc(local.sourceNote || '')}</td><td>${gsEsc(sheet.sourceNote || '')}</td></tr>
+      <tr><td>Формат</td><td>${gsEsc(`${local.publicationKind || ''} / ${local.contentFormat || ''}`)}</td><td>${gsEsc(`${sheet.publicationKind || ''} / ${sheet.contentFormat || ''}`)}</td></tr>
+      <tr><td>Расписание</td><td>${gsEsc(JSON.stringify(local.schedule || {}))}</td><td>${gsEsc(JSON.stringify(sheet.schedule || {}))}</td></tr>
+      <tr><td>Площадки</td><td>${gsEsc(targetText(local.targets))}</td><td>${gsEsc(targetText(sheet.targets))}</td></tr>
+    </tbody></table></div></div>`;
+  const close = () => overlay.remove();
+  overlay.querySelector('.gs-conflict-close').onclick = close;
+  overlay.addEventListener('click', (event) => { if (event.target === overlay) close(); });
+  document.body.append(overlay);
 }
 
 function serviceAccountIdentity(text) {
@@ -104,6 +129,44 @@ async function loadGoogleConnectors(host) {
   const connectors = data.connectors || [];
   const list = host.querySelector('#gs-connectors-list');
   list.innerHTML = connectors.length ? connectors.map(connectorCard).join('') : '<div class="operator-empty">Google Sheets ещё не подключён.</div>';
+  list.querySelectorAll('.gs-conflict-action').forEach((button) => button.addEventListener('click', async () => {
+    const card = button.closest('.gs-connector');
+    const connectorId = card.dataset.gsId;
+    const preview = googlePreviewByConnector.get(connectorId);
+    const out = card.querySelector('.gs-result');
+    if (!preview) return;
+    const resolution = button.dataset.resolution;
+    if (resolution !== 'COMPARE') {
+      const question = resolution === 'KEEP_PUBLIKATOR'
+        ? 'Оставить текущую версию Publikator и считать эту версию Sheet просмотренной?'
+        : 'Заменить локальную редакцию версией из Google Sheet? Изменение пройдёт через новую ContentVersion.';
+      if (!window.confirm(question)) return;
+    }
+    try {
+      button.disabled = true;
+      const resolved = await googleSheetsApi(`/api/google-sheets/connectors/${encodeURIComponent(connectorId)}/conflicts/resolve`, {
+        method: 'POST',
+        body: JSON.stringify({
+          externalId: button.dataset.externalId,
+          resolution,
+          previewSha: preview.sourceSnapshotSha256,
+          mediaPreviewSha: preview.mediaSnapshotSha256 || null
+        })
+      });
+      if (resolution === 'COMPARE') {
+        gsConflictCompareModal(resolved);
+        return;
+      }
+      out.innerHTML = '<div class="operator-result">Перечитываю Sheet после разрешения конфликта…</div>';
+      const refreshed = await googleSheetsApi(`/api/google-sheets/connectors/${encodeURIComponent(connectorId)}/preview`, { method: 'POST', body: '{}' });
+      googlePreviewByConnector.set(connectorId, refreshed);
+      await loadGoogleConnectors(host);
+    } catch (error) {
+      out.innerHTML = `<div class="operator-result error">${gsEsc(error instanceof Error ? error.message : String(error))}</div>`;
+    } finally {
+      button.disabled = false;
+    }
+  }));
   list.querySelectorAll('.gs-auto-apply').forEach((control) => control.addEventListener('change', () => {
     const autoReady = control.closest('.gs-connector')?.querySelector('.gs-auto-ready');
     if (!autoReady) return;
