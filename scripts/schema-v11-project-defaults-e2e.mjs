@@ -113,6 +113,15 @@ legacy.pragma('user_version = 10');
 
 const postBefore=legacy.prepare('SELECT * FROM posts WHERE id=?').get('post1');
 const revisionsBefore=legacy.prepare('SELECT * FROM content_revisions WHERE post_id=? ORDER BY content_version').all('post1');
+const stripEditorialMetadata=(row)=>{
+  const copy={...row};
+  delete copy.editor_note;
+  delete copy.source_note;
+  delete copy.tags_json;
+  delete copy.campaign;
+  return copy;
+};
+const stripEditorialMetadataRows=(rows)=>rows.map(stripEditorialMetadata);
 const schedulesBefore=legacy.prepare('SELECT * FROM schedule_slots WHERE project_id=? ORDER BY id').all('p1');
 const targetsBefore=legacy.prepare('SELECT * FROM post_targets WHERE post_id=? ORDER BY id').all('post1');
 legacy.close();
@@ -139,8 +148,8 @@ try{
     [{project_id:'p1',account_id:'acc-enabled',created_at:ts}]
   );
 
-  assert.deepEqual(db.prepare('SELECT * FROM posts WHERE id=?').get('post1'),postBefore);
-  assert.deepEqual(db.prepare('SELECT * FROM content_revisions WHERE post_id=? ORDER BY content_version').all('post1'),revisionsBefore);
+  assert.deepEqual(stripEditorialMetadata(db.prepare('SELECT * FROM posts WHERE id=?').get('post1')),postBefore);
+  assert.deepEqual(stripEditorialMetadataRows(db.prepare('SELECT * FROM content_revisions WHERE post_id=? ORDER BY content_version').all('post1')),revisionsBefore);
   assert.deepEqual(db.prepare('SELECT * FROM schedule_slots WHERE project_id=? ORDER BY id').all('p1'),schedulesBefore);
   assert.deepEqual(db.prepare('SELECT * FROM post_targets WHERE post_id=? ORDER BY id').all('post1'),targetsBefore);
 
@@ -155,8 +164,8 @@ try{
   assert.equal(db.prepare('SELECT default_timezone FROM projects WHERE id=?').get('p1').default_timezone,'Asia/Tokyo');
   assert.equal(db.prepare('SELECT default_targets_explicit FROM projects WHERE id=?').get('p1').default_targets_explicit,0);
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM project_default_targets WHERE project_id=?').get('p1').count,0);
-  assert.deepEqual(db.prepare('SELECT * FROM posts WHERE id=?').get('post1'),postBefore);
-  assert.deepEqual(db.prepare('SELECT * FROM content_revisions WHERE post_id=? ORDER BY content_version').all('post1'),revisionsBefore);
+  assert.deepEqual(stripEditorialMetadata(db.prepare('SELECT * FROM posts WHERE id=?').get('post1')),postBefore);
+  assert.deepEqual(stripEditorialMetadataRows(db.prepare('SELECT * FROM content_revisions WHERE post_id=? ORDER BY content_version').all('post1')),revisionsBefore);
   assert.deepEqual(db.prepare('SELECT * FROM schedule_slots WHERE project_id=? ORDER BY id').all('p1'),schedulesBefore);
   assert.deepEqual(db.prepare('SELECT * FROM post_targets WHERE post_id=? ORDER BY id').all('post1'),targetsBefore);
 
