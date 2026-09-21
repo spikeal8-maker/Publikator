@@ -27,6 +27,15 @@ export type DiagnosticsSnapshot = {
   };
   scheduler: ReturnType<typeof schedulerStatus> & { intervalMs: number };
   retention: ReturnType<typeof retentionStatus>;
+  limits: {
+    maxImageBytes: number;
+    maxVideoBytes: number;
+    maxBundleUploadBytes: number;
+    maxBundleExpandedBytes: number;
+    maxBundleMediaFiles: number;
+    mediaProcessingTimeoutMs: number;
+    mediaTempBudgetBytes: number;
+  };
   media: {
     directory: string;
     databaseFiles: number;
@@ -252,6 +261,15 @@ export async function collectDiagnostics(): Promise<DiagnosticsSnapshot> {
     },
     scheduler: { ...scheduler, intervalMs: config.schedulerIntervalMs },
     retention,
+    limits: {
+      maxImageBytes: config.maxImageBytes,
+      maxVideoBytes: config.maxVideoBytes,
+      maxBundleUploadBytes: config.maxBundleUploadBytes,
+      maxBundleExpandedBytes: config.maxBundleExpandedBytes,
+      maxBundleMediaFiles: config.maxBundleMediaFiles,
+      mediaProcessingTimeoutMs: config.mediaProcessingTimeoutMs,
+      mediaTempBudgetBytes: config.mediaTempBudgetBytes
+    },
     media: {
       directory: config.mediaDir,
       databaseFiles: dbMedia.size,
