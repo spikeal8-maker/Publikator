@@ -36,6 +36,25 @@ function scheduleMutation(mode: string, body: Record<string, any>, current?: any
 }
 
 const PLATFORMS = new Set<Platform>(['telegram','vk','max','instagram']);
+const PUBLICATION_KINDS = new Set(['FEED','SHORT','STORY']);
+const CONTENT_FORMATS = new Set(['TEXT_ONLY','IMAGE','CAROUSEL','VIDEO','VERTICAL_VIDEO','STORY_SEQUENCE']);
+const ALLOWED_COMPOSITIONS: Record<string, Set<string>> = {
+  FEED: new Set(['TEXT_ONLY','IMAGE','CAROUSEL','VIDEO']),
+  SHORT: new Set(['VERTICAL_VIDEO']),
+  STORY: new Set(['IMAGE','VERTICAL_VIDEO','STORY_SEQUENCE'])
+};
+
+function publicationComposition(body: Record<string, any>, current?: any): { publicationKind: 'FEED'|'SHORT'|'STORY'; contentFormat: 'TEXT_ONLY'|'IMAGE'|'CAROUSEL'|'VIDEO'|'VERTICAL_VIDEO'|'STORY_SEQUENCE' } {
+  const publicationKind = String(body.publicationKind ?? current?.publication_kind ?? 'FEED').toUpperCase();
+  const contentFormat = String(body.contentFormat ?? current?.content_format ?? 'IMAGE').toUpperCase();
+  if (!PUBLICATION_KINDS.has(publicationKind)) throw new Error('publicationKind: FEED / SHORT / STORY');
+  if (!CONTENT_FORMATS.has(contentFormat)) throw new Error('contentFormat: TEXT_ONLY / IMAGE / CAROUSEL / VIDEO / VERTICAL_VIDEO / STORY_SEQUENCE');
+  if (!ALLOWED_COMPOSITIONS[publicationKind]?.has(contentFormat)) throw new Error(`Неподдерживаемая композиция ${publicationKind}/${contentFormat}`);
+  return {
+    publicationKind: publicationKind as 'FEED'|'SHORT'|'STORY',
+    contentFormat: contentFormat as 'TEXT_ONLY'|'IMAGE'|'CAROUSEL'|'VIDEO'|'VERTICAL_VIDEO'|'STORY_SEQUENCE'
+  };
+}
 const loginFailures = new Map<string, { count: number; windowStartedAt: number; blockedUntil: number }>();
 const LOGIN_WINDOW_MS = 10 * 60 * 1000;
 const LOGIN_MAX_FAILURES = 5;
@@ -343,6 +362,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     let tags: string[];
     try { tags = normalizedEditorialTags(body.tags); }
     catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) }); }
+    let composition: ReturnType<typeof publicationComposition>;
+    try { composition = publicationComposition(body); }
+    catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) }); }
     const created = createDraftPost({
       projectId,
       title,
@@ -352,6 +374,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       scheduledAt: schedule.scheduledAt,
       scheduledAtUtc: schedule.scheduledAtUtc,
       scheduleTimezone: schedule.scheduleTimezone,
+      publicationKind: composition.publicationKind,
+      contentFormat: composition.contentFormat,
       editorNote: body.editorNote === undefined ? null : String(body.editorNote ?? ''),
       sourceNote: body.sourceNote === undefined ? null : String(body.sourceNote ?? ''),
       tags,
@@ -375,6 +399,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     try { content = resolvedPostBody(body, current); }
     catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) }); }
     const mode = body.scheduleMode === undefined ? current.schedule_mode : String(body.scheduleMode);
+    let composition: ReturnType<typeof publicationComposition>;
+    try { composition = publicationComposition(body, current); }
+    catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) }); }
     let tags: string[];
     try { tags = normalizedEditorialTags(body.tags, String(current.tags_json ?? '[]')); }
     catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) }); }
@@ -392,8 +419,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     try {
       const version = expectedContentVersion(request, body);
       const committed = commitContentEdit(params.id, version, 'manual', () => {
-        db.prepare('UPDATE posts SET project_id=?,title=?,body=?,body_rich_json=?,schedule_mode=?,scheduled_at=?,scheduled_at_utc=?,schedule_timezone=?,editor_note=?,source_note=?,tags_json=?,campaign=?,updated_at=? WHERE id=?')
-          .run(projectId, title, content.body, content.bodyRichJson, mode, schedule.scheduledAt, schedule.scheduledAtUtc, schedule.scheduleTimezone,
+        db.prepare('UPDATE posts SET project_id=?,title=?,body=?,body_rich_json=?,publication_kind=?,content_format=?,schedule_mode=?,scheduled_at=?,scheduled_at_utc=?,schedule_timezone=?,editor_note=?,source_note=?,tags_json=?,campaign=?,updated_at=? WHERE id=?')
+          .run(projectId, title, content.body, content.bodyRichJson, composition.publicationKind, composition.contentFormat,
+            mode, schedule.scheduledAt, schedule.scheduledAtUtc, schedule.scheduleTimezone,
             editorNote, sourceNote, JSON.stringify(tags), campaign, nowIso(), params.id);
       });
       return { ok: true, contentVersion: committed.contentVersion, post: postView(db.prepare('SELECT * FROM posts WHERE id=?').get(params.id)) };
