@@ -13,6 +13,7 @@ import { registerMediaOrderRoutes } from './http/media-order.js';
 import { registerBackupBundleRoutes } from './http/backup-bundles.js';
 import { registerContentPlanRoutes } from './http/content-plan.js';
 import { registerContentPlanV3Routes } from './http/content-plan-v3.js';
+import { registerContentBundleRoutes } from './http/content-bundle.js';
 import { registerDiagnosticsRoutes } from './http/diagnostics.js';
 import { registerReleaseGateRoutes } from './http/release-gate.js';
 import { registerEditorialLifecycleRoutes } from './http/editorial-lifecycle.js';
@@ -60,6 +61,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await registerBackupBundleRoutes(app);
   await registerContentPlanRoutes(app);
   await registerContentPlanV3Routes(app);
+  await registerContentBundleRoutes(app);
   await registerGoogleDriveMediaRoutes(app);
   await registerYandexDiskMediaRoutes(app);
   await registerGoogleSheetsRoutes(app);
