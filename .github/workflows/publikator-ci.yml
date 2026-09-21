@@ -212,6 +212,9 @@ jobs:
       - name: Content plan v3 idempotency and conflict contract
         run: node scripts/content-plan-v3-e2e.mjs
 
+      - name: Content plan v3 rich export round-trip
+        run: node scripts/content-plan-v3-rich-roundtrip-e2e.mjs
+
       - name: Content Bundle v1
         run: node scripts/content-bundle-e2e.mjs
 
