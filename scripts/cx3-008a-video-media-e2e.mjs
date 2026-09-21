@@ -81,10 +81,10 @@ async function json(route, options = {}, expectedStatus = 200) {
   return payload;
 }
 
-async function createPost(projectId, title) {
+async function createPost(projectId, title, composition = {}) {
   return json('/api/posts', {
     method: 'POST',
-    body: JSON.stringify({ projectId, title, body: `${title} body`, scheduleMode: 'MANUAL' })
+    body: JSON.stringify({ projectId, title, body: `${title} body`, scheduleMode: 'MANUAL', ...composition })
   }, 201);
 }
 
@@ -192,9 +192,30 @@ try {
     });
     const afterDelete = await json(`/api/posts/${post.id}`);
     assert.equal(afterDelete.media.length, 0);
-    assert.equal(afterDelete.content_format, 'IMAGE');
+    assert.equal(afterDelete.publication_kind, 'FEED');
+    assert.equal(afterDelete.content_format, 'VIDEO', 'removing media must not silently rewrite the editorial composition');
     await assert.rejects(fs.access(beforeDeleteVideoPath));
     await assert.rejects(fs.access(beforeDeletePosterPath));
+
+    const shortPost = await createPost(project.id, 'Canonical short', {
+      publicationKind: 'SHORT',
+      contentFormat: 'VERTICAL_VIDEO'
+    });
+    const shortUploaded = await uploadVideo(shortPost.id, shortPost.content_version, Buffer.from('short-video-payload'));
+    assert.equal(shortUploaded.contentVersion, shortPost.content_version + 1);
+    const storedShort = await json(`/api/posts/${shortPost.id}`);
+    assert.equal(storedShort.publication_kind, 'SHORT');
+    assert.equal(storedShort.content_format, 'VERTICAL_VIDEO');
+    const shortVideo = storedShort.media.find((item) => item.mime_type === 'video/mp4');
+    assert.ok(shortVideo);
+    await json(`/api/media/${shortVideo.id}`, {
+      method: 'DELETE',
+      headers: { 'x-content-version': String(storedShort.content_version) }
+    });
+    const shortAfterDelete = await json(`/api/posts/${shortPost.id}`);
+    assert.equal(shortAfterDelete.media.length, 0);
+    assert.equal(shortAfterDelete.publication_kind, 'SHORT');
+    assert.equal(shortAfterDelete.content_format, 'VERTICAL_VIDEO');
 
     const tempDir = path.join(dataDir, '.media-tmp');
     await fs.mkdir(tempDir, { recursive: true });

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { CURRENT_SCHEMA_VERSION } from './current-schema-version.mjs';
 
 const dataDir=await fs.mkdtemp(path.join(os.tmpdir(),'publikator-ew4-007-'));
 process.env.NODE_ENV='test';
@@ -14,7 +15,7 @@ const {db,migrate}=await import('../dist/db.js');
 const {buildApp}=await import('../dist/app.js');
 const {markReadyRevision}=await import('../dist/content-versioning.js');
 migrate();
-assert.equal(Number(db.pragma('user_version',{simple:true})),12);
+assert.equal(Number(db.pragma('user_version',{simple:true})),CURRENT_SCHEMA_VERSION);
 
 const app=await buildApp();
 await app.ready();

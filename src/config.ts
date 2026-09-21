@@ -74,10 +74,16 @@ const adminPassword = deploymentSecret('ADMIN_PASSWORD', 12);
 const masterKey = deploymentSecret('APP_MASTER_KEY', 32);
 const maxImageBytes = positiveInteger('MAX_IMAGE_BYTES', 50 * 1024 * 1024);
 const maxVideoBytes = positiveInteger('MAX_VIDEO_BYTES', 512 * 1024 * 1024);
+const maxBundleUploadBytes = positiveInteger('MAX_BUNDLE_UPLOAD_BYTES', 512 * 1024 * 1024);
+const maxBundleExpandedBytes = positiveInteger('MAX_BUNDLE_EXPANDED_BYTES', 2 * 1024 * 1024 * 1024);
+const maxBundleMediaFiles = positiveInteger('MAX_BUNDLE_MEDIA_FILES', 1000);
 const mediaProcessingTimeoutMs = positiveInteger('MEDIA_PROCESSING_TIMEOUT_MS', 120_000);
 const mediaTempBudgetBytes = positiveInteger('MEDIA_TEMP_BUDGET_BYTES', 1024 * 1024 * 1024);
 if (mediaTempBudgetBytes < maxVideoBytes + maxImageBytes) {
   throw new Error('MEDIA_TEMP_BUDGET_BYTES must be at least MAX_VIDEO_BYTES + MAX_IMAGE_BYTES');
+}
+if (maxBundleExpandedBytes < maxBundleUploadBytes) {
+  throw new Error('MAX_BUNDLE_EXPANDED_BYTES must be at least MAX_BUNDLE_UPLOAD_BYTES');
 }
 
 const imageBuildSha = bakedCommitSha('IMAGE_BUILD_SHA');
@@ -105,6 +111,9 @@ export const config = {
   backupRetentionCount: nonNegativeInteger('BACKUP_RETENTION_COUNT', 30),
   maxImageBytes,
   maxVideoBytes,
+  maxBundleUploadBytes,
+  maxBundleExpandedBytes,
+  maxBundleMediaFiles,
   mediaProcessingTimeoutMs,
   mediaTempBudgetBytes,
   ffmpegPath: process.env.FFMPEG_PATH?.trim() || 'ffmpeg',

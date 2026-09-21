@@ -54,7 +54,9 @@ function mediaRatio(media) {
 
 function mediaPreviewHtml(post) {
   if (!post.media?.length) {
-    return '<div class="platform-preview-media empty">Изображение обязательно</div>';
+    return post.content_format === 'TEXT_ONLY'
+      ? '<div class="platform-preview-media empty">Текстовая публикация · без медиа</div>'
+      : '<div class="platform-preview-media empty">Медиа пока не добавлено</div>';
   }
   const first = post.media[0];
   const rest = post.media.length - 1;
@@ -63,7 +65,9 @@ function mediaPreviewHtml(post) {
 
 function platformWarning(target, post) {
   const count = post.media?.length || 0;
-  if (count < 1) return 'Добавьте хотя бы одно изображение — без него READY запрещён.';
+  if (count < 1) return post.content_format === 'TEXT_ONLY'
+    ? ''
+    : 'Добавьте медиа для выбранного формата; окончательное требование проверит capability preflight.';
   if (target.platform === 'telegram' && count > 10) return 'Telegram: в одной медиагруппе допускается не более 10 изображений.';
   if (target.platform === 'max' && count > 12) return 'MAX: в одном сообщении допускается не более 12 вложений.';
   if (target.platform === 'instagram' && count > 10) return 'Instagram: карусель допускает не более 10 изображений.';
@@ -162,7 +166,7 @@ function renderPreviewMedia(card, post) {
   if (!preview) return;
   if (!post.media?.length) {
     preview.classList.add('empty');
-    preview.innerHTML = 'Изображение обязательно';
+    preview.innerHTML = post.content_format === 'TEXT_ONLY' ? 'Текстовая публикация · без медиа' : 'Медиа пока не добавлено';
     return;
   }
   const first = post.media[0];
@@ -383,6 +387,10 @@ function tryEnhanceVisibleEditor() {
     if (errorBox) errorBox.textContent = `Не удалось загрузить редактор площадок: ${error instanceof Error ? error.message : String(error)}`;
   });
 }
+
+window.addEventListener('publikator:post-editor-opening',(event)=>{
+  activePostId=event instanceof CustomEvent ? (event.detail?.postId||null) : null;
+});
 
 document.addEventListener('click', (event) => {
   const target = event.target instanceof Element ? event.target : null;

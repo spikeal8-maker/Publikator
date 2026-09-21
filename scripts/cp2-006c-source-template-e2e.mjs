@@ -54,19 +54,19 @@ try {
 
   const workbook = await loadWorkbookStream(fromBuffer(template));
   try {
-    assert.deepEqual(workbook.sheetNames, ['Как пользоваться','Публикации','Справочники','Примеры','Описание полей']);
-    const help = await sheetRows(workbook, 'Как пользоваться');
+    assert.deepEqual(workbook.sheetNames, ['Instructions','Posts','Lists','Examples','Fields']);
+    const help = await sheetRows(workbook, 'Instructions');
     assert.match(help[0][0], /Publikator/i);
     assert.deepEqual(help[1], ['Шаг','Что сделать','Пример','Важно']);
     assert.ok(help.some((row) => /telegram:Основной Telegram/.test(row.join(' '))));
     assert.ok(help.some((row) => /ASA Media\|lesson-01\.jpg/.test(row.join(' '))));
     assert.ok(help.some((row) => /Preview/.test(row.join(' '))));
 
-    const posts = await sheetRows(workbook, 'Публикации');
-    assert.equal(posts.length, 1, 'Публикации must contain header only');
+    const posts = await sheetRows(workbook, 'Posts');
+    assert.equal(posts.length, 1, 'Posts must contain header only');
     assert.deepEqual(posts[0], [...CONTENT_PLAN_V3_RU_COLUMNS]);
 
-    const lists = await sheetRows(workbook, 'Справочники');
+    const lists = await sheetRows(workbook, 'Lists');
     assert.deepEqual(lists[0], ['Проект','Шаблон','Платформа','Подключение','Источник медиа','Тип источника','Тип публикации','Формат','Режим публикации','Действие']);
     assert.ok(lists.some((row) => row.includes('Основной Telegram')));
     assert.ok(lists.some((row) => row.includes('Школа VK')));
@@ -76,7 +76,7 @@ try {
     for (const value of ['FEED','SHORT','STORY']) assert.ok(lists.some((row) => row.includes(value)));
     for (const value of ['TEXT_ONLY','IMAGE','CAROUSEL','VIDEO','VERTICAL_VIDEO','STORY_SEQUENCE']) assert.ok(lists.some((row) => row.includes(value)));
 
-    const examples = await sheetRows(workbook, 'Примеры');
+    const examples = await sheetRows(workbook, 'Examples');
     assert.equal(examples.length, 8);
     assert.deepEqual(examples[0], [...CONTENT_PLAN_V3_RU_COLUMNS]);
     assert.equal(examples[1][5], 'Ручная публикация');
@@ -91,7 +91,7 @@ try {
     const multiple = parseCloudMediaReferences('ASA Media|one.jpg; Yandex Media|folder/two.jpg');
     assert.equal(multiple.references.length, 2);
 
-    const fieldGuide = await sheetRows(workbook, 'Описание полей');
+    const fieldGuide = await sheetRows(workbook, 'Fields');
     assert.deepEqual(fieldGuide[0], ['Поле','Когда нужно','Что вводить','Допустимые значения / пример','Техническое имя']);
     assert.equal(fieldGuide.length, CONTENT_PLAN_V3_COLUMNS.length + 1);
     assert.deepEqual(fieldGuide.slice(1).map((row) => row[4]), [...CONTENT_PLAN_V3_COLUMNS]);
@@ -107,10 +107,10 @@ try {
     assert.equal(JSON.stringify([help, lists, examples, fieldGuide]).includes(String.fromCharCode(92) + 'u04'), false, 'template must contain readable Cyrillic');
     const smokePath = path.join(dataDir, 'template-human-smoke.xlsx');
     const smokeBook = await createWriteOnlyWorkbook(toFile(smokePath));
-    const intro = await smokeBook.addWorksheet('Как пользоваться');
+    const intro = await smokeBook.addWorksheet('Instructions');
     await intro.appendRow(['Этот лист не является импортом']);
     await intro.close();
-    const smokeSheet = await smokeBook.addWorksheet('Публикации');
+    const smokeSheet = await smokeBook.addWorksheet('Posts');
     await smokeSheet.appendRow([...CONTENT_PLAN_V3_RU_COLUMNS]);
     await smokeSheet.appendRow(examples[1]);
     await smokeSheet.appendRow(examples[6]);
@@ -170,12 +170,12 @@ try {
   console.log(JSON.stringify({
     ok: true,
     checkpoint: 'UX-SHEETS-001',
-    russianOperatorTemplate: true,
+    normativeSheetNames: true,
     russianHeaderAliases: true,
     machineHeadersBackwardCompatible: true,
     shortTargets: true,
     shortCloudMedia: true,
-    humanFirstSheet: true
+    instructionsSheet: true
   }, null, 2));
 } finally {
   await fs.rm(dataDir, { recursive: true, force: true }).catch(() => undefined);

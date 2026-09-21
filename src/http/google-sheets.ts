@@ -8,7 +8,8 @@ import {
 } from '../google-sheets.js';
 import {
   applyGoogleSheetsCloudMedia,
-  previewGoogleSheetsCloudMedia
+  previewGoogleSheetsCloudMedia,
+  resolveGoogleSheetsConflict
 } from '../google-sheets-cloud-media.js';
 import { beginExclusiveRuntimeMaintenance } from '../runtime-gate.js';
 import { googleSheetsPollingStatus } from '../google-sheets-polling.js';
@@ -89,6 +90,28 @@ export async function registerGoogleSheetsRoutes(app: FastifyInstance): Promise<
       return await previewGoogleSheetsCloudMedia(params.id);
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post('/api/google-sheets/connectors/:id/conflicts/resolve', async (request, reply) => {
+    let release: (() => void) | null = null;
+    try {
+      const params = request.params as { id: string };
+      const body = bodyObject(request.body);
+      const externalId = String(body.externalId ?? '').trim();
+      const resolution = String(body.resolution ?? '').trim().toUpperCase() as 'COMPARE' | 'KEEP_PUBLIKATOR' | 'USE_SHEET';
+      const previewSha = String(body.previewSha ?? '').trim().toLowerCase();
+      const mediaPreviewSha = body.mediaPreviewSha == null ? null : String(body.mediaPreviewSha).trim().toLowerCase();
+      if (!externalId) return reply.code(400).send({ error: 'externalId обязателен' });
+      if (!['COMPARE','KEEP_PUBLIKATOR','USE_SHEET'].includes(resolution)) return reply.code(400).send({ error: 'resolution: COMPARE / KEEP_PUBLIKATOR / USE_SHEET' });
+      if (!/^[a-f0-9]{64}$/.test(previewSha)) return reply.code(400).send({ error: 'Нужен SHA-256 из Google Sheets preview' });
+      if (mediaPreviewSha && !/^[a-f0-9]{64}$/.test(mediaPreviewSha)) return reply.code(400).send({ error: 'Некорректный SHA-256 cloud media preview' });
+      if (resolution !== 'COMPARE') release = beginExclusiveRuntimeMaintenance(`google-sheets conflict resolution: ${resolution}`);
+      return await resolveGoogleSheetsConflict(params.id, externalId, resolution, previewSha, mediaPreviewSha);
+    } catch (error) {
+      return reply.code(409).send({ error: error instanceof Error ? error.message : String(error) });
+    } finally {
+      release?.();
     }
   });
 

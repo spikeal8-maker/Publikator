@@ -3,10 +3,14 @@ import { db } from '../db.js';
 import { listMedia } from '../media.js';
 import { listContentMedia } from '../rich-media.js';
 import {
+  approvePost,
   archivePost,
   deletePostPermanently,
+  duplicatePost,
   editorialActions,
+  requestReviewPost,
   restorePost,
+  returnToDraftPost,
   trashPost,
   type EditorialStage
 } from '../editorial-lifecycle.js';
@@ -68,6 +72,50 @@ export async function registerEditorialLifecycleRoutes(app: FastifyInstance): Pr
     const value = inspector(params.id);
     if (!value) return reply.code(404).send({ error: 'Пост не найден' });
     return value;
+  });
+
+  app.post('/api/posts/:id/request-review', async (request, reply) => {
+    const params = request.params as { id: string };
+    try {
+      const body = bodyObject(request.body);
+      const result = requestReviewPost(params.id, expectedContentVersion(request, body));
+      return { ok: true, ...result, post: inspector(params.id) };
+    } catch (error) {
+      return contentMutationError(reply, error);
+    }
+  });
+
+  app.post('/api/posts/:id/return-to-draft', async (request, reply) => {
+    const params = request.params as { id: string };
+    try {
+      const body = bodyObject(request.body);
+      const result = returnToDraftPost(params.id, expectedContentVersion(request, body));
+      return { ok: true, ...result, post: inspector(params.id) };
+    } catch (error) {
+      return contentMutationError(reply, error);
+    }
+  });
+
+  app.post('/api/posts/:id/approve', async (request, reply) => {
+    const params = request.params as { id: string };
+    try {
+      const body = bodyObject(request.body);
+      const result = approvePost(params.id, expectedContentVersion(request, body));
+      return { ok: true, ...result, post: inspector(params.id) };
+    } catch (error) {
+      return contentMutationError(reply, error);
+    }
+  });
+
+  app.post('/api/posts/:id/duplicate', async (request, reply) => {
+    const params = request.params as { id: string };
+    try {
+      const body = bodyObject(request.body);
+      const result = await duplicatePost(params.id, expectedContentVersion(request, body));
+      return reply.code(201).send({ ok: true, ...result, post: inspector(result.id) });
+    } catch (error) {
+      return contentMutationError(reply, error);
+    }
   });
 
   app.post('/api/posts/:id/archive', async (request, reply) => {

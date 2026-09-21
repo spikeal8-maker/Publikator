@@ -80,7 +80,7 @@ try {
   }
 
   const row = (externalId, title, body, revision, options = {}) => [
-    '3', externalId, 'UPSERT', project.slug, options.templateKey ?? '', title, body,
+    '3', externalId, options.action ?? 'UPSERT', project.slug, options.templateKey ?? '', title, body,
     options.publicationKind ?? 'FEED', options.contentFormat ?? 'IMAGE', options.scheduleMode ?? 'MANUAL',
     options.scheduledAt ?? '', options.timezone ?? 'UTC', options.targets ?? '[]',
     options.telegramBody ?? '', options.vkBody ?? '', options.maxBody ?? '', options.instagramBody ?? '',
@@ -256,17 +256,84 @@ try {
   assert.equal(conflict.statusCode, 200, conflict.body);
   assert.equal(conflict.json().summary.conflicts, 1);
   assert.equal(conflict.json().canApply, false);
+  const conflictSha = conflict.json().sourceSnapshotSha256;
+
+  const compared = await request('POST', `/api/google-sheets/connectors/${connector.id}/conflicts/resolve`, {
+    externalId: 'sheet-001', resolution: 'COMPARE', previewSha: conflictSha
+  });
+  assert.equal(compared.statusCode, 200, compared.body);
+  assert.equal(compared.json().local.body, 'Manual local edit');
+  assert.equal(compared.json().sheet.body, 'Body from Sheet after local edit');
+
+  sheetValues = [header, row('sheet-001', 'From Google', 'Sheet changed after conflict preview', 'rev-5')];
+  const staleConflictResolution = await request('POST', `/api/google-sheets/connectors/${connector.id}/conflicts/resolve`, {
+    externalId: 'sheet-001', resolution: 'KEEP_PUBLIKATOR', previewSha: conflictSha
+  });
+  assert.equal(staleConflictResolution.statusCode, 409, staleConflictResolution.body);
+  assert.match(staleConflictResolution.json().error, /changed after preview/i);
+
+  sheetValues = [header, row('sheet-001', 'From Google', 'Body from Sheet after local edit', 'rev-4')];
+  const conflictFresh = await request('POST', `/api/google-sheets/connectors/${connector.id}/preview`, {});
+  const kept = await request('POST', `/api/google-sheets/connectors/${connector.id}/conflicts/resolve`, {
+    externalId: 'sheet-001', resolution: 'KEEP_PUBLIKATOR', previewSha: conflictFresh.json().sourceSnapshotSha256
+  });
+  assert.equal(kept.statusCode, 200, kept.body);
+  assert.equal(db.prepare('SELECT body FROM posts WHERE id=?').get(post.id).body, 'Manual local edit');
+  const afterKeep = await request('POST', `/api/google-sheets/connectors/${connector.id}/preview`, {});
+  assert.equal(afterKeep.json().summary.unchangedRows, 1);
+
+  const keptVersion = db.prepare('SELECT content_version FROM posts WHERE id=?').get(post.id).content_version;
+  commitContentEdit(post.id, keptVersion, 'manual', () => {
+    db.prepare('UPDATE posts SET body=? WHERE id=?').run('Second manual local edit', post.id);
+  });
+  sheetValues = [header, row('sheet-001', 'From Google', 'Sheet wins explicitly', 'rev-5')];
+  const useConflict = await request('POST', `/api/google-sheets/connectors/${connector.id}/preview`, {});
+  assert.equal(useConflict.json().summary.conflicts, 1);
+  const used = await request('POST', `/api/google-sheets/connectors/${connector.id}/conflicts/resolve`, {
+    externalId: 'sheet-001', resolution: 'USE_SHEET', previewSha: useConflict.json().sourceSnapshotSha256
+  });
+  assert.equal(used.statusCode, 200, used.body);
+  assert.equal(db.prepare('SELECT body FROM posts WHERE id=?').get(post.id).body, 'Sheet wins explicitly');
+  assert.ok(db.prepare('SELECT content_version FROM posts WHERE id=?').get(post.id).content_version > keptVersion);
+  assert.ok(db.prepare("SELECT COUNT(*) AS count FROM publication_events WHERE post_id=? AND event_type='sheet.sync_conflict'").get(post.id).count >= 2);
 
   sheetValues = [header];
   const deletedRowPreview = await request('POST', `/api/google-sheets/connectors/${connector.id}/preview`, {});
   assert.equal(deletedRowPreview.statusCode, 400, deletedRowPreview.body);
   assert.equal(db.prepare("SELECT COUNT(*) AS count FROM posts WHERE source_type='google_sheets'").get().count, 3, 'removing a Sheet row must never delete a post');
 
-  const badAction = [header, [...row('sheet-003', 'Archive?', 'Body', 'rev-1').slice(0, 2), 'ARCHIVE', ...row('sheet-003', 'Archive?', 'Body', 'rev-1').slice(3)]];
-  sheetValues = badAction;
-  const archiveAttempt = await request('POST', `/api/google-sheets/connectors/${connector.id}/preview`, {});
-  assert.equal(archiveAttempt.statusCode, 400, archiveAttempt.body);
-  assert.match(archiveAttempt.json().error, /UPSERT only/i);
+  sheetValues = [
+    header,
+    row('sheet-001', '', '', 'rev-6', { action: 'ARCHIVE', scheduleMode: '', timezone: '' }),
+    row('sheet-002', '', '', 'rev-2', { action: 'TRASH_REQUEST', scheduleMode: '', timezone: '' })
+  ];
+  const lifecyclePreview = await request('POST', `/api/google-sheets/connectors/${connector.id}/preview`, {});
+  assert.equal(lifecyclePreview.statusCode, 200, lifecyclePreview.body);
+  assert.equal(lifecyclePreview.json().summary.requests, 2);
+  assert.deepEqual(lifecyclePreview.json().rows.map((item) => item.classification), ['ARCHIVE_REQUEST','TRASH_REQUEST']);
+  assert.equal(lifecyclePreview.json().canApply, true);
+
+  const lifecycleApply = await request('POST', `/api/google-sheets/connectors/${connector.id}/apply`, {
+    confirm: 'IMPORT',
+    previewSha: lifecyclePreview.json().sourceSnapshotSha256
+  });
+  assert.equal(lifecycleApply.statusCode, 200, lifecycleApply.body);
+  assert.equal(lifecycleApply.json().archived, 1);
+  assert.equal(lifecycleApply.json().trashed, 1);
+  assert.deepEqual(
+    db.prepare('SELECT editorial_stage,status FROM posts WHERE id=?').get(post.id),
+    { editorial_stage: 'ARCHIVED', status: 'DRAFT' }
+  );
+  const sheet2 = db.prepare("SELECT id,editorial_stage,status FROM posts WHERE source_type='google_sheets' AND source_ref=?")
+    .get(JSON.stringify([`gs:${connector.id}`, 'sheet-002']));
+  assert.deepEqual(
+    { editorial_stage: sheet2.editorial_stage, status: sheet2.status },
+    { editorial_stage: 'TRASHED', status: 'DRAFT' }
+  );
+
+  const lifecycleUnchanged = await request('POST', `/api/google-sheets/connectors/${connector.id}/preview`, {});
+  assert.equal(lifecycleUnchanged.statusCode, 200, lifecycleUnchanged.body);
+  assert.equal(lifecycleUnchanged.json().summary.unchangedRows, 2);
 
   assert.ok(metadataCalls >= 2);
   assert.ok(valuesCalls >= 6);
@@ -277,6 +344,9 @@ try {
   assert.match(ui, /Service Account JSON/);
   assert.match(ui, /Импортировать изменения/);
   assert.match(ui, /row deletion never deletes|Удаление строк/i);
+  assert.match(ui, /Оставить Publikator/);
+  assert.match(ui, /Использовать Sheet/);
+  assert.match(ui, /Сравнить/);
   assert.match(index, /google-sheets-v1\.js/);
 
   await app.close();
@@ -289,6 +359,13 @@ try {
     publicationKind: true,
     contentFormat: true,
     sharedEditorialContract: true,
+    conflictCompare: true,
+    conflictKeepPublikator: true,
+    conflictUseSheet: true,
+    staleConflictSnapshotBlocked: true,
+    explicitArchiveRequest: true,
+    explicitTrashRequest: true,
+    rowDeletionStillNoDelete: true,
     writeBackPreserved: true
   }, null, 2));
 } finally {

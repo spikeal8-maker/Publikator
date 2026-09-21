@@ -8,6 +8,7 @@ import { migrateRevisionHistory } from './revision-history-migration.js';
 import { migrateCanonicalRichText } from './canonical-rich-text-migration.js';
 import { migrateProjectDefaults } from './project-defaults-migration.js';
 import { migrateTemplates } from './templates-migration.js';
+import { migrateEditorialMetadata } from './editorial-metadata-migration.js';
 import { canonicalPlainRichJson } from './rich-text.js';
 
 export { DATABASE_SCHEMA_VERSION } from './schema.js';
@@ -390,6 +391,7 @@ export function migrate(): void {
   if (currentSchemaVersion < 10) migrateCanonicalRichText(db);
   if (currentSchemaVersion < 11) migrateProjectDefaults(db);
   if (currentSchemaVersion < 12) migrateTemplates(db);
+  if (currentSchemaVersion < 13) migrateEditorialMetadata(db);
 
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_posts_status_schedule ON posts(status, schedule_mode, scheduled_at);

@@ -100,6 +100,9 @@ jobs:
       - name: Schema v12 templates migration
         run: node scripts/schema-v12-templates-e2e.mjs
 
+      - name: Schema v13 editorial metadata migration
+        run: node scripts/schema-v13-editorial-metadata-e2e.mjs
+
       - name: M0-005 time rendition sequence semantics
         run: node scripts/m005-e2e.mjs
 
@@ -209,6 +212,12 @@ jobs:
       - name: Content plan v3 idempotency and conflict contract
         run: node scripts/content-plan-v3-e2e.mjs
 
+      - name: Content plan v3 rich export round-trip
+        run: node scripts/content-plan-v3-rich-roundtrip-e2e.mjs
+
+      - name: Content Bundle v1
+        run: node scripts/content-bundle-e2e.mjs
+
       - name: CP2-005 Google Sheets connector
         run: node scripts/cp2-005-google-sheets-e2e.mjs
 
@@ -271,6 +280,9 @@ jobs:
 
       - name: Schema v12 templates backup and restore
         run: node scripts/backup-v12-templates-e2e.mjs
+
+      - name: Schema v13 editorial metadata backup and restore
+        run: node scripts/backup-v13-editorial-metadata-e2e.mjs
 
       - name: Canonical backup API
         env:

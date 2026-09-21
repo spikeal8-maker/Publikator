@@ -36,6 +36,25 @@ function scheduleMutation(mode: string, body: Record<string, any>, current?: any
 }
 
 const PLATFORMS = new Set<Platform>(['telegram','vk','max','instagram']);
+const PUBLICATION_KINDS = new Set(['FEED','SHORT','STORY']);
+const CONTENT_FORMATS = new Set(['TEXT_ONLY','IMAGE','CAROUSEL','VIDEO','VERTICAL_VIDEO','STORY_SEQUENCE']);
+const ALLOWED_COMPOSITIONS: Record<string, Set<string>> = {
+  FEED: new Set(['TEXT_ONLY','IMAGE','CAROUSEL','VIDEO']),
+  SHORT: new Set(['VERTICAL_VIDEO']),
+  STORY: new Set(['IMAGE','VERTICAL_VIDEO','STORY_SEQUENCE'])
+};
+
+function publicationComposition(body: Record<string, any>, current?: any): { publicationKind: 'FEED'|'SHORT'|'STORY'; contentFormat: 'TEXT_ONLY'|'IMAGE'|'CAROUSEL'|'VIDEO'|'VERTICAL_VIDEO'|'STORY_SEQUENCE' } {
+  const publicationKind = String(body.publicationKind ?? current?.publication_kind ?? 'FEED').toUpperCase();
+  const contentFormat = String(body.contentFormat ?? current?.content_format ?? 'IMAGE').toUpperCase();
+  if (!PUBLICATION_KINDS.has(publicationKind)) throw new Error('publicationKind: FEED / SHORT / STORY');
+  if (!CONTENT_FORMATS.has(contentFormat)) throw new Error('contentFormat: TEXT_ONLY / IMAGE / CAROUSEL / VIDEO / VERTICAL_VIDEO / STORY_SEQUENCE');
+  if (!ALLOWED_COMPOSITIONS[publicationKind]?.has(contentFormat)) throw new Error(`Неподдерживаемая композиция ${publicationKind}/${contentFormat}`);
+  return {
+    publicationKind: publicationKind as 'FEED'|'SHORT'|'STORY',
+    contentFormat: contentFormat as 'TEXT_ONLY'|'IMAGE'|'CAROUSEL'|'VIDEO'|'VERTICAL_VIDEO'|'STORY_SEQUENCE'
+  };
+}
 const loginFailures = new Map<string, { count: number; windowStartedAt: number; blockedUntil: number }>();
 const LOGIN_WINDOW_MS = 10 * 60 * 1000;
 const LOGIN_MAX_FAILURES = 5;
@@ -44,6 +63,18 @@ const IMMUTABLE_POST_STATUSES = new Set(['PUBLISHING','PUBLISHED','PARTIAL']);
 function bodyObject(body: unknown): Record<string, any> {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('Ожидается JSON-объект');
   return body as Record<string, any>;
+}
+
+function normalizedEditorialTags(value: unknown, fallbackJson = '[]'): string[] {
+  let raw: unknown = value;
+  if (raw === undefined) {
+    try { raw = JSON.parse(fallbackJson || '[]'); } catch { raw = []; }
+  }
+  if (typeof raw === 'string') raw = raw.split(/[;,]/).map((tag) => tag.trim()).filter(Boolean);
+  if (!Array.isArray(raw) || raw.some((item) => typeof item !== 'string')) throw new Error('tags должен быть массивом строк');
+  const tags = [...new Set((raw as string[]).map((tag) => tag.trim()).filter(Boolean))];
+  if (tags.length > 50 || tags.some((tag) => tag.length > 80)) throw new Error('tags: максимум 50 тегов по 80 символов');
+  return tags;
 }
 
 function postView(row: any): any {
@@ -63,7 +94,9 @@ function postView(row: any): any {
     textPlain: target.text_plain ?? null
   }));
   const bodyRich = parseRichTextJson(String(row.body_rich_json));
-  return { ...row, bodyRich, media, targets };
+  let tags: string[] = [];
+  try { const parsed = JSON.parse(String(row.tags_json ?? '[]')); if (Array.isArray(parsed)) tags = parsed.filter((item) => typeof item === 'string'); } catch { tags = []; }
+  return { ...row, bodyRich, tags, media, targets };
 }
 
 function resolvedPostBody(input: Record<string, any>, current?: any): { body: string; bodyRichJson: string } {
@@ -326,6 +359,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       : body;
     try { schedule = scheduleMutation(mode, scheduleInput); }
     catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) }); }
+    let tags: string[];
+    try { tags = normalizedEditorialTags(body.tags); }
+    catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) }); }
+    let composition: ReturnType<typeof publicationComposition>;
+    try { composition = publicationComposition(body); }
+    catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) }); }
     const created = createDraftPost({
       projectId,
       title,
@@ -335,6 +374,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       scheduledAt: schedule.scheduledAt,
       scheduledAtUtc: schedule.scheduledAtUtc,
       scheduleTimezone: schedule.scheduleTimezone,
+      publicationKind: composition.publicationKind,
+      contentFormat: composition.contentFormat,
+      editorNote: body.editorNote === undefined ? null : String(body.editorNote ?? ''),
+      sourceNote: body.sourceNote === undefined ? null : String(body.sourceNote ?? ''),
+      tags,
+      campaign: body.campaign === undefined ? null : String(body.campaign ?? ''),
       actorSource: 'manual'
     });
     return reply.code(201).send(postView(created));
@@ -345,11 +390,24 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const current = db.prepare('SELECT * FROM posts WHERE id=?').get(params.id) as any;
     if (!current) return reply.code(404).send({ error: 'Пост не найден' });
     if (IMMUTABLE_POST_STATUSES.has(current.status)) return reply.code(409).send({ error: 'Нельзя редактировать частично или полностью опубликованный пост' });
+    const projectId = body.projectId === undefined ? String(current.project_id) : String(body.projectId);
+    if (!db.prepare('SELECT 1 FROM projects WHERE id=?').get(projectId)) {
+      return reply.code(400).send({ error: 'Проект не найден' });
+    }
     const title = body.title === undefined ? current.title : String(body.title).trim();
     let content: { body: string; bodyRichJson: string };
     try { content = resolvedPostBody(body, current); }
     catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) }); }
     const mode = body.scheduleMode === undefined ? current.schedule_mode : String(body.scheduleMode);
+    let composition: ReturnType<typeof publicationComposition>;
+    try { composition = publicationComposition(body, current); }
+    catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) }); }
+    let tags: string[];
+    try { tags = normalizedEditorialTags(body.tags, String(current.tags_json ?? '[]')); }
+    catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) }); }
+    const editorNote = body.editorNote === undefined ? current.editor_note : (String(body.editorNote ?? '').trim() || null);
+    const sourceNote = body.sourceNote === undefined ? current.source_note : (String(body.sourceNote ?? '').trim() || null);
+    const campaign = body.campaign === undefined ? current.campaign : (String(body.campaign ?? '').trim() || null);
     if (!title || !content.body.trim()) return reply.code(400).send({ error: 'Заголовок и текст обязательны' });
     if (!['MANUAL','AT','QUEUE'].includes(mode)) return reply.code(400).send({ error: 'Неверный scheduleMode' });
     if (current.schedule_mode === 'QUEUE' && mode === 'AT' && body.confirmQueueToAt !== true) {
@@ -361,8 +419,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     try {
       const version = expectedContentVersion(request, body);
       const committed = commitContentEdit(params.id, version, 'manual', () => {
-        db.prepare('UPDATE posts SET title=?,body=?,body_rich_json=?,schedule_mode=?,scheduled_at=?,scheduled_at_utc=?,schedule_timezone=?,updated_at=? WHERE id=?')
-          .run(title, content.body, content.bodyRichJson, mode, schedule.scheduledAt, schedule.scheduledAtUtc, schedule.scheduleTimezone, nowIso(), params.id);
+        db.prepare('UPDATE posts SET project_id=?,title=?,body=?,body_rich_json=?,publication_kind=?,content_format=?,schedule_mode=?,scheduled_at=?,scheduled_at_utc=?,schedule_timezone=?,editor_note=?,source_note=?,tags_json=?,campaign=?,updated_at=? WHERE id=?')
+          .run(projectId, title, content.body, content.bodyRichJson, composition.publicationKind, composition.contentFormat,
+            mode, schedule.scheduledAt, schedule.scheduledAtUtc, schedule.scheduleTimezone,
+            editorNote, sourceNote, JSON.stringify(tags), campaign, nowIso(), params.id);
       });
       return { ok: true, contentVersion: committed.contentVersion, post: postView(db.prepare('SELECT * FROM posts WHERE id=?').get(params.id)) };
     } catch (error) {
@@ -422,8 +482,6 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const post = db.prepare('SELECT * FROM posts WHERE id=?').get(params.id) as any;
     if (!post) return reply.code(404).send({ error: 'Пост не найден' });
     if (IMMUTABLE_POST_STATUSES.has(post.status)) return reply.code(409).send({ error: 'Пост уже начал публикацию; используйте повтор конкретной ошибочной площадки' });
-    const mediaCount = db.prepare('SELECT COUNT(*) AS count FROM media WHERE post_id=?').get(params.id) as { count: number };
-    if (mediaCount.count < 1) return reply.code(409).send({ error: 'Публикация без изображения запрещена' });
     ensureTargets(params.id);
     const accountCount = db.prepare("SELECT COUNT(*) AS count FROM post_targets pt JOIN social_accounts a ON a.id=pt.account_id WHERE pt.post_id=? AND pt.enabled=1 AND a.enabled=1").get(params.id) as { count: number };
     if (accountCount.count < 1) return reply.code(409).send({ error: 'Не выбрана ни одна активная соцсеть' });

@@ -55,6 +55,10 @@ export type ContentRevisionRow = {
   schedule_timezone: string | null;
   publication_kind: 'FEED' | 'SHORT' | 'STORY';
   content_format: string;
+  editor_note: string | null;
+  source_note: string | null;
+  tags_json: string;
+  campaign: string | null;
   targets_json: string;
   media_json: string;
   content_media_json: string;
@@ -78,6 +82,10 @@ type VersionedPostRow = {
   schedule_timezone: string | null;
   publication_kind: 'FEED' | 'SHORT' | 'STORY';
   content_format: string;
+  editor_note: string | null;
+  source_note: string | null;
+  tags_json: string;
+  campaign: string | null;
 };
 
 export type ContentEditOutcome = {
@@ -100,6 +108,10 @@ export type WorkingContentSnapshot = {
   scheduleTimezone: string | null;
   publicationKind: 'FEED' | 'SHORT' | 'STORY';
   contentFormat: string;
+  editorNote: string | null;
+  sourceNote: string | null;
+  tagsJson: string;
+  campaign: string | null;
   targets: RevisionTargetSnapshot[];
   media: MediaRow[];
   contentMedia: RevisionContentMediaSnapshot[];
@@ -107,7 +119,8 @@ export type WorkingContentSnapshot = {
 
 function getPost(postId: string): VersionedPostRow {
   const row = db.prepare(`SELECT id,status,editorial_stage,content_version,ready_revision_id,
-      title,body,body_rich_json,schedule_mode,scheduled_at,scheduled_at_utc,schedule_timezone,publication_kind,content_format
+      title,body,body_rich_json,schedule_mode,scheduled_at,scheduled_at_utc,schedule_timezone,publication_kind,content_format,
+      editor_note,source_note,tags_json,campaign
     FROM posts WHERE id=?`).get(postId) as VersionedPostRow | undefined;
   if (!row) throw new ContentNotFoundError('Пост не найден');
   return row;
@@ -222,6 +235,10 @@ export function currentContentSnapshot(postId: string): WorkingContentSnapshot {
     scheduleTimezone: post.schedule_timezone,
     publicationKind: post.publication_kind,
     contentFormat: post.content_format,
+    editorNote: post.editor_note,
+    sourceNote: post.source_note,
+    tagsJson: post.tags_json,
+    campaign: post.campaign,
     targets: targetSnapshot(postId),
     media: db.prepare('SELECT * FROM media WHERE post_id=? ORDER BY sort_order,created_at').all(postId) as MediaRow[],
     contentMedia: contentMediaSnapshot(postId)
@@ -262,6 +279,10 @@ function snapshotCurrentContentRevision(
       && existing.schedule_timezone === post.schedule_timezone
       && existing.publication_kind === post.publication_kind
       && existing.content_format === post.content_format
+      && existing.editor_note === post.editor_note
+      && existing.source_note === post.source_note
+      && existing.tags_json === post.tags_json
+      && existing.campaign === post.campaign
       && existing.targets_json === targetsJson
       && existing.media_json === mediaJson
       && existing.content_media_json === contentMediaJson
@@ -275,8 +296,8 @@ function snapshotCurrentContentRevision(
   const revisionId = id('rev');
   db.prepare(`INSERT INTO content_revisions
     (id,post_id,content_version,title,body,body_rich_json,editorial_stage,schedule_mode,scheduled_at,scheduled_at_utc,schedule_timezone,
-     publication_kind,content_format,targets_json,media_json,content_media_json,actor_source,restored_from_revision_id,created_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+     publication_kind,content_format,editor_note,source_note,tags_json,campaign,targets_json,media_json,content_media_json,actor_source,restored_from_revision_id,created_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     .run(
       revisionId,
       postId,
@@ -291,6 +312,10 @@ function snapshotCurrentContentRevision(
       post.schedule_timezone,
       post.publication_kind,
       post.content_format,
+      post.editor_note,
+      post.source_note,
+      post.tags_json,
+      post.campaign,
       targetsJson,
       mediaJson,
       contentMediaJson,

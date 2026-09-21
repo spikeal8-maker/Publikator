@@ -926,6 +926,21 @@ try {
   await postForm.locator('select[name="scheduleMode"]').selectOption('QUEUE');
   assert.equal(await scheduledLabel.isHidden(), true);
 
+  // Product completion: manual UI owns canonical publication kind/content format.
+  const kindSelect = postForm.locator('select[name="publicationKind"]');
+  const formatSelect = postForm.locator('select[name="contentFormat"]');
+  assert.equal(await kindSelect.inputValue(), 'FEED');
+  assert.equal(await formatSelect.inputValue(), 'IMAGE');
+  await kindSelect.selectOption('SHORT');
+  assert.equal(await formatSelect.inputValue(), 'VERTICAL_VIDEO');
+  assert.equal(await formatSelect.locator('option[value="IMAGE"]').isDisabled(), true);
+  await kindSelect.selectOption('STORY');
+  await formatSelect.selectOption('STORY_SEQUENCE');
+  assert.equal(await formatSelect.inputValue(), 'STORY_SEQUENCE');
+  await kindSelect.selectOption('FEED');
+  await formatSelect.selectOption('TEXT_ONLY');
+  assert.equal(await formatSelect.inputValue(), 'TEXT_ONLY');
+
   // EW4-003: real Base rich-text create flow.
   const richEditorTitle = 'Browser Canonical Rich Text';
   await postForm.locator('select[name="projectId"]').selectOption(fixtureProjectId);
@@ -993,9 +1008,11 @@ try {
   await page.locator('#post-form').waitFor({ state: 'detached', timeout: 5000 });
   await page.waitForFunction((title) => [...document.querySelectorAll('#view table.table tbody tr')].some((row) => row.textContent?.includes(title)), richEditorTitle);
 
-  const richDbPost = db.prepare('SELECT id,body,body_rich_json,content_version,status,ready_revision_id FROM posts WHERE title=?').get(richEditorTitle);
+  const richDbPost = db.prepare('SELECT id,body,body_rich_json,publication_kind,content_format,content_version,status,ready_revision_id FROM posts WHERE title=?').get(richEditorTitle);
   assert.ok(richDbPost);
   assert.equal(richDbPost.body, editorSnapshot.plain);
+  assert.equal(richDbPost.publication_kind, 'FEED');
+  assert.equal(richDbPost.content_format, 'TEXT_ONLY');
   const storedRich = JSON.parse(richDbPost.body_rich_json);
   assert.deepEqual(storedRich, editorSnapshot.document);
   assert.equal(/<(script|b|strong|em|u|s|a)(\s|>)/i.test(richDbPost.body_rich_json), false, 'canonical storage must be AST JSON, not HTML');
@@ -1012,6 +1029,8 @@ try {
   postForm = page.locator('#post-form');
   await postForm.waitFor({ state: 'visible', timeout: 5000 });
   await postForm.locator('.platform-workspace').waitFor({ state: 'visible', timeout: 5000 });
+  assert.equal(await postForm.locator('.platform-preview-media').filter({ hasText: 'Изображение обязательно' }).count(), 0, 'TEXT_ONLY must not advertise a fake image requirement');
+
   for (const selector of ['strong','em','u','s','code','a','blockquote','ul','ol','pre']) {
     assert.ok(await postForm.locator(`[data-rich-text-editor] .rich-text-surface ${selector}`).count() >= 1, `formatting did not hydrate: ${selector}`);
   }

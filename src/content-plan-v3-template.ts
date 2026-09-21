@@ -47,7 +47,7 @@ function exampleRows(): string[][] {
     ['3','at-001','UPSERT',project,'','Публикация по времени','Будет опубликована в указанное локальное время','FEED','IMAGE','AT','2026-09-20T14:00','Europe/Moscow','', '', '', '', '', '', '', '', '1'],
     ['3','queue-001','UPSERT',project,'','Публикация в очередь','Будет ждать подходящего автоматического слота','FEED','IMAGE','QUEUE','','','', '', '', '', '', '', '', '', '1'],
     ['3','targets-001','UPSERT',project,'','Публикация на площадки','Площадки можно перечислять через точку с запятой','FEED','IMAGE','MANUAL','','',targets,'**Отдельный текст Telegram**','_Отдельный текст VK_','','','','','','1'],
-    ['3','template-rich-001','UPSERT',templateExample?.project ?? project,templateExample?.key ?? '','Шаблон + rich text','**Новый модуль**\n[Подробнее](https://example.org)\n> Важно','STORY','STORY_SEQUENCE','MANUAL','','','', '', '', '', '', '', '', '', '1']
+    ['3','template-rich-001','UPSERT',templateExample?.project ?? project,templateExample?.key ?? '','Шаблон + rich text','**Новый модуль**\n[Подробнее](https://example.org)\n> Важно','STORY','STORY_SEQUENCE','MANUAL','','','', '', '', '', '', '', 'новости; запуск', 'Материал от редакции', '1']
   ];
 }
 
@@ -70,8 +70,8 @@ const COLUMN_GUIDE = [
   ['Текст MAX','Необязательно','Portable rich override только для MAX','Тот же neutral syntax, что у основного текста','max_body'],
   ['Текст Instagram','Необязательно','Portable rich override только для Instagram','Тот же neutral syntax, что у основного текста','instagram_body'],
   ['Медиа','Google Sheets','Файл из подключённого Google Drive/Яндекс Диска','Источник|путь/файл.jpg; несколько через ;','media'],
-  ['Теги','Пока не используется','Оставьте пустым','—','tags'],
-  ['Заметка','Пока не используется','Оставьте пустым','—','source_note'],
+  ['Теги','Необязательно','Внутренние теги публикации. Не отправляются в соцсети.','школа; робототехника; сентябрь или JSON-массив','tags'],
+  ['Заметка','Необязательно','Внутренняя заметка источника. Не отправляется в соцсети.','Происхождение материала / контекст','source_note'],
   ['Ревизия','Обязательно','Меняйте при каждом смысловом изменении строки','1 → 2 → 3','source_revision']
 ];
 
@@ -105,9 +105,9 @@ function listRows(): string[][] {
 }
 
 const QUICK_START = [
-  ['1','Откройте лист «Публикации».','Это единственный лист, который Publikator импортирует.','Не удаляйте и не переставляйте колонки.'],
-  ['2','Если не знаете, как начать — скопируйте подходящую строку с листа «Примеры».','Замените ID, проект, название, текст и ревизию.','Примеры сами не импортируются.'],
-  ['3','Выберите проект из листа «Справочники».','Например: main','Проект должен уже существовать в Publikator.'],
+  ['1','Откройте лист `Posts`.','Это единственный лист, который Publikator импортирует.','Не удаляйте и не переставляйте колонки.'],
+  ['2','Если не знаете, как начать — скопируйте подходящую строку с листа `Examples`.','Замените ID, проект, название, текст и ревизию.','Примеры сами не импортируются.'],
+  ['3','Выберите проект из листа `Lists`.','Например: main','Проект должен уже существовать в Publikator.'],
   ['4','Укажите площадки коротко.','telegram:Основной Telegram; vk:Школа VK','Можно оставить пустым и выбрать площадки позже в Publikator.'],
   ['5','Для Google Sheets можно указать облачное изображение.','ASA Media|lesson-01.jpg','Несколько файлов: разделяйте точкой с запятой. Для прямого XLSX import поле «Медиа» оставьте пустым.'],
   ['6','Выберите режим публикации.','MANUAL — вручную; AT — по времени; QUEUE — автоматическая очередь','Для AT обязательно заполните дату/время; часовой пояс рекомендуется.'],
@@ -122,31 +122,31 @@ export async function createCanonicalContentPlanV3Template(): Promise<Buffer> {
   try {
     const workbook = await createWriteOnlyWorkbook(toFile(temp));
 
-    const help = await workbook.addWorksheet('Как пользоваться');
+    const help = await workbook.addWorksheet('Instructions');
     setWidths(help, [8,42,72,72]);
     await help.appendRow(styledRow(['Publikator — шаблон контент-плана','','',''], TITLE_STYLE));
     await help.appendRow(styledRow(['Шаг','Что сделать','Пример','Важно'], HEADER_STYLE));
     for (const row of QUICK_START) await help.appendRow(styledRow(row, NOTE_STYLE));
     await help.close();
 
-    const posts = await workbook.addWorksheet('Публикации');
+    const posts = await workbook.addWorksheet('Posts');
     setWidths(posts, WIDTHS);
     await posts.appendRow(styledRow([...CONTENT_PLAN_V3_RU_COLUMNS], HEADER_STYLE));
     await posts.close();
 
-    const lists = await workbook.addWorksheet('Справочники');
+    const lists = await workbook.addWorksheet('Lists');
     setWidths(lists, [24,28,20,34,34,22,22,24,24,24]);
     await lists.appendRow(styledRow(['Проект','Шаблон','Платформа','Подключение','Источник медиа','Тип источника','Тип публикации','Формат','Режим публикации','Действие'], HEADER_STYLE));
     await appendSafeRows(lists, listRows());
     await lists.close();
 
-    const examples = await workbook.addWorksheet('Примеры');
+    const examples = await workbook.addWorksheet('Examples');
     setWidths(examples, WIDTHS);
     await examples.appendRow(styledRow([...CONTENT_PLAN_V3_RU_COLUMNS], HEADER_STYLE));
     await appendSafeRows(examples, exampleRows());
     await examples.close();
 
-    const guide = await workbook.addWorksheet('Описание полей');
+    const guide = await workbook.addWorksheet('Fields');
     setWidths(guide, [28,22,72,48,28]);
     await guide.appendRow(styledRow(['Поле','Когда нужно','Что вводить','Допустимые значения / пример','Техническое имя'], HEADER_STYLE));
     await appendSafeRows(guide, COLUMN_GUIDE);

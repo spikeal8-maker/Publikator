@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import sharp from 'sharp';
 import { config } from './config.js';
 import { db, id, nowIso } from './db.js';
-import { assertContentVersion, commitContentEdit } from './content-versioning.js';
+import { assertContentVersion, commitContentEdit, type RevisionActorSource } from './content-versioning.js';
 import { prepareVideoUpload } from './video-media.js';
 
 const MAX_IMAGE_DIMENSION = 7680;
@@ -117,7 +117,8 @@ export async function saveImage(postId: string, originalName: string, input: Buf
 }
 
 export async function saveImageVersioned(
-  postId: string, originalName: string, input: Buffer, expectedContentVersion: number
+  postId: string, originalName: string, input: Buffer, expectedContentVersion: number,
+  actorSource: RevisionActorSource = 'manual'
 ): Promise<{ media: MediaRow; contentVersion: number }> {
   assertContentVersion(postId, expectedContentVersion);
   const prepared = await prepareImage(input);
@@ -129,7 +130,7 @@ export async function saveImageVersioned(
   const mediaId = id('med');
   const absolutePath = await writePreparedFile(postId, mediaId, prepared);
   try {
-    const committed = commitContentEdit(postId, expectedContentVersion, 'manual', () =>
+    const committed = commitContentEdit(postId, expectedContentVersion, actorSource, () =>
       insertPreparedImage(postId, originalName, prepared, mediaId));
     if (committed.value.id !== mediaId) await fs.unlink(absolutePath).catch(() => undefined);
     return { media: committed.value, contentVersion: committed.contentVersion };
@@ -143,7 +144,8 @@ export async function saveVideoVersioned(
   postId: string,
   originalName: string,
   input: AsyncIterable<unknown>,
-  expectedContentVersion: number
+  expectedContentVersion: number,
+  actorSource: RevisionActorSource = 'manual'
 ): Promise<{ media: MediaRow; poster: MediaRow; contentVersion: number }> {
   assertContentVersion(postId, expectedContentVersion);
   if (listMedia(postId).length !== 0) {
@@ -167,7 +169,7 @@ export async function saveVideoVersioned(
     await fs.rename(preparedVideo.tempVideoPath, videoAbsolutePath);
     await fs.writeFile(posterAbsolutePath, posterPrepared.data);
 
-    const committed = commitContentEdit(postId, expectedContentVersion, 'manual', () => {
+    const committed = commitContentEdit(postId, expectedContentVersion, actorSource, () => {
       const createdAt = nowIso();
       db.prepare(`INSERT INTO media
         (id,post_id,original_name,relative_path,mime_type,size_bytes,width,height,sha256,created_at,sort_order)
@@ -208,7 +210,14 @@ export async function saveVideoVersioned(
           preparedVideo.container,
           posterId
         );
-      db.prepare("UPDATE posts SET publication_kind='FEED',content_format='VIDEO' WHERE id=?").run(postId);
+      const composition = db.prepare('SELECT publication_kind,content_format FROM posts WHERE id=?')
+        .get(postId) as { publication_kind: string; content_format: string };
+      const videoFormat = ['VIDEO','VERTICAL_VIDEO','STORY_SEQUENCE'].includes(composition.content_format)
+        ? composition.content_format
+        : composition.publication_kind === 'SHORT' || composition.publication_kind === 'STORY'
+          ? 'VERTICAL_VIDEO'
+          : 'VIDEO';
+      db.prepare('UPDATE posts SET content_format=? WHERE id=?').run(videoFormat, postId);
       db.prepare("UPDATE content_media SET sort_order=0,role='video',updated_at=? WHERE post_id=? AND media_id=?")
         .run(createdAt, postId, videoId);
       db.prepare("UPDATE content_media SET sort_order=1,role='poster',updated_at=? WHERE post_id=? AND media_id=?")
@@ -270,18 +279,22 @@ function normalizeRemainingMedia(postId: string): void {
   rest.forEach((row, index) => update.run(index, row.id));
   const hasVideo = rest.some((row) => row.mime_type.startsWith('video/'));
   if (!hasVideo) {
-    const imageFormat = rest.length > 1 ? 'CAROUSEL' : 'IMAGE';
-    db.prepare("UPDATE posts SET publication_kind='FEED',content_format=? WHERE id=? AND content_format IN ('VIDEO','VERTICAL_VIDEO')")
-      .run(imageFormat, postId);
-    syncImageContentFormat(postId);
+    const post = db.prepare('SELECT publication_kind,content_format FROM posts WHERE id=?').get(postId) as { publication_kind: string; content_format: string } | undefined;
+    if (post?.publication_kind === 'FEED' && ['IMAGE','CAROUSEL','TEXT_ONLY'].includes(post.content_format)) {
+      syncImageContentFormat(postId);
+    }
   }
 }
 
-export async function deleteMediaVersioned(mediaId: string, expectedContentVersion: number): Promise<{ postId: string; contentVersion: number }> {
+export async function deleteMediaVersioned(
+  mediaId: string,
+  expectedContentVersion: number,
+  actorSource: RevisionActorSource = 'manual'
+): Promise<{ postId: string; contentVersion: number }> {
   const media = db.prepare('SELECT * FROM media WHERE id=?').get(mediaId) as MediaRow | undefined;
   if (!media) throw new Error('Медиа не найдено');
   const poster = posterForVideo(media);
-  const committed = commitContentEdit(media.post_id, expectedContentVersion, 'manual', () => {
+  const committed = commitContentEdit(media.post_id, expectedContentVersion, actorSource, () => {
     db.prepare('DELETE FROM media WHERE id=?').run(mediaId);
     if (poster) db.prepare('DELETE FROM media WHERE id=?').run(poster.id);
     normalizeRemainingMedia(media.post_id);
