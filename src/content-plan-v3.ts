@@ -52,6 +52,8 @@ export type V3Normalized = {
   title: string;
   body: string;
   bodyRichJson: string;
+  tags: string[];
+  sourceNote: string | null;
   publicationKind: PublicationKind;
   contentFormat: ContentFormat;
   scheduleMode: 'MANUAL' | 'AT' | 'QUEUE';
@@ -93,6 +95,8 @@ type ExistingSourcePost = {
   title: string;
   body: string;
   body_rich_json: string;
+  tags_json: string;
+  source_note: string | null;
   publication_kind: PublicationKind;
   content_format: ContentFormat;
   schedule_mode: 'MANUAL' | 'AT' | 'QUEUE';
@@ -306,6 +310,41 @@ function portableContent(value: string, errors: string[], field: string): { plai
   }
 }
 
+function parseEditorialTags(value: unknown, errors: string[], field = 'tags'): string[] {
+  if (value === undefined || value === null || value === '') return [];
+  let raw: unknown = value;
+  if (typeof raw === 'string') {
+    const text = raw.trim();
+    if (!text) return [];
+    if (text.startsWith('[')) {
+      try { raw = JSON.parse(text); } catch { errors.push(`${field}: invalid JSON array`); return []; }
+    } else raw = text.split(/[;,]/);
+  }
+  if (!Array.isArray(raw) || raw.some((item) => typeof item !== 'string')) {
+    errors.push(`${field}: string list or array required`);
+    return [];
+  }
+  const tags = [...new Set((raw as string[]).map((tag) => tag.trim()).filter(Boolean))];
+  if (tags.length > 50 || tags.some((tag) => tag.length > 80)) {
+    errors.push(`${field}: max 50 tags, 80 chars each`);
+    return [];
+  }
+  return tags;
+}
+
+function storedTags(value: string | null | undefined): string[] {
+  try {
+    const parsed = JSON.parse(value || '[]');
+    return Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string') as string[] : [];
+  } catch { return []; }
+}
+
+function sameTags(left: string[], right: string[]): boolean {
+  const a = [...left].sort();
+  const b = [...right].sort();
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
 function resolveOverrides(cells: V3Cells, targets: ResolvedAccount[], errors: string[]): RichOverride[] {
   const overrides: RichOverride[] = [];
   const columns: Array<[Platform, 'telegram_body' | 'vk_body' | 'max_body' | 'instagram_body']> = [
@@ -351,6 +390,8 @@ function payloadHash(input: {
   templateKey: string;
   title: string;
   bodyRichJson: string;
+  tags: string[];
+  sourceNote: string | null;
   publicationKind: PublicationKind;
   contentFormat: ContentFormat;
   scheduleMode: 'MANUAL' | 'AT' | 'QUEUE';
@@ -365,6 +406,8 @@ function payloadHash(input: {
     templateKey: input.templateKey,
     title: input.title,
     bodyRichJson: input.bodyRichJson,
+    tags: [...input.tags].sort(),
+    sourceNote: input.sourceNote,
     publicationKind: input.publicationKind,
     contentFormat: input.contentFormat,
     scheduleMode: input.scheduleMode,
@@ -514,6 +557,8 @@ function semanticExistingMatch(existing: ExistingSourcePost, input: {
   projectId: string | null;
   title: string;
   bodyRichJson: string;
+  tags: string[];
+  sourceNote: string | null;
   publicationKind: PublicationKind;
   contentFormat: ContentFormat;
   scheduleMode: 'MANUAL' | 'AT' | 'QUEUE';
@@ -527,6 +572,8 @@ function semanticExistingMatch(existing: ExistingSourcePost, input: {
   try { existingRich = serializeRichText(parseRichTextJson(existing.body_rich_json)); }
   catch { return false; }
   if (existingRich !== input.bodyRichJson) return false;
+  if (!sameTags(storedTags(existing.tags_json), input.tags)) return false;
+  if ((existing.source_note ?? null) !== input.sourceNote) return false;
   if (existing.publication_kind !== input.publicationKind || existing.content_format !== input.contentFormat) return false;
   if (existing.schedule_mode !== input.scheduleMode) return false;
   if ((existing.scheduled_at_utc ?? null) !== (input.scheduledAt ?? null)) return false;
@@ -546,6 +593,8 @@ export type EditorialDraftContractInput = {
   templateKey?: unknown;
   internalTitle?: unknown;
   body?: unknown;
+  tags?: unknown;
+  sourceNote?: unknown;
   publicationKind?: unknown;
   contentFormat?: unknown;
   targets?: unknown;
@@ -628,6 +677,9 @@ export function resolveEditorialDraftV3(
     errors.push('body is required when templateKey is empty');
   }
   if (!body.trim() && !errors.some((issue) => issue.startsWith('body'))) errors.push('body must not be empty');
+  const tags = parseEditorialTags(input.tags, errors);
+  const sourceNoteRaw = optionalString(input.sourceNote, 'sourceNote', errors);
+  const sourceNote = sourceNoteRaw || null;
 
   const publicationKind = publicationKindValue(
     optionalString(input.publicationKind, 'publicationKind', errors),
@@ -681,20 +733,20 @@ export function resolveEditorialDraftV3(
   if (errors.length) throw new EditorialDraftContractError(errors);
 
   const hash = payloadHash({
-    action: 'UPSERT', projectId: projectRow!.id, templateKey, title, bodyRichJson,
+    action: 'UPSERT', projectId: projectRow!.id, templateKey, title, bodyRichJson, tags, sourceNote,
     publicationKind, contentFormat, scheduleMode, scheduledAt, scheduleTimezone, targets, overrides
   });
   return {
     rowNumber: 1, externalId: identity.externalId, sourceRevision,
     payloadHash: hash, action: 'UPSERT', projectId: projectRow!.id, project, templateKey,
-    title, body, bodyRichJson, publicationKind, contentFormat, scheduleMode, scheduledAt,
+    title, body, bodyRichJson, tags, sourceNote, publicationKind, contentFormat, scheduleMode, scheduledAt,
     scheduleTimezone, targetMode, targets, overrides, classification: 'NEW',
     postId: null, importedContentVersion: null
   };
 }
 
 export type EditorialUpdateResolution = Pick<V3Normalized,
-  'title' | 'body' | 'bodyRichJson' | 'publicationKind' | 'contentFormat' |
+  'title' | 'body' | 'bodyRichJson' | 'tags' | 'sourceNote' | 'publicationKind' | 'contentFormat' |
   'scheduleMode' | 'scheduledAt' | 'scheduleTimezone' | 'targets' | 'overrides'
 >;
 
@@ -723,6 +775,13 @@ export function resolveEditorialUpdateV3(postId: string, input: EditorialDraftCo
       if (parsed) { body = parsed.plain; bodyRichJson = parsed.richJson; }
     }
   }
+
+  const tags = Object.prototype.hasOwnProperty.call(input, 'tags')
+    ? parseEditorialTags(input.tags, errors)
+    : storedTags(current.tags_json);
+  const sourceNote = Object.prototype.hasOwnProperty.call(input, 'sourceNote')
+    ? (optionalString(input.sourceNote, 'sourceNote', errors) || null)
+    : (current.source_note ?? null);
 
   const publicationKind = publicationKindValue(
     Object.prototype.hasOwnProperty.call(input, 'publicationKind')
@@ -773,7 +832,7 @@ export function resolveEditorialUpdateV3(postId: string, input: EditorialDraftCo
   }
   if (errors.length) throw new EditorialDraftContractError(errors);
   return {
-    title, body, bodyRichJson, publicationKind, contentFormat,
+    title, body, bodyRichJson, tags, sourceNote, publicationKind, contentFormat,
     scheduleMode, scheduledAt, scheduleTimezone, targets, overrides
   };
 }
@@ -806,7 +865,7 @@ export async function validateContentPlanV3(parsed: V3Parsed, sourceIdRaw: strin
 
     const ref = sourceRef(sourceId, externalId);
     const existing = externalId ? db.prepare(`SELECT
-        id,project_id,title,body,body_rich_json,publication_kind,content_format,schedule_mode,
+        id,project_id,title,body,body_rich_json,tags_json,source_note,publication_kind,content_format,schedule_mode,
         scheduled_at_utc,schedule_timezone,content_version,imported_content_version,
         source_revision,source_payload_hash,status
       FROM posts WHERE source_type=? AND source_ref=?`)
@@ -818,6 +877,8 @@ export async function validateContentPlanV3(parsed: V3Parsed, sourceIdRaw: strin
     let title = '';
     let body = '';
     let bodyRichJson = serializeRichText(parsePortableRichText(''));
+    let tags: string[] = [];
+    let sourceNote: string | null = null;
     let publicationKind: PublicationKind = 'FEED';
     let contentFormat: ContentFormat = 'IMAGE';
     let scheduleMode: 'MANUAL' | 'AT' | 'QUEUE' = 'MANUAL';
@@ -865,6 +926,9 @@ export async function validateContentPlanV3(parsed: V3Parsed, sourceIdRaw: strin
       } else {
         errors.push('body is required when template_key is empty');
       }
+
+      tags = parseEditorialTags(cells.tags, errors);
+      sourceNote = cells.source_note.trim() || null;
 
       publicationKind = publicationKindValue(
         cells.publication_kind,
@@ -928,6 +992,8 @@ export async function validateContentPlanV3(parsed: V3Parsed, sourceIdRaw: strin
       templateKey,
       title,
       bodyRichJson,
+      tags,
+      sourceNote,
       publicationKind,
       contentFormat,
       scheduleMode,
@@ -957,6 +1023,8 @@ export async function validateContentPlanV3(parsed: V3Parsed, sourceIdRaw: strin
             projectId,
             title,
             bodyRichJson,
+            tags,
+            sourceNote,
             publicationKind,
             contentFormat,
             scheduleMode,
@@ -997,6 +1065,8 @@ export async function validateContentPlanV3(parsed: V3Parsed, sourceIdRaw: strin
       title,
       body,
       bodyRichJson,
+      tags,
+      sourceNote,
       publicationKind,
       contentFormat,
       scheduleMode,
@@ -1094,12 +1164,12 @@ export function applyContentPlanV3(
         created += 1;
         db.prepare(`INSERT INTO posts (
           id,project_id,title,body,body_rich_json,status,editorial_stage,schedule_mode,scheduled_at,scheduled_at_utc,schedule_timezone,
-          publication_kind,content_format,content_version,ready_revision_id,
+          publication_kind,content_format,source_note,tags_json,content_version,ready_revision_id,
           source_type,source_ref,source_revision,source_payload_hash,source_batch_id,imported_at,imported_content_version,created_at,updated_at
-        ) VALUES (?,?,?,?,?, 'DRAFT','DRAFT',?,?,?,?,?,?,1,NULL,?,?,?,?,?,?,1,?,?)`).run(
+        ) VALUES (?,?,?,?,?, 'DRAFT','DRAFT',?,?,?,?,?,?,?,?,1,NULL,?,?,?,?,?,?,1,?,?)`).run(
           postId, row.projectId, row.title, row.body, row.bodyRichJson,
           row.scheduleMode, row.scheduledAt, row.scheduledAt, row.scheduleTimezone,
-          row.publicationKind, row.contentFormat,
+          row.publicationKind, row.contentFormat, row.sourceNote, JSON.stringify(row.tags),
           options.sourceTypeOverride ?? SOURCE_TYPE, ref, row.sourceRevision, row.payloadHash, batch, now, now, now
         );
         applyResolvedTargetsAndOverrides(postId, row.targetMode, row.targets, row.overrides);
@@ -1121,9 +1191,9 @@ export function applyContentPlanV3(
       commitContentEdit(postId, row.importedContentVersion, options.actorSource, () => {
         if (row.classification === 'UPDATE') {
           if (!row.projectId) throw new Error('UPDATE row lost projectId after preview');
-          db.prepare('UPDATE posts SET project_id=?,title=?,body=?,body_rich_json=?,publication_kind=?,content_format=?,schedule_mode=?,scheduled_at=?,scheduled_at_utc=?,schedule_timezone=? WHERE id=?')
+          db.prepare('UPDATE posts SET project_id=?,title=?,body=?,body_rich_json=?,source_note=?,tags_json=?,publication_kind=?,content_format=?,schedule_mode=?,scheduled_at=?,scheduled_at_utc=?,schedule_timezone=? WHERE id=?')
             .run(
-              row.projectId, row.title, row.body, row.bodyRichJson, row.publicationKind, row.contentFormat,
+              row.projectId, row.title, row.body, row.bodyRichJson, row.sourceNote, JSON.stringify(row.tags), row.publicationKind, row.contentFormat,
               row.scheduleMode, row.scheduledAt, row.scheduledAt, row.scheduleTimezone, postId
             );
           applyResolvedTargetsAndOverrides(postId, row.targetMode, row.targets, row.overrides);
@@ -1202,7 +1272,7 @@ export async function exportContentPlanV3(sourceIdRaw: string): Promise<Buffer> 
         '3', externalId, 'UPSERT', String(post.project_slug), '', String(post.title), String(post.body),
         String(post.publication_kind ?? 'FEED'), String(post.content_format ?? 'IMAGE'), String(post.schedule_mode), post.scheduled_at_utc ? String(post.scheduled_at_utc) : '', String(post.schedule_timezone ?? ''),
         JSON.stringify(selected), platformBody('telegram'), platformBody('vk'), platformBody('max'), platformBody('instagram'),
-        '', '', '', String(post.source_revision ?? '')
+        '', String(post.tags_json ?? '[]'), String(post.source_note ?? ''), String(post.source_revision ?? '')
       ];
       await sheet.appendRow(exportRow.map(spreadsheetSafeText));
     }
