@@ -46,6 +46,18 @@ function bodyObject(body: unknown): Record<string, any> {
   return body as Record<string, any>;
 }
 
+function normalizedEditorialTags(value: unknown, fallbackJson = '[]'): string[] {
+  let raw: unknown = value;
+  if (raw === undefined) {
+    try { raw = JSON.parse(fallbackJson || '[]'); } catch { raw = []; }
+  }
+  if (typeof raw === 'string') raw = raw.split(/[;,]/).map((tag) => tag.trim()).filter(Boolean);
+  if (!Array.isArray(raw) || raw.some((item) => typeof item !== 'string')) throw new Error('tags должен быть массивом строк');
+  const tags = [...new Set((raw as string[]).map((tag) => tag.trim()).filter(Boolean))];
+  if (tags.length > 50 || tags.some((tag) => tag.length > 80)) throw new Error('tags: максимум 50 тегов по 80 символов');
+  return tags;
+}
+
 function postView(row: any): any {
   const media = listMedia(row.id);
   const targetRows = db.prepare(`SELECT pt.id, pt.account_id, pt.enabled, pt.override_text, pt.state, pt.attempts,
@@ -63,7 +75,9 @@ function postView(row: any): any {
     textPlain: target.text_plain ?? null
   }));
   const bodyRich = parseRichTextJson(String(row.body_rich_json));
-  return { ...row, bodyRich, media, targets };
+  let tags: string[] = [];
+  try { const parsed = JSON.parse(String(row.tags_json ?? '[]')); if (Array.isArray(parsed)) tags = parsed.filter((item) => typeof item === 'string'); } catch { tags = []; }
+  return { ...row, bodyRich, tags, media, targets };
 }
 
 function resolvedPostBody(input: Record<string, any>, current?: any): { body: string; bodyRichJson: string } {
@@ -326,6 +340,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       : body;
     try { schedule = scheduleMutation(mode, scheduleInput); }
     catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) }); }
+    let tags: string[];
+    try { tags = normalizedEditorialTags(body.tags); }
+    catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) }); }
     const created = createDraftPost({
       projectId,
       title,
@@ -335,6 +352,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       scheduledAt: schedule.scheduledAt,
       scheduledAtUtc: schedule.scheduledAtUtc,
       scheduleTimezone: schedule.scheduleTimezone,
+      editorNote: body.editorNote === undefined ? null : String(body.editorNote ?? ''),
+      sourceNote: body.sourceNote === undefined ? null : String(body.sourceNote ?? ''),
+      tags,
+      campaign: body.campaign === undefined ? null : String(body.campaign ?? ''),
       actorSource: 'manual'
     });
     return reply.code(201).send(postView(created));
@@ -354,6 +375,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     try { content = resolvedPostBody(body, current); }
     catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) }); }
     const mode = body.scheduleMode === undefined ? current.schedule_mode : String(body.scheduleMode);
+    let tags: string[];
+    try { tags = normalizedEditorialTags(body.tags, String(current.tags_json ?? '[]')); }
+    catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) }); }
+    const editorNote = body.editorNote === undefined ? current.editor_note : (String(body.editorNote ?? '').trim() || null);
+    const sourceNote = body.sourceNote === undefined ? current.source_note : (String(body.sourceNote ?? '').trim() || null);
+    const campaign = body.campaign === undefined ? current.campaign : (String(body.campaign ?? '').trim() || null);
     if (!title || !content.body.trim()) return reply.code(400).send({ error: 'Заголовок и текст обязательны' });
     if (!['MANUAL','AT','QUEUE'].includes(mode)) return reply.code(400).send({ error: 'Неверный scheduleMode' });
     if (current.schedule_mode === 'QUEUE' && mode === 'AT' && body.confirmQueueToAt !== true) {
@@ -365,8 +392,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     try {
       const version = expectedContentVersion(request, body);
       const committed = commitContentEdit(params.id, version, 'manual', () => {
-        db.prepare('UPDATE posts SET project_id=?,title=?,body=?,body_rich_json=?,schedule_mode=?,scheduled_at=?,scheduled_at_utc=?,schedule_timezone=?,updated_at=? WHERE id=?')
-          .run(projectId, title, content.body, content.bodyRichJson, mode, schedule.scheduledAt, schedule.scheduledAtUtc, schedule.scheduleTimezone, nowIso(), params.id);
+        db.prepare('UPDATE posts SET project_id=?,title=?,body=?,body_rich_json=?,schedule_mode=?,scheduled_at=?,scheduled_at_utc=?,schedule_timezone=?,editor_note=?,source_note=?,tags_json=?,campaign=?,updated_at=? WHERE id=?')
+          .run(projectId, title, content.body, content.bodyRichJson, mode, schedule.scheduledAt, schedule.scheduledAtUtc, schedule.scheduleTimezone,
+            editorNote, sourceNote, JSON.stringify(tags), campaign, nowIso(), params.id);
       });
       return { ok: true, contentVersion: committed.contentVersion, post: postView(db.prepare('SELECT * FROM posts WHERE id=?').get(params.id)) };
     } catch (error) {
