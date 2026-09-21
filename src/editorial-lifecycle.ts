@@ -141,6 +141,9 @@ export function requestReviewPost(
     if (post.editorial_stage === 'ARCHIVED' || post.editorial_stage === 'TRASHED') {
       throw new ContentImmutableError('Сначала восстановите пост из архива или корзины');
     }
+    if (post.editorial_stage === 'IN_REVIEW') {
+      return { contentVersion: post.content_version, editorialStage: post.editorial_stage, status: post.status };
+    }
     const committed = commitContentEdit(
       post.id,
       expectedContentVersion,
@@ -158,8 +161,79 @@ export function requestReviewPost(
   })();
 }
 
+export function returnToDraftPost(
+  postId: string,
+  expectedContentVersion: number,
+  actorSource: RevisionActorSource = 'manual'
+): LifecycleResult {
+  return db.transaction((): LifecycleResult => {
+    const post = lifecyclePost(postId);
+    assertVersion(post, expectedContentVersion);
+    if (!FUTURE_STATUSES.has(post.status)) {
+      throw new ContentImmutableError('Return to draft доступен только для ещё не опубликованного поста');
+    }
+    if (post.editorial_stage === 'ARCHIVED' || post.editorial_stage === 'TRASHED') {
+      throw new ContentImmutableError('Сначала восстановите пост из архива или корзины');
+    }
+    if (post.editorial_stage === 'DRAFT' && post.status === 'DRAFT') {
+      return { contentVersion: post.content_version, editorialStage: post.editorial_stage, status: post.status };
+    }
+    const committed = commitContentEdit(
+      post.id,
+      expectedContentVersion,
+      actorSource,
+      () => undefined,
+      { editorialStage: 'DRAFT', status: 'DRAFT' }
+    );
+    event({
+      postId: post.id,
+      type: 'post_returned_to_draft',
+      message: 'Публикация возвращена в черновик',
+      data: { previousStage: post.editorial_stage, previousStatus: post.status, contentVersion: committed.contentVersion }
+    });
+    return { contentVersion: committed.contentVersion, editorialStage: 'DRAFT', status: 'DRAFT' };
+  })();
+}
+
+export function approvePost(
+  postId: string,
+  expectedContentVersion: number,
+  actorSource: RevisionActorSource = 'manual'
+): LifecycleResult {
+  return db.transaction((): LifecycleResult => {
+    const post = lifecyclePost(postId);
+    assertVersion(post, expectedContentVersion);
+    if (!FUTURE_STATUSES.has(post.status)) {
+      throw new ContentImmutableError('Approve доступен только для ещё не опубликованного поста');
+    }
+    if (post.editorial_stage !== 'IN_REVIEW') {
+      throw new ContentImmutableError('Одобрить можно только публикацию на проверке');
+    }
+    const committed = commitContentEdit(
+      post.id,
+      expectedContentVersion,
+      actorSource,
+      () => undefined,
+      { editorialStage: 'APPROVED', status: 'DRAFT' }
+    );
+    event({
+      postId: post.id,
+      type: 'post_approved',
+      message: 'Публикация одобрена',
+      data: { previousStage: post.editorial_stage, contentVersion: committed.contentVersion }
+    });
+    return { contentVersion: committed.contentVersion, editorialStage: 'APPROVED', status: 'DRAFT' };
+  })();
+}
+
 export type EditorialActions = {
   edit: boolean;
+  requestReview: boolean;
+  returnToDraft: boolean;
+  approve: boolean;
+  markReady: boolean;
+  publishNow: boolean;
+  duplicate: boolean;
   archive: boolean;
   trash: boolean;
   restore: boolean;
@@ -172,6 +246,12 @@ export function editorialActions(post: { status: string; editorial_stage: Editor
   const published = PUBLISHED_STATUSES.has(post.status);
   return {
     edit: future && !inactive,
+    requestReview: future && !inactive && ['IDEA','DRAFT','APPROVED'].includes(post.editorial_stage),
+    returnToDraft: future && !inactive && ['IN_REVIEW','APPROVED'].includes(post.editorial_stage),
+    approve: future && !inactive && post.editorial_stage === 'IN_REVIEW',
+    markReady: future && !inactive && post.editorial_stage === 'APPROVED',
+    publishNow: post.status === 'READY' && !inactive,
+    duplicate: post.status !== 'PUBLISHING',
     archive: post.status !== 'PUBLISHING' && post.editorial_stage !== 'ARCHIVED' && post.editorial_stage !== 'TRASHED',
     trash: future && post.editorial_stage !== 'TRASHED',
     restore: inactive && (future || (published && post.editorial_stage === 'ARCHIVED')),
