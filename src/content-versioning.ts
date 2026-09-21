@@ -9,6 +9,7 @@ export type RevisionActorSource =
   | 'manual_restore'
   | 'content_plan'
   | 'google_sheets'
+  | 'integration_api'
   | 'system'
   | 'migration';
 

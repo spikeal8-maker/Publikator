@@ -303,6 +303,21 @@ const ew4005Project = await fixtureApi('POST', '/api/projects', {
   name: 'Browser EW4-005 Project',
   slug: 'browser-ew4-005'
 }, 201);
+const browserApiTemplate = createTemplate({
+  key: 'browser-api-template-v1',
+  name: 'Browser API Template v1',
+  projectId: ew4005Project.id,
+  templateType: 'POST',
+  bodyRich: {
+    type: 'doc',
+    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Browser API template snapshot', marks: [{ type: 'bold' }] }] }]
+  },
+  publicationKind: 'STORY',
+  contentFormat: 'STORY_SEQUENCE',
+  scheduleMode: 'MANUAL',
+  targetAccountIds: [editorAccountId]
+});
+const browserApiTitle = 'Browser Integration API Draft';
 
 await app.listen({ host: '127.0.0.1', port: 18087 });
 
@@ -1566,7 +1581,12 @@ try {
     .find((day) => day && day !== current), currentDayKey);
   assert.ok(targetDayKey && targetDayKey !== currentDayKey);
   const targetDayCell = page.locator(`.calendar-day-cell[data-calendar-day="${targetDayKey}"]`);
-  await editableCalendarCard.dragTo(targetDayCell);
+  const monthTransfer = await page.evaluateHandle(() => new DataTransfer());
+  await editableCalendarCard.dispatchEvent('dragstart', { dataTransfer: monthTransfer });
+  await targetDayCell.dispatchEvent('dragover', { dataTransfer: monthTransfer });
+  await targetDayCell.dispatchEvent('drop', { dataTransfer: monthTransfer });
+  await editableCalendarCard.dispatchEvent('dragend', { dataTransfer: monthTransfer }).catch(() => {});
+  await monthTransfer.dispose();
   await page.waitForFunction(({ id, day }) =>
     document.querySelector(`.calendar-day-cell[data-calendar-day="${day}"] [data-calendar-post="${id}"]`) !== null,
     { id: calendarCreated.id, day: targetDayKey }
@@ -1693,6 +1713,134 @@ try {
   assert.match(sourcesText, /Google Sheets/, 'Google Sheets live source section is missing');
   assert.match(sourcesText, /Google Drive \/ Яндекс Диск/, 'cloud media source card is missing');
 
+  // EW4-009: Integration API key UI -> external create -> normal Content workflow.
+  const integrationSection = page.locator('#operator-integration-api');
+  await integrationSection.waitFor({ state: 'visible', timeout: 5000 });
+  await integrationSection.locator('#operator-new-api-key').click();
+  const apiKeyFormModal = page.locator('.integration-key-form-modal');
+  await apiKeyFormModal.waitFor({ state: 'visible', timeout: 5000 });
+  await apiKeyFormModal.locator('input[name="name"]').fill('Browser API Key');
+  for (const scope of ['content:draft:write','content:read','schedule:write','approval:request']) {
+    await apiKeyFormModal.locator(`input[name="scope"][value="${scope}"]`).check();
+  }
+  await apiKeyFormModal.locator('button.primary[type="submit"]').click();
+
+  let tokenModal = page.locator('.integration-token-modal');
+  await tokenModal.waitFor({ state: 'visible', timeout: 5000 });
+  const browserApiToken = await tokenModal.locator('.integration-token-once').inputValue();
+  assert.match(browserApiToken, /^pk_[A-Za-z0-9_-]{40,}$/);
+  const browserApiPrefix = browserApiToken.slice(0, 12);
+  const storageWhileOpen = await page.evaluate(() => ({
+    local: JSON.stringify({ ...localStorage }),
+    session: JSON.stringify({ ...sessionStorage }),
+    dataset: [...document.querySelectorAll('*')].flatMap((element) => Object.values(element.dataset || {}))
+  }));
+  assert.equal(storageWhileOpen.local.includes(browserApiToken), false, 'API token must not enter localStorage');
+  assert.equal(storageWhileOpen.session.includes(browserApiToken), false, 'API token must not enter sessionStorage');
+  assert.equal(storageWhileOpen.dataset.includes(browserApiToken), false, 'API token must not enter DOM dataset');
+
+  await tokenModal.locator('.integration-token-close').click();
+  await tokenModal.waitFor({ state: 'detached', timeout: 5000 });
+  assert.equal((await page.locator('body').textContent()).includes(browserApiToken), false, 'closed one-time token must leave DOM');
+
+  let apiKeyRow = integrationSection.locator('tbody tr').filter({ hasText: browserApiPrefix });
+  await apiKeyRow.waitFor({ state: 'visible', timeout: 5000 });
+  const browserApiKeyId = await apiKeyRow.getAttribute('data-api-key-id');
+  assert.ok(browserApiKeyId);
+  assert.equal((await apiKeyRow.innerText()).includes(browserApiToken), false, 'key list must show prefix only');
+
+  const integrationRequest = (token, method, url, payload, headers = {}) => app.inject({
+    method,
+    url,
+    headers: { authorization: `Bearer ${token}`, ...headers },
+    ...(payload === undefined ? {} : { payload })
+  });
+  const browserApiCreate = await integrationRequest(
+    browserApiToken,
+    'POST',
+    '/api/integration/v1/drafts',
+    {
+      project: ew4005Project.slug,
+      externalId: 'browser-api-external-001',
+      templateKey: browserApiTemplate.key,
+      internalTitle: browserApiTitle,
+      body: '**Browser API Bold**\n[API link](https://example.org/api)\n> API quote',
+      schedule: { mode: 'AT', at: '2026-10-20T14:00:00' }
+    },
+    { 'idempotency-key': 'browser-api-idem-001' }
+  );
+  assert.equal(browserApiCreate.statusCode, 201, browserApiCreate.body);
+  const browserApiPost = browserApiCreate.json().post;
+  assert.equal(browserApiPost.publicationStatus, 'DRAFT');
+  assert.equal(browserApiPost.editorialStage, 'DRAFT');
+  assert.equal(browserApiPost.contentVersion, 1);
+  assert.equal(browserApiPost.publicationKind, 'STORY');
+  assert.equal(browserApiPost.contentFormat, 'STORY_SEQUENCE');
+  assert.equal(browserApiPost.schedule.timezone, 'Europe/Moscow');
+  assert.equal(browserApiPost.schedule.at, '2026-10-20T11:00:00.000Z');
+  assert.deepEqual(browserApiPost.targets.map((target) => target.accountId), [editorAccountId]);
+
+  await page.goto(`${base}/content`, { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction((title) => [...document.querySelectorAll('#view table.table tbody tr')]
+    .some((row) => row.textContent?.includes(title)), browserApiTitle);
+  const browserApiRow = contentRow(browserApiTitle);
+  assert.equal(await browserApiRow.count(), 1, 'Integration API Post must render once in normal Content');
+  await browserApiRow.locator('.open-post').click();
+  const browserApiInspector = page.locator('.editorial-inspector-overlay');
+  await browserApiInspector.waitFor({ state: 'visible', timeout: 5000 });
+  assert.equal(await browserApiInspector.locator('[data-inspector-rich-text] strong').filter({ hasText: 'Browser API Bold' }).count(), 1);
+  assert.equal(await browserApiInspector.locator('[data-inspector-rich-text] a[href^="https://example.org/api"]').count(), 1);
+  assert.equal(await browserApiInspector.locator('[data-inspector-rich-text] blockquote').filter({ hasText: 'API quote' }).count(), 1);
+  const expectedApiStoryFormat = await page.evaluate(async () =>
+    (await import('/presentation-labels.js')).publicationFormatLabel('STORY', 'STORY_SEQUENCE')
+  );
+  const browserApiInspectorText = await browserApiInspector.innerText();
+  assert.ok(browserApiInspectorText.includes(expectedApiStoryFormat));
+  assert.ok(browserApiInspectorText.includes('Browser editor channel'));
+  await browserApiInspector.locator('.inspector-close').click();
+  await browserApiInspector.waitFor({ state: 'detached', timeout: 5000 });
+
+  await page.goto(`${base}/sources`, { waitUntil: 'domcontentloaded' });
+  await page.locator('#operator-integration-api').waitFor({ state: 'visible', timeout: 5000 });
+  apiKeyRow = page.locator('#operator-integration-api tbody tr').filter({ hasText: browserApiPrefix });
+  page.once('dialog', (dialog) => dialog.accept());
+  await apiKeyRow.locator('.integration-key-rotate').click();
+  tokenModal = page.locator('.integration-token-modal');
+  await tokenModal.waitFor({ state: 'visible', timeout: 5000 });
+  const rotatedApiToken = await tokenModal.locator('.integration-token-once').inputValue();
+  assert.match(rotatedApiToken, /^pk_/);
+  assert.notEqual(rotatedApiToken, browserApiToken);
+  const rotatedPrefix = rotatedApiToken.slice(0, 12);
+  await tokenModal.locator('.integration-token-close').click();
+  await tokenModal.waitFor({ state: 'detached', timeout: 5000 });
+
+  const oldTokenAfterRotate = await integrationRequest(browserApiToken, 'GET', '/api/integration/v1/openapi.json');
+  assert.equal(oldTokenAfterRotate.statusCode, 401, oldTokenAfterRotate.body);
+  const newTokenAfterRotate = await integrationRequest(rotatedApiToken, 'GET', '/api/integration/v1/openapi.json');
+  assert.equal(newTokenAfterRotate.statusCode, 200, newTokenAfterRotate.body);
+
+  const rotatedRow = page.locator('#operator-integration-api tbody tr').filter({ hasText: rotatedPrefix });
+  await rotatedRow.waitFor({ state: 'visible', timeout: 5000 });
+  page.once('dialog', (dialog) => dialog.accept());
+  await rotatedRow.locator('.integration-key-revoke').click();
+  await page.waitForFunction((prefix) => {
+    const rows = [...document.querySelectorAll('#operator-integration-api tbody tr')];
+    return rows.some((row) => row.textContent?.includes(prefix) && row.textContent?.includes('Отозван'));
+  }, rotatedPrefix);
+  const tokenAfterRevoke = await integrationRequest(rotatedApiToken, 'GET', '/api/integration/v1/openapi.json');
+  assert.equal(tokenAfterRevoke.statusCode, 401, tokenAfterRevoke.body);
+  const storageAfterClose = await page.evaluate(() => ({
+    local: JSON.stringify({ ...localStorage }),
+    session: JSON.stringify({ ...sessionStorage }),
+    dataset: [...document.querySelectorAll('*')].flatMap((element) => Object.values(element.dataset || {}))
+  }));
+  for (const token of [browserApiToken, rotatedApiToken]) {
+    assert.equal(storageAfterClose.local.includes(token), false);
+    assert.equal(storageAfterClose.session.includes(token), false);
+    assert.equal(storageAfterClose.dataset.includes(token), false);
+    assert.equal((await page.locator('body').textContent()).includes(token), false);
+  }
+
   const editorialSheetCard = page.locator(`.gs-connector[data-gs-id="${browserSheetConnector.id}"]`);
   await editorialSheetCard.waitFor({ state: 'visible', timeout: 5000 });
   await editorialSheetCard.locator('.gs-preview').click();
@@ -1814,6 +1962,8 @@ try {
     compilerPreviewParity: true,
     compilerPublisherParity: true,
     googleSheetsEditorialV3: true,
+    integrationApiEditorialV1: true,
+    integrationApiOneTimeToken: true,
     noBodyOverflow: true,
     pageErrors: 0
   }, null, 2));

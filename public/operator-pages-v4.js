@@ -234,6 +234,143 @@ async function applySourceFile() {
   }
 }
 
+
+const INTEGRATION_API_UI_SCOPES = [
+  ['content:draft:write', 'Создание и редактирование DRAFT'],
+  ['content:read', 'Чтение Integration API публикаций'],
+  ['schedule:write', 'Изменение расписания'],
+  ['approval:request', 'Отправка на проверку']
+];
+
+function integrationTokenModal(token) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay integration-token-modal';
+  overlay.innerHTML = `<div class="modal-card">
+    <h2>Скопируйте ключ сейчас</h2>
+    <p>После закрытия он больше не будет показан.</p>
+    <label>API token<input class="integration-token-once" type="text" readonly value="${operatorEsc(token)}"></label>
+    <div class="row-actions">
+      <button class="primary integration-token-copy" type="button">Копировать</button>
+      <button class="secondary integration-token-close" type="button">Закрыть</button>
+    </div>
+  </div>`;
+  const input = overlay.querySelector('.integration-token-once');
+  const close = () => {
+    input.value = '';
+    overlay.remove();
+  };
+  overlay.querySelector('.integration-token-copy').onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(input.value);
+      overlay.querySelector('.integration-token-copy').textContent = 'Скопировано';
+    } catch {
+      input.select();
+    }
+  };
+  overlay.querySelector('.integration-token-close').onclick = close;
+  overlay.addEventListener('click', (event) => { if (event.target === overlay) close(); });
+  document.body.append(overlay);
+}
+
+function integrationKeyForm() {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay integration-key-form-modal';
+  overlay.innerHTML = `<div class="modal-card">
+    <h2>Новый API-ключ</h2>
+    <form class="operator-form integration-key-form">
+      <label class="full">Название<input name="name" required maxlength="120" placeholder="AI publisher bot"></label>
+      <div class="full"><span class="rich-text-label">Scopes</span>
+        <div class="target-picker">${INTEGRATION_API_UI_SCOPES.map(([scope, label]) =>
+          `<label class="target-check"><input type="checkbox" name="scope" value="${operatorEsc(scope)}"> ${operatorEsc(label)} <code>${operatorEsc(scope)}</code></label>`
+        ).join('')}</div>
+      </div>
+      <div class="integration-key-form-error error full"></div>
+      <div class="row-actions full">
+        <button class="primary" type="submit">Создать</button>
+        <button class="secondary integration-key-form-close" type="button">Отмена</button>
+      </div>
+    </form>
+  </div>`;
+  const form = overlay.querySelector('.integration-key-form');
+  const close = () => overlay.remove();
+  overlay.querySelector('.integration-key-form-close').onclick = close;
+  form.onsubmit = async (event) => {
+    event.preventDefault();
+    const error = overlay.querySelector('.integration-key-form-error');
+    error.textContent = '';
+    try {
+      const data = new FormData(form);
+      const scopes = [...form.querySelectorAll('input[name="scope"]:checked')].map((input) => input.value);
+      const created = await operatorApi('/api/integration-keys', {
+        method: 'POST',
+        body: JSON.stringify({ name: String(data.get('name') || '').trim(), scopes })
+      });
+      const token = String(created.token || '');
+      close();
+      await loadIntegrationApiKeys();
+      integrationTokenModal(token);
+    } catch (failure) {
+      error.textContent = failure instanceof Error ? failure.message : String(failure);
+    }
+  };
+  document.body.append(overlay);
+}
+
+function integrationKeyRows(keys) {
+  if (!keys.length) return '<tr><td colspan="7">API-ключей пока нет</td></tr>';
+  return keys.map((key) => `<tr data-api-key-id="${operatorEsc(key.id)}">
+    <td><strong>${operatorEsc(key.name)}</strong></td>
+    <td><code>${operatorEsc(key.prefix)}</code></td>
+    <td class="small">${operatorEsc((key.scopes || []).join(', '))}</td>
+    <td class="small">${operatorEsc(new Date(key.createdAt).toLocaleString())}</td>
+    <td class="small">${key.lastUsedAt ? operatorEsc(new Date(key.lastUsedAt).toLocaleString()) : '—'}</td>
+    <td>${key.revokedAt ? '<span class="badge">Отозван</span>' : '<span class="badge ok">Активен</span>'}</td>
+    <td><div class="row-actions">
+      ${key.revokedAt ? '' : '<button class="secondary integration-key-rotate" type="button">Rotate</button><button class="secondary danger integration-key-revoke" type="button">Revoke</button>'}
+    </div></td>
+  </tr>`).join('');
+}
+
+async function loadIntegrationApiKeys() {
+  const host = document.querySelector('#operator-integration-api');
+  if (!host) return;
+  const body = host.querySelector('tbody');
+  const result = host.querySelector('.integration-api-result');
+  try {
+    const response = await operatorApi('/api/integration-keys');
+    const keys = response.keys || [];
+    body.innerHTML = integrationKeyRows(keys);
+    body.querySelectorAll('.integration-key-rotate').forEach((button) => {
+      button.onclick = async () => {
+        const row = button.closest('[data-api-key-id]');
+        if (!window.confirm('Rotate API-ключ? Старый token сразу перестанет работать.')) return;
+        try {
+          const rotated = await operatorApi(`/api/integration-keys/${encodeURIComponent(row.dataset.apiKeyId)}/rotate`, { method: 'POST', body: '{}' });
+          const token = String(rotated.token || '');
+          await loadIntegrationApiKeys();
+          integrationTokenModal(token);
+        } catch (failure) {
+          result.textContent = failure instanceof Error ? failure.message : String(failure);
+        }
+      };
+    });
+    body.querySelectorAll('.integration-key-revoke').forEach((button) => {
+      button.onclick = async () => {
+        const row = button.closest('[data-api-key-id]');
+        if (!window.confirm('Отозвать API-ключ?')) return;
+        try {
+          await operatorApi(`/api/integration-keys/${encodeURIComponent(row.dataset.apiKeyId)}/revoke`, { method: 'POST', body: '{}' });
+          await loadIntegrationApiKeys();
+        } catch (failure) {
+          result.textContent = failure instanceof Error ? failure.message : String(failure);
+        }
+      };
+    });
+  } catch (failure) {
+    result.textContent = failure instanceof Error ? failure.message : String(failure);
+  }
+}
+
 async function renderSourcesPage() {
   operatorTitle.textContent = 'Источники / Интеграции';
   operatorView.innerHTML = '<div class="muted">Загрузка источников…</div>';
@@ -259,6 +396,11 @@ async function renderSourcesPage() {
           <div class="operator-connector-card" style="margin-top:10px"><strong>Google Drive / Яндекс Диск</strong><span>Поддерживаются как источники изображений для Google Sheets; файлы после импорта сохраняются локально в Publikator.</span></div>
         </aside>
       </div>
+      <section class="operator-section" id="operator-integration-api" style="min-width:0">
+        <div class="operator-page-head"><div><h3>Integration API</h3><p>Создайте Bearer API key для бота или AI. Полный token показывается только один раз.</p></div><button id="operator-new-api-key" class="primary" type="button">+ Новый API-ключ</button></div>
+        <div class="operator-preview-table"><table class="table"><thead><tr><th>Название</th><th>Prefix</th><th>Scopes</th><th>Создан</th><th>Последнее использование</th><th>Статус</th><th>Действия</th></tr></thead><tbody><tr><td colspan="7">Загрузка…</td></tr></tbody></table></div>
+        <div class="integration-api-result error"></div>
+      </section>
     </div>`;
     const file = document.querySelector('#operator-source-file');
     const preview = document.querySelector('#operator-source-preview');
@@ -274,6 +416,8 @@ async function renderSourcesPage() {
     });
     preview.onclick = previewSourceFile;
     apply.onclick = applySourceFile;
+    document.querySelector('#operator-new-api-key').onclick = integrationKeyForm;
+    await loadIntegrationApiKeys();
   } catch (error) {
     operatorView.innerHTML = `<div class="card error">${operatorEsc(error instanceof Error ? error.message : String(error))}</div>`;
   }

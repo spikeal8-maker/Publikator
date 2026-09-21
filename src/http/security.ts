@@ -47,6 +47,7 @@ function exactRequestOrigin(request: FastifyRequest, originHeader: string): bool
 
 export async function registerBrowserSecurity(app: FastifyInstance): Promise<void> {
   app.addHook('onRequest', async (request, reply) => {
+    if (request.url.startsWith('/api/integration/v1/')) return;
     if (!request.url.startsWith('/api/') || !MUTATING_METHODS.has(request.method)) return;
 
     const rawOrigin = request.headers.origin;
