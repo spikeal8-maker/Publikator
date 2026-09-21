@@ -459,6 +459,197 @@ async function writeBack(connectorId: string, cfg: SheetConfig, credentials: Rec
   if (!response.ok) throw new Error(`Google Sheets status write-back failed (HTTP ${response.status})`);
 }
 
+
+type GoogleSheetsConflictResolution = 'COMPARE' | 'KEEP_PUBLIKATOR' | 'USE_SHEET';
+
+function conflictLocalView(postId: string): Record<string, unknown> {
+  const post = db.prepare(`SELECT p.*,pr.slug AS project_slug FROM posts p JOIN projects pr ON pr.id=p.project_id WHERE p.id=?`).get(postId) as any;
+  if (!post) throw new Error('Conflict post not found');
+  const targets = db.prepare(`SELECT pt.account_id,a.platform,a.name,tr.text_plain,tr.text_rich_json
+    FROM post_targets pt JOIN social_accounts a ON a.id=pt.account_id
+    LEFT JOIN target_renditions tr ON tr.target_id=pt.id
+    WHERE pt.post_id=? AND pt.enabled=1 ORDER BY a.platform,a.name,a.id`).all(postId) as any[];
+  let tags: string[] = [];
+  try { const parsed=JSON.parse(String(post.tags_json ?? '[]')); if(Array.isArray(parsed)) tags=parsed.filter((item)=>typeof item==='string'); } catch {}
+  return {
+    id: post.id,
+    project: post.project_slug,
+    internalTitle: post.title,
+    body: post.body,
+    bodyRichJson: post.body_rich_json,
+    tags,
+    sourceNote: post.source_note ?? null,
+    publicationKind: post.publication_kind,
+    contentFormat: post.content_format,
+    schedule: { mode: post.schedule_mode, at: post.scheduled_at_utc ?? null, timezone: post.schedule_timezone ?? null },
+    targets: targets.map((target)=>({
+      accountId:target.account_id,platform:target.platform,name:target.name,
+      override:target.text_rich_json?{body:target.text_plain ?? '',bodyRichJson:target.text_rich_json}:null
+    })),
+    editorialStage: post.editorial_stage,
+    publicationStatus: post.status,
+    contentVersion: post.content_version
+  };
+}
+
+function conflictSheetView(normalized: any): Record<string, unknown> {
+  return {
+    externalId: normalized.externalId,
+    sourceRevision: normalized.sourceRevision,
+    project: normalized.project,
+    internalTitle: normalized.title,
+    body: normalized.body,
+    bodyRichJson: normalized.bodyRichJson,
+    tags: normalized.tags ?? [],
+    sourceNote: normalized.sourceNote ?? null,
+    publicationKind: normalized.publicationKind,
+    contentFormat: normalized.contentFormat,
+    schedule: { mode: normalized.scheduleMode, at: normalized.scheduledAt, timezone: normalized.scheduleTimezone },
+    targets: normalized.targets,
+    overrides: normalized.overrides
+  };
+}
+
+function singleConflictValidation(
+  preview: GoogleSheetsCloudMediaPreview | GoogleSheetsPreview,
+  row: any,
+  contentVersion: number
+): V3Validation {
+  const normalized = { ...row.normalized, classification: 'UPDATE', importedContentVersion: contentVersion };
+  return {
+    version: 3,
+    sourceId: preview.sourceId,
+    fileSha256: preview.fileSha256,
+    format: preview.format,
+    canApply: true,
+    summary: { totalRows:1,newRows:0,updateRows:1,unchangedRows:0,conflicts:0,requests:0,errors:0 },
+    rows: [{ ...row, classification:'UPDATE', errors:[], normalized }]
+  };
+}
+
+function singleCloudConflictPreview(
+  preview: GoogleSheetsCloudMediaPreview,
+  row: EnrichedRow,
+  contentVersion: number
+): GoogleSheetsCloudMediaPreview {
+  const validation=singleConflictValidation(preview,row,contentVersion);
+  return {
+    ...preview,
+    ...validation,
+    rows: validation.rows.map((item)=>({ ...item, mediaPreview: row.mediaPreview })),
+    canApply:true,
+    managedMediaRows: row.mediaPreview?.managed ? 1 : 0,
+    mediaSnapshotSha256: preview.mediaSnapshotSha256
+  };
+}
+
+async function applyConflictCloudRow(
+  connectorId: string,
+  preview: GoogleSheetsCloudMediaPreview,
+  row: EnrichedRow,
+  contentVersion: number
+): Promise<ReturnType<typeof applyContentPlanV3>> {
+  const single=singleCloudConflictPreview(preview,row,contentVersion);
+  const downloads=await prepareDownloads(single);
+  let atomicPlans:AtomicMediaPlan[]=[];
+  let committed=false;
+  try {
+    const staged=await stageAtomicMediaPlans(single,downloads);
+    atomicPlans=staged.plans;
+    const mediaByExternalId=new Map(atomicPlans.map((plan)=>[plan.externalId,plan]));
+    const result=applyContentPlanV3(single,{
+      actorSource:'google_sheets',
+      sourceTypeOverride:'google_sheets',
+      newPostIds:staged.newPostIds,
+      afterRow:({row:resolved,postId,classification})=>{
+        if(classification!=='UPDATE')return;
+        const plan=mediaByExternalId.get(resolved.externalId);
+        if(!plan)return;
+        if(plan.postId!==postId)throw new Error(`Cloud media post identity changed during conflict resolution: ${resolved.externalId}`);
+        applyAtomicMediaPlan(plan);
+      }
+    });
+    committed=true;
+    return result;
+  } catch(error) {
+    await cleanupStagedFiles(atomicPlans);
+    throw error;
+  } finally {
+    await Promise.all(downloads.flatMap((plan)=>plan.files.map((file)=>file.cleanup()))).catch(()=>undefined);
+    if(committed)await cleanupPreviousFiles(atomicPlans,connectorId);
+  }
+}
+
+export async function resolveGoogleSheetsConflict(
+  connectorId: string,
+  externalIdRaw: string,
+  resolution: GoogleSheetsConflictResolution,
+  expectedSourceSnapshotSha256: string,
+  expectedMediaSnapshotSha256?: string | null
+): Promise<Record<string, unknown>> {
+  const externalId=externalIdRaw.trim();
+  if(!externalId)throw new Error('externalId is required');
+  if(!['COMPARE','KEEP_PUBLIKATOR','USE_SHEET'].includes(resolution))throw new Error('Unknown conflict resolution');
+  if(!/^[a-f0-9]{64}$/i.test(expectedSourceSnapshotSha256))throw new Error('A preview SHA-256 is required');
+
+  const preview=await previewGoogleSheetsCloudMedia(connectorId);
+  if(preview.sourceSnapshotSha256!==expectedSourceSnapshotSha256.toLowerCase()) {
+    throw new Error('Google Sheet changed after preview; preview again before resolving conflict');
+  }
+  if('managedMediaRows' in preview && preview.managedMediaRows>0) {
+    if(!expectedMediaSnapshotSha256 || preview.mediaSnapshotSha256!==expectedMediaSnapshotSha256.toLowerCase()) {
+      throw new Error('Cloud media changed or was not confirmed after preview; preview again before resolving conflict');
+    }
+  }
+  const row=preview.rows.find((item:any)=>item.normalized?.externalId===externalId);
+  if(!row?.normalized || row.classification!=='CONFLICT')throw new Error('Conflict is no longer current; preview again');
+
+  const current=currentSourcePost(connectorId,externalId);
+  if(!current || current.id!==row.normalized.postId)throw new Error('Conflict post binding changed; preview again');
+  const local=conflictLocalView(current.id);
+  const sheet=conflictSheetView(row.normalized);
+
+  if(resolution==='COMPARE') {
+    return { ok:true,resolution,externalId,postId:current.id,sourceSnapshotSha256:preview.sourceSnapshotSha256,local,sheet };
+  }
+
+  if(resolution==='KEEP_PUBLIKATOR') {
+    const now=nowIso();
+    db.transaction(()=>{
+      const latest=currentSourcePost(connectorId,externalId);
+      if(!latest || latest.id!==current.id || latest.content_version!==current.content_version) {
+        throw new Error('Publikator post changed after preview; preview again');
+      }
+      db.prepare(`UPDATE posts SET source_revision=?,source_payload_hash=?,imported_at=?,imported_content_version=? WHERE id=?`)
+        .run(row.normalized.sourceRevision,row.normalized.payloadHash,now,latest.content_version,latest.id);
+      event({
+        postId:latest.id,type:'sheet.sync_conflict',message:'Google Sheets conflict resolved: kept Publikator version',
+        data:{connectorId,externalId,resolution:'KEEP_PUBLIKATOR',contentVersion:latest.content_version}
+      });
+    })();
+    return { ok:true,resolution,externalId,postId:current.id,contentVersion:current.content_version };
+  }
+
+  let result:ReturnType<typeof applyContentPlanV3>;
+  if('managedMediaRows' in preview) {
+    result=await applyConflictCloudRow(connectorId,preview,row as EnrichedRow,current.content_version);
+  } else {
+    result=applyContentPlanV3(singleConflictValidation(preview,row,current.content_version),{
+      actorSource:'google_sheets',sourceTypeOverride:'google_sheets'
+    });
+  }
+  const updated=currentSourcePost(connectorId,externalId);
+  event({
+    postId:current.id,type:'sheet.sync_conflict',message:'Google Sheets conflict resolved: used Sheet version',
+    data:{connectorId,externalId,resolution:'USE_SHEET',contentVersion:updated?.content_version ?? null}
+  });
+  return {
+    ok:true,resolution,externalId,postId:current.id,
+    contentVersion:updated?.content_version ?? null,
+    updated:result.updated
+  };
+}
+
 export async function applyGoogleSheetsCloudMedia(connectorId: string, expectedSnapshotSha256: string, expectedMediaSnapshotSha256?: string | null): Promise<
   Awaited<ReturnType<typeof applyGoogleSheetsValues>> | {
     created: number; updated: number; unchanged: number; archived: number; trashed: number; postIds: string[];
