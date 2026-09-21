@@ -449,6 +449,63 @@ export function parsePortableRichText(text: string): RichTextDocument {
   return normalizeRichText({ type: 'doc', content: blocks });
 }
 
+function escapePortableText(value: string): string {
+  return value.replace(/([\\*_\[\]\(\)~`>])/g, '\\$1');
+}
+
+function portableMarkedText(node: RichTextTextNode): string {
+  let value = escapePortableText(node.text);
+  const wrappers: Record<RichTextMarkType, [string, string]> = {
+    bold: ['**', '**'],
+    italic: ['_', '_'],
+    underline: ['__', '__'],
+    strike: ['~~', '~~'],
+    code: ['`', '`']
+  };
+  for (const mark of [...node.marks].reverse()) {
+    const wrapper = wrappers[mark.type];
+    value = wrapper[0] + value + wrapper[1];
+  }
+  return value;
+}
+
+function portableInlineNodes(nodes: RichTextInlineNode[]): string {
+  return nodes.map((node) => {
+    if (node.type === 'text') return portableMarkedText(node);
+    if (node.type === 'hard_break') return '\n';
+    const label = node.content.map(portableMarkedText).join('');
+    const href = node.attrs.href.replace(/([\\)])/g, '\\$1');
+    return '[' + label + '](' + href + ')';
+  }).join('');
+}
+
+function portableCodeBlock(node: RichTextCodeBlockNode): string {
+  const raw = node.content.map((item) => item.type === 'hard_break' ? '\n' : item.text).join('');
+  const escaped = raw.replace(/\\/g, '\\\\').replace(/`/g, '\\`');
+  return '```\n' + escaped + '\n```';
+}
+
+function portableBlock(node: RichTextBlockNode): string {
+  if (node.type === 'paragraph') return portableInlineNodes(node.content);
+  if (node.type === 'code_block') return portableCodeBlock(node);
+  if (node.type === 'blockquote') {
+    return node.content.map(portableBlock).join('\n\n').split('\n').map((line) => '> ' + line).join('\n');
+  }
+  if (node.type === 'list_item') return node.content.map(portableBlock).join('\n\n');
+  if (node.type === 'bullet_list' || node.type === 'ordered_list') {
+    return node.content.map((item, index) => {
+      const marker = node.type === 'bullet_list' ? '-' : String(index + 1) + '.';
+      const lines = portableBlock(item).split('\n');
+      return [marker + ' ' + (lines[0] ?? ''), ...lines.slice(1).map((line) => '  ' + line)].join('\n');
+    }).join('\n');
+  }
+  return '';
+}
+
+export function richTextToPortable(value: unknown): string {
+  const document = normalizeRichText(value);
+  return document.content.map(portableBlock).join('\n\n');
+}
 export function portableRichTextJson(text: string): string {
   return serializeRichText(parsePortableRichText(text));
 }
