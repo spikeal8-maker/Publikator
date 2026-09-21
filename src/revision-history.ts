@@ -85,6 +85,10 @@ export type RevisionDetail = RevisionSummary & {
   scheduleTimezone: string | null;
   publicationKind: string;
   contentFormat: string;
+  editorNote: string | null;
+  sourceNote: string | null;
+  tags: string[];
+  campaign: string | null;
   targets: RevisionTargetDetail[];
   media: RevisionMediaDetail[];
   contentMedia: RevisionContentMediaSnapshot[];
@@ -200,6 +204,13 @@ function mediaDetail(row: MediaRow): RevisionMediaDetail {
   };
 }
 
+function revisionTags(revision: ContentRevisionRow): string[] {
+  try {
+    const value = JSON.parse(revision.tags_json || '[]');
+    return Array.isArray(value) ? value.filter((item) => typeof item === 'string') as string[] : [];
+  } catch { return []; }
+}
+
 function revisionRichState(revision: ContentRevisionRow): { document: RichTextDocument; json: string; plain: string } {
   const document = parseRichTextJson(revision.body_rich_json);
   const json = serializeRichText(document);
@@ -296,6 +307,10 @@ export function getRevisionDetail(postId: string, revisionId: string): RevisionD
     scheduleTimezone: revision.schedule_timezone,
     publicationKind: revision.publication_kind,
     contentFormat: revision.content_format,
+    editorNote: revision.editor_note,
+    sourceNote: revision.source_note,
+    tags: revisionTags(revision),
+    campaign: revision.campaign,
     targets: targetDetails(revision),
     media: parseMedia(revision).map(mediaDetail),
     contentMedia: revisionContentMedia(revision)
@@ -481,6 +496,15 @@ export async function getRevisionDiff(postId: string, revisionId: string) {
         diff: diffText(revision.body, current.body)
       }
     },
+    editorialMetadata: {
+      editorNote: fieldDiff(revision.editor_note, current.editorNote),
+      sourceNote: fieldDiff(revision.source_note, current.sourceNote),
+      tags: fieldDiff(revisionTags(revision), (() => {
+        try { const value = JSON.parse(current.tagsJson || '[]'); return Array.isArray(value) ? value : []; }
+        catch { return []; }
+      })()),
+      campaign: fieldDiff(revision.campaign, current.campaign)
+    },
     publication: {
       editorialStage: fieldDiff(revision.editorial_stage, current.editorialStage),
       scheduleMode: fieldDiff(revision.schedule_mode, current.scheduleMode),
@@ -610,7 +634,7 @@ export async function restoreRevision(
     const committed = commitContentEdit(postId, expectedContentVersion, 'manual_restore', () => {
       db.prepare(`UPDATE posts SET
         title=?,body=?,body_rich_json=?,schedule_mode=?,scheduled_at=?,scheduled_at_utc=?,schedule_timezone=?,
-        publication_kind=?,content_format=?
+        publication_kind=?,content_format=?,editor_note=?,source_note=?,tags_json=?,campaign=?
         WHERE id=?`).run(
         selected.title,
         selectedRich.plain,
@@ -621,6 +645,10 @@ export async function restoreRevision(
         selected.schedule_timezone,
         selected.publication_kind,
         selected.content_format,
+        selected.editor_note,
+        selected.source_note,
+        selected.tags_json,
+        selected.campaign,
         postId
       );
       restoreTargets(postId, revisionTargets(selected));
