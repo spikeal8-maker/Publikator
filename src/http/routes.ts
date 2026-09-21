@@ -422,8 +422,6 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const post = db.prepare('SELECT * FROM posts WHERE id=?').get(params.id) as any;
     if (!post) return reply.code(404).send({ error: 'Пост не найден' });
     if (IMMUTABLE_POST_STATUSES.has(post.status)) return reply.code(409).send({ error: 'Пост уже начал публикацию; используйте повтор конкретной ошибочной площадки' });
-    const mediaCount = db.prepare('SELECT COUNT(*) AS count FROM media WHERE post_id=?').get(params.id) as { count: number };
-    if (mediaCount.count < 1) return reply.code(409).send({ error: 'Публикация без изображения запрещена' });
     ensureTargets(params.id);
     const accountCount = db.prepare("SELECT COUNT(*) AS count FROM post_targets pt JOIN social_accounts a ON a.id=pt.account_id WHERE pt.post_id=? AND pt.enabled=1 AND a.enabled=1").get(params.id) as { count: number };
     if (accountCount.count < 1) return reply.code(409).send({ error: 'Не выбрана ни одна активная соцсеть' });
