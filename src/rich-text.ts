@@ -324,9 +324,32 @@ function portableMarksWith(marks: RichTextMark[], type: RichTextMarkType): RichT
   return normalizedMarks([...marks, { type }]);
 }
 
+function portableEscapedAt(text: string, index: number): boolean {
+  let count = 0;
+  for (let cursor = index - 1; cursor >= 0 && text[cursor] === '\\'; cursor -= 1) count += 1;
+  return count % 2 === 1;
+}
+
+function portableFindUnescaped(text: string, needle: string, from: number): number {
+  let cursor = from;
+  while (cursor < text.length) {
+    const found = text.indexOf(needle, cursor);
+    if (found < 0) return -1;
+    if (!portableEscapedAt(text, found)) return found;
+    cursor = found + needle.length;
+  }
+  return -1;
+}
+
+function portableUnescape(value: string): string {
+  return value.replace(/\\(.)/gs, '$1');
+}
+
 function portableNextSpecial(text: string, from: number): number {
   const starts = [
+    text.indexOf('\\', from),
     text.indexOf('**', from),
+    text.indexOf('__', from),
     text.indexOf('~~', from),
     text.indexOf('`', from),
     text.indexOf('[', from),
@@ -343,16 +366,29 @@ function portableInline(text: string, marks: RichTextMark[] = []): RichTextInlin
   };
 
   while (index < text.length) {
+    if (text[index] === '\\' && index + 1 < text.length) {
+      pushText(text[index + 1]!);
+      index += 2;
+      continue;
+    }
     if (text.startsWith('**', index)) {
-      const end = text.indexOf('**', index + 2);
+      const end = portableFindUnescaped(text, '**', index + 2);
       if (end >= 0) {
         out.push(...portableInline(text.slice(index + 2, end), portableMarksWith(marks, 'bold')));
         index = end + 2;
         continue;
       }
     }
+    if (text.startsWith('__', index)) {
+      const end = portableFindUnescaped(text, '__', index + 2);
+      if (end >= 0) {
+        out.push(...portableInline(text.slice(index + 2, end), portableMarksWith(marks, 'underline')));
+        index = end + 2;
+        continue;
+      }
+    }
     if (text.startsWith('~~', index)) {
-      const end = text.indexOf('~~', index + 2);
+      const end = portableFindUnescaped(text, '~~', index + 2);
       if (end >= 0) {
         out.push(...portableInline(text.slice(index + 2, end), portableMarksWith(marks, 'strike')));
         index = end + 2;
@@ -360,19 +396,19 @@ function portableInline(text: string, marks: RichTextMark[] = []): RichTextInlin
       }
     }
     if (text[index] === '`') {
-      const end = text.indexOf('`', index + 1);
+      const end = portableFindUnescaped(text, '`', index + 1);
       if (end >= 0) {
-        pushText(text.slice(index + 1, end), portableMarksWith(marks, 'code'));
+        pushText(portableUnescape(text.slice(index + 1, end)), portableMarksWith(marks, 'code'));
         index = end + 1;
         continue;
       }
     }
     if (text[index] === '[') {
-      const labelEnd = text.indexOf('](', index + 1);
-      const hrefEnd = labelEnd >= 0 ? text.indexOf(')', labelEnd + 2) : -1;
+      const labelEnd = portableFindUnescaped(text, '](', index + 1);
+      const hrefEnd = labelEnd >= 0 ? portableFindUnescaped(text, ')', labelEnd + 2) : -1;
       if (labelEnd >= 0 && hrefEnd >= 0) {
         const label = text.slice(index + 1, labelEnd);
-        const href = text.slice(labelEnd + 2, hrefEnd).trim();
+        const href = portableUnescape(text.slice(labelEnd + 2, hrefEnd).trim());
         const labelNodes = portableInline(label, marks).flatMap((node): RichTextTextNode[] => {
           if (node.type === 'text') return [node];
           if (node.type === 'link') return node.content;
@@ -384,7 +420,7 @@ function portableInline(text: string, marks: RichTextMark[] = []): RichTextInlin
       }
     }
     if (text[index] === '_') {
-      const end = text.indexOf('_', index + 1);
+      const end = portableFindUnescaped(text, '_', index + 1);
       if (end >= 0) {
         out.push(...portableInline(text.slice(index + 1, end), portableMarksWith(marks, 'italic')));
         index = end + 1;
@@ -408,47 +444,98 @@ function portableParagraph(lines: string[]): RichTextParagraphNode {
   return { type: 'paragraph', content };
 }
 
-export function parsePortableRichText(text: string): RichTextDocument {
-  if (typeof text !== 'string') throw new Error('Portable rich text must be text');
-  if (Buffer.byteLength(text, 'utf8') > RICH_TEXT_LIMITS.maxTextBytes) {
-    throw new Error('Rich-text text exceeds size limit');
-  }
-  if (!text) return { type: 'doc', content: [] };
-
-  const blocks: Array<Exclude<RichTextBlockNode, RichTextListItemNode>> = [];
-  let paragraph: string[] = [];
-  let quote: string[] = [];
-  const flushParagraph = () => {
-    if (!paragraph.length) return;
-    blocks.push(portableParagraph(paragraph));
-    paragraph = [];
-  };
-  const flushQuote = () => {
-    if (!quote.length) return;
-    blocks.push({ type: 'blockquote', content: [portableParagraph(quote)] });
-    quote = [];
-  };
-
-  for (const rawLine of text.replace(/\r\n?/g, '\n').split('\n')) {
-    const quoteMatch = rawLine.match(/^\s*>\s?(.*)$/);
-    if (quoteMatch) {
-      flushParagraph();
-      quote.push(quoteMatch[1] ?? '');
-      continue;
-    }
-    if (!rawLine.trim()) {
-      flushParagraph();
-      flushQuote();
-      continue;
-    }
-    flushQuote();
-    paragraph.push(rawLine);
-  }
-  flushParagraph();
-  flushQuote();
-  return normalizeRichText({ type: 'doc', content: blocks });
+function portableCodeBlockContent(lines: string[]): Array<RichTextTextNode | RichTextHardBreakNode> {
+  const out: Array<RichTextTextNode | RichTextHardBreakNode> = [];
+  lines.forEach((line, index) => {
+    if (index > 0) out.push({ type: 'hard_break' });
+    const text = portableUnescape(line);
+    if (text) out.push({ type: 'text', text, marks: [] });
+  });
+  return out;
 }
 
+function portableListMatch(line: string): { ordered: boolean; body: string } | null {
+  const bullet = line.match(/^[-*]\s+(.*)$/);
+  if (bullet) return { ordered: false, body: bullet[1] ?? '' };
+  const ordered = line.match(/^\d+\.\s+(.*)$/);
+  if (ordered) return { ordered: true, body: ordered[1] ?? '' };
+  return null;
+}
+
+function portableBlockStart(line: string): boolean {
+  return line === '```' || /^\s*>\s?/.test(line) || portableListMatch(line) !== null;
+}
+
+function parsePortableBlocks(lines: string[]): Array<Exclude<RichTextBlockNode, RichTextListItemNode>> {
+  const blocks: Array<Exclude<RichTextBlockNode, RichTextListItemNode>> = [];
+  let index = 0;
+  while (index < lines.length) {
+    const line = lines[index] ?? '';
+    if (!line.trim()) { index += 1; continue; }
+
+    if (line === '```') {
+      const body: string[] = [];
+      index += 1;
+      while (index < lines.length && lines[index] !== '```') { body.push(lines[index] ?? ''); index += 1; }
+      if (index >= lines.length) throw new Error('Portable rich text code block is not closed');
+      index += 1;
+      blocks.push({ type: 'code_block', content: portableCodeBlockContent(body) });
+      continue;
+    }
+
+    if (/^\s*>\s?/.test(line)) {
+      const quoted: string[] = [];
+      while (index < lines.length) {
+        const match = (lines[index] ?? '').match(/^\s*>\s?(.*)$/);
+        if (!match) break;
+        quoted.push(match[1] ?? '');
+        index += 1;
+      }
+      blocks.push({ type: 'blockquote', content: parsePortableBlocks(quoted) });
+      continue;
+    }
+
+    const firstList = portableListMatch(line);
+    if (firstList) {
+      const ordered = firstList.ordered;
+      const items: RichTextListItemNode[] = [];
+      while (index < lines.length) {
+        const current = portableListMatch(lines[index] ?? '');
+        if (!current || current.ordered !== ordered) break;
+        const itemLines: string[] = [current.body];
+        index += 1;
+        while (index < lines.length) {
+          const continuation = lines[index] ?? '';
+          if (/^ {2}/.test(continuation)) { itemLines.push(continuation.slice(2)); index += 1; continue; }
+          if (!continuation.trim() && index + 1 < lines.length && /^ {2}/.test(lines[index + 1] ?? '')) { itemLines.push(''); index += 1; continue; }
+          break;
+        }
+        const content = parsePortableBlocks(itemLines);
+        items.push({ type: 'list_item', content: content.length ? content : [{ type: 'paragraph', content: [] }] });
+      }
+      blocks.push(ordered ? { type: 'ordered_list', content: items } : { type: 'bullet_list', content: items });
+      continue;
+    }
+
+    const paragraph: string[] = [];
+    while (index < lines.length) {
+      const current = lines[index] ?? '';
+      if (!current.trim()) break;
+      if (paragraph.length > 0 && portableBlockStart(current)) break;
+      paragraph.push(current);
+      index += 1;
+    }
+    blocks.push(portableParagraph(paragraph));
+  }
+  return blocks;
+}
+
+export function parsePortableRichText(text: string): RichTextDocument {
+  if (typeof text !== 'string') throw new Error('Portable rich text must be text');
+  if (Buffer.byteLength(text, 'utf8') > RICH_TEXT_LIMITS.maxTextBytes) throw new Error('Rich-text text exceeds size limit');
+  if (!text) return { type: 'doc', content: [] };
+  return normalizeRichText({ type: 'doc', content: parsePortableBlocks(text.replace(/\r\n?/g, '\n').split('\n')) });
+}
 function escapePortableText(value: string): string {
   return value.replace(/([\\*_\[\]\(\)~`>])/g, '\\$1');
 }
@@ -485,8 +572,15 @@ function portableCodeBlock(node: RichTextCodeBlockNode): string {
   return '```\n' + escaped + '\n```';
 }
 
+function portableParagraphBlock(node: RichTextParagraphNode): string {
+  return portableInlineNodes(node.content).split('\n').map((line) => {
+    if (/^(?:[-*]\s|\d+\.\s|```)/.test(line)) return '\\' + line;
+    return line;
+  }).join('\n');
+}
+
 function portableBlock(node: RichTextBlockNode): string {
-  if (node.type === 'paragraph') return portableInlineNodes(node.content);
+  if (node.type === 'paragraph') return portableParagraphBlock(node);
   if (node.type === 'code_block') return portableCodeBlock(node);
   if (node.type === 'blockquote') {
     return node.content.map(portableBlock).join('\n\n').split('\n').map((line) => '> ' + line).join('\n');
