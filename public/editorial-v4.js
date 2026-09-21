@@ -199,6 +199,14 @@ async function openContentInspector(postId) {
         </dl>
       </section>
     </div>
+    <section class="card inspector-section"><h3>Внутренние данные</h3>
+      <dl class="inspector-meta">
+        <div><dt>Кампания</dt><dd>${editorialEscape(post.campaign || '—')}</dd></div>
+        <div><dt>Теги</dt><dd>${editorialEscape((()=>{try{const tags=JSON.parse(String(post.tags_json||'[]'));return Array.isArray(tags)&&tags.length?tags.join(', '):'—';}catch{return '—';}})())}</dd></div>
+        <div><dt>Редакторская заметка</dt><dd>${editorialEscape(post.editor_note || '—')}</dd></div>
+        <div><dt>Заметка источника</dt><dd>${editorialEscape(post.source_note || '—')}</dd></div>
+      </dl>
+    </section>
     <section class="card inspector-section"><h3>Площадки</h3>${inspectorTargets(post)}</section>
     <section class="card inspector-section"><h3>Последние события</h3>${inspectorEvents(post)}</section>
     <div class="row-actions inspector-actions">${actionButtons(post)}<button type="button" class="secondary inspector-close">Закрыть</button></div>
