@@ -143,7 +143,13 @@ function inspectorEvents(post) {
 
 function actionButtons(post) {
   const buttons = ['<button type="button" class="secondary inspector-history">История изменений</button>'];
-  if (post.actions.edit) buttons.push('<button type="button" class="primary inspector-edit">Редактировать</button>');
+  if (post.actions.edit) buttons.push('<button type="button" class="primary inspector-edit">Редактировать / перенести</button>');
+  if (post.actions.duplicate) buttons.push('<button type="button" class="secondary inspector-duplicate">Дублировать</button>');
+  if (post.actions.requestReview) buttons.push('<button type="button" class="secondary inspector-request-review">На проверку</button>');
+  if (post.actions.returnToDraft) buttons.push('<button type="button" class="secondary inspector-return-draft">Вернуть в черновик</button>');
+  if (post.actions.approve) buttons.push('<button type="button" class="primary inspector-approve">Одобрить</button>');
+  if (post.actions.markReady) buttons.push('<button type="button" class="primary inspector-ready">READY</button>');
+  if (post.actions.publishNow) buttons.push('<button type="button" class="primary inspector-publish-now">Опубликовать сейчас</button>');
   if (post.actions.archive) buttons.push('<button type="button" class="secondary inspector-archive">В архив</button>');
   if (post.actions.trash) buttons.push('<button type="button" class="secondary danger inspector-trash">В корзину</button>');
   if (post.actions.restore) buttons.push('<button type="button" class="secondary inspector-restore">Восстановить</button>');
@@ -160,8 +166,12 @@ async function refreshEditorialCollection() {
 }
 
 function legacyEditor(postId) {
+  if (typeof window.publikatorPostEditor === 'function') {
+    window.publikatorPostEditor(postId);
+    return;
+  }
   const button = [...document.querySelectorAll('.open-post')].find((item) => item.dataset.id === postId);
-  if (!button) throw new Error('Сначала вернитесь в «Активные», чтобы редактировать пост');
+  if (!button) throw new Error('Редактор публикации недоступен');
   bypassInspectorOnce = true;
   button.click();
 }
@@ -232,6 +242,28 @@ async function openContentInspector(postId) {
     }
   };
 
+  overlay.querySelector('.inspector-request-review')?.addEventListener('click', () => mutate('request-review'));
+  overlay.querySelector('.inspector-return-draft')?.addEventListener('click', () => mutate('return-to-draft'));
+  overlay.querySelector('.inspector-approve')?.addEventListener('click', () => mutate('approve'));
+  overlay.querySelector('.inspector-ready')?.addEventListener('click', () => mutate('ready'));
+  overlay.querySelector('.inspector-publish-now')?.addEventListener('click', () => {
+    if (window.confirm('Опубликовать READY-публикацию сейчас?')) mutate('publish-now');
+  });
+  overlay.querySelector('.inspector-duplicate')?.addEventListener('click', async () => {
+    const errorBox = overlay.querySelector('.inspector-error');
+    if (errorBox) errorBox.textContent = '';
+    try {
+      const result = await editorialRequest(`/api/posts/${encodeURIComponent(post.id)}/duplicate`, {
+        method: 'POST',
+        body: JSON.stringify({ expectedContentVersion: post.content_version })
+      });
+      close();
+      await refreshEditorialCollection();
+      if (result?.id) await openContentInspector(result.id);
+    } catch (error) {
+      if (errorBox) errorBox.textContent = error instanceof Error ? error.message : String(error);
+    }
+  });
   overlay.querySelector('.inspector-archive')?.addEventListener('click', () => mutate('archive'));
   overlay.querySelector('.inspector-trash')?.addEventListener('click', () => {
     if (window.confirm('Переместить публикацию в корзину? Она перестанет участвовать в публикации.')) mutate('trash');
