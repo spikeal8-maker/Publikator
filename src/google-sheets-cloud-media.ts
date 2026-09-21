@@ -603,6 +603,7 @@ export async function resolveGoogleSheetsConflict(
   }
   const row=preview.rows.find((item:any)=>item.normalized?.externalId===externalId);
   if(!row?.normalized || row.classification!=='CONFLICT')throw new Error('Conflict is no longer current; preview again');
+  const normalized=row.normalized;
 
   const current=currentSourcePost(connectorId,externalId);
   if(!current || current.id!==row.normalized.postId)throw new Error('Conflict post binding changed; preview again');
@@ -621,7 +622,7 @@ export async function resolveGoogleSheetsConflict(
         throw new Error('Publikator post changed after preview; preview again');
       }
       db.prepare(`UPDATE posts SET source_revision=?,source_payload_hash=?,imported_at=?,imported_content_version=? WHERE id=?`)
-        .run(row.normalized.sourceRevision,row.normalized.payloadHash,now,latest.content_version,latest.id);
+        .run(normalized.sourceRevision,normalized.payloadHash,now,latest.content_version,latest.id);
       event({
         postId:latest.id,type:'sheet.sync_conflict',message:'Google Sheets conflict resolved: kept Publikator version',
         data:{connectorId,externalId,resolution:'KEEP_PUBLIKATOR',contentVersion:latest.content_version}
