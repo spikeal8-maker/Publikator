@@ -290,6 +290,7 @@ async function applyContentBundleFile() {
 const INTEGRATION_API_UI_SCOPES = [
   ['content:draft:write', 'Создание и редактирование DRAFT'],
   ['content:read', 'Чтение Integration API публикаций'],
+  ['media:write', 'Загрузка и удаление медиа'],
   ['schedule:write', 'Изменение расписания'],
   ['approval:request', 'Отправка на проверку']
 ];
