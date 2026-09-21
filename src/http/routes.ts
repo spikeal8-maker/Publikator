@@ -345,6 +345,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const current = db.prepare('SELECT * FROM posts WHERE id=?').get(params.id) as any;
     if (!current) return reply.code(404).send({ error: 'Пост не найден' });
     if (IMMUTABLE_POST_STATUSES.has(current.status)) return reply.code(409).send({ error: 'Нельзя редактировать частично или полностью опубликованный пост' });
+    const projectId = body.projectId === undefined ? String(current.project_id) : String(body.projectId);
+    if (!db.prepare('SELECT 1 FROM projects WHERE id=?').get(projectId)) {
+      return reply.code(400).send({ error: 'Проект не найден' });
+    }
     const title = body.title === undefined ? current.title : String(body.title).trim();
     let content: { body: string; bodyRichJson: string };
     try { content = resolvedPostBody(body, current); }
@@ -361,8 +365,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     try {
       const version = expectedContentVersion(request, body);
       const committed = commitContentEdit(params.id, version, 'manual', () => {
-        db.prepare('UPDATE posts SET title=?,body=?,body_rich_json=?,schedule_mode=?,scheduled_at=?,scheduled_at_utc=?,schedule_timezone=?,updated_at=? WHERE id=?')
-          .run(title, content.body, content.bodyRichJson, mode, schedule.scheduledAt, schedule.scheduledAtUtc, schedule.scheduleTimezone, nowIso(), params.id);
+        db.prepare('UPDATE posts SET project_id=?,title=?,body=?,body_rich_json=?,schedule_mode=?,scheduled_at=?,scheduled_at_utc=?,schedule_timezone=?,updated_at=? WHERE id=?')
+          .run(projectId, title, content.body, content.bodyRichJson, mode, schedule.scheduledAt, schedule.scheduledAtUtc, schedule.scheduleTimezone, nowIso(), params.id);
       });
       return { ok: true, contentVersion: committed.contentVersion, post: postView(db.prepare('SELECT * FROM posts WHERE id=?').get(params.id)) };
     } catch (error) {
