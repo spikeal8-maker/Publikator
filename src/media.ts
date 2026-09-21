@@ -210,7 +210,14 @@ export async function saveVideoVersioned(
           preparedVideo.container,
           posterId
         );
-      db.prepare("UPDATE posts SET publication_kind='FEED',content_format='VIDEO' WHERE id=?").run(postId);
+      const composition = db.prepare('SELECT publication_kind,content_format FROM posts WHERE id=?')
+        .get(postId) as { publication_kind: string; content_format: string };
+      const videoFormat = ['VIDEO','VERTICAL_VIDEO','STORY_SEQUENCE'].includes(composition.content_format)
+        ? composition.content_format
+        : composition.publication_kind === 'SHORT' || composition.publication_kind === 'STORY'
+          ? 'VERTICAL_VIDEO'
+          : 'VIDEO';
+      db.prepare('UPDATE posts SET content_format=? WHERE id=?').run(videoFormat, postId);
       db.prepare("UPDATE content_media SET sort_order=0,role='video',updated_at=? WHERE post_id=? AND media_id=?")
         .run(createdAt, postId, videoId);
       db.prepare("UPDATE content_media SET sort_order=1,role='poster',updated_at=? WHERE post_id=? AND media_id=?")
@@ -272,10 +279,10 @@ function normalizeRemainingMedia(postId: string): void {
   rest.forEach((row, index) => update.run(index, row.id));
   const hasVideo = rest.some((row) => row.mime_type.startsWith('video/'));
   if (!hasVideo) {
-    const imageFormat = rest.length > 1 ? 'CAROUSEL' : 'IMAGE';
-    db.prepare("UPDATE posts SET publication_kind='FEED',content_format=? WHERE id=? AND content_format IN ('VIDEO','VERTICAL_VIDEO')")
-      .run(imageFormat, postId);
-    syncImageContentFormat(postId);
+    const post = db.prepare('SELECT publication_kind,content_format FROM posts WHERE id=?').get(postId) as { publication_kind: string; content_format: string } | undefined;
+    if (post?.publication_kind === 'FEED' && ['IMAGE','CAROUSEL','TEXT_ONLY'].includes(post.content_format)) {
+      syncImageContentFormat(postId);
+    }
   }
 }
 
