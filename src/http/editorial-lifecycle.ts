@@ -6,6 +6,7 @@ import {
   approvePost,
   archivePost,
   deletePostPermanently,
+  duplicatePost,
   editorialActions,
   requestReviewPost,
   restorePost,
@@ -101,6 +102,17 @@ export async function registerEditorialLifecycleRoutes(app: FastifyInstance): Pr
       const body = bodyObject(request.body);
       const result = approvePost(params.id, expectedContentVersion(request, body));
       return { ok: true, ...result, post: inspector(params.id) };
+    } catch (error) {
+      return contentMutationError(reply, error);
+    }
+  });
+
+  app.post('/api/posts/:id/duplicate', async (request, reply) => {
+    const params = request.params as { id: string };
+    try {
+      const body = bodyObject(request.body);
+      const result = await duplicatePost(params.id, expectedContentVersion(request, body));
+      return reply.code(201).send({ ok: true, ...result, post: inspector(result.id) });
     } catch (error) {
       return contentMutationError(reply, error);
     }
