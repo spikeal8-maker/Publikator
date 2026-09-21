@@ -13,6 +13,10 @@ export type NewDraftPostInput = {
   scheduleTimezone?: string | null;
   publicationKind?: 'FEED' | 'SHORT' | 'STORY';
   contentFormat?: 'TEXT_ONLY' | 'IMAGE' | 'CAROUSEL' | 'VIDEO' | 'VERTICAL_VIDEO' | 'STORY_SEQUENCE';
+  editorNote?: string | null;
+  sourceNote?: string | null;
+  tags?: string[];
+  campaign?: string | null;
   targetAccountIds?: string[];
   actorSource?: RevisionActorSource;
 };
@@ -31,17 +35,21 @@ export function createDraftPost(input: NewDraftPostInput): any {
     : null;
   const scheduledAt = input.scheduleMode === 'AT' ? (input.scheduledAt ?? null) : null;
   const scheduledAtUtc = input.scheduleMode === 'AT' ? (input.scheduledAtUtc ?? scheduledAt) : null;
+  const tags = [...new Set((input.tags ?? []).map((tag) => tag.trim()).filter(Boolean))].slice(0, 50);
+  const editorNote = input.editorNote?.trim() || null;
+  const sourceNote = input.sourceNote?.trim() || null;
+  const campaign = input.campaign?.trim() || null;
   return db.transaction(() => {
     const now = nowIso();
     db.prepare(`INSERT INTO posts
       (id,project_id,title,body,body_rich_json,status,editorial_stage,schedule_mode,
        scheduled_at,scheduled_at_utc,schedule_timezone,publication_kind,content_format,
-       content_version,created_at,updated_at)
-      VALUES (?,?,?,?,?,'DRAFT','DRAFT',?,?,?,?,?,?,1,?,?)`)
+       editor_note,source_note,tags_json,campaign,content_version,created_at,updated_at)
+      VALUES (?,?,?,?,?,'DRAFT','DRAFT',?,?,?,?,?,?,?,?,?,?,1,?,?)`)
       .run(
         postId, input.projectId, input.title.trim(), input.body, input.bodyRichJson,
         input.scheduleMode, scheduledAt, scheduledAtUtc, scheduleTimezone,
-        publicationKind, contentFormat, now, now
+        publicationKind, contentFormat, editorNote, sourceNote, JSON.stringify(tags), campaign, now, now
       );
 
     if (input.targetAccountIds === undefined) ensureTargets(postId);
