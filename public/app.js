@@ -208,6 +208,28 @@ async function postEditor(postId,options={}){
       bodyFallback.dispatchEvent(new Event('input',{bubbles:true}));
     }
   });
+  const targetEditors=new Map();
+  if(post){
+    const targetByAccount=new Map((post.targets||[]).map((target)=>[target.account_id,target]));
+    for(const account of accounts){
+      const host=form.querySelector('[data-target-rich-editor="'+CSS.escape(account.id)+'"]');
+      const toggle=form.querySelector('.target-override-toggle[data-account-id="'+CSS.escape(account.id)+'"]');
+      const checkbox=form.querySelector('input[name="accountId"][value="'+CSS.escape(account.id)+'"]');
+      const wrap=form.querySelector('[data-target-override-wrap="'+CSS.escape(account.id)+'"]');
+      if(!host||!toggle||!checkbox||!wrap)continue;
+      const existing=targetByAccount.get(account.id);
+      const editor=mountRichTextEditor(host,{document:existing?.textRich||initialRichDocument});
+      targetEditors.set(account.id,editor);
+      const sync=()=>{
+        const selected=checkbox.checked&&!checkbox.disabled;
+        toggle.disabled=!selected;
+        wrap.classList.toggle('hidden',!selected||!toggle.checked);
+      };
+      checkbox.addEventListener('change',sync);
+      toggle.addEventListener('change',sync);
+      sync();
+    }
+  }
   const projectSelect=form.querySelector('select[name="projectId"]');
   const blockPicker=form.querySelector('#reusable-block-picker');
   const refreshReusableBlocks=()=>renderReusableBlockSelect(form,reusableBlocks);
@@ -244,8 +266,16 @@ async function postEditor(postId,options={}){
       setEditorVersion(form,patched.contentVersion);
       post.content_version=patched.contentVersion;
       const accountIds=[...form.querySelectorAll('input[name="accountId"]:checked')].map(x=>x.value);
-      if(!sameStringSet(accountIds,initialTargetAccountIds)){
-        const targeted=await api(`/api/posts/${post.id}/targets`,{method:'PUT',body:JSON.stringify({accountIds,expectedContentVersion:editorVersion(form)})});
+      const overrides={};
+      for(const accountId of accountIds){
+        const toggle=form.querySelector('.target-override-toggle[data-account-id="'+CSS.escape(accountId)+'"]');
+        if(toggle?.checked&&targetEditors.has(accountId))overrides[accountId]=targetEditors.get(accountId).getDocument();
+      }
+      const initialOverrideEntries=[...initialTargetOverrides.entries()].filter(([accountId])=>initialTargetAccountIds.includes(accountId)).sort(([a],[b])=>a.localeCompare(b));
+      const nextOverrideEntries=Object.entries(overrides).map(([accountId,document])=>[accountId,JSON.stringify(document)]).sort(([a],[b])=>a.localeCompare(b));
+      const overridesChanged=JSON.stringify(initialOverrideEntries)!==JSON.stringify(nextOverrideEntries);
+      if(!sameStringSet(accountIds,initialTargetAccountIds)||overridesChanged){
+        const targeted=await api(`/api/posts/${post.id}/targets`,{method:'PUT',body:JSON.stringify({accountIds,overrides,expectedContentVersion:editorVersion(form)})});
         setEditorVersion(form,targeted.contentVersion);
         post.content_version=targeted.contentVersion;
       }
@@ -256,7 +286,9 @@ async function postEditor(postId,options={}){
   };
   form.onsubmit=async e=>{e.preventDefault();try{const savedId=await saveDraft();m.remove();if(typeof options.afterSave==='function')await options.afterSave(savedId);else await posts();}catch(err){m.querySelector('#post-error').textContent=err.message;}};
   if(post){
-    m.querySelector('#media-file').onchange=async e=>{try{const file=e.target.files[0];if(!file)return;const data=new FormData();data.set('file',file);const uploaded=await api(`/api/posts/${post.id}/media`,{method:'POST',body:data,headers:{'x-content-version':String(editorVersion(form))}});setEditorVersion(form,uploaded.contentVersion);post.content_version=uploaded.contentVersion;m.remove();await postEditor(post.id);}catch(err){m.querySelector('#post-error').textContent=err.message;}};
+    m.querySelector('#media-file').onchange=async e=>{try{const file=e.target.files[0];if(!file)return;await saveDraft();const data=new FormData();data.set('file',file);const uploaded=await api(`/api/posts/${post.id}/media`,{method:'POST',body:data,headers:{'x-content-version':String(editorVersion(form))}});setEditorVersion(form,uploaded.contentVersion);post.content_version=uploaded.contentVersion;m.remove();await postEditor(post.id);}catch(err){m.querySelector('#post-error').textContent=err.message;}};
+    m.querySelector('#video-file').onchange=async e=>{try{const file=e.target.files[0];if(!file)return;await saveDraft();const data=new FormData();data.set('file',file);const uploaded=await api(`/api/posts/${post.id}/video`,{method:'POST',body:data,headers:{'x-content-version':String(editorVersion(form))}});setEditorVersion(form,uploaded.contentVersion);post.content_version=uploaded.contentVersion;m.remove();await postEditor(post.id);}catch(err){m.querySelector('#post-error').textContent=err.message;}};
+    m.querySelectorAll('.media-move').forEach(b=>b.onclick=async()=>{try{const mediaIds=mediaIdsAfterMove(post.media||[],b.dataset.id,Number(b.dataset.direction));const reordered=await api(`/api/posts/${post.id}/media-order`,{method:'PUT',body:JSON.stringify({mediaIds,expectedContentVersion:editorVersion(form)})});setEditorVersion(form,reordered.contentVersion);post.content_version=reordered.contentVersion;m.remove();await postEditor(post.id);}catch(err){m.querySelector('#post-error').textContent=err.message;}});
     m.querySelector('#mark-ready').onclick=async()=>{try{await saveDraft();const ready=await api(`/api/posts/${post.id}/ready`,{method:'POST',body:JSON.stringify({expectedContentVersion:editorVersion(form)})});setEditorVersion(form,ready.contentVersion);post.content_version=ready.contentVersion;m.remove();await posts();}catch(err){m.querySelector('#post-error').textContent=err.message;}};
     m.querySelector('#publish-now').onclick=async()=>{try{m.querySelector('#post-error').textContent='Публикация…';await saveDraft();const ready=await api(`/api/posts/${post.id}/ready`,{method:'POST',body:JSON.stringify({expectedContentVersion:editorVersion(form)})});setEditorVersion(form,ready.contentVersion);post.content_version=ready.contentVersion;await api(`/api/posts/${post.id}/publish-now`,{method:'POST'});m.remove();await posts();}catch(err){m.querySelector('#post-error').textContent=err.message;}};
     m.querySelectorAll('.delete-media').forEach(b=>b.onclick=async()=>{try{const deleted=await api(`/api/media/${b.dataset.id}`,{method:'DELETE',headers:{'x-content-version':String(editorVersion(form))}});setEditorVersion(form,deleted.contentVersion);post.content_version=deleted.contentVersion;m.remove();await postEditor(post.id);}catch(err){m.querySelector('#post-error').textContent=err.message;}});
