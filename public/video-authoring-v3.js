@@ -287,6 +287,9 @@ function tryEnhanceVisibleEditor() {
 }
 
 if (typeof document !== 'undefined') {
+  window.addEventListener('publikator:post-editor-opening',(event)=>{
+    activePostId=event instanceof CustomEvent ? (event.detail?.postId||null) : null;
+  });
   document.addEventListener('click', (event) => {
     const target = event.target instanceof Element ? event.target : null;
     const openButton = target?.closest('.open-post');
