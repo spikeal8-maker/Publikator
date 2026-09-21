@@ -16,6 +16,7 @@ import {
   setTargetSelection
 } from '../publisher.js';
 import { testConnection } from '../platforms/connection-test.js';
+import { resolveVkDestination, vkDestinationKind } from '../platforms/vk.js';
 import { normalizeIanaTimezone, resolveExactSchedule, resolveScheduleInput } from '../schedule-time.js';
 import { parseRichTextJson, plainTextToRichText, richTextToPlain, serializeRichText } from '../rich-text.js';
 
@@ -46,22 +47,51 @@ function bodyObject(body: unknown): Record<string, any> {
   return body as Record<string, any>;
 }
 
+function normalizeStoredCredentials(platform: Platform, value: Record<string, unknown>): Record<string, unknown> {
+  if (platform !== 'vk') return value;
+  const kind = vkDestinationKind(value);
+  const destination = resolveVkDestination(value);
+  const normalized: Record<string, unknown> = { ...value, destinationKind: kind };
+  if (kind === 'PERSONAL') {
+    normalized.userId = destination.id;
+    delete normalized.groupId;
+  } else {
+    normalized.groupId = destination.id;
+    delete normalized.userId;
+  }
+  return normalized;
+}
+
+function vkDestinationMetadata(credentialsEncrypted: string): { destination_kind?: 'PERSONAL' | 'COMMUNITY'; destination_id?: string } {
+  try {
+    const credentials = decryptJson<Record<string, unknown>>(credentialsEncrypted);
+    const destination = resolveVkDestination(credentials);
+    return { destination_kind: destination.kind, destination_id: destination.id };
+  } catch {
+    return {};
+  }
+}
+
 function postView(row: any): any {
   const media = listMedia(row.id);
   const targetRows = db.prepare(`SELECT pt.id, pt.account_id, pt.enabled, pt.override_text, pt.state, pt.attempts,
     pt.next_attempt_at, pt.external_id, pt.external_url, pt.last_error, pt.published_at,
-    a.platform, a.name AS account_name,
+    a.platform, a.name AS account_name, a.credentials_encrypted,
     tr.text_rich_json, tr.text_plain, tr.publication_kind AS rendition_publication_kind,
     tr.content_format AS rendition_content_format, tr.media_plan_json, tr.options_json
     FROM post_targets pt
     JOIN social_accounts a ON a.id=pt.account_id
     LEFT JOIN target_renditions tr ON tr.target_id=pt.id
     WHERE pt.post_id=? ORDER BY a.platform,a.name`).all(row.id) as any[];
-  const targets = targetRows.map((target) => ({
-    ...target,
-    textRich: target.text_rich_json ? parseRichTextJson(String(target.text_rich_json)) : null,
-    textPlain: target.text_plain ?? null
-  }));
+  const targets = targetRows.map((target) => {
+    const { credentials_encrypted, ...safeTarget } = target;
+    return {
+      ...safeTarget,
+      ...(target.platform === 'vk' ? vkDestinationMetadata(String(credentials_encrypted)) : {}),
+      textRich: target.text_rich_json ? parseRichTextJson(String(target.text_rich_json)) : null,
+      textPlain: target.text_plain ?? null
+    };
+  });
   const bodyRich = parseRichTextJson(String(row.body_rich_json));
   return { ...row, bodyRich, media, targets };
 }
@@ -230,8 +260,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get('/api/accounts', async () => {
-    const rows = db.prepare('SELECT id,platform,name,enabled,created_at,updated_at FROM social_accounts ORDER BY platform,name').all();
-    return rows;
+    const rows = db.prepare('SELECT id,platform,name,credentials_encrypted,enabled,created_at,updated_at FROM social_accounts ORDER BY platform,name').all() as any[];
+    return rows.map((row) => {
+      const { credentials_encrypted, ...safeRow } = row;
+      return {
+        ...safeRow,
+        ...(row.platform === 'vk' ? vkDestinationMetadata(String(credentials_encrypted)) : {})
+      };
+    });
   });
   app.post('/api/accounts/test', async (request, reply) => {
     const body = bodyObject(request.body);
@@ -249,12 +285,18 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const platform = String(body.platform || '') as Platform;
     if (!PLATFORMS.has(platform)) return reply.code(400).send({ error: 'Неизвестная площадка' });
     const name = String(body.name || '').trim();
-    if (!name || !body.credentials || typeof body.credentials !== 'object') return reply.code(400).send({ error: 'Нужны name и credentials' });
+    if (!name || !body.credentials || typeof body.credentials !== 'object' || Array.isArray(body.credentials)) return reply.code(400).send({ error: 'Нужны name и credentials' });
+    let credentials: Record<string, unknown>;
+    try {
+      credentials = normalizeStoredCredentials(platform, body.credentials as Record<string, unknown>);
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
     const accountId = id('acc');
     const now = nowIso();
     db.transaction(() => {
       db.prepare('INSERT INTO social_accounts (id,platform,name,credentials_encrypted,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)')
-        .run(accountId, platform, name, encryptJson(body.credentials), now, now);
+        .run(accountId, platform, name, encryptJson(credentials), now, now);
       db.prepare(`INSERT INTO project_default_targets (project_id,account_id,created_at)
         SELECT id,?,? FROM projects WHERE default_targets_explicit=0`)
         .run(accountId, now);
@@ -268,7 +310,17 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (!current) return reply.code(404).send({ error: 'Аккаунт не найден' });
     const name = body.name === undefined ? current.name : String(body.name).trim();
     const enabled = body.enabled === undefined ? current.enabled : body.enabled ? 1 : 0;
-    const credentials = body.credentials === undefined ? current.credentials_encrypted : encryptJson(body.credentials);
+    let credentials = current.credentials_encrypted;
+    if (body.credentials !== undefined) {
+      if (!body.credentials || typeof body.credentials !== 'object' || Array.isArray(body.credentials)) {
+        return reply.code(400).send({ error: 'credentials должен быть объектом' });
+      }
+      try {
+        credentials = encryptJson(normalizeStoredCredentials(current.platform as Platform, body.credentials as Record<string, unknown>));
+      } catch (error) {
+        return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      }
+    }
     db.prepare('UPDATE social_accounts SET name=?,enabled=?,credentials_encrypted=?,updated_at=? WHERE id=?').run(name, enabled, credentials, nowIso(), params.id);
     return { ok: true };
   });
