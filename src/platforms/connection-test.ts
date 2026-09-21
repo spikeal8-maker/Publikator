@@ -1,6 +1,6 @@
 import type { Platform } from '../db.js';
 import { requireString, responseJson } from './types.js';
-import { vkCall } from './vk.js';
+import { normalizeVkCommunityId, normalizeVkUserId, vkCall, vkDestinationKind } from './vk.js';
 
 export type ConnectionTestResult = {
   ok: true;
@@ -62,18 +62,92 @@ async function maxTest(credentials: Record<string, unknown>): Promise<Connection
   };
 }
 
+function vkApiVersion(credentials: Record<string, unknown>): string {
+  return typeof credentials.apiVersion === 'string' && credentials.apiVersion.trim() ? credentials.apiVersion.trim() : '5.199';
+}
+
+function vkCommunityReference(credentials: Record<string, unknown>): string {
+  let raw = requireString(credentials, 'groupId').trim();
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      raw = new URL(raw).pathname.split('/').filter(Boolean)[0] || '';
+    } catch {
+      throw new Error('VK: некорректная ссылка сообщества');
+    }
+  }
+  raw = raw.replace(/^@/, '');
+  if (/^(?:-?\d+|(?:club|public|event)\d+)$/i.test(raw)) return normalizeVkCommunityId(raw);
+  if (!/^[A-Za-z0-9_.-]+$/.test(raw)) throw new Error('VK: некорректный ID или короткое имя сообщества');
+  return raw;
+}
+
+function vkGroupFromResponse(response: any): any {
+  if (Array.isArray(response)) return response[0];
+  if (Array.isArray(response?.groups)) return response.groups[0];
+  if (Array.isArray(response?.items)) return response.items[0];
+  return null;
+}
+
+function vkDisplayName(entity: any, fallback: string): string {
+  const name = typeof entity?.name === 'string' ? entity.name.trim() : '';
+  if (name) return name;
+  const personalName = [entity?.first_name, entity?.last_name].filter((part) => typeof part === 'string' && part.trim()).join(' ').trim();
+  return personalName || fallback;
+}
+
 async function vkTest(credentials: Record<string, unknown>): Promise<ConnectionTestResult> {
   const accessToken = requireString(credentials, 'accessToken');
-  const groupId = requireString(credentials, 'groupId').replace(/^-/, '');
-  const apiVersion = typeof credentials.apiVersion === 'string' && credentials.apiVersion.trim() ? credentials.apiVersion.trim() : '5.199';
-  const server = await vkCall('photos.getWallUploadServer', { access_token: accessToken, v: apiVersion, group_id: groupId });
+  const apiVersion = vkApiVersion(credentials);
+  const common = { access_token: accessToken, v: apiVersion };
+  const kind = vkDestinationKind(credentials);
+
+  if (kind === 'PERSONAL') {
+    const users = await vkCall('users.get', { ...common, fields: 'screen_name' });
+    const user = Array.isArray(users) ? users[0] : null;
+    if (!user?.id) throw new Error('VK: users.get не вернул владельца access token');
+    const userId = normalizeVkUserId(user.id);
+    const server = await vkCall('photos.getWallUploadServer', common);
+    if (!server?.upload_url) throw new Error('VK: токен не дал upload_url для личной стены');
+    const name = vkDisplayName(user, `id${userId}`);
+    const screenName = typeof user.screen_name === 'string' && user.screen_name.trim() ? user.screen_name.trim() : `id${userId}`;
+    return {
+      ok: true,
+      platform: 'vk',
+      identity: `Личная страница · ${name}`,
+      destination: `https://vk.com/${screenName}`,
+      details: {
+        apiVersion,
+        destinationKind: 'PERSONAL',
+        destinationId: userId,
+        destinationName: name,
+        wallUploadReady: true,
+        wallPostNotExecuted: true
+      }
+    };
+  }
+
+  const reference = vkCommunityReference(credentials);
+  const groupResponse = await vkCall('groups.getById', { ...common, group_id: reference });
+  const group = vkGroupFromResponse(groupResponse);
+  if (!group?.id) throw new Error('VK: сообщество не найдено или токен не имеет к нему доступа');
+  const groupId = normalizeVkCommunityId(group.id);
+  const server = await vkCall('photos.getWallUploadServer', { ...common, group_id: groupId });
   if (!server?.upload_url) throw new Error('VK: токен не дал upload_url для стены сообщества');
+  const name = vkDisplayName(group, `club${groupId}`);
+  const screenName = typeof group.screen_name === 'string' && group.screen_name.trim() ? group.screen_name.trim() : `club${groupId}`;
   return {
     ok: true,
     platform: 'vk',
-    identity: `group ${groupId}`,
-    destination: `https://vk.com/club${groupId}`,
-    details: { apiVersion, wallUploadReady: true }
+    identity: `Сообщество · ${name}`,
+    destination: `https://vk.com/${screenName}`,
+    details: {
+      apiVersion,
+      destinationKind: 'COMMUNITY',
+      destinationId: groupId,
+      destinationName: name,
+      wallUploadReady: true,
+      wallPostNotExecuted: true
+    }
   };
 }
 
