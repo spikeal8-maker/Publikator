@@ -436,10 +436,51 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (!post) return reply.code(404).send({ error: 'Пост не найден' });
     if (IMMUTABLE_POST_STATUSES.has(post.status)) return reply.code(409).send({ error: 'Нельзя менять площадки после начала публикации' });
     const body = bodyObject(request.body);
-    if (!Array.isArray(body.accountIds) || body.accountIds.some((value: unknown) => typeof value !== 'string')) return reply.code(400).send({ error: 'accountIds должен быть массивом строк' });
+    if (!Array.isArray(body.accountIds) || body.accountIds.some((value: unknown) => typeof value !== 'string')) {
+      return reply.code(400).send({ error: 'accountIds должен быть массивом строк' });
+    }
+    const accountIds = [...new Set(body.accountIds as string[])];
+    let overridePayload: Map<string, { richJson: string; plain: string }> | null = null;
+    if (Object.prototype.hasOwnProperty.call(body, 'overrides')) {
+      if (!body.overrides || typeof body.overrides !== 'object' || Array.isArray(body.overrides)) {
+        return reply.code(400).send({ error: 'overrides должен быть объектом accountId → rich document/null' });
+      }
+      overridePayload = new Map();
+      try {
+        for (const [accountId, value] of Object.entries(body.overrides as Record<string, unknown>)) {
+          if (!accountIds.includes(accountId)) throw new Error(`Override указан для невыбранной площадки: ${accountId}`);
+          if (value === null || value === undefined) continue;
+          const richJson = serializeRichText(value);
+          overridePayload.set(accountId, { richJson, plain: richTextToPlain(value) });
+        }
+      } catch (error) {
+        return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      }
+    }
     try {
       const version = expectedContentVersion(request, body);
-      const committed = commitContentEdit(params.id, version, 'manual', () => setTargetSelection(params.id, body.accountIds as string[]));
+      const committed = commitContentEdit(params.id, version, 'manual', () => {
+        setTargetSelection(params.id, accountIds);
+        if (overridePayload !== null) {
+          const now = nowIso();
+          db.prepare("UPDATE post_targets SET override_text=NULL,updated_at=? WHERE post_id=? AND state!='PUBLISHED'")
+            .run(now, params.id);
+          db.prepare(`UPDATE target_renditions SET text_rich_json=NULL,text_plain=NULL,updated_at=?
+            WHERE target_id IN (SELECT id FROM post_targets WHERE post_id=? AND state!='PUBLISHED')`)
+            .run(now, params.id);
+          const targetId = db.prepare("SELECT id FROM post_targets WHERE post_id=? AND account_id=? AND state!='PUBLISHED'");
+          const save = db.prepare(`INSERT INTO target_renditions
+            (target_id,text_rich_json,text_plain,publication_kind,content_format,media_plan_json,options_json,updated_at)
+            VALUES (?,?,?,NULL,NULL,NULL,NULL,?)
+            ON CONFLICT(target_id) DO UPDATE SET
+              text_rich_json=excluded.text_rich_json,text_plain=excluded.text_plain,updated_at=excluded.updated_at`);
+          for (const [accountId, override] of overridePayload.entries()) {
+            const target = targetId.get(params.id, accountId) as { id: string } | undefined;
+            if (!target) throw new Error(`Площадка не найдена в PostTarget: ${accountId}`);
+            save.run(target.id, override.richJson, override.plain, now);
+          }
+        }
+      });
       return { ok: true, contentVersion: committed.contentVersion, targets: (postView(db.prepare('SELECT * FROM posts WHERE id=?').get(params.id)) as any).targets };
     } catch (error) {
       return contentMutationError(reply, error);
