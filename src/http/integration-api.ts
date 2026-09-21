@@ -137,6 +137,8 @@ function integrationDto(postId: string): any | undefined {
     internalTitle: row.title,
     body: row.body,
     bodyRich: parseRichTextJson(String(row.body_rich_json)),
+    tags: (() => { try { const value = JSON.parse(String(row.tags_json ?? '[]')); return Array.isArray(value) ? value.filter((item) => typeof item === 'string') : []; } catch { return []; } })(),
+    sourceNote: row.source_note ?? null,
     publicationKind: row.publication_kind,
     contentFormat: row.content_format,
     targets: integrationTargets(postId),
@@ -322,8 +324,9 @@ export async function registerIntegrationApiRoutes(app: FastifyInstance): Promis
     try {
       const resolved = resolveEditorialUpdateV3(params.id, body as EditorialDraftContractInput);
       const committed = commitContentEdit(params.id, expected, 'integration_api', () => {
-        db.prepare('UPDATE posts SET title=?,body=?,body_rich_json=?,publication_kind=?,content_format=?,schedule_mode=?,scheduled_at=?,scheduled_at_utc=?,schedule_timezone=? WHERE id=?')
-          .run(resolved.title, resolved.body, resolved.bodyRichJson, resolved.publicationKind, resolved.contentFormat, resolved.scheduleMode, resolved.scheduledAt, resolved.scheduledAt, resolved.scheduleTimezone, params.id);
+        db.prepare('UPDATE posts SET title=?,body=?,body_rich_json=?,tags_json=?,source_note=?,publication_kind=?,content_format=?,schedule_mode=?,scheduled_at=?,scheduled_at_utc=?,schedule_timezone=? WHERE id=?')
+          .run(resolved.title, resolved.body, resolved.bodyRichJson, JSON.stringify(resolved.tags), resolved.sourceNote,
+            resolved.publicationKind, resolved.contentFormat, resolved.scheduleMode, resolved.scheduledAt, resolved.scheduledAt, resolved.scheduleTimezone, params.id);
         applyResolvedTargetsAndOverrides(params.id, 'EXPLICIT', resolved.targets, resolved.overrides);
       });
       event({
