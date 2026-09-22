@@ -1,5 +1,6 @@
 import { scheduleModeLabel, statusLabel } from './presentation-labels.js';
 import { mountRichTextEditor, plainTextToRichDocument } from './rich-text-editor-v1.js';
+import { socialCredentialFields, socialCredentialsFromForm, syncVkDestinationFields, verifiedSocialCredentialsFromTest } from './social-credentials.js';
 
 const login = document.querySelector('#login');
 const app = document.querySelector('#app');
@@ -203,55 +204,6 @@ async function projectSettings(projectId,knownAccounts){
     }catch(err){m.querySelector('#project-error').textContent=err.message;}
   };
 }
-function credentialFields(platform){
-  if(platform==='telegram') return `<label class="full">Bot token<input name="botToken" type="password" required autocomplete="off" placeholder="123456:ABC..."></label><label class="full">Канал / chat_id<input name="chatId" required placeholder="@channel или -100..."></label>`;
-  if(platform==='vk') return `<div class="full"><div>Куда публиковать?</div><label class="target-check"><input type="radio" name="destinationKind" value="PERSONAL" checked> Личная страница</label><label class="target-check"><input type="radio" name="destinationKind" value="COMMUNITY"> Сообщество</label></div><label class="full">Access token<input name="accessToken" type="password" required autocomplete="off"></label><label class="full hidden" data-vk-community-field>Сообщество / ID<input name="groupId" placeholder="123456789, club123456789 или ссылка VK"></label><div class="full muted small" data-vk-personal-hint>Личная страница определяется по владельцу access token через официальный VK API.</div><label>API version<input name="apiVersion" required value="5.199"></label>`;
-  if(platform==='max') return `<label class="full">Access token<input name="accessToken" type="password" required autocomplete="off"></label><label class="full">Channel / chat ID<input name="chatId" required placeholder="-123456789"></label>`;
-  return `<label class="full">Access token<input name="accessToken" type="password" required autocomplete="off"></label><label>Instagram User ID<input name="igUserId" required></label><label>Graph API version<input name="graphVersion" required placeholder="vXX.X"></label>`;
-}
-function syncVkDestinationFields(form){
-  const groupField=form.querySelector('[data-vk-community-field]');
-  const groupInput=form.querySelector('input[name="groupId"]');
-  const personalHint=form.querySelector('[data-vk-personal-hint]');
-  if(!groupField||!groupInput)return;
-  const sync=()=>{
-    const kind=String(new FormData(form).get('destinationKind')||'PERSONAL');
-    const community=kind==='COMMUNITY';
-    groupField.classList.toggle('hidden',!community);
-    groupInput.required=community;
-    personalHint?.classList.toggle('hidden',community);
-  };
-  form.querySelectorAll('input[name="destinationKind"]').forEach((input)=>input.addEventListener('change',sync));
-  sync();
-}
-function credentialsFromForm(form){
-  const f=new FormData(form);const platform=String(f.get('platform'));
-  if(platform==='telegram')return{botToken:f.get('botToken'),chatId:f.get('chatId')};
-  if(platform==='vk'){
-    const destinationKind=String(f.get('destinationKind')||'PERSONAL');
-    const credentials={accessToken:f.get('accessToken'),apiVersion:f.get('apiVersion'),destinationKind};
-    if(destinationKind==='COMMUNITY')credentials.groupId=f.get('groupId');
-    return credentials;
-  }
-  if(platform==='max')return{accessToken:f.get('accessToken'),chatId:f.get('chatId')};
-  return{accessToken:f.get('accessToken'),igUserId:f.get('igUserId'),graphVersion:f.get('graphVersion')};
-}
-function verifiedCredentialsFromTest(form,result){
-  const credentials=credentialsFromForm(form);
-  if(String(new FormData(form).get('platform'))!=='vk')return credentials;
-  const details=result?.details||{};
-  if(details.destinationKind==='PERSONAL'){
-    credentials.destinationKind='PERSONAL';
-    credentials.userId=String(details.destinationId||'');
-    delete credentials.groupId;
-  }else if(details.destinationKind==='COMMUNITY'){
-    credentials.destinationKind='COMMUNITY';
-    credentials.groupId=String(details.destinationId||credentials.groupId||'');
-    delete credentials.userId;
-  }
-  if(details.destinationName)credentials.destinationName=String(details.destinationName);
-  return credentials;
-}
 async function accounts(){
   const rows=await api('/api/accounts'); view.innerHTML=`<div class="toolbar"><div class="muted">Подключение проверяется официальным API до первой публикации. Секреты хранятся зашифрованно.</div><button id="new-account" class="primary">+ Подключить</button></div><table class="table"><thead><tr><th>Площадка</th><th>Название</th><th>Состояние</th><th></th></tr></thead><tbody>${rows.map(a=>`<tr><td>${esc(a.platform)}${vkDestinationSuffix(a)}</td><td>${esc(a.name)}</td><td>${a.enabled?'<span class="badge PUBLISHED">Включено</span>':'<span class="badge">Отключено</span>'}</td><td class="row-actions"><button class="secondary test-account" data-id="${a.id}">Проверить</button><button class="secondary toggle-account" data-id="${a.id}" data-enabled="${a.enabled?1:0}">${a.enabled?'Отключить':'Включить'}</button></td></tr>`).join('')||'<tr><td colspan="4">Нет подключений</td></tr>'}</tbody></table><div id="accounts-result" class="card muted" style="margin-top:12px">Проверка подключения ничего не публикует.</div>`;
   document.querySelector('#new-account').onclick=()=>accountEditor();
@@ -260,10 +212,10 @@ async function accounts(){
 }
 function accountEditor(){
   const m=modal(`<h2>Подключить соцсеть</h2><form id="account-form" class="form-grid"><label>Площадка<select name="platform"><option value="telegram">Telegram</option><option value="vk">VK</option><option value="max">MAX</option><option value="instagram">Instagram</option></select></label><label>Название подключения<input name="name" required placeholder="ASSA Lab"></label><div id="credential-fields" class="full form-grid"></div><div class="full muted small">При сохранении Publikator сначала проверит токен, назначение и доступные права через официальный API. Тест ничего не публикует.</div><div class="full row-actions"><button class="primary" type="submit">Проверить и сохранить</button><button type="button" id="test-account-new" class="secondary">Только проверить</button><button type="button" id="close-modal" class="secondary">Закрыть</button></div></form><div id="account-error" class="error"></div><div id="account-ok" class="muted"></div>`);
-  const form=m.querySelector('#account-form');const platform=form.querySelector('[name="platform"]');const fields=m.querySelector('#credential-fields');const renderFields=()=>{fields.innerHTML=credentialFields(platform.value);syncVkDestinationFields(form);};renderFields();platform.onchange=renderFields;m.querySelector('#close-modal').onclick=()=>m.remove();
-  const test=async()=>{const result=await api('/api/accounts/test',{method:'POST',body:JSON.stringify({platform:platform.value,credentials:credentialsFromForm(form)})});m.querySelector('#account-ok').textContent=`✓ ${result.identity} → ${result.destination}`;m.querySelector('#account-error').textContent='';return result;};
+  const form=m.querySelector('#account-form');const platform=form.querySelector('[name="platform"]');const fields=m.querySelector('#credential-fields');const renderFields=()=>{fields.innerHTML=socialCredentialFields(platform.value);syncVkDestinationFields(form);};renderFields();platform.onchange=renderFields;m.querySelector('#close-modal').onclick=()=>m.remove();
+  const test=async()=>{const result=await api('/api/accounts/test',{method:'POST',body:JSON.stringify({platform:platform.value,credentials:socialCredentialsFromForm(platform.value,form)})});m.querySelector('#account-ok').textContent=`✓ ${result.identity} → ${result.destination}`;m.querySelector('#account-error').textContent='';return result;};
   m.querySelector('#test-account-new').onclick=async()=>{try{await test();}catch(err){m.querySelector('#account-error').textContent=err.message;}};
-  form.onsubmit=async e=>{e.preventDefault();try{const result=await test();const f=new FormData(form);await api('/api/accounts',{method:'POST',body:JSON.stringify({platform:platform.value,name:f.get('name'),credentials:verifiedCredentialsFromTest(form,result)})});m.remove();await accounts();}catch(err){m.querySelector('#account-error').textContent=err.message;}};
+  form.onsubmit=async e=>{e.preventDefault();try{const result=await test();const f=new FormData(form);await api('/api/accounts',{method:'POST',body:JSON.stringify({platform:platform.value,name:f.get('name'),credentials:verifiedSocialCredentialsFromTest(platform.value,form,result)})});m.remove();await accounts();}catch(err){m.querySelector('#account-error').textContent=err.message;}};
 }
 async function schedules(){const rows=await api('/api/schedules');view.innerHTML=`<div class="toolbar"><div class="muted">Слоты забирают следующий READY-пост с режимом QUEUE.</div><button id="new-slot" class="primary">+ Слот</button></div><table class="table"><thead><tr><th>Проект</th><th>День</th><th>Время</th><th>Timezone</th><th>Последний запуск</th><th></th></tr></thead><tbody>${rows.map(s=>`<tr><td>${esc(s.project_name)}</td><td>${s.weekday}</td><td>${esc(s.time_hhmm)}</td><td>${esc(s.timezone)}</td><td>${esc(s.last_fired_on||'—')}</td><td><button class="secondary danger delete-slot" data-id="${s.id}">Удалить</button></td></tr>`).join('')||'<tr><td colspan="6">Нет слотов</td></tr>'}</tbody></table>`;document.querySelector('#new-slot').onclick=()=>slotEditor();document.querySelectorAll('.delete-slot').forEach(b=>b.onclick=async()=>{await api(`/api/schedules/${b.dataset.id}`,{method:'DELETE'});await schedules();});}
 function slotEditor(){const m=modal(`<h2>Новое время публикации</h2><form id="slot-form" class="form-grid"><label>Проект<select name="projectId">${projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></label><label>День недели<select name="weekday"><option value="1">Пн</option><option value="2">Вт</option><option value="3">Ср</option><option value="4">Чт</option><option value="5">Пт</option><option value="6">Сб</option><option value="0">Вс</option></select></label><label>Время<input name="time" type="time" required value="18:00"></label><label>Часовой пояс<input name="timezone" value="Europe/Moscow"></label><div class="full row-actions"><button class="primary">Добавить</button><button type="button" id="close-modal" class="secondary">Закрыть</button></div></form><div id="slot-error" class="error"></div>`);m.querySelector('#close-modal').onclick=()=>m.remove();m.querySelector('#slot-form').onsubmit=async e=>{e.preventDefault();try{const f=new FormData(e.target);await api('/api/schedules',{method:'POST',body:JSON.stringify({projectId:f.get('projectId'),weekday:Number(f.get('weekday')),time:f.get('time'),timezone:f.get('timezone')})});m.remove();await schedules();}catch(err){m.querySelector('#slot-error').textContent=err.message;}};}
