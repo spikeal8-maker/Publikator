@@ -32,7 +32,16 @@ const enabledTargetIds=(post)=>post.targets.filter((target)=>Boolean(target.enab
 try{
   const project=(await api('GET','/api/projects'))[0];
   const telegram=await api('POST','/api/accounts',{platform:'telegram',name:'Template TG',credentials:{token:'tg'}},201);
-  const vk=await api('POST','/api/accounts',{platform:'vk',name:'Template VK',credentials:{token:'vk'}},201);
+  const vk=await api('POST','/api/accounts',{
+    platform:'vk',
+    name:'Template VK',
+    credentials:{
+      accessToken:'ew4-006-vk-token',
+      destinationKind:'COMMUNITY',
+      groupId:'12345',
+      apiVersion:'5.199'
+    }
+  },201);
   const max=await api('POST','/api/accounts',{platform:'max',name:'Template MAX',credentials:{token:'max'}},201);
 
   await api('PATCH',`/api/projects/${project.id}`,{

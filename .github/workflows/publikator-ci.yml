@@ -184,6 +184,9 @@ jobs:
       - name: VK adapter safety
         run: node scripts/vk-adapter-e2e.mjs
 
+      - name: VK destination and multi-target acceptance
+        run: node scripts/vk-dest-001-e2e.mjs
+
       - name: MAX adapter safety
         run: node scripts/max-adapter-e2e.mjs
 

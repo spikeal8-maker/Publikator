@@ -8,9 +8,71 @@ import { compileLiteralPlainText } from '../platform-text.js';
 const VK_RETRYABLE_CODES = new Set([1, 6, 9, 10, 29]);
 const VK_REQUEST_TIMEOUT_MS = 30_000;
 
+export type VkDestinationKind = 'PERSONAL' | 'COMMUNITY';
+
+export type VkDestination = {
+  kind: VkDestinationKind;
+  id: string;
+  ownerId: string;
+};
+
 type VkCallOptions = {
   publicPost?: boolean;
 };
+
+function normalizePositiveVkId(value: unknown, kind: 'user' | 'community'): string {
+  let raw = typeof value === 'number' ? String(value) : typeof value === 'string' ? value.trim() : '';
+  if (!raw) throw new Error(`VK: не указан ${kind === 'community' ? 'ID сообщества' : 'ID личной страницы'}`);
+
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const url = new URL(raw);
+      raw = url.pathname.split('/').filter(Boolean)[0] || '';
+    } catch {
+      throw new Error('VK: некорректная ссылка назначения');
+    }
+  }
+
+  raw = raw.replace(/^@/, '');
+  if (kind === 'community') raw = raw.replace(/^(?:club|public|event)/i, '').replace(/^-/, '');
+  else raw = raw.replace(/^id/i, '').replace(/^\+/, '');
+
+  if (!/^\d+$/.test(raw) || BigInt(raw) <= 0n) {
+    throw new Error(`VK: ${kind === 'community' ? 'ID сообщества' : 'ID личной страницы'} должен быть положительным числом`);
+  }
+  return BigInt(raw).toString();
+}
+
+export function normalizeVkCommunityId(value: unknown): string {
+  return normalizePositiveVkId(value, 'community');
+}
+
+export function normalizeVkUserId(value: unknown): string {
+  return normalizePositiveVkId(value, 'user');
+}
+
+export function vkDestinationKind(credentials: Record<string, unknown>): VkDestinationKind {
+  const explicit = typeof credentials.destinationKind === 'string' ? credentials.destinationKind.trim().toUpperCase() : '';
+  if (explicit) {
+    if (explicit !== 'PERSONAL' && explicit !== 'COMMUNITY') {
+      throw new Error(`VK: неизвестный destinationKind ${explicit}`);
+    }
+    return explicit;
+  }
+  if (credentials.groupId !== undefined && credentials.groupId !== null && String(credentials.groupId).trim()) return 'COMMUNITY';
+  if (credentials.userId !== undefined && credentials.userId !== null && String(credentials.userId).trim()) return 'PERSONAL';
+  throw new Error('VK: не указано назначение публикации');
+}
+
+export function resolveVkDestination(credentials: Record<string, unknown>): VkDestination {
+  const kind = vkDestinationKind(credentials);
+  if (kind === 'COMMUNITY') {
+    const id = normalizeVkCommunityId(credentials.groupId);
+    return { kind, id, ownerId: `-${id}` };
+  }
+  const id = normalizeVkUserId(credentials.userId);
+  return { kind, id, ownerId: id };
+}
 
 function isVideoPublication(input: PublishInput): boolean {
   return input.contentFormat === 'VIDEO';
@@ -148,11 +210,13 @@ function assertImagePublication(input: PublishInput): void {
 async function prepareImageAttachments(
   input: PublishInput,
   common: Record<string, string>,
-  groupId: string
+  destination: VkDestination
 ): Promise<string[]> {
   const attachments: string[] = [];
   for (const media of input.media) {
-    const server = await vkCall('photos.getWallUploadServer', { ...common, group_id: groupId });
+    const server = await vkCall('photos.getWallUploadServer', destination.kind === 'COMMUNITY'
+      ? { ...common, group_id: destination.id }
+      : { ...common });
     if (!server?.upload_url) {
       throw new PlatformError('VK: photos.getWallUploadServer не вернул upload_url', {
         retryable: false,
@@ -171,7 +235,7 @@ async function prepareImageAttachments(
 
     const saved = await vkCall('photos.saveWallPhoto', {
       ...common,
-      group_id: groupId,
+      ...(destination.kind === 'COMMUNITY' ? { group_id: destination.id } : { user_id: destination.id }),
       server: String(uploaded.server),
       photo: String(uploaded.photo),
       hash: String(uploaded.hash)
@@ -191,13 +255,13 @@ async function prepareImageAttachments(
 async function prepareVideoAttachment(
   input: PublishInput,
   common: Record<string, string>,
-  groupId: string
+  destination: VkDestination
 ): Promise<string> {
   const media = assertFeedVideo(input);
   const bytes = await readPublicationMedia(mediaAbsolutePath(media), 'видео');
   const saved = await vkCall('video.save', {
     ...common,
-    group_id: groupId,
+    ...(destination.kind === 'COMMUNITY' ? { group_id: destination.id } : {}),
     name: input.title,
     wallpost: '0'
   });
@@ -237,21 +301,22 @@ export const vkPublisher: SocialPublisher = {
   platform: 'vk',
   validate(input) {
     requireString(input.credentials, 'accessToken');
-    requireString(input.credentials, 'groupId');
+    resolveVkDestination(input.credentials);
     if (isVideoPublication(input)) assertFeedVideo(input);
     else assertImagePublication(input);
   },
   async publish(input: PublishInput): Promise<PublishResult> {
     this.validate(input);
     const accessToken = requireString(input.credentials, 'accessToken');
-    const groupId = requireString(input.credentials, 'groupId').replace(/^-/, '');
-    const apiVersion = typeof input.credentials.apiVersion === 'string' && input.credentials.apiVersion ? input.credentials.apiVersion : '5.199';
+    const destination = resolveVkDestination(input.credentials);
+    const apiVersion = typeof input.credentials.apiVersion === 'string' && input.credentials.apiVersion.trim()
+      ? input.credentials.apiVersion.trim()
+      : '5.199';
     const common = { access_token: accessToken, v: apiVersion };
     const attachments = isVideoPublication(input)
-      ? [await prepareVideoAttachment(input, common, groupId)]
-      : await prepareImageAttachments(input, common, groupId);
+      ? [await prepareVideoAttachment(input, common, destination)]
+      : await prepareImageAttachments(input, common, destination);
 
-    const ownerId = `-${groupId}`;
     const context = input.publicationKind === 'STORY' ? 'story_caption' : input.media.length ? 'media_caption' : 'text';
     const compilation = input.textCompilation ?? compileLiteralPlainText('vk', input.text, context);
     if (compilation.platform !== 'vk' || compilation.transport.kind !== 'plain') {
@@ -259,11 +324,11 @@ export const vkPublisher: SocialPublisher = {
     }
     const posted = await vkCall('wall.post', {
       ...common,
-      owner_id: ownerId,
-      from_group: '1',
+      owner_id: destination.ownerId,
+      ...(destination.kind === 'COMMUNITY' ? { from_group: '1' } : {}),
       message: compilation.transport.text,
       attachments: attachments.join(','),
-      guid: input.postId
+      guid: `${input.postId}:${destination.ownerId}`
     }, { publicPost: true });
     const postId = posted?.post_id;
     if (!postId) {
@@ -274,7 +339,7 @@ export const vkPublisher: SocialPublisher = {
     }
     return {
       externalId: String(postId),
-      externalUrl: `https://vk.com/wall${ownerId}_${postId}`,
+      externalUrl: `https://vk.com/wall${destination.ownerId}_${postId}`,
       raw: posted
     };
   }
