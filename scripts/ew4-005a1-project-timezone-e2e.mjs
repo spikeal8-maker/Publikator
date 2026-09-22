@@ -54,7 +54,14 @@ try{
   assert.deepEqual(main.defaultTargetAccountIds,[telegram.id]);
 
   const vk=(await api('POST','/api/accounts',{
-    platform:'vk',name:'A3 VK',credentials:{token:'vk'}
+    platform:'vk',
+    name:'A3 VK',
+    credentials:{
+      accessToken:'ew4-005a1-vk-token',
+      destinationKind:'COMMUNITY',
+      groupId:'12345',
+      apiVersion:'5.199'
+    }
   },201)).json();
   projects=(await api('GET','/api/projects')).json();
   main=projects.find((project)=>project.id===mainProject.id);
