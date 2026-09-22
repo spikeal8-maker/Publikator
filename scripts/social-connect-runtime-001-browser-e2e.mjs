@@ -113,7 +113,7 @@ try {
     const groupField = form.locator('[data-vk-community-field]');
     const groupInput = form.locator('input[name="groupId"]');
     assert.equal(await groupField.isHidden(), true);
-    assert.equal(await groupInput.isRequired(), false);
+    assert.equal(await groupInput.evaluate((element) => element.required), false);
     assert.equal(await form.locator('input[name="apiVersion"]').inputValue(), '5.199');
 
     await form.locator('input[name="name"]').fill('VK Personal');
@@ -153,7 +153,7 @@ try {
     const groupField = form.locator('[data-vk-community-field]');
     const groupInput = form.locator('input[name="groupId"]');
     assert.equal(await groupField.isVisible(), true);
-    assert.equal(await groupInput.isRequired(), true);
+    assert.equal(await groupInput.evaluate((element) => element.required), true);
     await form.locator('input[name="name"]').fill('VK Community');
     await form.locator('input[name="accessToken"]').fill('vk-community-token');
     await groupInput.fill('https://vk.com/club67890');
