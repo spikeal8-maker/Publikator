@@ -3,6 +3,8 @@ import fs from 'node:fs';
 
 const html = fs.readFileSync('public/index.html', 'utf8');
 const js = fs.readFileSync('public/operator-pages-v4.js', 'utf8');
+const socialJs = fs.readFileSync('public/social-credentials.js', 'utf8');
+const operatorContract = `${js}\n${socialJs}`;
 const css = fs.readFileSync('public/operator-pages-v4.css', 'utf8');
 
 const requiredNavigation = [
@@ -54,11 +56,11 @@ for (const text of [
   'Импортировать',
   'Скачать шаблон XLSX',
   'Источники / Интеграции'
-]) assert.ok(js.includes(text), `required operator text missing: ${text}`);
+]) assert.ok(operatorContract.includes(text), `required operator text missing: ${text}`);
 
 assert.ok(js.includes("history.pushState({}, '', path)"), 'route navigation must have real browser paths');
 assert.ok(js.includes("window.addEventListener('popstate'"), 'browser back/forward routing missing');
-assert.ok(js.includes("type=\"password\""), 'credential fields must not be plain text inputs');
+assert.ok(operatorContract.includes("type=\"password\""), 'credential fields must not be plain text inputs');
 assert.ok(js.includes("verifiedFingerprint"), 'save must depend on the last verified credential payload');
 assert.ok(js.includes("Preview ничего не публикует наружу"), 'source preview safety message missing');
 assert.ok(js.includes("автоматической публикации наружу не будет"), 'source apply safety message missing');

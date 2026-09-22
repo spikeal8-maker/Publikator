@@ -187,6 +187,12 @@ jobs:
       - name: VK destination and multi-target acceptance
         run: node scripts/vk-dest-001-e2e.mjs
 
+      - name: SOCIAL-CONNECT-RUNTIME-001 VK DNS fallback
+        run: node scripts/social-connect-runtime-001-network-e2e.mjs
+
+      - name: SOCIAL-CONNECT-RUNTIME-001 routed socials browser acceptance
+        run: node scripts/social-connect-runtime-001-browser-e2e.mjs
+
       - name: MAX adapter safety
         run: node scripts/max-adapter-e2e.mjs
 

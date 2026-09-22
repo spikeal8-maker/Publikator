@@ -4,6 +4,7 @@ import type { MediaRow } from '../media.js';
 import type { PublishInput, PublishResult, SocialPublisher } from './types.js';
 import { PlatformError, requireString, responseJson } from './types.js';
 import { compileLiteralPlainText } from '../platform-text.js';
+import { vkFetch } from './vk-transport.js';
 
 const VK_RETRYABLE_CODES = new Set([1, 6, 9, 10, 29]);
 const VK_REQUEST_TIMEOUT_MS = 30_000;
@@ -104,7 +105,7 @@ function publicPostError(error: unknown, context: string): PlatformError {
 export async function vkCall(method: string, params: Record<string, string>, options: VkCallOptions = {}): Promise<any> {
   try {
     const body = new URLSearchParams(params);
-    const response = await fetch(`https://api.vk.com/method/${method}`, {
+    const response = await vkFetch(`https://api.vk.com/method/${method}`, {
       method: 'POST',
       body,
       signal: AbortSignal.timeout(VK_REQUEST_TIMEOUT_MS)
@@ -142,7 +143,7 @@ async function uploadWallImage(uploadUrl: string, bytes: Buffer): Promise<any> {
     blobBytes.set(bytes);
     const form = new FormData();
     form.set('photo', new Blob([blobBytes], { type: 'image/jpeg' }), 'image.jpg');
-    const uploadResponse = await fetch(uploadUrl, {
+    const uploadResponse = await vkFetch(uploadUrl, {
       method: 'POST',
       body: form,
       signal: AbortSignal.timeout(VK_REQUEST_TIMEOUT_MS)
@@ -160,7 +161,7 @@ async function uploadVideoFile(uploadUrl: string, bytes: Buffer, originalName: s
     const form = new FormData();
     const filename = originalName.toLowerCase().endsWith('.mp4') ? originalName : `${originalName}.mp4`;
     form.set('video_file', new Blob([blobBytes], { type: 'video/mp4' }), filename);
-    const uploadResponse = await fetch(uploadUrl, {
+    const uploadResponse = await vkFetch(uploadUrl, {
       method: 'POST',
       body: form,
       signal: AbortSignal.timeout(VK_REQUEST_TIMEOUT_MS)

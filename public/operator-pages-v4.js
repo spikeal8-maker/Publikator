@@ -1,5 +1,6 @@
 import { statusLabel } from './presentation-labels.js';
 import { mountRichTextEditor, plainTextToRichDocument } from './rich-text-editor-v1.js';
+import { socialCredentialFields, socialCredentialsFromForm, syncVkDestinationFields, verifiedSocialCredentialsFromTest } from './social-credentials.js';
 
 const operatorView = document.querySelector('#view');
 const operatorTitle = document.querySelector('#page-title');
@@ -34,47 +35,10 @@ function operatorEsc(value = '') {
 
 const OPERATOR_PLATFORM = {
   telegram: { label: 'Telegram', note: 'Бот публикует в конкретный канал или чат.' },
-  vk: { label: 'VK', note: 'Публикация идёт на стену конкретной группы.' },
+  vk: { label: 'VK', note: 'Публикация идёт на личную страницу или в сообщество.' },
   max: { label: 'MAX', note: 'Бот публикует в конкретный чат или канал.' },
   instagram: { label: 'Instagram', note: 'Публикация в профессиональный аккаунт Instagram.' }
 };
-
-function telegramDestination(value) {
-  const raw = String(value || '').trim();
-  const match = raw.match(/^https?:\/\/t\.me\/([A-Za-z0-9_]+)\/?$/i);
-  return match ? `@${match[1]}` : raw;
-}
-
-function vkGroupId(value) {
-  const raw = String(value || '').trim();
-  const match = raw.match(/(?:club)?(\d+)\/?$/i);
-  if (!match) throw new Error('VK: укажите числовой ID группы или адрес вида vk.com/club123456');
-  return match[1];
-}
-
-function credentialFields(platform) {
-  if (platform === 'telegram') return `
-    <label class="full">Токен бота<input name="botToken" type="password" autocomplete="off" required placeholder="123456:ABC…"><span class="operator-field-help">Токен из BotFather. Он хранится зашифрованно.</span></label>
-    <label class="full">Куда публиковать<input name="chatId" required placeholder="@my_channel или https://t.me/my_channel"><span class="operator-field-help">Укажите канал/чат. Бот должен иметь право публиковать туда.</span></label>`;
-  if (platform === 'vk') return `
-    <label class="full">Access token<input name="accessToken" type="password" autocomplete="off" required><span class="operator-field-help">Токен с правами, достаточными для публикации от имени группы.</span></label>
-    <label class="full">Куда публиковать<input name="groupId" required placeholder="123456789 или https://vk.com/club123456789"><span class="operator-field-help">Числовой ID группы. API version Publikator подставит автоматически.</span></label>`;
-  if (platform === 'max') return `
-    <label class="full">Токен бота<input name="accessToken" type="password" autocomplete="off" required><span class="operator-field-help">Токен MAX-бота.</span></label>
-    <label class="full">Куда публиковать<input name="chatId" required placeholder="ID чата / канала"><span class="operator-field-help">Укажите точный ID назначения, где бот имеет право писать.</span></label>`;
-  return `
-    <label class="full">Access token<input name="accessToken" type="password" autocomplete="off" required></label>
-    <label>Instagram User ID<input name="igUserId" required placeholder="Professional account ID"></label>
-    <label>Graph API version<input name="graphVersion" required placeholder="vXX.X"></label>`;
-}
-
-function credentialsFromForm(platform, form) {
-  const data = new FormData(form);
-  if (platform === 'telegram') return { botToken: String(data.get('botToken') || '').trim(), chatId: telegramDestination(data.get('chatId')) };
-  if (platform === 'vk') return { accessToken: String(data.get('accessToken') || '').trim(), groupId: vkGroupId(data.get('groupId')), apiVersion: '5.199' };
-  if (platform === 'max') return { accessToken: String(data.get('accessToken') || '').trim(), chatId: String(data.get('chatId') || '').trim() };
-  return { accessToken: String(data.get('accessToken') || '').trim(), igUserId: String(data.get('igUserId') || '').trim(), graphVersion: String(data.get('graphVersion') || '').trim() };
-}
 
 function renderSocialConnectForm(platform) {
   const host = document.querySelector('#operator-social-connect');
@@ -84,7 +48,7 @@ function renderSocialConnectForm(platform) {
     <div class="operator-page-head"><div><h3>Подключить ${meta.label}</h3><p>${meta.note}</p></div><button id="operator-close-connect" class="secondary" type="button">Закрыть</button></div>
     <form id="operator-social-form" class="operator-form">
       <label class="full">Название подключения<input name="name" required placeholder="Например: Основной канал"><span class="operator-field-help">Это название будет видно при выборе площадки у публикации.</span></label>
-      ${credentialFields(platform)}
+      ${socialCredentialFields(platform)}
       <div class="operator-secret-note">Секреты вводятся только здесь, на вашем Publikator. В интерфейсе они обратно не показываются.</div>
       <div id="operator-connect-result" class="operator-test-result"></div>
       <div class="row-actions full"><button id="operator-test-connect" class="secondary" type="button">Проверить подключение</button><button id="operator-save-connect" class="primary" type="submit" disabled>Сохранить подключение</button></div>
@@ -93,15 +57,19 @@ function renderSocialConnectForm(platform) {
   const form = host.querySelector('#operator-social-form');
   const result = host.querySelector('#operator-connect-result');
   const save = host.querySelector('#operator-save-connect');
+  syncVkDestinationFields(form);
   let verifiedFingerprint = '';
   const invalidate = () => { verifiedFingerprint = ''; save.disabled = true; result.innerHTML = ''; };
-  form.querySelectorAll('input').forEach((input) => input.addEventListener('input', invalidate));
+  form.querySelectorAll('input').forEach((input) => {
+    input.addEventListener('input', invalidate);
+    input.addEventListener('change', invalidate);
+  });
   host.querySelector('#operator-close-connect').onclick = () => { host.innerHTML = ''; };
   host.querySelector('#operator-test-connect').onclick = async () => {
     result.innerHTML = '<div class="operator-result">Проверяю токен и назначение через API…</div>';
     save.disabled = true;
     try {
-      const credentials = credentialsFromForm(platform, form);
+      const credentials = socialCredentialsFromForm(platform, form);
       const checked = await operatorApi('/api/accounts/test', { method: 'POST', body: JSON.stringify({ platform, credentials }) });
       verifiedFingerprint = JSON.stringify(credentials);
       result.innerHTML = `<div class="operator-result ok"><strong>Подключение работает.</strong><br>${operatorEsc(checked.identity)} → <strong>${operatorEsc(checked.destination)}</strong></div>`;
@@ -114,12 +82,13 @@ function renderSocialConnectForm(platform) {
   form.onsubmit = async (event) => {
     event.preventDefault();
     try {
-      const credentials = credentialsFromForm(platform, form);
+      const credentials = socialCredentialsFromForm(platform, form);
       if (!verifiedFingerprint || verifiedFingerprint !== JSON.stringify(credentials)) throw new Error('Сначала нажмите «Проверить подключение» после последнего изменения полей.');
       result.innerHTML = '<div class="operator-result">Повторно проверяю доступ перед сохранением…</div>';
       const checked = await operatorApi('/api/accounts/test', { method: 'POST', body: JSON.stringify({ platform, credentials }) });
       const data = new FormData(form);
-      await operatorApi('/api/accounts', { method: 'POST', body: JSON.stringify({ platform, name: String(data.get('name') || '').trim(), credentials }) });
+      const verifiedCredentials = verifiedSocialCredentialsFromTest(platform, form, checked);
+      await operatorApi('/api/accounts', { method: 'POST', body: JSON.stringify({ platform, name: String(data.get('name') || '').trim(), credentials: verifiedCredentials }) });
       result.innerHTML = `<div class="operator-result ok">Сохранено: ${operatorEsc(checked.identity)} → ${operatorEsc(checked.destination)}</div>`;
       setTimeout(() => renderSocialsPage(), 250);
     } catch (error) {
