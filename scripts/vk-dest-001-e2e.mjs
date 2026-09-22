@@ -359,12 +359,14 @@ assert.equal(communityBView.destination_kind, 'COMMUNITY', 'legacy groupId must 
 assert.equal(communityBView.destination_id, '202');
 assert.equal('credentials_encrypted' in personalView, false, 'account API must not expose encrypted credentials');
 
-const appJs = await fs.readFile(path.resolve('public/app.js'), 'utf8');
-assert.match(appJs, /name="destinationKind" value="PERSONAL"/);
-assert.match(appJs, /name="destinationKind" value="COMMUNITY"/);
-assert.match(appJs, /Личная страница/);
-assert.match(appJs, /Сообщество \/ ID/);
-assert.match(appJs, /vkDestinationSuffix/);
+const sharedSocialUi = await fs.readFile(path.resolve('public/social-credentials.js'), 'utf8');
+const routedSocialsUi = await fs.readFile(path.resolve('public/operator-pages-v4.js'), 'utf8');
+assert.match(sharedSocialUi, /name="destinationKind" value="PERSONAL"/);
+assert.match(sharedSocialUi, /name="destinationKind" value="COMMUNITY"/);
+assert.match(sharedSocialUi, /Личная страница/);
+assert.match(sharedSocialUi, /Сообщество \/ ID/);
+assert.match(routedSocialsUi, /socialCredentialFields\(platform\)/);
+assert.match(routedSocialsUi, /verifiedSocialCredentialsFromTest\(platform, form, checked\)/);
 
 const project = db.prepare('SELECT id FROM projects ORDER BY created_at LIMIT 1').get();
 assert.ok(project?.id);
