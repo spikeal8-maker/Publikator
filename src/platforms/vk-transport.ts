@@ -188,6 +188,7 @@ async function requestViaResolvedAddress(url: URL, init: RequestInit, resolved: 
     });
 
     const abort = () => request.destroy(new Error('VK request aborted'));
+    request.on('error', reject);
     if (init.signal?.aborted) {
       abort();
       return;
@@ -195,7 +196,6 @@ async function requestViaResolvedAddress(url: URL, init: RequestInit, resolved: 
     init.signal?.addEventListener('abort', abort, { once: true });
     request.on('close', () => init.signal?.removeEventListener('abort', abort));
     request.setTimeout(VK_FALLBACK_TIMEOUT_MS, () => request.destroy(new Error('VK request timed out')));
-    request.on('error', reject);
     if (body) request.write(body);
     request.end();
   });
