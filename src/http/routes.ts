@@ -49,23 +49,20 @@ function bodyObject(body: unknown): Record<string, any> {
 
 function normalizeStoredCredentials(platform: Platform, value: Record<string, unknown>): Record<string, unknown> {
   if (platform !== 'vk') return value;
-  try {
-    const kind = vkDestinationKind(value);
-    const destination = resolveVkDestination(value);
-    const normalized: Record<string, unknown> = { ...value, destinationKind: kind };
-    if (kind === 'PERSONAL') {
-      normalized.userId = destination.id;
-      delete normalized.groupId;
-    } else {
-      normalized.groupId = destination.id;
-      delete normalized.userId;
-    }
-    return normalized;
-  } catch {
-    // Account storage historically accepted unverified credentials. Preserve that API contract;
-    // operator flows still call /api/accounts/test before saving, and publisher preflight validates use.
-    return value;
+
+  const kind = vkDestinationKind(value);
+  const destination = resolveVkDestination(value);
+  const normalized: Record<string, unknown> = { ...value, destinationKind: kind };
+
+  if (kind === 'PERSONAL') {
+    normalized.userId = destination.id;
+    delete normalized.groupId;
+  } else {
+    normalized.groupId = destination.id;
+    delete normalized.userId;
   }
+
+  return normalized;
 }
 
 function vkDestinationMetadata(credentialsEncrypted: string): { destination_kind?: 'PERSONAL' | 'COMMUNITY'; destination_id?: string } {

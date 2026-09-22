@@ -228,6 +228,55 @@ assert.match(communityTest.identity, /Сообщество/);
 assert.equal(communityTest.destination, 'https://vk.com/asalab');
 assert.equal(communitySteps.length, 0);
 
+function accountStorageCounts() {
+  const accountCount = db.prepare('SELECT COUNT(*) AS count FROM social_accounts').get();
+  const defaultTargetCount = db.prepare('SELECT COUNT(*) AS count FROM project_default_targets').get();
+  return {
+    accounts: Number(accountCount.count),
+    defaultTargets: Number(defaultTargetCount.count)
+  };
+}
+
+const invalidPersonalBefore = accountStorageCounts();
+await api('POST', '/api/accounts', {
+  platform: 'vk',
+  name: 'Invalid Personal',
+  credentials: {
+    accessToken: 'personal-token',
+    destinationKind: 'PERSONAL',
+    apiVersion: '5.199'
+  }
+}, 400);
+assert.deepEqual(
+  accountStorageCounts(),
+  invalidPersonalBefore,
+  'invalid PERSONAL create must not persist account or project default target side effects'
+);
+assert.equal(
+  Number(db.prepare('SELECT COUNT(*) AS count FROM social_accounts WHERE name=?').get('Invalid Personal').count),
+  0
+);
+
+const invalidCommunityBefore = accountStorageCounts();
+await api('POST', '/api/accounts', {
+  platform: 'vk',
+  name: 'Invalid Community',
+  credentials: {
+    accessToken: 'community-token',
+    destinationKind: 'COMMUNITY',
+    apiVersion: '5.199'
+  }
+}, 400);
+assert.deepEqual(
+  accountStorageCounts(),
+  invalidCommunityBefore,
+  'invalid COMMUNITY create must not persist account or project default target side effects'
+);
+assert.equal(
+  Number(db.prepare('SELECT COUNT(*) AS count FROM social_accounts WHERE name=?').get('Invalid Community').count),
+  0
+);
+
 const personalAccount = await api('POST', '/api/accounts', {
   platform: 'vk',
   name: 'Александр',
@@ -239,6 +288,28 @@ const personalAccount = await api('POST', '/api/accounts', {
     apiVersion: '5.199'
   }
 }, 201);
+
+const personalBeforeInvalidPatch = db.prepare(
+  'SELECT name,enabled,credentials_encrypted FROM social_accounts WHERE id=?'
+).get(personalAccount.id);
+assert.ok(personalBeforeInvalidPatch);
+await api('PATCH', `/api/accounts/${personalAccount.id}`, {
+  name: 'MUST NOT BE SAVED',
+  enabled: false,
+  credentials: {
+    accessToken: 'personal-token',
+    destinationKind: 'PERSONAL',
+    apiVersion: '5.199'
+  }
+}, 400);
+const personalAfterInvalidPatch = db.prepare(
+  'SELECT name,enabled,credentials_encrypted FROM social_accounts WHERE id=?'
+).get(personalAccount.id);
+assert.deepEqual(
+  personalAfterInvalidPatch,
+  personalBeforeInvalidPatch,
+  'invalid VK credential PATCH must be atomic'
+);
 
 const communityA = await api('POST', '/api/accounts', {
   platform: 'vk',
@@ -252,19 +323,18 @@ const communityA = await api('POST', '/api/accounts', {
   }
 }, 201);
 
-const now = nowIso();
-const communityBId = id('acc');
-db.prepare(`INSERT INTO social_accounts
-  (id,platform,name,credentials_encrypted,enabled,created_at,updated_at)
-  VALUES (?,?,?,?,1,?,?)`).run(
-  communityBId,
-  'vk',
-  'Школа 1580',
-  encryptJson({ accessToken: 'legacy-community-token', groupId: '202', apiVersion: '5.199' }),
-  now,
-  now
-);
+const legacyCommunity = await api('POST', '/api/accounts', {
+  platform: 'vk',
+  name: 'Школа 1580',
+  credentials: {
+    accessToken: 'legacy-community-token',
+    groupId: '202',
+    apiVersion: '5.199'
+  }
+}, 201);
+const communityBId = legacyCommunity.id;
 
+const now = nowIso();
 const telegramId = id('acc');
 db.prepare(`INSERT INTO social_accounts
   (id,platform,name,credentials_encrypted,enabled,created_at,updated_at)
@@ -469,6 +539,12 @@ console.log(JSON.stringify({
   independentTargetStates: true,
   retryIsolationNoDuplicates: true,
   legacyGroupIdCompatibility: true,
+  legacyGroupIdWriteApi: true,
+  invalidPersonalCreateRejected: true,
+  invalidCommunityCreateRejected: true,
+  noCreateSideEffects: true,
+  invalidPatchRejected: true,
+  patchAtomicity: true,
   connectionDestinationIdentity: true,
   operatorDestinationControls: true
 }, null, 2));
