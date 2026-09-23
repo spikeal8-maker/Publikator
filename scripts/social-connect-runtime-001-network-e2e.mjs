@@ -19,6 +19,7 @@ function dnsError(code, hostname) {
 // 1. Normal system/network path stays primary and never invokes DoH.
 {
   let fetchCalls = 0;
+  let directCalls = 0;
   let dohCalls = 0;
   let resolvedCalls = 0;
   const response = await vkFetch('https://api.vk.com/method/users.get', { method: 'POST' }, {
@@ -26,6 +27,10 @@ function dnsError(code, hostname) {
       fetchCalls += 1;
       assert.equal(new URL(String(url)).hostname, 'api.vk.com');
       return new Response('{"response":[]}', { status: 200, headers: { 'content-type': 'application/json' } });
+    },
+    resolveDirect: async () => {
+      directCalls += 1;
+      throw new Error('direct DNS must not run');
     },
     resolveDoh: async () => {
       dohCalls += 1;
@@ -38,11 +43,12 @@ function dnsError(code, hostname) {
   });
   assert.equal(response.status, 200);
   assert.equal(fetchCalls, 1);
+  assert.equal(directCalls, 0);
   assert.equal(dohCalls, 0);
   assert.equal(resolvedCalls, 0);
 }
 
-// 2. System resolver EAI_AGAIN triggers DoH and the resolved HTTPS request.
+// 2. System resolver EAI_AGAIN triggers direct DNS and the resolved HTTPS request.
 {
   let resolvedHostname = '';
   let connectedAddress = '';
@@ -51,9 +57,12 @@ function dnsError(code, hostname) {
     body: new URLSearchParams({ group_id: '1' })
   }, {
     fetchImpl: async () => { throw dnsError('EAI_AGAIN', 'api.vk.com'); },
-    resolveDoh: async (hostname) => {
+    resolveDirect: async (hostname) => {
       resolvedHostname = hostname;
       return { address: '203.0.113.10', family: 4, source: 'google' };
+    },
+    resolveDoh: async () => {
+      throw new Error('DoH must not run after direct DNS success');
     },
     requestResolved: async (url, init, resolved) => {
       connectedAddress = resolved.address;
@@ -105,9 +114,12 @@ function dnsError(code, hostname) {
     body: 'payload'
   }, {
     fetchImpl: async () => { throw dnsError('ENOTFOUND', 'upload.vk.example'); },
-    resolveDoh: async (hostname) => {
+    resolveDirect: async (hostname) => {
       fallbackHost = hostname;
       return { address: '192.0.2.44', family: 4, source: 'cloudflare' };
+    },
+    resolveDoh: async () => {
+      throw new Error('DoH must not run after direct DNS success');
     },
     requestResolved: async (url, init, resolved) => {
       requestHost = url.hostname;
@@ -138,7 +150,7 @@ function dnsError(code, hostname) {
   await assert.rejects(
     vkFetch('https://api.vk.com/method/users.get', {}, {
       fetchImpl: async () => { throw nonDns; },
-      resolveDoh: async () => {
+      resolveDirect: async () => {
         fallbackCalls += 1;
         return { address: '203.0.113.1', family: 4, source: 'google' };
       }
@@ -157,7 +169,7 @@ console.log(JSON.stringify({
   ok: true,
   checkpoint: 'SOCIAL-CONNECT-RUNTIME-001',
   normalDnsPath: true,
-  eaiAgainDohFallback: true,
+  eaiAgainDirectDnsFallback: true,
   primarySecondaryDoh: true,
   tlsHostnamePreserved: true,
   certificateVerificationEnabled: true,

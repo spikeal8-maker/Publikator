@@ -1,6 +1,9 @@
 import https, { type RequestOptions } from 'node:https';
+import { Resolver } from 'node:dns/promises';
 import { isIP } from 'node:net';
 
+const VK_DIRECT_DNS_TIMEOUT_MS = 2_000;
+const VK_DIRECT_DNS_TRIES = 1;
 const VK_DOH_TIMEOUT_MS = 5_000;
 const VK_FALLBACK_TIMEOUT_MS = 30_000;
 
@@ -10,12 +13,28 @@ export type VkResolvedAddress = {
   source: 'google' | 'cloudflare';
 };
 
+export type VkDirectDnsProvider = {
+  id: 'google' | 'cloudflare';
+  servers: readonly string[];
+};
+
 export type VkDohEndpoint = {
   id: 'google' | 'cloudflare';
   hostname: string;
   path: string;
   bootstrapAddresses: readonly string[];
 };
+
+export const VK_DIRECT_DNS_PROVIDERS: readonly VkDirectDnsProvider[] = [
+  {
+    id: 'google',
+    servers: ['8.8.8.8', '8.8.4.4']
+  },
+  {
+    id: 'cloudflare',
+    servers: ['1.1.1.1', '1.0.0.1']
+  }
+];
 
 export const VK_DOH_ENDPOINTS: readonly VkDohEndpoint[] = [
   {
@@ -34,11 +53,17 @@ export const VK_DOH_ENDPOINTS: readonly VkDohEndpoint[] = [
 
 type VkTransportDependencies = {
   fetchImpl?: typeof fetch;
+  resolveDirect?: (hostname: string) => Promise<VkResolvedAddress>;
   resolveDoh?: (hostname: string) => Promise<VkResolvedAddress>;
   requestResolved?: (url: URL, init: RequestInit, resolved: VkResolvedAddress) => Promise<Response>;
 };
 
+type DirectDnsQuery = (provider: VkDirectDnsProvider, hostname: string) => Promise<string[]>;
 type DohQuery = (endpoint: VkDohEndpoint, hostname: string) => Promise<string[]>;
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 function errorCode(error: unknown): string {
   if (!error || typeof error !== 'object') return '';
@@ -59,6 +84,33 @@ export function isDnsResolutionError(error: unknown): boolean {
     current = (current as { cause?: unknown }).cause;
   }
   return false;
+}
+
+async function queryDirectDnsProvider(provider: VkDirectDnsProvider, hostname: string): Promise<string[]> {
+  const resolver = new Resolver({
+    timeout: VK_DIRECT_DNS_TIMEOUT_MS,
+    tries: VK_DIRECT_DNS_TRIES
+  });
+  resolver.setServers([...provider.servers]);
+  return await resolver.resolve4(hostname);
+}
+
+export async function resolveVkHostnameDirect(
+  hostname: string,
+  query: DirectDnsQuery = queryDirectDnsProvider
+): Promise<VkResolvedAddress> {
+  const failures: string[] = [];
+  for (const provider of VK_DIRECT_DNS_PROVIDERS) {
+    try {
+      const addresses = await query(provider, hostname);
+      const address = addresses.find((candidate) => isIP(candidate) === 4);
+      if (!address) throw new Error('no usable IPv4 address');
+      return { address, family: 4, source: provider.id };
+    } catch (error) {
+      failures.push(`${provider.id}: ${errorMessage(error)}`);
+    }
+  }
+  throw new Error(`VK direct DNS failed for ${hostname}: ${failures.join('; ')}`);
 }
 
 function httpsJsonRequest(options: RequestOptions): Promise<unknown> {
@@ -118,7 +170,7 @@ async function queryDohEndpoint(endpoint: VkDohEndpoint, hostname: string): Prom
       lastError = error;
     }
   }
-  throw new Error(`${endpoint.hostname}: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
+  throw new Error(`${endpoint.hostname}: ${errorMessage(lastError)}`);
 }
 
 export async function resolveVkHostnameWithDoh(hostname: string, query: DohQuery = queryDohEndpoint): Promise<VkResolvedAddress> {
@@ -130,10 +182,29 @@ export async function resolveVkHostnameWithDoh(hostname: string, query: DohQuery
       if (!address) throw new Error('no usable IPv4 address');
       return { address, family: 4, source: endpoint.id };
     } catch (error) {
-      failures.push(`${endpoint.id}: ${error instanceof Error ? error.message : String(error)}`);
+      failures.push(`${endpoint.id}: ${errorMessage(error)}`);
     }
   }
   throw new Error(`VK DNS fallback failed for ${hostname}: ${failures.join('; ')}`);
+}
+
+export async function resolveVkHostname(
+  hostname: string,
+  dependencies: Pick<VkTransportDependencies, 'resolveDirect' | 'resolveDoh'> = {}
+): Promise<VkResolvedAddress> {
+  const resolveDirect = dependencies.resolveDirect || resolveVkHostnameDirect;
+  try {
+    return await resolveDirect(hostname);
+  } catch (directError) {
+    const resolveDoh = dependencies.resolveDoh || resolveVkHostnameWithDoh;
+    try {
+      return await resolveDoh(hostname);
+    } catch (dohError) {
+      throw new Error(
+        `VK DNS fallback failed for ${hostname}: direct DNS: ${errorMessage(directError)}; DoH: ${errorMessage(dohError)}`
+      );
+    }
+  }
 }
 
 export function buildVkTlsRequestOptions(
@@ -212,9 +283,11 @@ export async function vkFetch(
     return await fetchImpl(url, init);
   } catch (error) {
     if (!isDnsResolutionError(error)) throw error;
-    const resolveDoh = dependencies.resolveDoh || resolveVkHostnameWithDoh;
+    const resolved = await resolveVkHostname(url.hostname, {
+      resolveDirect: dependencies.resolveDirect,
+      resolveDoh: dependencies.resolveDoh
+    });
     const requestResolved = dependencies.requestResolved || requestViaResolvedAddress;
-    const resolved = await resolveDoh(url.hostname);
     return await requestResolved(url, init, resolved);
   }
 }
