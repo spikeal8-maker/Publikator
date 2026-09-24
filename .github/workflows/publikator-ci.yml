@@ -190,6 +190,9 @@ jobs:
       - name: VK-WALL-AUTH-001 USER-token wall-photo capability
         run: node scripts/vk-wall-auth-001-e2e.mjs
 
+      - name: VK saved USER token community endpoint
+        run: node scripts/vk-saved-user-community-test-e2e.mjs
+
       - name: SOCIAL-CONNECT-RUNTIME-001 VK DNS fallback
         run: node scripts/social-connect-runtime-001-network-e2e.mjs
 
