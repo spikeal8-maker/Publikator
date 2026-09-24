@@ -8,7 +8,7 @@ export function socialCredentialFields(platform) {
       <label class="target-check"><input type="radio" name="destinationKind" value="PERSONAL" checked> Личная страница</label>
       <label class="target-check"><input type="radio" name="destinationKind" value="COMMUNITY"> Сообщество</label>
     </div>
-    <label class="full">Access token<input name="accessToken" type="password" autocomplete="off" required></label>
+    <label class="full">Access token<input name="accessToken" type="password" autocomplete="off" required><span class="operator-field-help hidden" data-vk-community-auth-hint>Для обычных постов и изображений используется User access token VK пользователя, имеющего права на это сообщество. Community Token для этого режима не подходит.</span></label>
     <label class="full hidden" data-vk-community-field>Сообщество / ID<input name="groupId" placeholder="123456789, club123456789 или ссылка VK"></label>
     <div class="full muted small" data-vk-personal-hint>Личная страница определяется по владельцу access token через официальный VK API.</div>
     <label>API version<input name="apiVersion" required value="5.199"></label>`;
@@ -25,6 +25,7 @@ export function syncVkDestinationFields(form) {
   const groupField = form.querySelector('[data-vk-community-field]');
   const groupInput = form.querySelector('input[name="groupId"]');
   const personalHint = form.querySelector('[data-vk-personal-hint]');
+  const communityAuthHint = form.querySelector('[data-vk-community-auth-hint]');
   if (!groupField || !groupInput) return () => undefined;
 
   const sync = () => {
@@ -33,6 +34,7 @@ export function syncVkDestinationFields(form) {
     groupField.classList.toggle('hidden', !community);
     groupInput.required = community;
     personalHint?.classList.toggle('hidden', community);
+    communityAuthHint?.classList.toggle('hidden', !community);
   };
   form.querySelectorAll('input[name="destinationKind"]').forEach((input) => input.addEventListener('change', sync));
   sync();
@@ -90,10 +92,17 @@ export function verifiedSocialCredentialsFromTest(platform, form, checked) {
   const destinationId = String(details.destinationId || '').trim();
   if (!destinationId) throw new Error('VK: проверка не вернула ID назначения');
 
+  const authKind = String(details.authKind || '').trim().toUpperCase();
+  if (authKind !== 'USER') throw new Error('VK: для публикации обычных постов с изображениями нужен проверенный User access token VK.');
+  if (checkedKind === 'COMMUNITY' && details.wallPhotoReady !== true) {
+    throw new Error('VK: проверка не подтвердила готовность загрузки изображений на стену сообщества.');
+  }
+
   const apiVersion = String(details.apiVersion || credentials.apiVersion || '5.199').trim();
   const verified = {
     accessToken: credentials.accessToken,
     apiVersion,
+    authKind: 'USER',
     destinationKind: checkedKind
   };
   if (checkedKind === 'PERSONAL') verified.userId = destinationId;

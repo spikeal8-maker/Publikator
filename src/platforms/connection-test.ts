@@ -1,5 +1,5 @@
 import type { Platform } from '../db.js';
-import { requireString, responseJson } from './types.js';
+import { PlatformError, requireString, responseJson } from './types.js';
 import { normalizeVkCommunityId, normalizeVkUserId, vkCall, vkDestinationKind } from './vk.js';
 
 export type ConnectionTestResult = {
@@ -95,37 +95,63 @@ function vkDisplayName(entity: any, fallback: string): string {
   return personalName || fallback;
 }
 
+const VK_USER_TOKEN_REQUIRED =
+  'VK: Этот токен является токеном сообщества. Для публикации обычных постов с изображениями нужен User access token VK.';
+
+function isVkGroupAuthorizationError(error: unknown): boolean {
+  if (error instanceof PlatformError && Number(error.code) === 27) return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /Group authorization failed|method is unavailable with group auth/i.test(message);
+}
+
+async function vkUserOnlyCall(method: string, params: Record<string, string>): Promise<any> {
+  try {
+    return await vkCall(method, params);
+  } catch (error) {
+    if (isVkGroupAuthorizationError(error)) throw new Error(VK_USER_TOKEN_REQUIRED);
+    throw error;
+  }
+}
+
 async function vkTest(credentials: Record<string, unknown>): Promise<ConnectionTestResult> {
   const accessToken = requireString(credentials, 'accessToken');
   const apiVersion = vkApiVersion(credentials);
   const common = { access_token: accessToken, v: apiVersion };
   const kind = vkDestinationKind(credentials);
 
+  const users = await vkUserOnlyCall('users.get', { ...common, fields: 'screen_name' });
+  const authenticatedUser = Array.isArray(users) ? users[0] : null;
+  if (!authenticatedUser?.id) throw new Error('VK: users.get не вернул владельца User access token');
+  const authenticatedUserId = normalizeVkUserId(authenticatedUser.id);
+  const authenticatedUserName = vkDisplayName(authenticatedUser, `id${authenticatedUserId}`);
+
   if (kind === 'PERSONAL') {
-    const users = await vkCall('users.get', { ...common, fields: 'screen_name' });
-    const user = Array.isArray(users) ? users[0] : null;
-    if (!user?.id) throw new Error('VK: users.get не вернул владельца access token');
-    const userId = normalizeVkUserId(user.id);
     if (credentials.userId !== undefined && credentials.userId !== null && String(credentials.userId).trim()) {
       const configuredUserId = normalizeVkUserId(credentials.userId);
-      if (configuredUserId !== userId) {
-        throw new Error(`VK: access token принадлежит id${userId}, а подключение настроено на id${configuredUserId}`);
+      if (configuredUserId !== authenticatedUserId) {
+        throw new Error(`VK: access token принадлежит id${authenticatedUserId}, а подключение настроено на id${configuredUserId}`);
       }
     }
-    const server = await vkCall('photos.getWallUploadServer', common);
+    const server = await vkUserOnlyCall('photos.getWallUploadServer', common);
     if (!server?.upload_url) throw new Error('VK: токен не дал upload_url для личной стены');
-    const name = vkDisplayName(user, `id${userId}`);
-    const screenName = typeof user.screen_name === 'string' && user.screen_name.trim() ? user.screen_name.trim() : `id${userId}`;
+    const screenName = typeof authenticatedUser.screen_name === 'string' && authenticatedUser.screen_name.trim()
+      ? authenticatedUser.screen_name.trim()
+      : `id${authenticatedUserId}`;
     return {
       ok: true,
       platform: 'vk',
-      identity: `Личная страница · ${name}`,
+      identity: `Личная страница · ${authenticatedUserName}`,
       destination: `https://vk.com/${screenName}`,
       details: {
         apiVersion,
+        authKind: 'USER',
+        authenticatedUserId,
+        authenticatedUserName,
         destinationKind: 'PERSONAL',
-        destinationId: userId,
-        destinationName: name,
+        destinationId: authenticatedUserId,
+        destinationName: authenticatedUserName,
+        destinationScreenName: screenName,
+        wallPhotoReady: true,
         wallUploadReady: true,
         wallPostNotExecuted: true
       }
@@ -133,11 +159,11 @@ async function vkTest(credentials: Record<string, unknown>): Promise<ConnectionT
   }
 
   const reference = vkCommunityReference(credentials);
-  const groupResponse = await vkCall('groups.getById', { ...common, group_id: reference });
+  const groupResponse = await vkCall('groups.getById', { ...common, group_id: reference, fields: 'screen_name' });
   const group = vkGroupFromResponse(groupResponse);
   if (!group?.id) throw new Error('VK: сообщество не найдено или токен не имеет к нему доступа');
   const groupId = normalizeVkCommunityId(group.id);
-  const server = await vkCall('photos.getWallUploadServer', { ...common, group_id: groupId });
+  const server = await vkUserOnlyCall('photos.getWallUploadServer', { ...common, group_id: groupId });
   if (!server?.upload_url) throw new Error('VK: токен не дал upload_url для стены сообщества');
   const name = vkDisplayName(group, `club${groupId}`);
   const screenName = typeof group.screen_name === 'string' && group.screen_name.trim() ? group.screen_name.trim() : `club${groupId}`;
@@ -148,9 +174,14 @@ async function vkTest(credentials: Record<string, unknown>): Promise<ConnectionT
     destination: `https://vk.com/${screenName}`,
     details: {
       apiVersion,
+      authKind: 'USER',
+      authenticatedUserId,
+      authenticatedUserName,
       destinationKind: 'COMMUNITY',
       destinationId: groupId,
       destinationName: name,
+      destinationScreenName: screenName,
+      wallPhotoReady: true,
       wallUploadReady: true,
       wallPostNotExecuted: true
     }
