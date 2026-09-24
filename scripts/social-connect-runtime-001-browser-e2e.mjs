@@ -42,9 +42,14 @@ try {
         destination: 'https://vk.com/id12345',
         details: {
           apiVersion: '5.199',
+          authKind: 'USER',
+          authenticatedUserId: '12345',
+          authenticatedUserName: 'Test User',
           destinationKind: 'PERSONAL',
           destinationId: '12345',
-          destinationName: 'Test User'
+          destinationName: 'Test User',
+          destinationScreenName: 'id12345',
+          wallPhotoReady: true
         }
       };
     } else if (body.platform === 'vk' && body.credentials.destinationKind === 'COMMUNITY') {
@@ -55,9 +60,14 @@ try {
         destination: 'https://vk.com/club67890',
         details: {
           apiVersion: '5.199',
+          authKind: 'USER',
+          authenticatedUserId: '12345',
+          authenticatedUserName: 'Test User',
           destinationKind: 'COMMUNITY',
           destinationId: '67890',
-          destinationName: 'Test Community'
+          destinationName: 'Test Community',
+          destinationScreenName: 'club67890',
+          wallPhotoReady: true
         }
       };
     } else if (body.platform === 'telegram') {
@@ -112,7 +122,9 @@ try {
     assert.equal(await form.getByText('Сообщество', { exact: true }).count(), 1);
     const groupField = form.locator('[data-vk-community-field]');
     const groupInput = form.locator('input[name="groupId"]');
+    const communityAuthHint = form.locator('[data-vk-community-auth-hint]');
     assert.equal(await groupField.isHidden(), true);
+    assert.equal(await communityAuthHint.isHidden(), true);
     assert.equal(await groupInput.evaluate((element) => element.required), false);
     assert.equal(await form.locator('input[name="apiVersion"]').inputValue(), '5.199');
 
@@ -139,6 +151,7 @@ try {
     const request = await saveRequest;
     const saved = request.postDataJSON();
     assert.equal(saved.platform, 'vk');
+    assert.equal(saved.credentials.authKind, 'USER');
     assert.equal(saved.credentials.destinationKind, 'PERSONAL');
     assert.equal(saved.credentials.userId, '12345');
     assert.equal(saved.credentials.destinationName, 'Test User');
@@ -152,10 +165,14 @@ try {
     await form.locator('input[name="destinationKind"][value="COMMUNITY"]').check();
     const groupField = form.locator('[data-vk-community-field]');
     const groupInput = form.locator('input[name="groupId"]');
+    const communityAuthHint = form.locator('[data-vk-community-auth-hint]');
     assert.equal(await groupField.isVisible(), true);
+    assert.equal(await communityAuthHint.isVisible(), true);
+    assert.match(await communityAuthHint.textContent(), /User access token VK/);
+    assert.match(await communityAuthHint.textContent(), /Community Token/);
     assert.equal(await groupInput.evaluate((element) => element.required), true);
     await form.locator('input[name="name"]').fill('VK Community');
-    await form.locator('input[name="accessToken"]').fill('vk-community-token');
+    await form.locator('input[name="accessToken"]').fill('vk-community-user-token');
     await groupInput.fill('https://vk.com/club67890');
 
     const beforeTest = testBodies.length;
@@ -165,7 +182,7 @@ try {
     assert.deepEqual(testBodies.at(-1), {
       platform: 'vk',
       credentials: {
-        accessToken: 'vk-community-token',
+        accessToken: 'vk-community-user-token',
         apiVersion: '5.199',
         destinationKind: 'COMMUNITY',
         groupId: 'https://vk.com/club67890'
@@ -177,6 +194,7 @@ try {
     );
     await form.locator('#operator-save-connect').click();
     const saved = (await saveRequest).postDataJSON();
+    assert.equal(saved.credentials.authKind, 'USER');
     assert.equal(saved.credentials.destinationKind, 'COMMUNITY');
     assert.equal(saved.credentials.groupId, '67890');
     assert.equal(saved.credentials.destinationName, 'Test Community');
