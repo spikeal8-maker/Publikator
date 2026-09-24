@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
 
+process.env.NODE_ENV = 'test';
+process.env.ADMIN_PASSWORD = 'vk-wall-auth-001-ci-password';
+process.env.APP_MASTER_KEY = 'vk-wall-auth-001-master-key-value-longer-than-thirty-two-characters';
+
 const { testConnection } = await import('../dist/platforms/connection-test.js');
 const { resolveVkDestination } = await import('../dist/platforms/vk.js');
 
