@@ -51,20 +51,20 @@ try {
   const userSteps = [
     {
       method: 'users.get',
-      check: (body) => assert.equal(body.access_token, 'user-token'),
+      check: (body) => assert.equal(body.get('access_token'), 'user-token'),
       response: { response: [{ id: 10101, first_name: 'Test', last_name: 'Owner', screen_name: 'testowner' }] }
     },
     {
       method: 'groups.getById',
       check: (body) => {
-        assert.equal(body.group_id, '234903751');
-        assert.equal(body.fields, 'screen_name');
+        assert.equal(body.get('group_id'), '234903751');
+        assert.equal(body.get('fields'), 'screen_name');
       },
       response: { response: { groups: [{ id: 234903751, name: 'IIBUSI', screen_name: 'iibusi' }], profiles: [] } }
     },
     {
       method: 'photos.getWallUploadServer',
-      check: (body) => assert.equal(body.group_id, '234903751'),
+      check: (body) => assert.equal(body.get('group_id'), '234903751'),
       response: { response: { upload_url: 'https://upload.vk.test/wall-photo' } }
     }
   ];
