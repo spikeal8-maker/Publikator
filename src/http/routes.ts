@@ -344,6 +344,33 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }
   });
+  app.post('/api/accounts/:id/vk-community/test', async (request, reply) => {
+    const params = request.params as { id: string };
+    const body = bodyObject(request.body);
+    const groupId = String(body.groupId || '').trim();
+    if (!groupId) return reply.code(400).send({ error: 'Нужен groupId' });
+
+    const row = db.prepare('SELECT platform,credentials_encrypted FROM social_accounts WHERE id=?').get(params.id) as
+      { platform: Platform; credentials_encrypted: string } | undefined;
+    if (!row) return reply.code(404).send({ error: 'Аккаунт не найден' });
+    if (row.platform !== 'vk') return reply.code(400).send({ error: 'Нужен сохранённый VK PERSONAL account' });
+
+    try {
+      const stored = decryptJson<Record<string, unknown>>(row.credentials_encrypted);
+      if (vkDestinationKind(stored) !== 'PERSONAL') {
+        return reply.code(400).send({ error: 'Нужен сохранённый VK PERSONAL account' });
+      }
+      const credentials: Record<string, unknown> = {
+        accessToken: stored.accessToken,
+        apiVersion: stored.apiVersion,
+        destinationKind: 'COMMUNITY',
+        groupId
+      };
+      return await testConnection('vk', credentials);
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
 
   app.get('/api/posts', async (request) => {
     const query = request.query as { status?: string; projectId?: string };
