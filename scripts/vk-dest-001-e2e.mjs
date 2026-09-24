@@ -206,8 +206,19 @@ assert.equal(personalSteps.length, 0);
 
 const communitySteps = [
   {
+    method: 'users.get',
+    check: (body) => {
+      assert.equal(body.user_ids, undefined);
+      assert.equal(body.access_token, 'community-user-token');
+    },
+    response: { response: [{ id: 102, first_name: 'VK', last_name: 'Owner', screen_name: 'vkowner102' }] }
+  },
+  {
     method: 'groups.getById',
-    check: (body) => assert.equal(body.group_id, '201'),
+    check: (body) => {
+      assert.equal(body.group_id, '201');
+      assert.equal(body.fields, 'screen_name');
+    },
     response: { response: { groups: [{ id: 201, name: 'ASA Lab', screen_name: 'asalab' }], profiles: [] } }
   },
   {
@@ -219,11 +230,17 @@ const communitySteps = [
 mockVkConnection(communitySteps);
 const communityTest = await api('POST', '/api/accounts/test', {
   platform: 'vk',
-  credentials: { accessToken: 'community-token', destinationKind: 'COMMUNITY', groupId: 'https://vk.com/club201', apiVersion: '5.199' }
+  credentials: { accessToken: 'community-user-token', destinationKind: 'COMMUNITY', groupId: 'https://vk.com/club201', apiVersion: '5.199' }
 });
+assert.equal(communityTest.details.authKind, 'USER');
+assert.equal(communityTest.details.authenticatedUserId, '102');
+assert.equal(communityTest.details.authenticatedUserName, 'VK Owner');
 assert.equal(communityTest.details.destinationKind, 'COMMUNITY');
 assert.equal(communityTest.details.destinationId, '201');
 assert.equal(communityTest.details.destinationName, 'ASA Lab');
+assert.equal(communityTest.details.destinationScreenName, 'asalab');
+assert.equal(communityTest.details.wallPhotoReady, true);
+assert.equal(communityTest.details.wallPostNotExecuted, true);
 assert.match(communityTest.identity, /Сообщество/);
 assert.equal(communityTest.destination, 'https://vk.com/asalab');
 assert.equal(communitySteps.length, 0);
@@ -315,7 +332,8 @@ const communityA = await api('POST', '/api/accounts', {
   platform: 'vk',
   name: 'ASA Lab',
   credentials: {
-    accessToken: 'community-token',
+    accessToken: 'community-user-token',
+    authKind: communityTest.details.authKind,
     destinationKind: 'COMMUNITY',
     groupId: communityTest.details.destinationId,
     destinationName: communityTest.details.destinationName,
@@ -355,6 +373,12 @@ assert.equal(personalView.destination_kind, 'PERSONAL');
 assert.equal(personalView.destination_id, '101');
 assert.equal(communityAView.destination_kind, 'COMMUNITY');
 assert.equal(communityAView.destination_id, '201');
+const communityCredentialsCheck = await api('GET', `/api/accounts/${communityA.id}/credentials-check`);
+assert.equal(communityCredentialsCheck.ok, true);
+assert.ok(communityCredentialsCheck.fields.includes('authKind'));
+assert.ok(communityCredentialsCheck.fields.includes('destinationKind'));
+assert.ok(communityCredentialsCheck.fields.includes('groupId'));
+assert.equal(communityCredentialsCheck.fields.includes('userId'), false);
 assert.equal(communityBView.destination_kind, 'COMMUNITY', 'legacy groupId must project as COMMUNITY');
 assert.equal(communityBView.destination_id, '202');
 assert.equal('credentials_encrypted' in personalView, false, 'account API must not expose encrypted credentials');
