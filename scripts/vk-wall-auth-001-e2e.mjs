@@ -19,9 +19,7 @@ function installVkMock(steps) {
   globalThis.fetch = async (input, init = {}) => {
     const method = vkMethod(input);
     assert.ok(method, `unexpected non-VK request: ${String(input)}`);
-    const body = init.body instanceof URLSearchParams
-      ? init.body
-      : new URLSearchParams(typeof init.body === 'string' ? init.body : '');
+    const body = new URLSearchParams(String(init.body || ''));
     vkCalls.push({
       method,
       groupId: body.get('group_id'),
