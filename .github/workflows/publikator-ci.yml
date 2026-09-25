@@ -193,6 +193,9 @@ jobs:
       - name: VK saved USER token community endpoint
         run: node scripts/vk-saved-user-community-test-e2e.mjs
 
+      - name: VK COMMUNITY save from saved PERSONAL
+        run: node scripts/vk-community-save-from-personal-e2e.mjs
+
       - name: VK saved PERSONAL add-community browser
         run: node scripts/vk-saved-community-ui-e2e.mjs
 
