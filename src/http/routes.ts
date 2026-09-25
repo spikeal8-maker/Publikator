@@ -371,6 +371,89 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }
   });
+  app.post('/api/accounts/:id/vk-community', async (request, reply) => {
+    const params = request.params as { id: string };
+    const body = bodyObject(request.body);
+    const name = String(body.name || '').trim();
+    const groupId = String(body.groupId || '').trim();
+    if (!name || !groupId) return reply.code(400).send({ error: 'Нужны name и groupId' });
+
+    const source = db.prepare('SELECT platform,credentials_encrypted FROM social_accounts WHERE id=?').get(params.id) as
+      { platform: Platform; credentials_encrypted: string } | undefined;
+    if (!source) return reply.code(404).send({ error: 'Аккаунт не найден' });
+    if (source.platform !== 'vk') return reply.code(400).send({ error: 'Нужен сохранённый VK PERSONAL account' });
+
+    try {
+      const stored = decryptJson<Record<string, unknown>>(source.credentials_encrypted);
+      if (vkDestinationKind(stored) !== 'PERSONAL') {
+        return reply.code(400).send({ error: 'Нужен сохранённый VK PERSONAL account' });
+      }
+
+      const candidate: Record<string, unknown> = {
+        accessToken: stored.accessToken,
+        apiVersion: stored.apiVersion,
+        destinationKind: 'COMMUNITY',
+        groupId
+      };
+      const checked = await testConnection('vk', candidate);
+      const details = checked.details || {};
+      const verifiedGroupId = String(details.destinationId || '').trim();
+      const verifiedDestinationName = String(details.destinationName || '').trim();
+      if (
+        details.authKind !== 'USER'
+        || details.destinationKind !== 'COMMUNITY'
+        || !verifiedGroupId
+        || !verifiedDestinationName
+      ) {
+        throw new Error('VK: проверка сообщества не вернула подтверждённое назначение');
+      }
+
+      const credentials: Record<string, unknown> = {
+        accessToken: stored.accessToken,
+        apiVersion: stored.apiVersion,
+        authKind: 'USER',
+        destinationKind: 'COMMUNITY',
+        groupId: verifiedGroupId,
+        destinationName: verifiedDestinationName
+      };
+
+      const accountId = id('acc');
+      const now = nowIso();
+      const created = db.transaction(() => {
+        const existing = db.prepare("SELECT credentials_encrypted FROM social_accounts WHERE platform='vk'").all() as
+          { credentials_encrypted: string }[];
+        const duplicate = existing.some((item) => {
+          try {
+            const value = decryptJson<Record<string, unknown>>(item.credentials_encrypted);
+            return vkDestinationKind(value) === 'COMMUNITY' && resolveVkDestination(value).id === verifiedGroupId;
+          } catch {
+            return false;
+          }
+        });
+        if (duplicate) return false;
+
+        db.prepare('INSERT INTO social_accounts (id,platform,name,credentials_encrypted,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)')
+          .run(accountId, 'vk', name, encryptJson(credentials), now, now);
+        db.prepare(`INSERT INTO project_default_targets (project_id,account_id,created_at)
+          SELECT id,?,? FROM projects WHERE default_targets_explicit=0`)
+          .run(accountId, now);
+        return true;
+      })();
+
+      if (!created) return reply.code(409).send({ error: 'VK COMMUNITY уже подключено' });
+      return reply.code(201).send({
+        id: accountId,
+        platform: 'vk',
+        name,
+        enabled: 1,
+        destinationKind: 'COMMUNITY',
+        destinationId: verifiedGroupId,
+        destinationName: verifiedDestinationName
+      });
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
 
   app.get('/api/posts', async (request) => {
     const query = request.query as { status?: string; projectId?: string };
