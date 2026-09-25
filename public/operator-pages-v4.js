@@ -108,7 +108,10 @@ async function renderSocialsPage() {
       <div class="operator-platform-grid">${Object.entries(OPERATOR_PLATFORM).map(([key, meta]) => `<div class="operator-platform-card" data-platform="${key}"><strong>${meta.label}</strong><span>${meta.note}</span><button class="secondary operator-add-platform" type="button" data-platform="${key}">Подключить</button></div>`).join('')}</div>
       <div id="operator-social-connect"></div>
       <section class="operator-section"><h3>Подключённые площадки</h3><p>«Проверить» ничего не публикует: только подтверждает учётную запись и назначение.</p>
-        <div class="operator-connection-list">${accounts.length ? accounts.map((account) => `<div class="operator-connection" data-account-id="${operatorEsc(account.id)}"><span class="operator-platform-badge">${operatorEsc(account.platform)}</span><div class="operator-connection-main"><strong>${operatorEsc(account.name)}</strong><span>${account.enabled ? 'Включено' : 'Отключено'} · назначение можно подтвердить кнопкой «Проверить»</span><div class="operator-account-result"></div></div><div class="operator-connection-actions"><button class="secondary operator-test-account" type="button">Проверить</button><button class="secondary operator-toggle-account" type="button" data-enabled="${account.enabled ? '1' : '0'}">${account.enabled ? 'Отключить' : 'Включить'}</button></div></div>`).join('') : '<div class="operator-empty">Пока нет ни одного подключения. Выберите площадку выше.</div>'}</div>
+        <div class="operator-connection-list">${accounts.length ? accounts.map((account) => {
+          const canAddVkCommunity = account.platform === 'vk' && account.destination_kind === 'PERSONAL';
+          return `<div class="operator-connection" data-account-id="${operatorEsc(account.id)}"><span class="operator-platform-badge">${operatorEsc(account.platform)}</span><div class="operator-connection-main"><strong>${operatorEsc(account.name)}</strong><span>${account.enabled ? 'Включено' : 'Отключено'} · назначение можно подтвердить кнопкой «Проверить»</span><div class="operator-account-result"></div></div><div class="operator-connection-actions"><button class="secondary operator-test-account" type="button">Проверить</button>${canAddVkCommunity ? '<button class="secondary operator-add-vk-community" type="button">Добавить сообщество</button>' : ''}<button class="secondary operator-toggle-account" type="button" data-enabled="${account.enabled ? '1' : '0'}">${account.enabled ? 'Отключить' : 'Включить'}</button></div></div>`;
+        }).join('') : '<div class="operator-empty">Пока нет ни одного подключения. Выберите площадку выше.</div>'}</div>
       </section>
     </div>`;
     operatorView.querySelectorAll('.operator-add-platform').forEach((button) => button.addEventListener('click', () => renderSocialConnectForm(button.dataset.platform)));
@@ -122,6 +125,35 @@ async function renderSocialsPage() {
       } catch (error) {
         out.innerHTML = `<div class="operator-result error">${operatorEsc(error instanceof Error ? error.message : String(error))}</div>`;
       }
+    }));
+    operatorView.querySelectorAll('.operator-add-vk-community').forEach((button) => button.addEventListener('click', () => {
+      const row = button.closest('.operator-connection');
+      const out = row.querySelector('.operator-account-result');
+      out.innerHTML = `<form class="operator-vk-community-test-form operator-form">
+        <h4>Добавить сообщество</h4>
+        <label class="full">Сообщество / ID:<input name="groupId" required></label>
+        <div class="row-actions full"><button class="secondary operator-test-vk-community" type="submit">Проверить</button></div>
+        <div class="operator-vk-community-test-result full"></div>
+      </form>`;
+      const form = out.querySelector('.operator-vk-community-test-form');
+      const result = out.querySelector('.operator-vk-community-test-result');
+      form.onsubmit = async (event) => {
+        event.preventDefault();
+        const groupId = String(new FormData(form).get('groupId') || '').trim();
+        result.innerHTML = '<div class="operator-result">Проверяю сообщество…</div>';
+        try {
+          const checked = await operatorApi(`/api/accounts/${encodeURIComponent(row.dataset.accountId)}/vk-community/test`, {
+            method: 'POST',
+            body: JSON.stringify({ groupId })
+          });
+          const details = checked?.details || {};
+          const screenName = String(details.destinationScreenName || '').trim();
+          const vkUrl = screenName ? `https://vk.com/${screenName}` : '';
+          result.innerHTML = `<div class="operator-result ok"><strong>Сообщество найдено</strong><br>Название: <strong>${operatorEsc(details.destinationName || '')}</strong><br>ID: <strong>${operatorEsc(details.destinationId || '')}</strong><br>VK: <strong>${operatorEsc(vkUrl)}</strong><br>Изображения на стену: <strong>${details.wallPhotoReady === true ? 'Готово' : 'Не готово'}</strong></div>`;
+        } catch (error) {
+          result.innerHTML = `<div class="operator-result error">${operatorEsc(error instanceof Error ? error.message : String(error))}</div>`;
+        }
+      };
     }));
     operatorView.querySelectorAll('.operator-toggle-account').forEach((button) => button.addEventListener('click', async () => {
       const row = button.closest('.operator-connection');
