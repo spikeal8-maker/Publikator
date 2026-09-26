@@ -189,9 +189,19 @@ try {
 
   const saveButton = form.getByRole('button', { name: 'Сохранить', exact: true });
   assert.equal(await saveButton.count(), 1);
+  const responsePromise = page.waitForResponse((response) => {
+    const request = response.request();
+    const url = new URL(response.url());
+    return request.method() === 'POST' && url.pathname === `/api/accounts/${personalId}/vk-community`;
+  });
+
   await saveButton.click();
 
-  await page.locator('.operator-connection').filter({ hasText: 'IIBUSI' }).waitFor({ state: 'visible' });
+  const response = await responsePromise;
+  assert.equal(response.status(), 201);
+  const saved = await response.json();
+  const savedCommunityRow = page.locator(`.operator-connection[data-account-id="${saved.id}"]`);
+  await savedCommunityRow.waitFor({ state: 'visible' });
 
   assert.equal(saveRequests.length, 1);
   assert.equal(saveRequests[0].method, 'POST');
@@ -201,7 +211,7 @@ try {
   assert.equal(JSON.stringify(saveRequests[0].body).includes('stored-user-token'), false);
   assert.equal(genericAccountCreateCalls, 0, 'community save UI must use the dedicated vk-community endpoint');
   assert.ok(accountsListRequests >= 2, 'successful save must rerender /socials via a fresh accounts request');
-  assert.equal(await page.locator(`.operator-connection[data-account-id="${savedCommunityId}"]`).count(), 1);
+  assert.equal(await savedCommunityRow.count(), 1);
   assert.deepEqual(pageErrors, [], `browser page errors:\n${pageErrors.join('\n')}`);
 
   console.log(JSON.stringify({
