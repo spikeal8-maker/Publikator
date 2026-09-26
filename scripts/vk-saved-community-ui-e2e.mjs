@@ -64,12 +64,16 @@ try {
   const page = await context.newPage();
   const pageErrors = [];
   const communityRequests = [];
-  let accountCreateCalls = 0;
+  const saveRequests = [];
+  let accountsListRequests = 0;
+  let genericAccountCreateCalls = 0;
+  let savedCommunityId = '';
 
   page.on('pageerror', (error) => pageErrors.push(String(error?.stack || error)));
   page.on('request', (request) => {
     const url = new URL(request.url());
-    if (url.pathname === '/api/accounts' && request.method() === 'POST') accountCreateCalls += 1;
+    if (url.pathname === '/api/accounts' && request.method() === 'GET') accountsListRequests += 1;
+    if (url.pathname === '/api/accounts' && request.method() === 'POST') genericAccountCreateCalls += 1;
   });
 
   await page.route('**/api/accounts/*/vk-community/test', async (route) => {
@@ -98,6 +102,50 @@ try {
           wallPhotoReady: true,
           wallPostNotExecuted: true
         }
+      })
+    });
+  });
+
+  await page.route('**/api/accounts/*/vk-community', async (route) => {
+    const request = route.request();
+    const body = request.postDataJSON();
+    saveRequests.push({
+      method: request.method(),
+      path: new URL(request.url()).pathname,
+      body
+    });
+
+    savedCommunityId = id('acc');
+    const savedAt = nowIso();
+    db.prepare(`INSERT INTO social_accounts
+      (id,platform,name,credentials_encrypted,enabled,created_at,updated_at)
+      VALUES (?,?,?,?,1,?,?)`).run(
+      savedCommunityId,
+      'vk',
+      String(body?.name || ''),
+      encryptJson({
+        accessToken: 'stored-user-token',
+        apiVersion: '5.199',
+        authKind: 'USER',
+        destinationKind: 'COMMUNITY',
+        groupId: String(body?.groupId || ''),
+        destinationName: String(body?.name || '')
+      }),
+      savedAt,
+      savedAt
+    );
+
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: savedCommunityId,
+        platform: 'vk',
+        name: String(body?.name || ''),
+        enabled: 1,
+        destinationKind: 'COMMUNITY',
+        destinationId: String(body?.groupId || ''),
+        destinationName: String(body?.name || '')
       })
     });
   });
@@ -138,22 +186,43 @@ try {
   assert.equal(await result.getByText('234903751', { exact: true }).count(), 1);
   assert.equal(await result.getByText('https://vk.com/iibusi', { exact: true }).count(), 1);
   assert.equal(await result.getByText('Готово', { exact: true }).count(), 1);
-  assert.equal(accountCreateCalls, 0, 'community test UI must not create a COMMUNITY account');
+
+  const saveButton = form.getByRole('button', { name: 'Сохранить', exact: true });
+  assert.equal(await saveButton.count(), 1);
+  await saveButton.click();
+
+  await page.locator('.operator-connection').filter({ hasText: 'IIBUSI' }).waitFor({ state: 'visible' });
+
+  assert.equal(saveRequests.length, 1);
+  assert.equal(saveRequests[0].method, 'POST');
+  assert.equal(saveRequests[0].path, `/api/accounts/${personalId}/vk-community`);
+  assert.deepEqual(saveRequests[0].body, { name: 'IIBUSI', groupId: '234903751' });
+  assert.equal('accessToken' in saveRequests[0].body, false);
+  assert.equal(JSON.stringify(saveRequests[0].body).includes('stored-user-token'), false);
+  assert.equal(genericAccountCreateCalls, 0, 'community save UI must use the dedicated vk-community endpoint');
+  assert.ok(accountsListRequests >= 2, 'successful save must rerender /socials via a fresh accounts request');
+  assert.equal(await page.locator(`.operator-connection[data-account-id="${savedCommunityId}"]`).count(), 1);
   assert.deepEqual(pageErrors, [], `browser page errors:\n${pageErrors.join('\n')}`);
 
   console.log(JSON.stringify({
     ok: true,
-    checkpoint: 'VK-SAVED-COMMUNITY-UI',
+    checkpoint: 'VK-SAVED-COMMUNITY-UI-SAVE',
     personalButton: true,
     communityButtonAbsent: true,
     tokenFieldAbsent: true,
-    endpointCalled: true,
-    groupIdSent: '-234903751',
+    testEndpointCalled: true,
+    testedGroupId: '-234903751',
     resultName: 'IIBUSI',
     resultId: '234903751',
     resultUrl: 'https://vk.com/iibusi',
     wallPhotoReadyShown: true,
-    communitySaved: false
+    saveButtonAfterPass: true,
+    saveEndpointCalled: true,
+    saveName: 'IIBUSI',
+    saveGroupId: '234903751',
+    tokenSent: false,
+    socialsRerendered: true,
+    communityVisibleAfterSave: true
   }, null, 2));
 
   await context.close();
