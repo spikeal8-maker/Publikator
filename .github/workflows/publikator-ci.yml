@@ -184,6 +184,9 @@ jobs:
       - name: VK adapter safety
         run: node scripts/vk-adapter-e2e.mjs
 
+      - name: VK OAuth USER authorization start
+        run: node scripts/vk-oauth-start-e2e.mjs
+
       - name: VK destination and multi-target acceptance
         run: node scripts/vk-dest-001-e2e.mjs
 
