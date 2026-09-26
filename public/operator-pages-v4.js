@@ -137,6 +137,9 @@ async function renderSocialsPage() {
       </form>`;
       const form = out.querySelector('.operator-vk-community-test-form');
       const result = out.querySelector('.operator-vk-community-test-result');
+      form.querySelector('input[name="groupId"]').addEventListener('input', () => {
+        result.innerHTML = '';
+      });
       form.onsubmit = async (event) => {
         event.preventDefault();
         const groupId = String(new FormData(form).get('groupId') || '').trim();
@@ -147,9 +150,22 @@ async function renderSocialsPage() {
             body: JSON.stringify({ groupId })
           });
           const details = checked?.details || {};
+          const destinationName = String(details.destinationName || '').trim();
+          const destinationId = String(details.destinationId || '').trim();
           const screenName = String(details.destinationScreenName || '').trim();
           const vkUrl = screenName ? `https://vk.com/${screenName}` : '';
-          result.innerHTML = `<div class="operator-result ok"><strong>Сообщество найдено</strong><br>Название: <strong>${operatorEsc(details.destinationName || '')}</strong><br>ID: <strong>${operatorEsc(details.destinationId || '')}</strong><br>VK: <strong>${operatorEsc(vkUrl)}</strong><br>Изображения на стену: <strong>${details.wallPhotoReady === true ? 'Готово' : 'Не готово'}</strong></div>`;
+          result.innerHTML = `<div class="operator-result ok"><strong>Сообщество найдено</strong><br>Название: <strong>${operatorEsc(destinationName)}</strong><br>ID: <strong>${operatorEsc(destinationId)}</strong><br>VK: <strong>${operatorEsc(vkUrl)}</strong><br>Изображения на стену: <strong>${details.wallPhotoReady === true ? 'Готово' : 'Не готово'}</strong><div class="row-actions"><button class="primary operator-save-vk-community" type="button">Сохранить</button></div></div>`;
+          result.querySelector('.operator-save-vk-community').onclick = async () => {
+            try {
+              await operatorApi(`/api/accounts/${encodeURIComponent(row.dataset.accountId)}/vk-community`, {
+                method: 'POST',
+                body: JSON.stringify({ name: destinationName, groupId: destinationId })
+              });
+              await renderSocialsPage();
+            } catch (error) {
+              result.innerHTML = `<div class="operator-result error">${operatorEsc(error instanceof Error ? error.message : String(error))}</div>`;
+            }
+          };
         } catch (error) {
           result.innerHTML = `<div class="operator-result error">${operatorEsc(error instanceof Error ? error.message : String(error))}</div>`;
         }
