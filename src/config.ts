@@ -57,6 +57,29 @@ function releaseVersion(name: string, fallback: string): string {
   return value;
 }
 
+export type VkOauthAuthorizationConfig = {
+  clientId: string;
+  redirectUri: string;
+};
+
+export function getVkOauthAuthorizationConfig(): VkOauthAuthorizationConfig | null {
+  const clientId = process.env.VK_OAUTH_CLIENT_ID?.trim() || '';
+  const redirectUri = process.env.VK_OAUTH_REDIRECT_URI?.trim() || '';
+  if (!clientId || !redirectUri) return null;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(redirectUri);
+  } catch {
+    throw new Error('VK_OAUTH_REDIRECT_URI must be an absolute HTTP(S) URL');
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new Error('VK_OAUTH_REDIRECT_URI must use HTTP(S)');
+  }
+
+  return { clientId, redirectUri };
+}
+
 function trustedProxyList(name: string): false | string[] {
   const raw = process.env[name]?.trim();
   if (!raw) return false;
