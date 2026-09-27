@@ -146,7 +146,7 @@ export async function registerVkOauthRoutes(app: FastifyInstance): Promise<void>
 
   // VK arrives from another site, so the Strict session cookie is intentionally
   // absent. The one-time state was issued only by the authenticated start route.
-  app.get('/api/vk/oauth/callback', async (request, reply) => {
+  app.get('/api/vk/oauth/callback', { logLevel: 'silent' }, async (request, reply) => {
     const query = request.query as Record<string, unknown>;
     const state = typeof query.state === 'string' ? query.state : '';
     const pending = takeState(state);
