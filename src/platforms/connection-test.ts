@@ -7,6 +7,9 @@ export type VkTokenInspection = {
   authKind: 'COMMUNITY' | 'USER';
   identity: string;
   permissions?: string[];
+  groupId?: string;
+  groupName?: string;
+  groupScreenName?: string;
   userId?: string;
 };
 
@@ -134,7 +137,32 @@ export async function inspectVkToken(credentials: Record<string, unknown>): Prom
           .map((permission: any) => String(permission?.name || '').trim())
           .filter(Boolean)
         : [];
-      return { valid: true, authKind: 'COMMUNITY', identity: 'Ключ сообщества VK', permissions: names };
+      let group: any = null;
+      try {
+        const reference = typeof credentials.groupId === 'string' && credentials.groupId.trim()
+          ? vkCommunityReference(credentials)
+          : '';
+        const response = await vkCall('groups.getById', {
+          ...common,
+          ...(reference ? { group_id: reference } : {}),
+          fields: 'screen_name'
+        });
+        group = vkGroupFromResponse(response);
+      } catch {
+        // The permission response already proved that the key is valid.
+      }
+      const groupId = group?.id ? normalizeVkCommunityId(group.id) : undefined;
+      const groupName = groupId ? vkDisplayName(group, `club${groupId}`) : undefined;
+      const groupScreenName = typeof group?.screen_name === 'string' && group.screen_name.trim()
+        ? group.screen_name.trim()
+        : undefined;
+      return {
+        valid: true,
+        authKind: 'COMMUNITY',
+        identity: groupName || 'Ключ сообщества VK',
+        permissions: names,
+        ...(groupId ? { groupId, groupName, groupScreenName } : {})
+      };
     }
   } catch (error) {
     groupProbeError = error;

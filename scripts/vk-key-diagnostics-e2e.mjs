@@ -34,11 +34,13 @@ globalThis.fetch = async (input, init = {}) => {
   const token = body.get('access_token');
   calls.push(method);
   if (token === 'valid-group-token') {
-    assert.equal(method, 'groups.getTokenPermissions');
-    return vkResponse({ response: {
+    if (method === 'groups.getTokenPermissions') return vkResponse({ response: {
       mask: 8196, permissions: [
         { name: 'photos', setting: 4 }, { name: 'wall', setting: 8192 }
       ]
+    } });
+    if (method === 'groups.getById') return vkResponse({ response: {
+      groups: [{ id: 234903751, name: 'Test group', screen_name: 'testgroup' }]
     } });
   }
   if (token === 'invalid-token') return vkError(5, 'User authorization failed');
@@ -85,7 +87,8 @@ try {
   assert.deepEqual(group.json().permissions, ['photos', 'wall']);
   assert.equal(group.body.includes('valid-group-token'), false);
   assert.match(vkCommunityTokenNotice(group.json()), /Ключ VK действителен.*ключ сообщества/);
-  assert.deepEqual(calls, ['groups.getTokenPermissions']);
+  assert.equal(group.json().groupId, '234903751');
+  assert.deepEqual(calls, ['groups.getTokenPermissions', 'groups.getById']);
 
   calls.length = 0;
   const invalid = await inspect('invalid-token');
