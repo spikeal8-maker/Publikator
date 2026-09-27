@@ -199,6 +199,9 @@ jobs:
       - name: VK-KEY-DIAG-001 valid community key inspection
         run: node scripts/vk-key-diagnostics-e2e.mjs
 
+      - name: VK-GROUP-KEY-STORE-001 encrypted limited key storage
+        run: node scripts/vk-community-key-store-e2e.mjs
+
       - name: VK saved USER token community endpoint
         run: node scripts/vk-saved-user-community-test-e2e.mjs
 
