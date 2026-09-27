@@ -109,6 +109,15 @@ function vkDisplayName(entity: any, fallback: string): string {
 const VK_USER_TOKEN_REQUIRED =
   'VK: Этот токен является токеном сообщества. Для публикации обычных постов с изображениями нужен User access token VK. Используйте «Подключить через VK».';
 
+function isVkIpBoundError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return error instanceof PlatformError && Number(error.code) === 5
+    && /another ip address|other ip address/i.test(message);
+}
+
+const VK_IP_BOUND_MESSAGE =
+  'VK отклонил ключ: он привязан к другому IP-адресу. Ключ можно сохранить, но проверка с этого компьютера сейчас не пройдёт.';
+
 function isVkGroupAuthorizationError(error: unknown): boolean {
   if (error instanceof PlatformError && Number(error.code) === 27) return true;
   const message = error instanceof Error ? error.message : String(error);
@@ -120,6 +129,7 @@ async function vkUserOnlyCall(method: string, params: Record<string, string>): P
     return await vkCall(method, params);
   } catch (error) {
     if (isVkGroupAuthorizationError(error)) throw new Error(VK_USER_TOKEN_REQUIRED);
+    if (isVkIpBoundError(error)) throw new Error(VK_IP_BOUND_MESSAGE);
     throw error;
   }
 }
@@ -180,6 +190,9 @@ export async function inspectVkToken(credentials: Record<string, unknown>): Prom
       userId
     };
   } catch (error) {
+    if (isVkIpBoundError(error) || isVkIpBoundError(groupProbeError)) {
+      throw new Error(VK_IP_BOUND_MESSAGE);
+    }
     if (groupProbeError instanceof PlatformError && (groupProbeError.retryable || groupProbeError.outcomeUnknown)) {
       throw new Error('VK: проверка ключа временно недоступна. Повторите позже.');
     }

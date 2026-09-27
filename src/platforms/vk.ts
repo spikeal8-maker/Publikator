@@ -305,6 +305,9 @@ export const vkPublisher: SocialPublisher = {
     if (input.credentials.authKind === 'COMMUNITY') {
       throw new Error('VK: ключ сообщества сохранён только для проверки; публикация постов требует пользовательский ключ');
     }
+    if (input.credentials.authKind === 'PENDING') {
+      throw new Error('VK: сохранённый ключ ещё не проверен для публикации');
+    }
     resolveVkDestination(input.credentials);
     if (isVideoPublication(input)) assertFeedVideo(input);
     else assertImagePublication(input);

@@ -69,12 +69,18 @@ function vkDestinationMetadata(credentialsEncrypted: string): {
   destination_kind?: 'PERSONAL' | 'COMMUNITY';
   destination_id?: string;
   credential_only?: boolean;
+  verification_status?: 'PENDING';
 } {
   try {
     const credentials = decryptJson<Record<string, unknown>>(credentialsEncrypted);
+    const credentialOnly = credentials.authKind === 'COMMUNITY' || credentials.authKind === 'PENDING';
+    const destinationKind = vkDestinationKind(credentials);
+    if (credentials.authKind === 'PENDING') {
+      return { destination_kind: destinationKind, credential_only: true, verification_status: 'PENDING' };
+    }
     const destination = resolveVkDestination(credentials);
     return { destination_kind: destination.kind, destination_id: destination.id,
-      ...(credentials.authKind === 'COMMUNITY' ? { credential_only: true } : {}) };
+      ...(credentialOnly ? { credential_only: true } : {}) };
   } catch {
     return {};
   }
@@ -310,7 +316,20 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     let credentialOnly = false;
     try {
       const supplied = body.credentials as Record<string, unknown>;
-      if (platform === 'vk' && supplied.authKind === 'COMMUNITY') {
+      if (platform === 'vk' && supplied.authKind === 'PENDING') {
+        const accessToken = typeof supplied.accessToken === 'string' ? supplied.accessToken.trim() : '';
+        if (!accessToken) throw new Error('VK: введите ключ доступа');
+        const destinationKind = vkDestinationKind(supplied);
+        credentials = {
+          accessToken,
+          apiVersion: typeof supplied.apiVersion === 'string' && supplied.apiVersion.trim() ? supplied.apiVersion.trim() : '5.199',
+          authKind: 'PENDING',
+          destinationKind,
+          ...(destinationKind === 'COMMUNITY' && typeof supplied.groupId === 'string' && supplied.groupId.trim()
+            ? { groupId: supplied.groupId.trim() } : {})
+        };
+        credentialOnly = true;
+      } else if (platform === 'vk' && supplied.authKind === 'COMMUNITY') {
         const inspected = await inspectVkToken(supplied);
         if (inspected.authKind !== 'COMMUNITY') throw new Error('VK: ключ не является ключом сообщества');
         if (!inspected.groupId) throw new Error('VK: укажите ID или ссылку сообщества и проверьте ключ ещё раз');
@@ -351,12 +370,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const stored = current.platform === 'vk'
       ? decryptJson<Record<string, unknown>>(current.credentials_encrypted)
       : null;
-    const credentialOnly = stored?.authKind === 'COMMUNITY';
+    const credentialOnly = stored?.authKind === 'COMMUNITY' || stored?.authKind === 'PENDING';
     if (credentialOnly && body.enabled !== undefined && Boolean(body.enabled)) {
       return reply.code(409).send({ error: 'VK: ключ сообщества сохранён, но публикация им недоступна' });
     }
     if (body.credentials !== undefined
-      && (credentialOnly || (current.platform === 'vk' && (body.credentials as any)?.authKind === 'COMMUNITY'))) {
+      && (credentialOnly || (current.platform === 'vk' && ['COMMUNITY', 'PENDING'].includes((body.credentials as any)?.authKind)))) {
       return reply.code(409).send({ error: 'VK: для замены ключа сообщества создайте новое подключение' });
     }
     const name = body.name === undefined ? current.name : String(body.name).trim();
@@ -388,6 +407,19 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (!row) return reply.code(404).send({ error: 'Аккаунт не найден' });
     try {
       const credentials = decryptJson<Record<string, unknown>>(row.credentials_encrypted);
+      if (row.platform === 'vk' && credentials.authKind === 'PENDING') {
+        const inspected = await inspectVkToken(credentials);
+        if (inspected.authKind === 'COMMUNITY') {
+          return {
+            ok: true, platform: 'vk', identity: inspected.identity,
+            destination: inspected.groupName || String(credentials.groupId || 'Сообщество не определено'),
+            details: { authKind: 'COMMUNITY', credentialOnly: true, verificationStatus: 'PENDING',
+              permissions: inspected.permissions || [] }
+          };
+        }
+        const checked = await testConnection('vk', credentials);
+        return { ...checked, details: { ...checked.details, credentialOnly: true, verificationStatus: 'PENDING' } };
+      }
       if (row.platform === 'vk' && credentials.authKind === 'COMMUNITY') {
         const inspected = await inspectVkToken(credentials);
         if (inspected.authKind !== 'COMMUNITY') throw new Error('VK: сохранённый ключ больше не распознаётся как ключ сообщества');
@@ -400,6 +432,54 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         };
       }
       return await testConnection(row.platform, credentials);
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+  app.post('/api/accounts/:id/activate', async (request, reply) => {
+    const params = request.params as { id: string };
+    const row = db.prepare('SELECT platform,credentials_encrypted FROM social_accounts WHERE id=?').get(params.id) as
+      { platform: Platform; credentials_encrypted: string } | undefined;
+    if (!row) return reply.code(404).send({ error: 'Аккаунт не найден' });
+    if (row.platform !== 'vk') return reply.code(400).send({ error: 'Нужен сохранённый ключ VK' });
+    try {
+      const pending = decryptJson<Record<string, unknown>>(row.credentials_encrypted);
+      if (pending.authKind !== 'PENDING') return reply.code(409).send({ error: 'Ключ уже проверен' });
+      const inspected = await inspectVkToken(pending);
+      const now = nowIso();
+      if (inspected.authKind === 'COMMUNITY') {
+        if (!inspected.groupId) return reply.code(400).send({ error: 'VK: ключ действителен, но сообщество не определено; укажите ID при новом подключении' });
+        const verified = normalizeStoredCredentials('vk', {
+          accessToken: pending.accessToken, apiVersion: pending.apiVersion,
+          authKind: 'COMMUNITY', destinationKind: 'COMMUNITY', groupId: inspected.groupId,
+          destinationName: inspected.groupName || `club${inspected.groupId}`
+        });
+        db.prepare('UPDATE social_accounts SET credentials_encrypted=?,enabled=0,updated_at=? WHERE id=?')
+          .run(encryptJson(verified), now, params.id);
+        return { ok: true, authKind: 'COMMUNITY', credentialOnly: true, identity: inspected.identity };
+      }
+      const checked = await testConnection('vk', pending);
+      const details = checked.details || {};
+      if (details.authKind !== 'USER' || !details.destinationId || details.wallPhotoReady !== true) {
+        throw new Error('VK: права на публикацию не подтверждены');
+      }
+      const destinationKind = vkDestinationKind(pending);
+      const verified = normalizeStoredCredentials('vk', {
+        accessToken: pending.accessToken, apiVersion: pending.apiVersion,
+        authKind: 'USER', destinationKind,
+        ...(destinationKind === 'PERSONAL'
+          ? { userId: String(details.destinationId) }
+          : { groupId: String(details.destinationId) }),
+        destinationName: String(details.destinationName || checked.identity)
+      });
+      db.transaction(() => {
+        db.prepare('UPDATE social_accounts SET credentials_encrypted=?,enabled=1,updated_at=? WHERE id=?')
+          .run(encryptJson(verified), now, params.id);
+        db.prepare(`INSERT OR IGNORE INTO project_default_targets (project_id,account_id,created_at)
+          SELECT id,?,? FROM projects WHERE default_targets_explicit=0`).run(params.id, now);
+      })();
+      return { ok: true, authKind: 'USER', credentialOnly: false,
+        identity: checked.identity, destination: checked.destination };
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }

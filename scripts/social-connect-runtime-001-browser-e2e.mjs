@@ -33,6 +33,11 @@ try {
     const body = route.request().postDataJSON();
     inspectionBodies.push(body);
     const communityKey = body.credentials.accessToken === 'vk-community-token';
+    if (body.credentials.accessToken === 'vk-ip-token') {
+      await route.fulfill({ status: 400, contentType: 'application/json',
+        body: JSON.stringify({ error: 'VK отклонил ключ: он привязан к другому IP-адресу.' }) });
+      return;
+    }
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -48,6 +53,11 @@ try {
     assert.equal(request.method(), 'POST');
     const body = request.postDataJSON();
     testBodies.push(body);
+    if (body.platform === 'vk' && body.credentials.accessToken === 'vk-no-owner-token') {
+      await route.fulfill({ status: 400, contentType: 'application/json',
+        body: JSON.stringify({ error: 'VK: users.get не вернул владельца User access token' }) });
+      return;
+    }
     let response;
     if (body.platform === 'vk' && body.credentials.destinationKind === 'PERSONAL') {
       response = {
@@ -185,7 +195,7 @@ try {
     assert.equal(await communityAuthHint.isVisible(), true);
     assert.match(await communityAuthHint.textContent(), /пользователь/);
     assert.match(await communityAuthHint.textContent(), /Ключ сообщества/);
-    assert.equal(await groupInput.evaluate((element) => element.required), true);
+    assert.equal(await groupInput.evaluate((element) => element.required), false);
     await form.locator('input[name="name"]').fill('VK Community');
     await form.locator('input[name="accessToken"]').fill('vk-community-user-token');
     await groupInput.fill('https://vk.com/club67890');
@@ -242,6 +252,31 @@ try {
     assert.equal(inspectionBodies.at(-1).credentials.accessToken, 'vk-community-token');
   }
 
+  // VK errors must not block encrypted, disabled key storage.
+  for (const [token, errorText] of [
+    ['vk-no-owner-token', /users.get не вернул владельца/],
+    ['vk-ip-token', /другому IP-адресу/]
+  ]) {
+    const form = await openPlatform('vk');
+    await form.locator('input[name="destinationKind"][value="COMMUNITY"]').check();
+    await form.locator('input[name="groupId"]').fill('234601853');
+    await form.locator('input[name="accessToken"]').fill(token);
+    assert.equal(await form.locator('#operator-save-connect').isEnabled(), true);
+    await form.locator('#operator-test-connect').click();
+    await form.locator('#operator-connect-result .operator-result.error').waitFor();
+    assert.match(await form.locator('#operator-connect-result').textContent(), errorText);
+    assert.equal(await form.locator('#operator-save-connect').isEnabled(), true);
+    const saveRequest = page.waitForRequest((request) =>
+      new URL(request.url()).pathname === '/api/accounts' && request.method() === 'POST'
+    );
+    await form.locator('#operator-save-connect').click();
+    const saved = (await saveRequest).postDataJSON();
+    assert.equal(saved.name, 'VK 234601853');
+    assert.equal(saved.credentials.authKind, 'PENDING');
+    assert.equal(saved.credentials.accessToken, token);
+    assert.equal(saved.credentials.groupId, '234601853');
+  }
+
   // Telegram remains canonical and does not use the VK destination contract.
   {
     const form = await openPlatform('telegram');
@@ -284,10 +319,10 @@ try {
     });
   }
 
-  for (let attempt = 0; attempt < 100 && saveBodies.length < 5; attempt += 1) {
+  for (let attempt = 0; attempt < 100 && saveBodies.length < 7; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  assert.equal(saveBodies.length, 5, 'all mocked account-create handlers must complete');
+  assert.equal(saveBodies.length, 7, 'all mocked account-create handlers must complete');
   assert.deepEqual(pageErrors, [], `browser page errors:\n${pageErrors.join('\n')}`);
   await context.close();
 
