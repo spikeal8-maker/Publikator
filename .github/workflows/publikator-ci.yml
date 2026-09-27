@@ -202,6 +202,9 @@ jobs:
       - name: VK-GROUP-KEY-STORE-001 encrypted limited key storage
         run: node scripts/vk-community-key-store-e2e.mjs
 
+      - name: VK-KEY-PENDING-001 save and recheck VK keys after verification errors
+        run: node scripts/vk-key-pending-e2e.mjs
+
       - name: VK saved USER token community endpoint
         run: node scripts/vk-saved-user-community-test-e2e.mjs
 
