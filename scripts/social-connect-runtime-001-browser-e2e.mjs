@@ -25,8 +25,23 @@ try {
   const page = await context.newPage();
   const pageErrors = [];
   const testBodies = [];
+  const inspectionBodies = [];
   const saveBodies = [];
   page.on('pageerror', (error) => pageErrors.push(String(error?.stack || error)));
+
+  await page.route('**/api/vk/token/inspect', async (route) => {
+    const body = route.request().postDataJSON();
+    inspectionBodies.push(body);
+    const communityKey = body.credentials.accessToken === 'vk-community-token';
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(communityKey
+        ? { valid: true, authKind: 'COMMUNITY', identity: 'Ключ сообщества VK',
+            permissions: ['photos', 'wall'] }
+        : { valid: true, authKind: 'USER', identity: 'Test User', userId: '12345' })
+    });
+  });
 
   await page.route('**/api/accounts/test', async (route) => {
     const request = route.request();
@@ -200,6 +215,22 @@ try {
     assert.equal(saved.credentials.destinationName, 'Test Community');
     assert.equal(saved.credentials.apiVersion, '5.199');
     assert.equal('userId' in saved.credentials, false);
+  }
+
+  // A valid community key is recognized, but cannot enable wall-photo publishing.
+  {
+    const form = await openPlatform('vk');
+    await form.locator('input[name="name"]').fill('VK Group Key');
+    await form.locator('input[name="accessToken"]').fill('vk-community-token');
+    const beforeTest = testBodies.length;
+    const beforeSave = saveBodies.length;
+    await form.locator('#operator-test-connect').click();
+    await form.getByText('Ключ проверен.', { exact: true }).waitFor();
+    assert.match(await form.locator('#operator-connect-result').textContent(), /Ключ VK действителен: это ключ сообщества/);
+    assert.equal(await form.locator('#operator-save-connect').isDisabled(), true);
+    assert.equal(testBodies.length, beforeTest);
+    assert.equal(saveBodies.length, beforeSave);
+    assert.equal(inspectionBodies.at(-1).credentials.accessToken, 'vk-community-token');
   }
 
   // Telegram remains canonical and does not use the VK destination contract.

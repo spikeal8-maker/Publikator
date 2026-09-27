@@ -2,6 +2,14 @@ import type { Platform } from '../db.js';
 import { PlatformError, requireString, responseJson } from './types.js';
 import { normalizeVkCommunityId, normalizeVkUserId, vkCall, vkDestinationKind } from './vk.js';
 
+export type VkTokenInspection = {
+  valid: true;
+  authKind: 'COMMUNITY' | 'USER';
+  identity: string;
+  permissions?: string[];
+  userId?: string;
+};
+
 export type ConnectionTestResult = {
   ok: true;
   platform: Platform;
@@ -109,6 +117,48 @@ async function vkUserOnlyCall(method: string, params: Record<string, string>): P
     return await vkCall(method, params);
   } catch (error) {
     if (isVkGroupAuthorizationError(error)) throw new Error(VK_USER_TOKEN_REQUIRED);
+    throw error;
+  }
+}
+
+export async function inspectVkToken(credentials: Record<string, unknown>): Promise<VkTokenInspection> {
+  const accessToken = requireString(credentials, 'accessToken');
+  const common = { access_token: accessToken, v: vkApiVersion(credentials) };
+
+  let groupProbeError: unknown;
+  try {
+    const permissions = await vkCall('groups.getTokenPermissions', common);
+    if (permissions && typeof permissions === 'object') {
+      const names = Array.isArray(permissions.permissions)
+        ? permissions.permissions
+          .map((permission: any) => String(permission?.name || '').trim())
+          .filter(Boolean)
+        : [];
+      return { valid: true, authKind: 'COMMUNITY', identity: 'Ключ сообщества VK', permissions: names };
+    }
+  } catch (error) {
+    groupProbeError = error;
+  }
+
+  try {
+    const users = await vkCall('users.get', { ...common, fields: 'screen_name' });
+    const user = Array.isArray(users) ? users[0] : null;
+    if (!user?.id) throw new Error('VK: не удалось определить владельца пользовательского ключа');
+    const userId = normalizeVkUserId(user.id);
+    return {
+      valid: true,
+      authKind: 'USER',
+      identity: vkDisplayName(user, `id${userId}`),
+      userId
+    };
+  } catch (error) {
+    if (groupProbeError instanceof PlatformError && (groupProbeError.retryable || groupProbeError.outcomeUnknown)) {
+      throw new Error('VK: проверка ключа временно недоступна. Повторите позже.');
+    }
+    if (error instanceof PlatformError && Number(error.code) === 5
+      && groupProbeError instanceof PlatformError && Number(groupProbeError.code) === 5) {
+      throw new Error('VK: ключ недействителен или срок его действия истёк.');
+    }
     throw error;
   }
 }

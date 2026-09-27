@@ -15,7 +15,7 @@ import {
   retryFailedTarget,
   setTargetSelection
 } from '../publisher.js';
-import { testConnection } from '../platforms/connection-test.js';
+import { inspectVkToken, testConnection } from '../platforms/connection-test.js';
 import { resolveVkDestination, vkDestinationKind } from '../platforms/vk.js';
 import { normalizeIanaTimezone, resolveExactSchedule, resolveScheduleInput } from '../schedule-time.js';
 import { parseRichTextJson, plainTextToRichText, richTextToPlain, serializeRichText } from '../rich-text.js';
@@ -272,6 +272,17 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         ...(row.platform === 'vk' ? vkDestinationMetadata(String(credentials_encrypted)) : {})
       };
     });
+  });
+  app.post('/api/vk/token/inspect', async (request, reply) => {
+    const body = bodyObject(request.body);
+    if (!body.credentials || typeof body.credentials !== 'object' || Array.isArray(body.credentials)) {
+      return reply.code(400).send({ error: 'Нужны credentials' });
+    }
+    try {
+      return await inspectVkToken(body.credentials as Record<string, unknown>);
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
   });
   app.post('/api/accounts/test', async (request, reply) => {
     const body = bodyObject(request.body);

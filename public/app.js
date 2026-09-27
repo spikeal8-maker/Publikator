@@ -1,6 +1,6 @@
 import { scheduleModeLabel, statusLabel } from './presentation-labels.js';
 import { mountRichTextEditor, plainTextToRichDocument } from './rich-text-editor-v1.js';
-import { socialCredentialFields, socialCredentialsFromForm, syncVkDestinationFields, verifiedSocialCredentialsFromTest } from './social-credentials.js';
+import { socialCredentialFields, socialCredentialsFromForm, syncVkDestinationFields, verifiedSocialCredentialsFromTest, vkCommunityTokenNotice } from './social-credentials.js';
 
 const login = document.querySelector('#login');
 const app = document.querySelector('#app');
@@ -233,9 +233,24 @@ function accountEditor(){
       }catch(err){error.textContent=err instanceof Error?err.message:String(err);}
     };
   };renderFields();platform.onchange=renderFields;m.querySelector('#close-modal').onclick=()=>m.remove();
-  const test=async()=>{const result=await api('/api/accounts/test',{method:'POST',body:JSON.stringify({platform:platform.value,credentials:socialCredentialsFromForm(platform.value,form)})});m.querySelector('#account-ok').textContent=`✓ ${result.identity} → ${result.destination}`;m.querySelector('#account-error').textContent='';return result;};
+  const test=async()=>{
+    const credentials=socialCredentialsFromForm(platform.value,form);
+    if(platform.value==='vk'){
+      const inspection=await api('/api/vk/token/inspect',{method:'POST',body:JSON.stringify({credentials})});
+      const notice=vkCommunityTokenNotice(inspection);
+      if(notice){
+        m.querySelector('#account-ok').textContent=`✓ ${notice}`;
+        m.querySelector('#account-error').textContent='';
+        return null;
+      }
+    }
+    const result=await api('/api/accounts/test',{method:'POST',body:JSON.stringify({platform:platform.value,credentials})});
+    m.querySelector('#account-ok').textContent=`✓ ${result.identity} → ${result.destination}`;
+    m.querySelector('#account-error').textContent='';
+    return result;
+  };
   m.querySelector('#test-account-new').onclick=async()=>{try{await test();}catch(err){m.querySelector('#account-error').textContent=err.message;}};
-  form.onsubmit=async e=>{e.preventDefault();try{const result=await test();const f=new FormData(form);await api('/api/accounts',{method:'POST',body:JSON.stringify({platform:platform.value,name:f.get('name'),credentials:verifiedSocialCredentialsFromTest(platform.value,form,result)})});m.remove();await accounts();}catch(err){m.querySelector('#account-error').textContent=err.message;}};
+  form.onsubmit=async e=>{e.preventDefault();try{const result=await test();if(!result)return;const f=new FormData(form);await api('/api/accounts',{method:'POST',body:JSON.stringify({platform:platform.value,name:f.get('name'),credentials:verifiedSocialCredentialsFromTest(platform.value,form,result)})});m.remove();await accounts();}catch(err){m.querySelector('#account-error').textContent=err.message;}};
 }
 async function schedules(){const rows=await api('/api/schedules');view.innerHTML=`<div class="toolbar"><div class="muted">Слоты забирают следующий READY-пост с режимом QUEUE.</div><button id="new-slot" class="primary">+ Слот</button></div><table class="table"><thead><tr><th>Проект</th><th>День</th><th>Время</th><th>Timezone</th><th>Последний запуск</th><th></th></tr></thead><tbody>${rows.map(s=>`<tr><td>${esc(s.project_name)}</td><td>${s.weekday}</td><td>${esc(s.time_hhmm)}</td><td>${esc(s.timezone)}</td><td>${esc(s.last_fired_on||'—')}</td><td><button class="secondary danger delete-slot" data-id="${s.id}">Удалить</button></td></tr>`).join('')||'<tr><td colspan="6">Нет слотов</td></tr>'}</tbody></table>`;document.querySelector('#new-slot').onclick=()=>slotEditor();document.querySelectorAll('.delete-slot').forEach(b=>b.onclick=async()=>{await api(`/api/schedules/${b.dataset.id}`,{method:'DELETE'});await schedules();});}
 function slotEditor(){const m=modal(`<h2>Новое время публикации</h2><form id="slot-form" class="form-grid"><label>Проект<select name="projectId">${projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></label><label>День недели<select name="weekday"><option value="1">Пн</option><option value="2">Вт</option><option value="3">Ср</option><option value="4">Чт</option><option value="5">Пт</option><option value="6">Сб</option><option value="0">Вс</option></select></label><label>Время<input name="time" type="time" required value="18:00"></label><label>Часовой пояс<input name="timezone" value="Europe/Moscow"></label><div class="full row-actions"><button class="primary">Добавить</button><button type="button" id="close-modal" class="secondary">Закрыть</button></div></form><div id="slot-error" class="error"></div>`);m.querySelector('#close-modal').onclick=()=>m.remove();m.querySelector('#slot-form').onsubmit=async e=>{e.preventDefault();try{const f=new FormData(e.target);await api('/api/schedules',{method:'POST',body:JSON.stringify({projectId:f.get('projectId'),weekday:Number(f.get('weekday')),time:f.get('time'),timezone:f.get('timezone')})});m.remove();await schedules();}catch(err){m.querySelector('#slot-error').textContent=err.message;}};}
