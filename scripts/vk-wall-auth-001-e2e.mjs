@@ -96,7 +96,7 @@ try {
   assert.equal(destination.id, '234903751');
   assert.equal(destination.ownerId, '-234903751');
 
-  // Community token rejected immediately by the first user-only capability.
+  // Community-token error 27 is reported with guidance to authorize a user.
   vkCalls.length = 0;
   const communityTokenSteps = [
     { method: 'users.get', response: groupAuthError27() }
@@ -112,6 +112,26 @@ try {
     /Этот токен является токеном сообщества.*нужен User access token VK/
   );
   assert.equal(communityTokenSteps.length, 0);
+  assert.equal(vkCalls.filter((call) => call.method === 'wall.post').length, 0);
+
+  // users.get may reject a valid group key with a generic error. A group-only
+  // permission probe distinguishes it from an invalid key.
+  vkCalls.length = 0;
+  const genericCommunitySteps = [
+    { method: 'users.get', response: { error: { error_code: 5, error_msg: 'User authorization failed' } } },
+    { method: 'groups.getTokenPermissions', response: { response: { mask: 8192, permissions: [{ name: 'wall', setting: 8192 }] } } }
+  ];
+  installVkMock(genericCommunitySteps);
+  await assert.rejects(
+    () => testConnection('vk', {
+      accessToken: 'valid-community-token',
+      apiVersion: '5.199',
+      destinationKind: 'COMMUNITY',
+      groupId: '234903751'
+    }),
+    /Этот токен является токеном сообщества.*Подключить через VK/
+  );
+  assert.equal(genericCommunitySteps.length, 0);
   assert.equal(vkCalls.filter((call) => call.method === 'wall.post').length, 0);
 
   // Error 27 from wall upload readiness is classified the same way.
