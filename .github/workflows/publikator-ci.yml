@@ -196,6 +196,9 @@ jobs:
       - name: VK-WALL-AUTH-001 USER-token wall-photo capability
         run: node scripts/vk-wall-auth-001-e2e.mjs
 
+      - name: VK-KEY-DIAG-001 valid community key inspection
+        run: node scripts/vk-key-diagnostics-e2e.mjs
+
       - name: VK saved USER token community endpoint
         run: node scripts/vk-saved-user-community-test-e2e.mjs
 
