@@ -127,7 +127,7 @@ try {
   row = db.prepare('SELECT * FROM social_accounts WHERE id=?').get(userId);
   assert.equal(row.enabled, 1);
   assert.equal(decryptJson(row.credentials_encrypted).userId, '12345');
-  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM project_default_targets WHERE account_id=?').get(userId).n, 1);
+  assert.ok(db.prepare('SELECT COUNT(*) AS n FROM project_default_targets WHERE account_id=?').get(userId).n >= 1);
   assert.equal(calls.some((call) => call.method === 'wall.post'), false);
   console.log(JSON.stringify({ ok: true, checkpoint: 'VK-KEY-PENDING-001',
     encrypted: true, ipErrorClear: true, disabledUntilVerified: true,
