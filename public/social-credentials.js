@@ -8,7 +8,8 @@ export function socialCredentialFields(platform) {
       <label class="target-check"><input type="radio" name="destinationKind" value="PERSONAL" checked> Личная страница</label>
       <label class="target-check"><input type="radio" name="destinationKind" value="COMMUNITY"> Сообщество</label>
     </div>
-    <label class="full">Access token<input name="accessToken" type="password" autocomplete="off" required><span class="operator-field-help hidden" data-vk-community-auth-hint>Для обычных постов и изображений используется User access token VK пользователя, имеющего права на это сообщество. Community Token для этого режима не подходит.</span></label>
+    <div class="full"><button id="operator-vk-oauth" class="secondary" type="button">Подключить через VK</button><span class="operator-field-help">Авторизуйтесь как пользователь VK с правом публикации на выбранной стене. Публикатор проверит доступ и сохранит ключ без ручного копирования.</span></div>
+    <label class="full">Пользовательский ключ VK (ручной ввод)<input name="accessToken" type="password" autocomplete="off" required><span class="operator-field-help">Ключ из «Работа с API → Ключи доступа» в настройках сообщества относится к сообществу. Для публикации постов с фотографиями требуется пользовательский ключ.</span><span class="operator-field-help hidden" data-vk-community-auth-hint>Для сообщества пользователь должен иметь право публикации. Ключ сообщества не подходит для загрузки фотографий на стену.</span></label>
     <label class="full hidden" data-vk-community-field>Сообщество / ID<input name="groupId" placeholder="123456789, club123456789 или ссылка VK"></label>
     <div class="full muted small" data-vk-personal-hint>Личная страница определяется по владельцу access token через официальный VK API.</div>
     <label>API version<input name="apiVersion" required value="5.199"></label>`;

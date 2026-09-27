@@ -59,13 +59,16 @@ function releaseVersion(name: string, fallback: string): string {
 
 export type VkOauthAuthorizationConfig = {
   clientId: string;
+  clientSecret: string;
   redirectUri: string;
 };
 
 export function getVkOauthAuthorizationConfig(): VkOauthAuthorizationConfig | null {
   const clientId = process.env.VK_OAUTH_CLIENT_ID?.trim() || '';
+  const clientSecret = process.env.VK_OAUTH_CLIENT_SECRET?.trim() || '';
   const redirectUri = process.env.VK_OAUTH_REDIRECT_URI?.trim() || '';
-  if (!clientId || !redirectUri) return null;
+  if (!clientId || !clientSecret || !redirectUri) return null;
+  if (!/^\d+$/.test(clientId)) throw new Error('VK_OAUTH_CLIENT_ID must be numeric');
 
   let parsed: URL;
   try {
@@ -73,11 +76,26 @@ export function getVkOauthAuthorizationConfig(): VkOauthAuthorizationConfig | nu
   } catch {
     throw new Error('VK_OAUTH_REDIRECT_URI must be an absolute HTTP(S) URL');
   }
-  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-    throw new Error('VK_OAUTH_REDIRECT_URI must use HTTP(S)');
+  if (
+    !['https:', 'http:'].includes(parsed.protocol)
+    || !parsed.hostname
+    || parsed.username
+    || parsed.password
+    || parsed.pathname !== '/api/vk/oauth/callback'
+    || parsed.search
+    || parsed.hash
+  ) {
+    throw new Error('VK_OAUTH_REDIRECT_URI must point to /api/vk/oauth/callback');
+  }
+  if (parsed.protocol === 'http:' && !['127.0.0.1', 'localhost'].includes(parsed.hostname)) {
+    throw new Error('VK_OAUTH_REDIRECT_URI must use HTTPS outside localhost');
+  }
+  const base = process.env.PUBLIC_BASE_URL?.trim();
+  if (base && new URL(base).origin !== parsed.origin) {
+    throw new Error('VK_OAUTH_REDIRECT_URI origin must match PUBLIC_BASE_URL');
   }
 
-  return { clientId, redirectUri };
+  return { clientId, clientSecret, redirectUri };
 }
 
 function trustedProxyList(name: string): false | string[] {
