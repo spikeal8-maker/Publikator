@@ -319,10 +319,10 @@ try {
     });
   }
 
-  for (let attempt = 0; attempt < 100 && saveBodies.length < 5; attempt += 1) {
+  for (let attempt = 0; attempt < 100 && saveBodies.length < 7; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  assert.equal(saveBodies.length, 5, 'all mocked account-create handlers must complete');
+  assert.equal(saveBodies.length, 7, 'all mocked account-create handlers must complete');
   assert.deepEqual(pageErrors, [], `browser page errors:\n${pageErrors.join('\n')}`);
   await context.close();
 
