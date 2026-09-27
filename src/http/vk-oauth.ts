@@ -95,16 +95,18 @@ function saveVerifiedConnection(connection: ConnectionRequest, credentials: Reco
     const existing = db.prepare("SELECT id,credentials_encrypted FROM social_accounts WHERE platform='vk'").all() as
       Array<{ id: string; credentials_encrypted: string }>;
     for (const row of existing) {
+      let savedDestination;
       try {
         const stored = decryptJson<Record<string, unknown>>(row.credentials_encrypted);
-        const savedDestination = resolveVkDestination(stored);
-        if (savedDestination.kind !== destination.kind || savedDestination.id !== destination.id) continue;
-        db.prepare('UPDATE social_accounts SET name=?,credentials_encrypted=?,enabled=1,updated_at=? WHERE id=?')
-          .run(connection.name, encryptJson(credentials), now, row.id);
-        return 'updated';
+        savedDestination = resolveVkDestination(stored);
       } catch {
         // A malformed legacy record cannot block a new verified connection.
+        continue;
       }
+      if (savedDestination.kind !== destination.kind || savedDestination.id !== destination.id) continue;
+      db.prepare('UPDATE social_accounts SET name=?,credentials_encrypted=?,enabled=1,updated_at=? WHERE id=?')
+        .run(connection.name, encryptJson(credentials), now, row.id);
+      return 'updated';
     }
     const accountId = id('acc');
     db.prepare('INSERT INTO social_accounts (id,platform,name,credentials_encrypted,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)')
@@ -155,10 +157,12 @@ export async function registerVkOauthRoutes(app: FastifyInstance): Promise<void>
     const code = typeof query.code === 'string' ? query.code : '';
     if (!code || code.length > 2000) return finish(reply, false, 'VK: не получен код авторизации.');
 
+    let issuedToken = '';
     try {
       const oauthConfig = getVkOauthAuthorizationConfig();
       if (!oauthConfig) throw new Error('VK OAuth не настроен');
       const token = await exchangeCode(code, oauthConfig.clientId, oauthConfig.clientSecret, oauthConfig.redirectUri);
+      issuedToken = token.accessToken;
       const candidate: Record<string, unknown> = {
         accessToken: token.accessToken,
         apiVersion: '5.199',
@@ -191,7 +195,11 @@ export async function registerVkOauthRoutes(app: FastifyInstance): Promise<void>
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       // Never expose a code, app secret or access token in callback URLs or result text.
-      return finish(reply, false, message.slice(0, 400));
+      const safe = message
+        .replaceAll(code, '[redacted]')
+        .replaceAll(process.env.VK_OAUTH_CLIENT_SECRET || '\u0000', '[redacted]')
+        .replaceAll(issuedToken || '\u0000', '[redacted]');
+      return finish(reply, false, safe.slice(0, 400));
     }
   });
 
