@@ -195,7 +195,7 @@ try {
     assert.equal(await communityAuthHint.isVisible(), true);
     assert.match(await communityAuthHint.textContent(), /пользователь/);
     assert.match(await communityAuthHint.textContent(), /Ключ сообщества/);
-    assert.equal(await groupInput.evaluate((element) => element.required), true);
+    assert.equal(await groupInput.evaluate((element) => element.required), false);
     await form.locator('input[name="name"]').fill('VK Community');
     await form.locator('input[name="accessToken"]').fill('vk-community-user-token');
     await groupInput.fill('https://vk.com/club67890');
