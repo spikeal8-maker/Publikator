@@ -97,7 +97,7 @@ try {
     url: '/api/vk/oauth/callback?code=not-used&state=not-used',
     headers: { cookie }
   });
-  assert.equal(callback.statusCode, 404, 'callback must not be implemented in this slice');
+  assert.equal(callback.statusCode, 400, 'callback must reject an unknown one-time state');
 
   delete process.env.VK_OAUTH_CLIENT_ID;
   delete process.env.VK_OAUTH_REDIRECT_URI;
