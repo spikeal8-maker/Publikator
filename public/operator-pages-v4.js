@@ -1,6 +1,6 @@
 import { statusLabel } from './presentation-labels.js';
 import { mountRichTextEditor, plainTextToRichDocument } from './rich-text-editor-v1.js';
-import { socialCredentialFields, socialCredentialsFromForm, syncVkDestinationFields, verifiedSocialCredentialsFromTest } from './social-credentials.js';
+import { socialCredentialFields, socialCredentialsFromForm, syncVkDestinationFields, verifiedSocialCredentialsFromTest, vkCommunityTokenNotice } from './social-credentials.js';
 
 const operatorView = document.querySelector('#view');
 const operatorTitle = document.querySelector('#page-title');
@@ -87,6 +87,17 @@ function renderSocialConnectForm(platform) {
     save.disabled = true;
     try {
       const credentials = socialCredentialsFromForm(platform, form);
+      if (platform === 'vk') {
+        const inspection = await operatorApi('/api/vk/token/inspect', {
+          method: 'POST', body: JSON.stringify({ credentials })
+        });
+        const notice = vkCommunityTokenNotice(inspection);
+        if (notice) {
+          verifiedFingerprint = '';
+          result.innerHTML = `<div class="operator-result"><strong>Ключ проверен.</strong><br>${operatorEsc(notice)}</div>`;
+          return;
+        }
+      }
       const checked = await operatorApi('/api/accounts/test', { method: 'POST', body: JSON.stringify({ platform, credentials }) });
       verifiedFingerprint = JSON.stringify(credentials);
       result.innerHTML = `<div class="operator-result ok"><strong>Подключение работает.</strong><br>${operatorEsc(checked.identity)} → <strong>${operatorEsc(checked.destination)}</strong></div>`;
