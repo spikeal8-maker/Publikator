@@ -179,6 +179,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.addHook('preHandler', async (request, reply) => {
     if (!request.url.startsWith('/api/') || request.url === '/api/health' || request.url === '/api/auth/login'
+      || request.url.split('?')[0] === '/api/vk/oauth/callback'
       || request.url.startsWith('/api/integration/v1/')) return;
     if (!verifySessionToken(request.cookies.publikator_session)) return reply.code(401).send({ error: 'Требуется вход' });
   });
