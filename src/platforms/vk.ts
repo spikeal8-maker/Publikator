@@ -302,6 +302,9 @@ export const vkPublisher: SocialPublisher = {
   platform: 'vk',
   validate(input) {
     requireString(input.credentials, 'accessToken');
+    if (input.credentials.authKind === 'COMMUNITY') {
+      throw new Error('VK: ключ сообщества сохранён только для проверки; публикация постов требует пользовательский ключ');
+    }
     resolveVkDestination(input.credentials);
     if (isVideoPublication(input)) assertFeedVideo(input);
     else assertImagePublication(input);
