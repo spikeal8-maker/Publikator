@@ -212,7 +212,27 @@ async function accounts(){
 }
 function accountEditor(){
   const m=modal(`<h2>Подключить соцсеть</h2><form id="account-form" class="form-grid"><label>Площадка<select name="platform"><option value="telegram">Telegram</option><option value="vk">VK</option><option value="max">MAX</option><option value="instagram">Instagram</option></select></label><label>Название подключения<input name="name" required placeholder="ASSA Lab"></label><div id="credential-fields" class="full form-grid"></div><div class="full muted small">При сохранении Publikator сначала проверит токен, назначение и доступные права через официальный API. Тест ничего не публикует.</div><div class="full row-actions"><button class="primary" type="submit">Проверить и сохранить</button><button type="button" id="test-account-new" class="secondary">Только проверить</button><button type="button" id="close-modal" class="secondary">Закрыть</button></div></form><div id="account-error" class="error"></div><div id="account-ok" class="muted"></div>`);
-  const form=m.querySelector('#account-form');const platform=form.querySelector('[name="platform"]');const fields=m.querySelector('#credential-fields');const renderFields=()=>{fields.innerHTML=socialCredentialFields(platform.value);syncVkDestinationFields(form);};renderFields();platform.onchange=renderFields;m.querySelector('#close-modal').onclick=()=>m.remove();
+  const form=m.querySelector('#account-form');const platform=form.querySelector('[name="platform"]');const fields=m.querySelector('#credential-fields');const renderFields=()=>{
+    fields.innerHTML=socialCredentialFields(platform.value);
+    syncVkDestinationFields(form);
+    const oauth=fields.querySelector('#operator-vk-oauth');
+    if(oauth) oauth.onclick=async()=>{
+      const error=m.querySelector('#account-error');
+      error.textContent='';
+      try{
+        const data=new FormData(form);
+        const name=String(data.get('name')||'').trim();
+        const destinationKind=String(data.get('destinationKind')||'PERSONAL');
+        const groupId=String(data.get('groupId')||'').trim();
+        if(!name) throw new Error('Укажите название подключения.');
+        if(destinationKind==='COMMUNITY'&&!groupId) throw new Error('Укажите ID или ссылку сообщества.');
+        const params=new URLSearchParams({name,destinationKind});
+        if(destinationKind==='COMMUNITY') params.set('groupId',groupId);
+        const started=await api(`/api/vk/oauth/start?${params}`);
+        window.location.assign(started.authorizationUrl);
+      }catch(err){error.textContent=err instanceof Error?err.message:String(err);}
+    };
+  };renderFields();platform.onchange=renderFields;m.querySelector('#close-modal').onclick=()=>m.remove();
   const test=async()=>{const result=await api('/api/accounts/test',{method:'POST',body:JSON.stringify({platform:platform.value,credentials:socialCredentialsFromForm(platform.value,form)})});m.querySelector('#account-ok').textContent=`✓ ${result.identity} → ${result.destination}`;m.querySelector('#account-error').textContent='';return result;};
   m.querySelector('#test-account-new').onclick=async()=>{try{await test();}catch(err){m.querySelector('#account-error').textContent=err.message;}};
   form.onsubmit=async e=>{e.preventDefault();try{const result=await test();const f=new FormData(form);await api('/api/accounts',{method:'POST',body:JSON.stringify({platform:platform.value,name:f.get('name'),credentials:verifiedSocialCredentialsFromTest(platform.value,form,result)})});m.remove();await accounts();}catch(err){m.querySelector('#account-error').textContent=err.message;}};
