@@ -68,7 +68,7 @@ export function getVkOauthAuthorizationConfig(): VkOauthAuthorizationConfig | nu
   const clientSecret = process.env.VK_OAUTH_CLIENT_SECRET?.trim() || '';
   const redirectUri = process.env.VK_OAUTH_REDIRECT_URI?.trim() || '';
   if (!clientId || !clientSecret || !redirectUri) return null;
-  if (!/^\\d+$/.test(clientId)) throw new Error('VK_OAUTH_CLIENT_ID must be numeric');
+  if (!/^\d+$/.test(clientId)) throw new Error('VK_OAUTH_CLIENT_ID must be numeric');
 
   let parsed: URL;
   try {
