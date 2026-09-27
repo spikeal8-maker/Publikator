@@ -168,8 +168,8 @@ try {
     const communityAuthHint = form.locator('[data-vk-community-auth-hint]');
     assert.equal(await groupField.isVisible(), true);
     assert.equal(await communityAuthHint.isVisible(), true);
-    assert.match(await communityAuthHint.textContent(), /User access token VK/);
-    assert.match(await communityAuthHint.textContent(), /Community Token/);
+    assert.match(await communityAuthHint.textContent(), /пользователь/);
+    assert.match(await communityAuthHint.textContent(), /Ключ сообщества/);
     assert.equal(await groupInput.evaluate((element) => element.required), true);
     await form.locator('input[name="name"]').fill('VK Community');
     await form.locator('input[name="accessToken"]').fill('vk-community-user-token');
