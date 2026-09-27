@@ -82,7 +82,11 @@ groupId
 apiVersion
 ```
 
-Connection test проверяет возможность получить `photos.getWallUploadServer` для указанной группы.
+Ключ из настроек сообщества («Работа с API → Ключи доступа») — **community token**. Он пригоден для отдельных методов сообщества, но текущий путь публикации поста с фото требует **user access token**: `users.get`, `photos.getWallUploadServer`, `photos.saveWallPhoto` и `wall.post`. Корректный community token поэтому не сохраняется как подключение для этого сценария.
+
+Предпочтительный способ подключения — кнопка «Подключить через VK» на странице «Соцсети». Для неё нужно создать VK web application, зарегистрировать точный URL `https://<домен>/api/vk/oauth/callback` и задать на сервере `VK_OAUTH_CLIENT_ID`, `VK_OAUTH_CLIENT_SECRET`, `VK_OAUTH_REDIRECT_URI`. `PUBLIC_BASE_URL` должен иметь тот же origin. Docker Compose передаёт эти переменные контейнеру. Для локального адреса допустим `http://127.0.0.1:<порт>/api/vk/oauth/callback`, если VK разрешает такой redirect в настройках приложения; публичный адрес должен использовать HTTPS. Ключ приложения остаётся на сервере. Публикатор запрашивает пользовательские права `wall,groups,photos,offline`, после callback проверяет владельца ключа и возможность загрузки фото на выбранную стену и только затем сохраняет зашифрованный ключ.
+
+Ручной ввод user access token остаётся доступным. Для сообщества пользователь должен иметь право публикации. Connection test проверяет `users.get`, `groups.getById` и `photos.getWallUploadServer(group_id)`; сам `wall.post` при проверке не вызывается.
 
 ### Publication phases
 
