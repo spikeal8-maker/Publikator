@@ -96,7 +96,7 @@ function vkDisplayName(entity: any, fallback: string): string {
 }
 
 const VK_USER_TOKEN_REQUIRED =
-  'VK: Этот токен является токеном сообщества. Для публикации обычных постов с изображениями нужен User access token VK.';
+  'VK: Этот токен является токеном сообщества. Для публикации обычных постов с изображениями нужен User access token VK. Используйте «Подключить через VK».';
 
 function isVkGroupAuthorizationError(error: unknown): boolean {
   if (error instanceof PlatformError && Number(error.code) === 27) return true;
@@ -119,7 +119,23 @@ async function vkTest(credentials: Record<string, unknown>): Promise<ConnectionT
   const common = { access_token: accessToken, v: apiVersion };
   const kind = vkDestinationKind(credentials);
 
-  const users = await vkUserOnlyCall('users.get', { ...common, fields: 'screen_name' });
+  let users: any;
+  try {
+    users = await vkUserOnlyCall('users.get', { ...common, fields: 'screen_name' });
+  } catch (error) {
+    if (error instanceof Error && error.message === VK_USER_TOKEN_REQUIRED) throw error;
+    // users.get accepts group tokens in VK's schema, so its failure alone
+    // cannot classify the token. This group-only method can.
+    let communityToken = false;
+    try {
+      const permissions = await vkCall('groups.getTokenPermissions', common);
+      communityToken = Boolean(permissions);
+    } catch {
+      // Preserve the original VK error for invalid/expired keys or outages.
+    }
+    if (communityToken) throw new Error(VK_USER_TOKEN_REQUIRED);
+    throw error;
+  }
   const authenticatedUser = Array.isArray(users) ? users[0] : null;
   if (!authenticatedUser?.id) throw new Error('VK: users.get не вернул владельца User access token');
   const authenticatedUserId = normalizeVkUserId(authenticatedUser.id);
