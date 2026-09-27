@@ -65,11 +65,16 @@ function normalizeStoredCredentials(platform: Platform, value: Record<string, un
   return normalized;
 }
 
-function vkDestinationMetadata(credentialsEncrypted: string): { destination_kind?: 'PERSONAL' | 'COMMUNITY'; destination_id?: string } {
+function vkDestinationMetadata(credentialsEncrypted: string): {
+  destination_kind?: 'PERSONAL' | 'COMMUNITY';
+  destination_id?: string;
+  credential_only?: boolean;
+} {
   try {
     const credentials = decryptJson<Record<string, unknown>>(credentialsEncrypted);
     const destination = resolveVkDestination(credentials);
-    return { destination_kind: destination.kind, destination_id: destination.id };
+    return { destination_kind: destination.kind, destination_id: destination.id,
+      ...(credentials.authKind === 'COMMUNITY' ? { credential_only: true } : {}) };
   } catch {
     return {};
   }
@@ -302,27 +307,58 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const name = String(body.name || '').trim();
     if (!name || !body.credentials || typeof body.credentials !== 'object' || Array.isArray(body.credentials)) return reply.code(400).send({ error: 'Нужны name и credentials' });
     let credentials: Record<string, unknown>;
+    let credentialOnly = false;
     try {
-      credentials = normalizeStoredCredentials(platform, body.credentials as Record<string, unknown>);
+      const supplied = body.credentials as Record<string, unknown>;
+      if (platform === 'vk' && supplied.authKind === 'COMMUNITY') {
+        const inspected = await inspectVkToken(supplied);
+        if (inspected.authKind !== 'COMMUNITY') throw new Error('VK: ключ не является ключом сообщества');
+        if (!inspected.groupId) throw new Error('VK: укажите ID или ссылку сообщества и проверьте ключ ещё раз');
+        credentials = normalizeStoredCredentials('vk', {
+          accessToken: supplied.accessToken,
+          apiVersion: supplied.apiVersion,
+          authKind: 'COMMUNITY',
+          destinationKind: 'COMMUNITY',
+          groupId: inspected.groupId,
+          destinationName: inspected.groupName || name
+        });
+        credentialOnly = true;
+      } else {
+        credentials = normalizeStoredCredentials(platform, supplied);
+      }
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }
     const accountId = id('acc');
     const now = nowIso();
     db.transaction(() => {
-      db.prepare('INSERT INTO social_accounts (id,platform,name,credentials_encrypted,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)')
-        .run(accountId, platform, name, encryptJson(credentials), now, now);
-      db.prepare(`INSERT INTO project_default_targets (project_id,account_id,created_at)
-        SELECT id,?,? FROM projects WHERE default_targets_explicit=0`)
-        .run(accountId, now);
+      db.prepare('INSERT INTO social_accounts (id,platform,name,credentials_encrypted,enabled,created_at,updated_at) VALUES (?,?,?,?,?,?,?)')
+        .run(accountId, platform, name, encryptJson(credentials), credentialOnly ? 0 : 1, now, now);
+      if (!credentialOnly) {
+        db.prepare(`INSERT INTO project_default_targets (project_id,account_id,created_at)
+          SELECT id,?,? FROM projects WHERE default_targets_explicit=0`)
+          .run(accountId, now);
+      }
     })();
-    return reply.code(201).send({ id: accountId, platform, name, enabled: 1 });
+    return reply.code(201).send({ id: accountId, platform, name, enabled: credentialOnly ? 0 : 1,
+      ...(credentialOnly ? { credentialOnly: true } : {}) });
   });
   app.patch('/api/accounts/:id', async (request, reply) => {
     const params = request.params as { id: string };
     const body = bodyObject(request.body);
     const current = db.prepare('SELECT * FROM social_accounts WHERE id=?').get(params.id) as any;
     if (!current) return reply.code(404).send({ error: 'Аккаунт не найден' });
+    const stored = current.platform === 'vk'
+      ? decryptJson<Record<string, unknown>>(current.credentials_encrypted)
+      : null;
+    const credentialOnly = stored?.authKind === 'COMMUNITY';
+    if (credentialOnly && body.enabled !== undefined && Boolean(body.enabled)) {
+      return reply.code(409).send({ error: 'VK: ключ сообщества сохранён, но публикация им недоступна' });
+    }
+    if (body.credentials !== undefined
+      && (credentialOnly || (current.platform === 'vk' && (body.credentials as any)?.authKind === 'COMMUNITY'))) {
+      return reply.code(409).send({ error: 'VK: для замены ключа сообщества создайте новое подключение' });
+    }
     const name = body.name === undefined ? current.name : String(body.name).trim();
     const enabled = body.enabled === undefined ? current.enabled : body.enabled ? 1 : 0;
     let credentials = current.credentials_encrypted;
@@ -351,7 +387,19 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const row = db.prepare('SELECT platform,credentials_encrypted FROM social_accounts WHERE id=?').get(params.id) as { platform: Platform; credentials_encrypted: string } | undefined;
     if (!row) return reply.code(404).send({ error: 'Аккаунт не найден' });
     try {
-      return await testConnection(row.platform, decryptJson<Record<string, unknown>>(row.credentials_encrypted));
+      const credentials = decryptJson<Record<string, unknown>>(row.credentials_encrypted);
+      if (row.platform === 'vk' && credentials.authKind === 'COMMUNITY') {
+        const inspected = await inspectVkToken(credentials);
+        if (inspected.authKind !== 'COMMUNITY') throw new Error('VK: сохранённый ключ больше не распознаётся как ключ сообщества');
+        return {
+          ok: true,
+          platform: 'vk',
+          identity: inspected.identity,
+          destination: inspected.groupName || String(credentials.destinationName || `club${credentials.groupId}`),
+          details: { authKind: 'COMMUNITY', credentialOnly: true, permissions: inspected.permissions || [] }
+        };
+      }
+      return await testConnection(row.platform, credentials);
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }
