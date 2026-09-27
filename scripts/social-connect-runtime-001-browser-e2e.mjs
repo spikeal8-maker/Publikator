@@ -37,8 +37,8 @@ try {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify(communityKey
-        ? { valid: true, authKind: 'COMMUNITY', identity: 'Ключ сообщества VK',
-            permissions: ['photos', 'wall'] }
+        ? { valid: true, authKind: 'COMMUNITY', identity: 'Test Community',
+            permissions: ['photos', 'wall'], groupId: '67890', groupName: 'Test Community' }
         : { valid: true, authKind: 'USER', identity: 'Test User', userId: '12345' })
     });
   });
@@ -217,7 +217,7 @@ try {
     assert.equal('userId' in saved.credentials, false);
   }
 
-  // A valid community key is recognized, but cannot enable wall-photo publishing.
+  // A valid community key can be saved without becoming a publication target.
   {
     const form = await openPlatform('vk');
     await form.locator('input[name="name"]').fill('VK Group Key');
@@ -225,11 +225,20 @@ try {
     const beforeTest = testBodies.length;
     const beforeSave = saveBodies.length;
     await form.locator('#operator-test-connect').click();
-    await form.getByText('Ключ проверен.', { exact: true }).waitFor();
-    assert.match(await form.locator('#operator-connect-result').textContent(), /Ключ VK действителен: это ключ сообщества/);
-    assert.equal(await form.locator('#operator-save-connect').isDisabled(), true);
+    await page.waitForFunction(() => document.querySelector('#operator-save-connect')?.disabled === false);
+    assert.match(await form.locator('#operator-connect-result').textContent(), /Ключ сообщества действителен/);
+    assert.equal(await form.locator('input[name="groupId"]').inputValue(), '67890');
+    assert.equal(await form.locator('#operator-save-connect').textContent(), 'Сохранить ключ VK');
     assert.equal(testBodies.length, beforeTest);
     assert.equal(saveBodies.length, beforeSave);
+    const saveRequest = page.waitForRequest((request) =>
+      new URL(request.url()).pathname === '/api/accounts' && request.method() === 'POST'
+    );
+    await form.locator('#operator-save-connect').click();
+    const saved = (await saveRequest).postDataJSON();
+    assert.equal(saved.credentials.authKind, 'COMMUNITY');
+    assert.equal(saved.credentials.groupId, '67890');
+    assert.equal(saved.credentials.accessToken, 'vk-community-token');
     assert.equal(inspectionBodies.at(-1).credentials.accessToken, 'vk-community-token');
   }
 
@@ -275,10 +284,10 @@ try {
     });
   }
 
-  for (let attempt = 0; attempt < 100 && saveBodies.length < 4; attempt += 1) {
+  for (let attempt = 0; attempt < 100 && saveBodies.length < 5; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  assert.equal(saveBodies.length, 4, 'all mocked account-create handlers must complete');
+  assert.equal(saveBodies.length, 5, 'all mocked account-create handlers must complete');
   assert.deepEqual(pageErrors, [], `browser page errors:\n${pageErrors.join('\n')}`);
   await context.close();
 
