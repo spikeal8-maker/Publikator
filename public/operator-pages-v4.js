@@ -64,6 +64,23 @@ function renderSocialConnectForm(platform) {
     input.addEventListener('input', invalidate);
     input.addEventListener('change', invalidate);
   });
+  host.querySelector('#operator-vk-oauth')?.addEventListener('click', async () => {
+    result.innerHTML = '<div class="operator-result">Открываю авторизацию VK…</div>';
+    try {
+      const data = new FormData(form);
+      const name = String(data.get('name') || '').trim();
+      const destinationKind = String(data.get('destinationKind') || 'PERSONAL');
+      const groupId = String(data.get('groupId') || '').trim();
+      if (!name) throw new Error('Укажите название подключения.');
+      if (destinationKind === 'COMMUNITY' && !groupId) throw new Error('Укажите ID или ссылку сообщества.');
+      const params = new URLSearchParams({ name, destinationKind });
+      if (destinationKind === 'COMMUNITY') params.set('groupId', groupId);
+      const started = await operatorApi(`/api/vk/oauth/start?${params}`);
+      window.location.assign(started.authorizationUrl);
+    } catch (error) {
+      result.innerHTML = `<div class="operator-result error">${operatorEsc(error instanceof Error ? error.message : String(error))}</div>`;
+    }
+  });
   host.querySelector('#operator-close-connect').onclick = () => { host.innerHTML = ''; };
   host.querySelector('#operator-test-connect').onclick = async () => {
     result.innerHTML = '<div class="operator-result">Проверяю токен и назначение через API…</div>';
@@ -105,6 +122,7 @@ async function renderSocialsPage() {
     const accounts = await operatorApi('/api/accounts');
     operatorView.innerHTML = `<div class="operator-page">
       <div class="operator-page-head"><div><h2>Соцсети</h2><p>Подключите площадку, проверьте токен и укажите конкретный канал, группу или чат. Сохранить можно только проверенное подключение.</p></div></div>
+      <div id="operator-oauth-banner"></div>
       <div class="operator-platform-grid">${Object.entries(OPERATOR_PLATFORM).map(([key, meta]) => `<div class="operator-platform-card" data-platform="${key}"><strong>${meta.label}</strong><span>${meta.note}</span><button class="secondary operator-add-platform" type="button" data-platform="${key}">Подключить</button></div>`).join('')}</div>
       <div id="operator-social-connect"></div>
       <section class="operator-section"><h3>Подключённые площадки</h3><p>«Проверить» ничего не публикует: только подтверждает учётную запись и назначение.</p>
@@ -114,6 +132,17 @@ async function renderSocialsPage() {
         }).join('') : '<div class="operator-empty">Пока нет ни одного подключения. Выберите площадку выше.</div>'}</div>
       </section>
     </div>`;
+    const oauthTicket = new URLSearchParams(window.location.search).get('vk_oauth_result');
+    if (oauthTicket) {
+      const banner = operatorView.querySelector('#operator-oauth-banner');
+      try {
+        const outcome = await operatorApi(`/api/vk/oauth/result?ticket=${encodeURIComponent(oauthTicket)}`);
+        banner.innerHTML = `<div class="operator-result ${outcome.ok ? 'ok' : 'error'}">${operatorEsc(outcome.message)}</div>`;
+      } catch (error) {
+        banner.innerHTML = `<div class="operator-result error">${operatorEsc(error instanceof Error ? error.message : String(error))}</div>`;
+      }
+      history.replaceState({}, '', '/socials');
+    }
     operatorView.querySelectorAll('.operator-add-platform').forEach((button) => button.addEventListener('click', () => renderSocialConnectForm(button.dataset.platform)));
     operatorView.querySelectorAll('.operator-test-account').forEach((button) => button.addEventListener('click', async () => {
       const row = button.closest('.operator-connection');
@@ -697,7 +726,7 @@ async function operatorRenderCustom(path, updateHistory = true) {
 function operatorGo(path, replace = false) {
   const normalized = operatorNormalizePath(path);
   if (CUSTOM_ROUTES.has(normalized)) {
-    if (replace) history.replaceState({}, '', normalized);
+    if (replace) history.replaceState({}, '', normalized + (window.location.pathname === normalized ? window.location.search : ''));
     operatorRenderCustom(normalized, !replace);
     return;
   }
