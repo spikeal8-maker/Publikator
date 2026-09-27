@@ -33,6 +33,11 @@ try {
     const body = route.request().postDataJSON();
     inspectionBodies.push(body);
     const communityKey = body.credentials.accessToken === 'vk-community-token';
+    if (body.credentials.accessToken === 'vk-ip-token') {
+      await route.fulfill({ status: 400, contentType: 'application/json',
+        body: JSON.stringify({ error: 'VK отклонил ключ: он привязан к другому IP-адресу.' }) });
+      return;
+    }
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -48,6 +53,11 @@ try {
     assert.equal(request.method(), 'POST');
     const body = request.postDataJSON();
     testBodies.push(body);
+    if (body.platform === 'vk' && body.credentials.accessToken === 'vk-no-owner-token') {
+      await route.fulfill({ status: 400, contentType: 'application/json',
+        body: JSON.stringify({ error: 'VK: users.get не вернул владельца User access token' }) });
+      return;
+    }
     let response;
     if (body.platform === 'vk' && body.credentials.destinationKind === 'PERSONAL') {
       response = {
@@ -240,6 +250,31 @@ try {
     assert.equal(saved.credentials.groupId, '67890');
     assert.equal(saved.credentials.accessToken, 'vk-community-token');
     assert.equal(inspectionBodies.at(-1).credentials.accessToken, 'vk-community-token');
+  }
+
+  // VK errors must not block encrypted, disabled key storage.
+  for (const [token, errorText] of [
+    ['vk-no-owner-token', /users.get не вернул владельца/],
+    ['vk-ip-token', /другому IP-адресу/]
+  ]) {
+    const form = await openPlatform('vk');
+    await form.locator('input[name="destinationKind"][value="COMMUNITY"]').check();
+    await form.locator('input[name="groupId"]').fill('234601853');
+    await form.locator('input[name="accessToken"]').fill(token);
+    assert.equal(await form.locator('#operator-save-connect').isEnabled(), true);
+    await form.locator('#operator-test-connect').click();
+    await form.locator('#operator-connect-result .operator-result.error').waitFor();
+    assert.match(await form.locator('#operator-connect-result').textContent(), errorText);
+    assert.equal(await form.locator('#operator-save-connect').isEnabled(), true);
+    const saveRequest = page.waitForRequest((request) =>
+      new URL(request.url()).pathname === '/api/accounts' && request.method() === 'POST'
+    );
+    await form.locator('#operator-save-connect').click();
+    const saved = (await saveRequest).postDataJSON();
+    assert.equal(saved.name, 'VK 234601853');
+    assert.equal(saved.credentials.authKind, 'PENDING');
+    assert.equal(saved.credentials.accessToken, token);
+    assert.equal(saved.credentials.groupId, '234601853');
   }
 
   // Telegram remains canonical and does not use the VK destination contract.
