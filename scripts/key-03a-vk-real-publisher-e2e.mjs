@@ -225,21 +225,180 @@ try {
   assert.equal(persistedRevision.content_version, 1);
   assert.equal(persistedRevision.editorial_stage, 'APPROVED');
 
-  console.log(JSON.stringify({
+  const failurePostId = id('post');
+  const failureCreatedAt = nowIso();
+  db.prepare(
+    'INSERT INTO posts (id,project_id,title,body,status,schedule_mode,scheduled_at,created_at,updated_at) ' +
+    'VALUES (?,?,?,?,?,?,?,?,?)'
+  ).run(
+    failurePostId,
+    projectId,
+    'KEY-03A preparation failure',
+    'KEY-03A failure body',
+    'DRAFT',
+    'MANUAL',
+    null,
+    failureCreatedAt,
+    failureCreatedAt
+  );
+
+  ensureTargets(failurePostId);
+  setTargetSelection(failurePostId, [accountId]);
+
+  const failureMedia = await saveImage(failurePostId, 'key-03a-failure.jpg', sourceJpeg);
+  const expectedFailureBytes = await fs.readFile(mediaAbsolutePath(failureMedia));
+  const failureRevision = snapshotContentRevision(failurePostId, 1, 'manual');
+  markReadyRevision(failurePostId, 1, failureRevision.id);
+
+  const failureTargetBefore = db.prepare(
+    'SELECT id,state,attempts,enabled FROM post_targets WHERE post_id=? AND account_id=?'
+  ).get(failurePostId, accountId);
+  assert.ok(failureTargetBefore);
+  assert.equal(failureTargetBefore.enabled, 1);
+  assert.equal(failureTargetBefore.state, 'PENDING');
+  assert.equal(failureTargetBefore.attempts, 0);
+
+  const failureCalls = [];
+  const failureExpectedSteps = [
+    'photos.getWallUploadServer',
+    'upload',
+    'photos.saveWallPhoto'
+  ];
+
+  globalThis.fetch = async (request, init = {}) => {
+    const url = String(request);
+    const method = String(init.method || 'GET').toUpperCase();
+    const vkMethod = apiMethod(url);
+    const body = init.body instanceof URLSearchParams
+      ? Object.fromEntries(init.body.entries())
+      : null;
+    const form = init.body instanceof FormData ? init.body : null;
+    const phase = vkMethod || 'upload';
+
+    failureCalls.push({ phase, url, method, body, form, init });
+    assert.equal(
+      phase,
+      failureExpectedSteps[failureCalls.length - 1],
+      'unexpected failure-path VK call order at step ' + failureCalls.length
+    );
+
+    if (vkMethod === 'photos.getWallUploadServer') {
+      assert.equal(method, 'POST');
+      assert.equal(body.access_token, 'key-03a-user-token');
+      assert.equal(body.v, '5.199');
+      assert.equal(body.group_id, '67890');
+      return json({ response: { upload_url: 'https://upload.vk.test/key-03a-failure-wall' } });
+    }
+
+    if (!vkMethod) {
+      assert.equal(url, 'https://upload.vk.test/key-03a-failure-wall');
+      assert.equal(method, 'POST');
+      assert.ok(form instanceof FormData);
+      const photo = form.get('photo');
+      assert.ok(photo instanceof Blob);
+      const actualBytes = Buffer.from(await photo.arrayBuffer());
+      assert.deepEqual(actualBytes, expectedFailureBytes);
+      return json({ server: 43, photo: '[{"photo":"failure-fixture"}]', hash: 'hash-key-03a-failure' });
+    }
+
+    if (vkMethod === 'photos.saveWallPhoto') {
+      assert.equal(method, 'POST');
+      assert.equal(body.group_id, '67890');
+      assert.equal(body.server, '43');
+      assert.equal(body.photo, '[{"photo":"failure-fixture"}]');
+      assert.equal(body.hash, 'hash-key-03a-failure');
+      return json({ error: 'temporary provider failure' }, 503);
+    }
+
+    if (vkMethod === 'wall.post') {
+      assert.fail('pre-publication photos.saveWallPhoto failure must not reach wall.post');
+    }
+
+    throw new Error('unexpected failure-path VK request ' + method + ' ' + url);
+  };
+
+  await publishPost(failurePostId);
+
+  assert.deepEqual(
+    failureCalls.map((call) => call.phase),
+    failureExpectedSteps,
+    'failure path must stop before wall.post'
+  );
+  assert.equal(failureCalls.filter((call) => call.phase === 'photos.getWallUploadServer').length, 1);
+  assert.equal(failureCalls.filter((call) => call.phase === 'upload').length, 1);
+  assert.equal(failureCalls.filter((call) => call.phase === 'photos.saveWallPhoto').length, 1);
+  assert.equal(failureCalls.filter((call) => call.phase === 'wall.post').length, 0);
+
+  const failureTargetAfter = db.prepare(
+    'SELECT state,attempts,next_attempt_at,external_id,external_url,published_at,last_error ' +
+    'FROM post_targets WHERE id=?'
+  ).get(failureTargetBefore.id);
+  assert.equal(
+    failureTargetAfter.state,
+    'RETRY',
+    'transient photos.saveWallPhoto HTTP 5xx is retryable preparation failure'
+  );
+  assert.equal(failureTargetAfter.attempts, 1);
+  assert.ok(failureTargetAfter.next_attempt_at);
+  assert.equal(failureTargetAfter.external_id, null);
+  assert.equal(failureTargetAfter.external_url, null);
+  assert.equal(failureTargetAfter.published_at, null);
+  assert.match(String(failureTargetAfter.last_error || ''), /photos\.saveWallPhoto.*подготовительная фаза.*HTTP 503/);
+  assert.equal(String(failureTargetAfter.last_error || '').includes('key-03a-user-token'), false);
+
+  const failurePostAfter = db.prepare(
+    'SELECT status,editorial_stage,content_version,ready_revision_id FROM posts WHERE id=?'
+  ).get(failurePostId);
+  assert.equal(failurePostAfter.status, 'PUBLISHING');
+  assert.notEqual(failurePostAfter.status, 'PUBLISHED');
+  assert.equal(failurePostAfter.editorial_stage, 'APPROVED');
+  assert.equal(failurePostAfter.ready_revision_id, failureRevision.id);
+
+  const failureEvents = db.prepare(
+    'SELECT event_type,message,data_json FROM publication_events WHERE post_id=? ORDER BY created_at,id'
+  ).all(failurePostId);
+  assert.equal(failureEvents.some((event) => event.event_type === 'publish_recovery_needed'), false);
+  assert.equal(failureTargetAfter.state === 'RECOVERY_NEEDED', false);
+
+  const publicFailureEvidence = {
+    targetState: failureTargetAfter.state,
+    attempts: failureTargetAfter.attempts,
+    nextAttemptAtPresent: Boolean(failureTargetAfter.next_attempt_at),
+    externalId: failureTargetAfter.external_id,
+    externalUrl: failureTargetAfter.external_url,
+    publishedAt: failureTargetAfter.published_at,
+    lastError: failureTargetAfter.last_error,
+    postStatus: failurePostAfter.status,
+    events: failureEvents
+  };
+  assert.equal(JSON.stringify(publicFailureEvidence).includes('key-03a-user-token'), false);
+
+  const summary = {
     ok: true,
     checkpoint: 'KEY-03A',
     realPublisherRegistered: true,
     readyRevision: true,
     publishPostPath: true,
     vkHttpMockOnly: true,
-    sequence: expectedSteps,
-    multipartField: 'photo',
+    happySequence: expectedSteps,
+    happyMultipartField: 'photo',
     actualStoredJpegBytesUploaded: true,
-    targetState: targetAfter.state,
-    postStatus: postAfter.status,
-    wallPostCalls: 1,
+    happyTargetState: targetAfter.state,
+    happyPostStatus: postAfter.status,
+    happyWallPostCalls: 1,
+    failureSequence: failureExpectedSteps,
+    failureWallPostCalls: 0,
+    failureTargetState: failureTargetAfter.state,
+    failureExternalId: failureTargetAfter.external_id,
+    failureExternalUrl: failureTargetAfter.external_url,
+    failurePublishedAt: failureTargetAfter.published_at,
+    failureRecoveryNeeded: failureTargetAfter.state === 'RECOVERY_NEEDED',
+    prePublicationBoundary: true,
+    secretLeak: false,
     realPublications: 0
-  }));
+  };
+  assert.equal(JSON.stringify(summary).includes('key-03a-user-token'), false);
+  console.log(JSON.stringify(summary));
 } finally {
   globalThis.fetch = originalFetch;
   db.close();
