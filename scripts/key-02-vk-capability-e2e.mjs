@@ -68,6 +68,16 @@ globalThis.fetch = async (input, init = {}) => {
     }
   }
 
+  if (token === 'user-personal-mismatch') {
+    if (method === 'groups.getTokenPermissions') return vkError(5, 'Group authorization failed');
+    if (method === 'users.get') return json({ response: [
+      { id: 12345, first_name: 'User', last_name: 'Fixture', screen_name: 'id12345' }
+    ] });
+    if (method === 'photos.getWallUploadServer') {
+      assert.fail('PERSONAL userId mismatch must not call photos.getWallUploadServer');
+    }
+  }
+
   throw new Error(`unexpected VK call ${method} for fixture token`);
 };
 
@@ -248,7 +258,53 @@ try {
   assert.doesNotMatch(JSON.stringify(timeout.json()), /invalid|недействител/i);
   assert.equal(timeout.body.includes('user-wall-timeout'), false);
 
-  const secrets = ['community-key', 'user-wall-denied', 'user-wall-timeout'];
+  const personalMismatch = await app.inject({
+    method: 'POST',
+    url: '/api/accounts/test',
+    headers,
+    payload: {
+      platform: 'vk',
+      credentials: {
+        accessToken: 'user-personal-mismatch',
+        apiVersion: '5.199',
+        destinationKind: 'PERSONAL',
+        userId: '99999'
+      }
+    }
+  });
+  assert.equal(personalMismatch.statusCode, 200, personalMismatch.body);
+  assert.equal(personalMismatch.json().details.keyValidity, 'CONFIRMED');
+  assert.equal(personalMismatch.json().details.authKind, 'USER');
+  assert.equal(personalMismatch.json().details.authenticatedUserId, '12345');
+  assert.equal(personalMismatch.json().details.authenticatedUserName, 'User Fixture');
+  assert.equal(personalMismatch.json().details.destinationKind, 'PERSONAL');
+  assert.equal(personalMismatch.json().details.destinationId, '99999');
+  assert.equal(personalMismatch.json().details.destinationStatus, 'DENIED');
+  assert.equal(personalMismatch.json().details.destinationOwnershipConfirmed, false);
+  assert.equal(personalMismatch.json().details.publishReady, false);
+  assert.equal(personalMismatch.json().details.wallPhotoReady, false);
+  assert.equal(personalMismatch.json().details.wallUploadReady, false);
+  assert.equal(personalMismatch.json().details.wallPostNotExecuted, true);
+  assert.equal(
+    personalMismatch.json().details.methods.find((item) => item.method === 'users.get')?.state,
+    'CONFIRMED'
+  );
+  assert.equal(
+    personalMismatch.json().details.methods.find((item) => item.method === 'photos.getWallUploadServer')?.state,
+    'NOT_CHECKED'
+  );
+  assert.match(
+    personalMismatch.json().details.methods.find((item) => item.method === 'photos.getWallUploadServer')?.reason || '',
+    /PERSONAL userId id99999.*USER token id12345/
+  );
+  assert.match(personalMismatch.json().destination, /id99999/);
+  assert.equal(personalMismatch.body.includes('user-personal-mismatch'), false);
+  assert.equal(
+    calls.some((call) => call.token === 'user-personal-mismatch' && call.method === 'photos.getWallUploadServer'),
+    false
+  );
+
+  const secrets = ['community-key', 'user-wall-denied', 'user-wall-timeout', 'user-personal-mismatch'];
   for (const secret of secrets) assert.equal(capturedLogs.includes(secret), false, 'fixture secret leaked to logs');
   assert.equal(calls.some((call) => call.method === 'wall.post'), false);
 
@@ -258,6 +314,10 @@ try {
     communityPermissionsPreserved: true,
     userIdentityPreservedAfterWallUploadFailure: true,
     timeoutIsUnavailable: true,
+    personalDestinationMismatchDenied: true,
+    personalMismatchWallUploadCalls: calls.filter((call) =>
+      call.token === 'user-personal-mismatch' && call.method === 'photos.getWallUploadServer'
+    ).length,
     pendingReloadRetest: true,
     noPublishBypass: true,
     wallPostCalls: 0

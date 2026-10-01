@@ -351,6 +351,47 @@ export async function checkVkConnection(credentials: Record<string, unknown>): P
     const common = { access_token: requireString(credentials, 'accessToken'), v: apiVersion };
     const methods: VkMethodCheck[] = [...(inspection.methods || [])];
 
+    if (kind === 'PERSONAL'
+      && credentials.userId !== undefined
+      && credentials.userId !== null
+      && String(credentials.userId).trim()) {
+      const configuredUserId = normalizeVkUserId(credentials.userId);
+      if (configuredUserId !== authenticatedUserId) {
+        const configuredDestinationScreenName = `id${configuredUserId}`;
+        methods.push(vkMethodNotChecked(
+          'photos.getWallUploadServer',
+          `Метод не запускался: настроенный PERSONAL userId id${configuredUserId} не совпадает с владельцем USER token id${authenticatedUserId}.`
+        ));
+        return {
+          ok: true,
+          platform: 'vk',
+          identity: `Личная страница · ${authenticatedUserName}`,
+          destination: `https://vk.com/${configuredDestinationScreenName}`,
+          details: {
+            apiVersion,
+            keyValidity: 'CONFIRMED',
+            authKind: 'USER',
+            permissions: [],
+            permissionsSource: 'NOT_CONFIRMED_FOR_USER_KEY',
+            authenticatedUserId,
+            authenticatedUserName,
+            destinationKind: 'PERSONAL',
+            destinationStatus: 'DENIED',
+            destinationId: configuredUserId,
+            destinationName: configuredDestinationScreenName,
+            destinationScreenName: configuredDestinationScreenName,
+            destinationOwnershipConfirmed: false,
+            wallPhotoReady: false,
+            wallUploadReady: false,
+            wallPostNotExecuted: true,
+            publishReady: false,
+            initialPreflightError: strictError instanceof Error ? strictError.message : String(strictError),
+            methods: [...methods, ...applicationLimits]
+          }
+        };
+      }
+    }
+
     let destinationId = authenticatedUserId;
     let destinationName = authenticatedUserName;
     let destinationScreenName = inspection.userScreenName || `id${authenticatedUserId}`;
