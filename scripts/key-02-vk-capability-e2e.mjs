@@ -179,7 +179,11 @@ try {
   );
   assert.equal(
     partial.json().details.methods.find((item) => item.method === 'photos.getUploadServer')?.state,
-    'NOT_IMPLEMENTED'
+    'NOT_CHECKED'
+  );
+  assert.equal(
+    partial.json().details.methods.find((item) => item.method === 'photos.save')?.state,
+    'NOT_CHECKED'
   );
   assert.equal(partial.body.includes('user-wall-denied'), false);
 
