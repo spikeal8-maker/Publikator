@@ -11,6 +11,7 @@ export function socialCredentialFields(platform) {
     <div class="full"><button id="operator-vk-oauth" class="secondary" type="button">Подключить через VK</button><span class="operator-field-help">Авторизуйтесь как пользователь VK с правом публикации на выбранной стене. Публикатор проверит доступ и сохранит ключ без ручного копирования.</span></div>
     <label class="full">Ключ VK (ручной ввод)<input name="accessToken" type="password" autocomplete="off" required><span class="operator-field-help">Проверка покажет, действителен ли ключ и какого он типа. Ключ из «Работа с API → Ключи доступа» можно проверить и сохранить. Для публикации постов с фотографиями требуется пользовательский ключ.</span><span class="operator-field-help hidden" data-vk-community-auth-hint>Для сообщества пользователь должен иметь право публикации. Ключ сообщества не подходит для загрузки фотографий на стену.</span></label>
     <label class="full hidden" data-vk-community-field>Сообщество / ID<input name="groupId" placeholder="123456789, club123456789 или ссылка VK"><span class="operator-field-help">Для сохранения ключа поле можно оставить пустым. Для подключения публикации укажите сообщество.</span></label>
+    <label class="full hidden" data-vk-album-field>Альбом VK для загрузки изображений<input name="albumId" inputmode="numeric" placeholder="Положительный ID альбома"><span class="operator-field-help">Необязательно. Используется как fallback, если VK не разрешает wall-photo upload. Сам album path проверяется без загрузки файлов.</span></label>
     <div class="full muted small" data-vk-personal-hint>Личная страница определяется по владельцу access token через официальный VK API.</div>
     <label>API version<input name="apiVersion" required value="5.199"></label>`;
   if (platform === 'max') return `
@@ -25,6 +26,7 @@ export function socialCredentialFields(platform) {
 export function syncVkDestinationFields(form) {
   const groupField = form.querySelector('[data-vk-community-field]');
   const groupInput = form.querySelector('input[name="groupId"]');
+  const albumField = form.querySelector('[data-vk-album-field]');
   const personalHint = form.querySelector('[data-vk-personal-hint]');
   const communityAuthHint = form.querySelector('[data-vk-community-auth-hint]');
   if (!groupField || !groupInput) return () => undefined;
@@ -33,6 +35,7 @@ export function syncVkDestinationFields(form) {
     const kind = String(new FormData(form).get('destinationKind') || 'PERSONAL');
     const community = kind === 'COMMUNITY';
     groupField.classList.toggle('hidden', !community);
+    albumField?.classList.toggle('hidden', !community);
     groupInput.required = false;
     personalHint?.classList.toggle('hidden', community);
     communityAuthHint?.classList.toggle('hidden', !community);
@@ -63,7 +66,11 @@ export function socialCredentialsFromForm(platform, form) {
       apiVersion: String(data.get('apiVersion') || '').trim() || '5.199',
       destinationKind
     };
-    if (destinationKind === 'COMMUNITY') credentials.groupId = String(data.get('groupId') || '').trim();
+    if (destinationKind === 'COMMUNITY') {
+      credentials.groupId = String(data.get('groupId') || '').trim();
+      const albumId = String(data.get('albumId') || '').trim();
+      if (albumId) credentials.albumId = albumId;
+    }
     return credentials;
   }
   if (platform === 'max') {
@@ -98,8 +105,22 @@ export function verifiedSocialCredentialsFromTest(platform, form, checked) {
 
   const authKind = String(details.authKind || '').trim().toUpperCase();
   if (authKind !== 'USER') throw new Error('VK: для публикации обычных постов с изображениями нужен проверенный User access token VK.');
-  if (checkedKind === 'COMMUNITY' && details.wallPhotoReady !== true) {
-    throw new Error('VK: проверка не подтвердила готовность загрузки изображений на стену сообщества.');
+
+  const imageUploadMode = String(
+    details.imageUploadMode
+      || (details.albumUploadReady === true ? 'ALBUM' : details.wallPhotoReady === true ? 'WALL' : '')
+  ).trim().toUpperCase();
+  if (!['WALL', 'ALBUM'].includes(imageUploadMode)) {
+    throw new Error('VK: проверка не вернула подтверждённый режим загрузки изображений.');
+  }
+  if (checkedKind === 'PERSONAL' && imageUploadMode !== 'WALL') {
+    throw new Error('VK: ALBUM image path доступен только для сообщества.');
+  }
+  if (checkedKind === 'COMMUNITY' && imageUploadMode === 'WALL' && details.wallPhotoReady !== true) {
+    throw new Error('VK: проверка не подтвердила wall-photo path сообщества.');
+  }
+  if (checkedKind === 'COMMUNITY' && imageUploadMode === 'ALBUM' && details.albumUploadReady !== true) {
+    throw new Error('VK: проверка не подтвердила album image path сообщества.');
   }
 
   const apiVersion = String(details.apiVersion || credentials.apiVersion || '5.199').trim();
@@ -107,10 +128,19 @@ export function verifiedSocialCredentialsFromTest(platform, form, checked) {
     accessToken: credentials.accessToken,
     apiVersion,
     authKind: 'USER',
-    destinationKind: checkedKind
+    destinationKind: checkedKind,
+    imageUploadMode
   };
-  if (checkedKind === 'PERSONAL') verified.userId = destinationId;
-  else verified.groupId = destinationId;
+  if (checkedKind === 'PERSONAL') {
+    verified.userId = destinationId;
+  } else {
+    verified.groupId = destinationId;
+    const checkedAlbumId = String(details.albumId || '').trim();
+    if (imageUploadMode === 'ALBUM' && !checkedAlbumId) {
+      throw new Error('VK: проверка ALBUM path не вернула albumId.');
+    }
+    if (checkedAlbumId && credentials.albumId) verified.albumId = checkedAlbumId;
+  }
 
   const destinationName = String(details.destinationName || '').trim();
   if (destinationName) verified.destinationName = destinationName;
