@@ -59,7 +59,32 @@ try {
       return;
     }
     let response;
-    if (body.platform === 'vk' && body.credentials.destinationKind === 'PERSONAL') {
+    if (body.platform === 'vk' && body.credentials.accessToken === 'vk-community-token') {
+      response = {
+        ok: true,
+        platform: 'vk',
+        identity: 'Test Community',
+        destination: 'https://vk.com/club67890',
+        details: {
+          apiVersion: '5.199',
+          keyValidity: 'CONFIRMED',
+          authKind: 'COMMUNITY',
+          permissions: ['photos', 'wall'],
+          permissionsSource: 'groups.getTokenPermissions',
+          credentialOnly: true,
+          destinationKind: 'COMMUNITY',
+          destinationStatus: 'RESOLVED',
+          destinationId: '67890',
+          destinationName: 'Test Community',
+          destinationScreenName: 'club67890',
+          destinationOwnershipConfirmed: false,
+          wallPhotoReady: false,
+          wallUploadReady: false,
+          wallPostNotExecuted: true,
+          publishReady: false
+        }
+      };
+    } else if (body.platform === 'vk' && body.credentials.destinationKind === 'PERSONAL') {
       response = {
         ok: true,
         platform: 'vk',
@@ -252,10 +277,24 @@ try {
     const beforeSave = saveBodies.length;
     await form.locator('#operator-test-connect').click();
     await page.waitForFunction(() => document.querySelector('#operator-save-connect')?.disabled === false);
-    assert.match(await form.locator('#operator-connect-result').textContent(), /Ключ сообщества действителен/);
+    const capabilityText = await form.locator('#operator-connect-result').textContent();
+    assert.match(capabilityText, /Действительность ключа подтверждена/);
+    assert.match(capabilityText, /Тип ключа:\s*COMMUNITY/);
+    assert.match(capabilityText, /Permissions:\s*photos, wall/);
+    assert.match(capabilityText, /Test Community/);
+    assert.match(capabilityText, /Публикация не включается/);
     assert.equal(await form.locator('input[name="groupId"]').inputValue(), '67890');
     assert.equal(await form.locator('#operator-save-connect').textContent(), 'Сохранить ключ VK');
-    assert.equal(testBodies.length, beforeTest);
+    assert.equal(testBodies.length, beforeTest + 1);
+    assert.deepEqual(testBodies.at(-1), {
+      platform: 'vk',
+      credentials: {
+        accessToken: 'vk-community-token',
+        apiVersion: '5.199',
+        destinationKind: 'COMMUNITY',
+        groupId: '67890'
+      }
+    });
     assert.equal(saveBodies.length, beforeSave);
     const saveRequest = page.waitForRequest((request) =>
       new URL(request.url()).pathname === '/api/accounts' && request.method() === 'POST'
@@ -265,6 +304,8 @@ try {
     assert.equal(saved.credentials.authKind, 'COMMUNITY');
     assert.equal(saved.credentials.groupId, '67890');
     assert.equal(saved.credentials.accessToken, 'vk-community-token');
+    assert.equal(saved.credentials.authKind === 'USER', false);
+    assert.equal('publishReady' in saved.credentials, false);
     assert.equal(inspectionBodies.at(-1).credentials.accessToken, 'vk-community-token');
   }
 
