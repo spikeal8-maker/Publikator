@@ -47,8 +47,10 @@ const partialCheck = {
       { method: 'groups.getById', state: 'CONFIRMED', reason: 'Публичные данные группы прочитаны; владение не доказано.' },
       { method: 'photos.getWallUploadServer', state: 'DENIED', reason: 'VK отказал этому методу.' },
       { method: 'wall.post', state: 'NOT_CHECKED', reason: 'Проверка ничего не публикует.' },
-      { method: 'photos.getUploadServer / photos.save', state: 'NOT_IMPLEMENTED', reason: 'Альбомный путь пока не реализован.' },
-      { method: 'stories.getPhotoUploadServer / stories.save', state: 'NOT_IMPLEMENTED', reason: 'Stories не реализованы в KEY-02.' }
+      { method: 'photos.getUploadServer', state: 'NOT_IMPLEMENTED', reason: 'Альбомный путь пока не реализован.' },
+      { method: 'photos.save', state: 'NOT_IMPLEMENTED', reason: 'Сохранение в альбом пока не реализовано.' },
+      { method: 'stories.getPhotoUploadServer', state: 'NOT_IMPLEMENTED', reason: 'Stories не реализованы в KEY-02.' },
+      { method: 'stories.save', state: 'NOT_IMPLEMENTED', reason: 'Stories не реализованы в KEY-02.' }
     ]
   }
 };
@@ -130,7 +132,8 @@ try {
   assert.match(cardText, /Public Community/);
   assert.match(cardText, /photos\.getWallUploadServer/);
   assert.match(cardText, /Метод отказал/);
-  assert.match(cardText, /photos\.getUploadServer \/ photos\.save/);
+  assert.match(cardText, /photos\.getUploadServer/);
+  assert.match(cardText, /photos\.save/);
   assert.match(cardText, /Не реализовано в Publikator/);
   assert.match(cardText, /Чтение данных группы не доказывает владение/);
   assert.match(cardText, /Публикация не включается/);
