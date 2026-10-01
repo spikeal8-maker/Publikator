@@ -189,9 +189,9 @@ pre-restore
 
 ## Старые `.sqlite` backup
 
-Старые endpoint'ы `/api/backups` пока оставлены для обратной совместимости. Они создают только SQLite и не являются полной переносимой копией, потому что не содержат `media/`.
+Legacy `/api/backups` отключён: запрос возвращает `410 Gone` и не создаёт SQLite-only копию. Это явно закреплено в [`src/http/legacy-backups.ts`](../src/http/legacy-backups.ts).
 
-Новый Web UI использует `/api/backup-bundles` и `.tgz` bundles. Для disaster recovery следует использовать именно полный bundle.
+Web UI использует `/api/backup-bundles` и полные `.tgz` bundles. Старый отдельный `.sqlite` не является полной переносимой копией: он не содержит `media/` и не подходит для штатного bundle restore. Не переименовывайте его в `.tgz` и не подменяйте им открытую runtime SQLite.
 
 ## Что backup не содержит
 

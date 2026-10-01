@@ -274,13 +274,13 @@ release/1.0 from v1.0.0-rc.4
 main for vNext
 ```
 
-Дополнительно определить schema milestone migrations и forward-port process.
+Schema milestone migrations и forward-port process определены в [`RELEASE_MIGRATION_POLICY.md`](RELEASE_MIGRATION_POLICY.md) и [`src/schema.ts`](../src/schema.ts); повторно проектировать этот foundation не требуется.
 
 ---
 
 # 5. Фактический schema foundation после M0
 
-Publikator уже прошёл маленькие additive milestones вместо giant migration:
+Источник версии и migration/backup regressions — [`SCHEMA_MILESTONES`](../src/schema.ts). Для проверенного ниже снимка `main` SQLite-схема равна **12**:
 
 ```text
 3  V1 baseline / release/1.0
@@ -289,49 +289,60 @@ Publikator уже прошёл маленькие additive milestones вмест
 6  ingestion security state
 7  UTC/IANA schedule + TargetRendition + PublicationUnit
 8  rich-media model
-9  revision-history — EW4-002 accepted/merged
-10 canonical-rich-text — EW4-003 accepted/merged
-11 project-defaults — EW4-005 Draft candidate; A1 currently owns only Project.default_timezone
+9  revision-history
+10 canonical-rich-text
+11 project-defaults
+12 templates
 ```
 
-Новые feature PR не должны повторно создавать эти primitives. Следующая schema version появляется только при новом coherent data invariant и обязана следовать `docs/RELEASE_MIGRATION_POLICY.md` + `SCHEMA_MILESTONES`.
+Это SQLite milestones, а не версии XLSX/CSV-контракта и не версия пакета. Новые feature PR не должны повторно создавать эти primitives. Следующая schema version появляется только при новом coherent data invariant и обязана следовать `docs/RELEASE_MIGRATION_POLICY.md` + `SCHEMA_MILESTONES`.
 
 ---
 
 # 6. Текущее состояние и оставшийся порядок разработки
 
-Сверено: **19.09.2026**, после accepted merge PR #105 (EW4-004), main `73748e291d750c89680ded8588dccfcba641790e`.
+Снимок исходников проверен **01.10.2026** на `main` `f89f43d0be8d8e0ea37cfd0a3d24b3ed8f846e16`. Это не подтверждение версии установленного контейнера, не live acceptance и не объявление всех требований vNext завершёнными. Перед новой задачей сверять fresh `main` и относящийся к ней код, а не переносить этот SHA как постоянный expected HEAD.
 
-Следующие foundation/product-этапы уже реализованы и **не должны создаваться заново параллельными слоями**:
+## Что уже существует — не реализовывать заново
 
-- CONTENT-M0 / schema 4–7;
-- EW4-001 — безопасный lifecycle + Content Inspector;
-- CX3-001…CX3-014 — календарь, библиотека, rich-media foundation и единый operator UI;
-- schema 8 — rich-media model;
-- реализации FEED/VIDEO для Telegram/VK/MAX/Instagram, пока live-gated;
-- Telegram Story image/video/sequence, пока live-gated;
-- Instagram Short/Reel, пока live-gated;
-- Google Sheets connector и automation lane #72/#79–#85;
-- Google Drive и Яндекс Диск для image binding;
-- настоящий browser acceptance из #86;
-- Sources UI consolidation из #87/#88;
-- FE-002…FE-007 frontend ownership consolidation; global `ui-page-polish-v5` runtime удалён в PR #102.
+| Область | Реализованный объём и точка входа | Что этим не закрывается |
+|---|---|---|
+| CONTENT-M0 / EW4-001…004 | Versioning, lifecycle, revision history, canonical rich text и platform compilers: `src/content-versioning.ts`, `src/editorial-lifecycle.ts`, `src/revision-history.ts`, `src/rich-text.ts`, `src/platform-text.ts` | Итоговая product/live acceptance |
+| EW4-005 | Project timezone и default targets: `src/project-defaults-migration.ts`, `src/http/routes.ts`; regression `scripts/ew4-005a1-project-timezone-e2e.mjs` | Полная parity всех project policies/platform options; название A1-теста не означает, что default targets отсутствуют |
+| EW4-006 | Шаблоны, повторно используемые блоки, создание поста из шаблона: `src/templates.ts`, `src/http/templates.ts`; regression `scripts/ew4-006-templates-e2e.mjs`; schema 12 | Любые ещё не сопоставленные требования полного template UX |
+| EW4-007 | Calendar projection и редактирование через canonical post API: `src/http/calendar.ts`, `public/calendar-v3.js`; regression `scripts/ew4-007-calendar-editing-e2e.mjs` проверяет перенос AT, конфликт версии, READY invalidation, QUEUE→AT confirmation и создание из точного слота | Полный bulk/context-menu/UX scope из ТЗ и незамерженного PR #113 |
+| EW4-008 / Content Plan v3 | CSV/XLSX v3, source identity и editorial contract: `src/content-plan-v3.ts`, `src/content-plan-v3-template.ts`; regression `scripts/content-plan-v3-e2e.mjs` | ZIP bundle, embedded images/IMAGE(), cloud video и вся mass acceptance |
+| EW4-009 / CP2-004 | Действующий HTTP API черновиков, read/update/request-review, keys/scopes/rate limit и idempotent create: `src/http/integration-api.ts`, `src/integration-security.ts`; regression `scripts/ew4-009-integration-api-e2e.mjs` | Multipart media и batch preview/apply всего целевого Integration API; наличие `openapi.json` не доказывает полноту контракта |
+| Sheets / cloud media | Sheets polling, Auto Apply, trusted Auto Ready, result write-back, image ingest из Drive/Яндекс: `src/google-sheets*.ts`, `src/google-drive-media.ts`, `src/yandex-disk-media.ts` | Cloud video, все сценарии управления источниками и разрешения конфликтов |
+| CX3 / frontend | Calendar/library/preview/media viewer и существующая ownership consolidation: `public/`; browser harness `scripts/browser-operator-acceptance-e2e.mjs` | Удаление файлов с `v04/v05/v3/v4/v5` по одному имени: многие остаются подключёнными runtime-модулями |
+| VK repairs | USER OAuth, PERSONAL/COMMUNITY destinations, ограниченное хранение COMMUNITY/PENDING keys: `src/http/vk-oauth.ts`, `src/http/routes.ts`, `src/platforms/vk.ts`, `src/platforms/connection-test.ts` | Real VK live acceptance; сохранённый ключ не равен разрешению публикации |
 
-Идентификаторы `CP2-007A…D` и `CP2-008A`, использованные в merged Google Sheets lane, **не означают**, что исходные milestones CP2-007 AI producer и CP2-008 Advanced ingest завершены. Для этого reconciliation главным является issue #26.
+Реализации FEED/VIDEO, Telegram Story/Sequence и Instagram Short/Reel не включают production capability автоматически: действуют соответствующие capability/live-evidence gates. Не ослаблять их ради зелёной UI-кнопки.
 
-## Оставшийся рекомендуемый порядок
+Идентификаторы `CP2-007A…D` и `CP2-008A` в merged Google Sheets lane **не означают**, что исходные milestones CP2-007 AI producer и CP2-008 Advanced ingest завершены. Их исходные требования сохраняются в issue #26.
 
-1. **EW4-005** — current Draft candidate PR #106 / `ew4-005/project-defaults`. Текущий короткий срез A1 добавляет только `Project.default_timezone` и schema candidate 11; default targets/platform options ещё не начаты.
-2. **EW4-006 Templates/Snippets** — NOT STARTED.
-3. **EW4-007 Calendar editing** — drag/drop, create-from-slot, quick edit и optimistic-conflict handling.
-4. **CP2-003 ZIP Content Bundle** — детерминированная media binding и acceptance на 100 posts / 150 media.
-5. **CP2-004 + EW4-009 Integration API v1** — полный product contract поверх уже существующей hashed/scoped API-key security foundation.
-6. **Завершение CP2-006** — cloud video ingest и browser-proven UI управления connectors.
-7. **CP2-007 AI Content Profile / producer** — AI создаёт DRAFT только через Integration API; прямой AI→social bypass запрещён.
-8. **CP2-008 Advanced ingest** — embedded images в XLSX, Google Sheets `IMAGE()` и явно ограниченные advanced-source сценарии.
-9. **EW4-010 + Pipeline mass acceptance + live capability enablement** — финальная product acceptance после закрытия контрактов выше.
+Исторические чек-листы issues #26/#30 содержат более ранние снимки: например, утверждения «EW4-006 не начат» и «Integration API — только security foundation» больше не описывают этот `main`. При reconciliation обновлять фактический объём и evidence, не отмечать весь milestone DONE только по существованию файла. Этот документ не закрывает issues и не принимает PR #113.
 
-V1 live acceptance ведётся отдельно в issue #12 и ветке `release/1.0`; он не переопределяет порядок vNext-разработки.
+## Ближайший порядок оптимизации
+
+1. Согласовать текущие инструкции и фактический объём; после принятия документационного PR отдельно обновить tracking issues. Не создавать новый параллельный roadmap/state framework.
+2. Выполнить read-only salvage review PR #113: отделить уникальные нужные изменения от уже реализованных. Не merge всего PR и не удалять его ветку без проверки сохранности. Старые ветки оценивать по содержимому и merge history, не по имени или одному ahead/behind.
+3. Небольшим отдельным срезом закрепить защиту `main`/`release/1.0` и required Acceptance; не менять release lanes. Факт настройки проверять в GitHub, а не считать выполненным по этому пункту.
+4. Перед frontend/code/CI оптимизацией зафиксировать измерения: длительности jobs/steps и нестабильность тестов; загрузку реально используемых страниц; ownership/import/call graph выбранного модуля. Затем один bounded PR с сохранением regression coverage. Большой файл или число шагов сами по себе не доказывают bottleneck.
+
+## Оставшиеся продуктовые требования
+
+После согласованного maintenance-среза выбирать отдельный checkpoint, а не выполнять весь список в одном PR:
+
+1. Residual EW4-005/006/007: сопоставить полные требования defaults/options/templates/calendar с существующим кодом и перенести только доказанные пробелы.
+2. **CP2-003 ZIP Content Bundle** — детерминированная media binding и acceptance на 100 posts / 150 media.
+3. **CP2-004 + EW4-009** — завершить отсутствующие media/batch части Integration API, переиспользуя существующий HTTP/editorial/security contract.
+4. **CP2-006** — cloud video ingest и оставшийся browser-proven UX управления connectors.
+5. **CP2-007 AI Content Profile / producer** — AI создаёт DRAFT через Integration API; прямой AI→social bypass запрещён.
+6. **CP2-008 Advanced ingest** — embedded images в XLSX, Google Sheets `IMAGE()` и ограниченные advanced-source сценарии.
+7. **EW4-010 + Pipeline mass acceptance + live capability enablement** — итоговая product acceptance после закрытия относящихся к ней контрактов.
+
+V1 live acceptance ведётся отдельно в issue #12 и ветке `release/1.0`. Ожидание V1 live acceptance само по себе не блокирует независимую vNext-разработку согласно `VNEXT_TECHNICAL_SPEC.md`.
 
 ---
 
@@ -426,6 +437,8 @@ upload media
 schedule request
 approval request
 ```
+
+Это целевой product contract; реализованный HTTP-поднабор и оставшиеся media/batch задачи перечислены в разделе 6.
 
 Direct publish permission absent by default.
 
