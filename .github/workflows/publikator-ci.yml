@@ -187,6 +187,9 @@ jobs:
       - name: CX3-010C Telegram Story Sequence recovery
         run: node scripts/cx3-010c-story-sequence-e2e.mjs
 
+      - name: KEY-03A real VK image publisher product path
+        run: node scripts/key-03a-vk-real-publisher-e2e.mjs
+
       - name: VK adapter safety
         run: node scripts/vk-adapter-e2e.mjs
 
