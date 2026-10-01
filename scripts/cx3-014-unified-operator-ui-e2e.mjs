@@ -145,7 +145,7 @@ assert.ok(operator.includes(templatesEmptyState), 'final templates empty state m
 assert.ok(!operator.includes('Шаблоны пока не включены'), 'templates placeholder must be removed');
 assert.ok(operator.includes("['/templates', renderTemplatesPage]"), '/templates must remain registered');
 
-const socialsDescription = 'Подключите площадку, проверьте токен и укажите конкретный канал, группу или чат. Сохранить можно только проверенное подключение.';
+const socialsDescription = 'Подключите площадку, проверьте токен и укажите конкретный канал, группу или чат. Для VK неполностью проверенный ключ можно сохранить только выключенным.';
 assert.ok(operator.includes(socialsDescription), 'final socials description must remain renderer-owned');
 assert.ok(operator.includes("['/socials', renderSocialsPage]"), '/socials must remain registered');
 

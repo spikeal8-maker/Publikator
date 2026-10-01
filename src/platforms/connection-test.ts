@@ -2,6 +2,14 @@ import type { Platform } from '../db.js';
 import { PlatformError, requireString, responseJson } from './types.js';
 import { normalizeVkCommunityId, normalizeVkUserId, vkCall, vkDestinationKind } from './vk.js';
 
+export type VkMethodState = 'CONFIRMED' | 'DENIED' | 'UNAVAILABLE' | 'NOT_CHECKED' | 'NOT_IMPLEMENTED';
+
+export type VkMethodCheck = {
+  method: string;
+  state: VkMethodState;
+  reason: string;
+};
+
 export type VkTokenInspection = {
   valid: true;
   authKind: 'COMMUNITY' | 'USER';
@@ -11,6 +19,8 @@ export type VkTokenInspection = {
   groupName?: string;
   groupScreenName?: string;
   userId?: string;
+  userScreenName?: string;
+  methods?: VkMethodCheck[];
 };
 
 export type ConnectionTestResult = {
@@ -134,6 +144,31 @@ async function vkUserOnlyCall(method: string, params: Record<string, string>): P
   }
 }
 
+function vkMethodFailure(method: string, error: unknown): VkMethodCheck {
+  const reason = error instanceof Error ? error.message : String(error);
+  const platformUnavailable = error instanceof PlatformError
+    && (error.retryable || error.outcomeUnknown || error.status === 408
+      || (error.status !== undefined && error.status >= 500));
+  const transportUnavailable = /timeout|timed out|aborted|fetch failed|network|ECONN|EAI_AGAIN|ENOTFOUND/i.test(reason);
+  return {
+    method,
+    state: platformUnavailable || transportUnavailable ? 'UNAVAILABLE' : 'DENIED',
+    reason
+  };
+}
+
+function vkMethodConfirmed(method: string, reason: string): VkMethodCheck {
+  return { method, state: 'CONFIRMED', reason };
+}
+
+function vkMethodNotChecked(method: string, reason: string): VkMethodCheck {
+  return { method, state: 'NOT_CHECKED', reason };
+}
+
+function vkMethodNotImplemented(method: string, reason: string): VkMethodCheck {
+  return { method, state: 'NOT_IMPLEMENTED', reason };
+}
+
 export async function inspectVkToken(credentials: Record<string, unknown>): Promise<VkTokenInspection> {
   const accessToken = requireString(credentials, 'accessToken');
   const common = { access_token: accessToken, v: vkApiVersion(credentials) };
@@ -148,6 +183,9 @@ export async function inspectVkToken(credentials: Record<string, unknown>): Prom
           .filter(Boolean)
         : [];
       let group: any = null;
+      const methods: VkMethodCheck[] = [
+        vkMethodConfirmed('groups.getTokenPermissions', 'VK вернул permissions для ключа сообщества.')
+      ];
       try {
         const reference = typeof credentials.groupId === 'string' && credentials.groupId.trim()
           ? vkCommunityReference(credentials)
@@ -158,8 +196,16 @@ export async function inspectVkToken(credentials: Record<string, unknown>): Prom
           fields: 'screen_name'
         });
         group = vkGroupFromResponse(response);
-      } catch {
-        // The permission response already proved that the key is valid.
+        if (group?.id) {
+          methods.push(vkMethodConfirmed(
+            'groups.getById',
+            'VK вернул данные группы. Это подтверждает чтение объекта, но не владение группой и не право публикации.'
+          ));
+        } else {
+          methods.push({ method: 'groups.getById', state: 'DENIED', reason: 'VK не вернул группу.' });
+        }
+      } catch (error) {
+        methods.push(vkMethodFailure('groups.getById', error));
       }
       const groupId = group?.id ? normalizeVkCommunityId(group.id) : undefined;
       const groupName = groupId ? vkDisplayName(group, `club${groupId}`) : undefined;
@@ -171,6 +217,7 @@ export async function inspectVkToken(credentials: Record<string, unknown>): Prom
         authKind: 'COMMUNITY',
         identity: groupName || 'Ключ сообщества VK',
         permissions: names,
+        methods,
         ...(groupId ? { groupId, groupName, groupScreenName } : {})
       };
     }
@@ -187,7 +234,11 @@ export async function inspectVkToken(credentials: Record<string, unknown>): Prom
       valid: true,
       authKind: 'USER',
       identity: vkDisplayName(user, `id${userId}`),
-      userId
+      userId,
+      userScreenName: typeof user.screen_name === 'string' && user.screen_name.trim()
+        ? user.screen_name.trim()
+        : `id${userId}`,
+      methods: [vkMethodConfirmed('users.get', 'VK вернул владельца пользовательского ключа.')]
     };
   } catch (error) {
     if (isVkIpBoundError(error) || isVkIpBoundError(groupProbeError)) {
@@ -201,6 +252,229 @@ export async function inspectVkToken(credentials: Record<string, unknown>): Prom
       throw new Error('VK: ключ недействителен или срок его действия истёк.');
     }
     throw error;
+  }
+}
+
+export async function checkVkConnection(credentials: Record<string, unknown>): Promise<ConnectionTestResult> {
+  const apiVersion = vkApiVersion(credentials);
+  const applicationLimits: VkMethodCheck[] = [
+    vkMethodNotChecked('wall.post', 'Проверка подключения не создаёт реальную публикацию.'),
+    vkMethodNotImplemented(
+      'photos.getUploadServer',
+      'Альбомный upload-path из рабочего n8n в Publikator пока не реализован и этой проверкой не доказывается.'
+    ),
+    vkMethodNotImplemented(
+      'photos.save',
+      'Сохранение изображения в альбом не реализовано в рамках KEY-02.'
+    ),
+    vkMethodNotImplemented(
+      'stories.getPhotoUploadServer',
+      'Stories не реализованы в рамках KEY-02.'
+    ),
+    vkMethodNotImplemented(
+      'stories.save',
+      'Stories не реализованы в рамках KEY-02.'
+    )
+  ];
+
+  try {
+    const strict = await vkTest(credentials);
+    const details = strict.details || {};
+    const kind = String(details.destinationKind || vkDestinationKind(credentials));
+    const methods: VkMethodCheck[] = [
+      vkMethodConfirmed('users.get', 'VK вернул владельца пользовательского ключа.'),
+      ...(kind === 'COMMUNITY'
+        ? [vkMethodConfirmed(
+          'groups.getById',
+          'VK вернул публичные данные выбранной группы. Это не доказывает владение группой и не подтверждает право wall.post.'
+        )]
+        : []),
+      vkMethodConfirmed('photos.getWallUploadServer', 'VK выдал upload_url для wall-photo path.'),
+      ...applicationLimits
+    ];
+    return {
+      ...strict,
+      details: {
+        ...details,
+        keyValidity: 'CONFIRMED',
+        permissions: [],
+        permissionsSource: 'NOT_CONFIRMED_FOR_USER_KEY',
+        destinationStatus: 'CONFIRMED',
+        destinationOwnershipConfirmed: kind === 'PERSONAL',
+        publishReady: true,
+        methods
+      }
+    };
+  } catch (strictError) {
+    const inspection = await inspectVkToken(credentials);
+
+    if (inspection.authKind === 'COMMUNITY') {
+      const groupId = inspection.groupId;
+      const screenName = inspection.groupScreenName || (groupId ? `club${groupId}` : '');
+      return {
+        ok: true,
+        platform: 'vk',
+        identity: inspection.identity,
+        destination: screenName ? `https://vk.com/${screenName}` : (inspection.groupName || 'Сообщество не определено'),
+        details: {
+          apiVersion,
+          keyValidity: 'CONFIRMED',
+          authKind: 'COMMUNITY',
+          permissions: inspection.permissions || [],
+          permissionsSource: 'groups.getTokenPermissions',
+          credentialOnly: true,
+          destinationKind: 'COMMUNITY',
+          destinationStatus: groupId ? 'RESOLVED' : 'NOT_CONFIRMED',
+          ...(groupId ? { destinationId: groupId } : {}),
+          ...(inspection.groupName ? { destinationName: inspection.groupName } : {}),
+          ...(screenName ? { destinationScreenName: screenName } : {}),
+          destinationOwnershipConfirmed: false,
+          wallPhotoReady: false,
+          wallUploadReady: false,
+          wallPostNotExecuted: true,
+          publishReady: false,
+          methods: [
+            ...(inspection.methods || []),
+            vkMethodNotChecked(
+              'photos.getWallUploadServer',
+              'Ключ сообщества сохранён как ограниченный credential; текущий wall-photo preflight Publikator требует USER key.'
+            ),
+            ...applicationLimits
+          ]
+        }
+      };
+    }
+
+    const authenticatedUserId = inspection.userId!;
+    const authenticatedUserName = inspection.identity;
+    const kind = vkDestinationKind(credentials);
+    const common = { access_token: requireString(credentials, 'accessToken'), v: apiVersion };
+    const methods: VkMethodCheck[] = [...(inspection.methods || [])];
+
+    if (kind === 'PERSONAL'
+      && credentials.userId !== undefined
+      && credentials.userId !== null
+      && String(credentials.userId).trim()) {
+      const configuredUserId = normalizeVkUserId(credentials.userId);
+      if (configuredUserId !== authenticatedUserId) {
+        const configuredDestinationScreenName = `id${configuredUserId}`;
+        methods.push(vkMethodNotChecked(
+          'photos.getWallUploadServer',
+          `Метод не запускался: настроенный PERSONAL userId id${configuredUserId} не совпадает с владельцем USER token id${authenticatedUserId}.`
+        ));
+        return {
+          ok: true,
+          platform: 'vk',
+          identity: `Личная страница · ${authenticatedUserName}`,
+          destination: `https://vk.com/${configuredDestinationScreenName}`,
+          details: {
+            apiVersion,
+            keyValidity: 'CONFIRMED',
+            authKind: 'USER',
+            permissions: [],
+            permissionsSource: 'NOT_CONFIRMED_FOR_USER_KEY',
+            authenticatedUserId,
+            authenticatedUserName,
+            destinationKind: 'PERSONAL',
+            destinationStatus: 'DENIED',
+            destinationId: configuredUserId,
+            destinationName: configuredDestinationScreenName,
+            destinationScreenName: configuredDestinationScreenName,
+            destinationOwnershipConfirmed: false,
+            wallPhotoReady: false,
+            wallUploadReady: false,
+            wallPostNotExecuted: true,
+            publishReady: false,
+            initialPreflightError: strictError instanceof Error ? strictError.message : String(strictError),
+            methods: [...methods, ...applicationLimits]
+          }
+        };
+      }
+    }
+
+    let destinationId = authenticatedUserId;
+    let destinationName = authenticatedUserName;
+    let destinationScreenName = inspection.userScreenName || `id${authenticatedUserId}`;
+    let destinationStatus: VkMethodState = 'CONFIRMED';
+    let destinationOwnershipConfirmed = true;
+
+    if (kind === 'COMMUNITY') {
+      destinationOwnershipConfirmed = false;
+      try {
+        const reference = vkCommunityReference(credentials);
+        const groupResponse = await vkCall('groups.getById', { ...common, group_id: reference, fields: 'screen_name' });
+        const group = vkGroupFromResponse(groupResponse);
+        if (!group?.id) throw new Error('VK: сообщество не найдено или ответ не содержит ID');
+        destinationId = normalizeVkCommunityId(group.id);
+        destinationName = vkDisplayName(group, `club${destinationId}`);
+        destinationScreenName = typeof group.screen_name === 'string' && group.screen_name.trim()
+          ? group.screen_name.trim()
+          : `club${destinationId}`;
+        methods.push(vkMethodConfirmed(
+          'groups.getById',
+          'VK вернул публичные данные выбранной группы. Это не доказывает владение группой и не подтверждает право wall.post.'
+        ));
+      } catch (error) {
+        const failed = vkMethodFailure('groups.getById', error);
+        methods.push(failed);
+        destinationStatus = failed.state;
+        destinationId = '';
+        destinationName = String(credentials.groupId || 'Сообщество не проверено');
+        destinationScreenName = '';
+      }
+    }
+
+    let wallPhotoReady = false;
+    if (destinationStatus === 'CONFIRMED') {
+      try {
+        const server = await vkUserOnlyCall('photos.getWallUploadServer', {
+          ...common,
+          ...(kind === 'COMMUNITY' ? { group_id: destinationId } : {})
+        });
+        if (!server?.upload_url) throw new Error('VK: метод не вернул upload_url');
+        wallPhotoReady = true;
+        methods.push(vkMethodConfirmed('photos.getWallUploadServer', 'VK выдал upload_url для wall-photo path.'));
+      } catch (error) {
+        methods.push(vkMethodFailure('photos.getWallUploadServer', error));
+      }
+    } else {
+      methods.push(vkMethodNotChecked(
+        'photos.getWallUploadServer',
+        'Метод не запускался, потому что выбранный адресат не был подтверждён.'
+      ));
+    }
+
+    const destination = destinationScreenName ? `https://vk.com/${destinationScreenName}` : destinationName;
+    const publishReady = wallPhotoReady && destinationStatus === 'CONFIRMED';
+    return {
+      ok: true,
+      platform: 'vk',
+      identity: kind === 'PERSONAL'
+        ? `Личная страница · ${authenticatedUserName}`
+        : `Сообщество · ${destinationName}`,
+      destination,
+      details: {
+        apiVersion,
+        keyValidity: 'CONFIRMED',
+        authKind: 'USER',
+        permissions: [],
+        permissionsSource: 'NOT_CONFIRMED_FOR_USER_KEY',
+        authenticatedUserId,
+        authenticatedUserName,
+        destinationKind: kind,
+        destinationStatus,
+        ...(destinationId ? { destinationId } : {}),
+        destinationName,
+        ...(destinationScreenName ? { destinationScreenName } : {}),
+        destinationOwnershipConfirmed,
+        wallPhotoReady,
+        wallUploadReady: wallPhotoReady,
+        wallPostNotExecuted: true,
+        publishReady,
+        initialPreflightError: strictError instanceof Error ? strictError.message : String(strictError),
+        methods: [...methods, ...applicationLimits]
+      }
+    };
   }
 }
 
