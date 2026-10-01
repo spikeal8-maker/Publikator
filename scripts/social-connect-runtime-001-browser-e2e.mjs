@@ -74,7 +74,15 @@ try {
           destinationId: '12345',
           destinationName: 'Test User',
           destinationScreenName: 'id12345',
-          wallPhotoReady: true
+          keyValidity: 'CONFIRMED',
+          permissions: [],
+          permissionsSource: 'NOT_CONFIRMED_FOR_USER_KEY',
+          destinationStatus: 'CONFIRMED',
+          destinationOwnershipConfirmed: true,
+          publishReady: true,
+          wallPhotoReady: true,
+          wallUploadReady: true,
+          wallPostNotExecuted: true
         }
       };
     } else if (body.platform === 'vk' && body.credentials.destinationKind === 'COMMUNITY') {
@@ -92,7 +100,15 @@ try {
           destinationId: '67890',
           destinationName: 'Test Community',
           destinationScreenName: 'club67890',
-          wallPhotoReady: true
+          keyValidity: 'CONFIRMED',
+          permissions: [],
+          permissionsSource: 'NOT_CONFIRMED_FOR_USER_KEY',
+          destinationStatus: 'CONFIRMED',
+          destinationOwnershipConfirmed: false,
+          publishReady: true,
+          wallPhotoReady: true,
+          wallUploadReady: true,
+          wallPostNotExecuted: true
         }
       };
     } else if (body.platform === 'telegram') {
