@@ -16,7 +16,7 @@ import {
   setTargetSelection
 } from '../publisher.js';
 import { checkVkConnection, inspectVkToken, testConnection } from '../platforms/connection-test.js';
-import { resolveVkDestination, vkDestinationKind } from '../platforms/vk.js';
+import { normalizeVkAlbumId, resolveVkDestination, vkDestinationKind, vkImageUploadMode } from '../platforms/vk.js';
 import { normalizeIanaTimezone, resolveExactSchedule, resolveScheduleInput } from '../schedule-time.js';
 import { parseRichTextJson, plainTextToRichText, richTextToPlain, serializeRichText } from '../rich-text.js';
 
@@ -53,15 +53,31 @@ function normalizeStoredCredentials(platform: Platform, value: Record<string, un
   const kind = vkDestinationKind(value);
   const destination = resolveVkDestination(value);
   const normalized: Record<string, unknown> = { ...value, destinationKind: kind };
+  const hasUploadMode = typeof value.imageUploadMode === 'string' && value.imageUploadMode.trim();
+  const uploadMode = hasUploadMode
+    ? vkImageUploadMode(value)
+    : value.authKind === 'USER' ? 'WALL' : undefined;
 
   if (kind === 'PERSONAL') {
+    if (uploadMode === 'ALBUM') throw new Error('VK: ALBUM imageUploadMode доступен только для COMMUNITY destination');
     normalized.userId = destination.id;
     delete normalized.groupId;
+    delete normalized.albumId;
   } else {
     normalized.groupId = destination.id;
     delete normalized.userId;
+    if (value.albumId !== undefined && value.albumId !== null && String(value.albumId).trim()) {
+      normalized.albumId = normalizeVkAlbumId(value.albumId);
+    } else {
+      delete normalized.albumId;
+    }
+    if (uploadMode === 'ALBUM' && !normalized.albumId) {
+      throw new Error('VK: для ALBUM imageUploadMode требуется albumId');
+    }
   }
 
+  if (uploadMode) normalized.imageUploadMode = uploadMode;
+  else delete normalized.imageUploadMode;
   return normalized;
 }
 
@@ -321,13 +337,18 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         const accessToken = typeof supplied.accessToken === 'string' ? supplied.accessToken.trim() : '';
         if (!accessToken) throw new Error('VK: введите ключ доступа');
         const destinationKind = vkDestinationKind(supplied);
+        const pendingAlbumId = destinationKind === 'COMMUNITY'
+          && supplied.albumId !== undefined && supplied.albumId !== null && String(supplied.albumId).trim()
+          ? normalizeVkAlbumId(supplied.albumId)
+          : undefined;
         credentials = {
           accessToken,
           apiVersion: typeof supplied.apiVersion === 'string' && supplied.apiVersion.trim() ? supplied.apiVersion.trim() : '5.199',
           authKind: 'PENDING',
           destinationKind,
           ...(destinationKind === 'COMMUNITY' && typeof supplied.groupId === 'string' && supplied.groupId.trim()
-            ? { groupId: supplied.groupId.trim() } : {})
+            ? { groupId: supplied.groupId.trim() } : {}),
+          ...(pendingAlbumId ? { albumId: pendingAlbumId } : {})
         };
         credentialOnly = true;
       } else if (platform === 'vk' && supplied.authKind === 'COMMUNITY') {
