@@ -260,11 +260,19 @@ export async function checkVkConnection(credentials: Record<string, unknown>): P
   const applicationLimits: VkMethodCheck[] = [
     vkMethodNotChecked('wall.post', 'Проверка подключения не создаёт реальную публикацию.'),
     vkMethodNotImplemented(
-      'photos.getUploadServer / photos.save',
+      'photos.getUploadServer',
       'Альбомный upload-path из рабочего n8n в Publikator пока не реализован и этой проверкой не доказывается.'
     ),
     vkMethodNotImplemented(
-      'stories.getPhotoUploadServer / stories.save',
+      'photos.save',
+      'Сохранение изображения в альбом не реализовано в рамках KEY-02.'
+    ),
+    vkMethodNotImplemented(
+      'stories.getPhotoUploadServer',
+      'Stories не реализованы в рамках KEY-02.'
+    ),
+    vkMethodNotImplemented(
+      'stories.save',
       'Stories не реализованы в рамках KEY-02.'
     )
   ];
