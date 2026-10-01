@@ -84,6 +84,9 @@ export function verifiedSocialCredentialsFromTest(platform, form, checked) {
   if (platform !== 'vk') return credentials;
 
   const details = checked?.details || {};
+  if (details.publishReady === false) {
+    throw new Error('VK: ключ действителен, но выбранный способ публикации ещё не подтверждён. Сохраните ключ выключенным и повторите проверку позже.');
+  }
   const requestedKind = String(credentials.destinationKind || '').toUpperCase();
   const checkedKind = String(details.destinationKind || '').toUpperCase();
   if (!['PERSONAL', 'COMMUNITY'].includes(checkedKind) || checkedKind !== requestedKind) {

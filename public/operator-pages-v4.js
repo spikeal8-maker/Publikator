@@ -40,6 +40,55 @@ const OPERATOR_PLATFORM = {
   instagram: { label: 'Instagram', note: 'Публикация в профессиональный аккаунт Instagram.' }
 };
 
+const VK_METHOD_STATE_LABEL = {
+  CONFIRMED: 'Подтверждено',
+  DENIED: 'Метод отказал',
+  UNAVAILABLE: 'Не удалось проверить',
+  NOT_CHECKED: 'Не проверялось',
+  NOT_IMPLEMENTED: 'Не реализовано в Publikator'
+};
+
+function vkCapabilityCard(checked) {
+  const details = checked?.details || {};
+  const methods = Array.isArray(details.methods) ? details.methods : [];
+  const permissions = Array.isArray(details.permissions) ? details.permissions : [];
+  const owner = String(details.authenticatedUserName || (details.authKind === 'COMMUNITY' ? checked?.identity || '' : '')).trim();
+  const destinationParts = [
+    details.destinationKind ? `Тип: ${details.destinationKind}` : '',
+    details.destinationName ? `Название: ${details.destinationName}` : '',
+    details.destinationId ? `ID: ${details.destinationId}` : '',
+    details.destinationStatus ? `Статус: ${details.destinationStatus}` : ''
+  ].filter(Boolean);
+  const ownershipNote = details.destinationKind === 'COMMUNITY' && details.destinationOwnershipConfirmed === false
+    ? '<div class="small muted">Чтение данных группы не доказывает владение ею и не подтверждает право публикации.</div>'
+    : '';
+  const methodRows = methods.length
+    ? `<ul>${methods.map((item) => `<li><strong>${operatorEsc(item.method)}</strong> — ${operatorEsc(VK_METHOD_STATE_LABEL[item.state] || item.state)}<div class="small muted">${operatorEsc(item.reason || '')}</div></li>`).join('')}</ul>`
+    : '<div class="small muted">Отдельные методы ещё не проверялись.</div>';
+  const keyState = details.keyValidity === 'CONFIRMED' ? 'Действительность ключа подтверждена' : 'Действительность ключа не подтверждена';
+  const publishState = details.publishReady === true
+    ? 'Текущий wall-photo путь Publikator готов к сохранению как активное подключение.'
+    : 'Публикация не включается: ключ можно сохранить выключенным и повторить проверку позже.';
+  const permissionText = permissions.length
+    ? permissions.join(', ')
+    : details.authKind === 'USER'
+      ? 'VK не вернул отдельный подтверждённый список permissions для USER key в этой проверке.'
+      : 'Permissions не подтверждены.';
+  return `<div class="operator-result ${details.publishReady === true ? 'ok' : ''}">
+    <strong>${operatorEsc(keyState)}</strong><br>
+    Тип ключа: <strong>${operatorEsc(details.authKind || 'не определён')}</strong>
+    ${owner ? `<br>Владелец / identity: <strong>${operatorEsc(owner)}</strong>` : ''}
+    <br>Permissions: <strong>${operatorEsc(permissionText)}</strong>
+    <hr>
+    <strong>Адресат</strong><br>${operatorEsc(destinationParts.join(' · ') || checked?.destination || 'не подтверждён')}
+    ${ownershipNote}
+    <hr>
+    <strong>Методы</strong>
+    ${methodRows}
+    <div><strong>${operatorEsc(publishState)}</strong></div>
+  </div>`;
+}
+
 function renderSocialConnectForm(platform) {
   const host = document.querySelector('#operator-social-connect');
   if (!host) return;
@@ -97,7 +146,7 @@ function renderSocialConnectForm(platform) {
     result.innerHTML = '<div class="operator-result">Проверяю токен и назначение через API…</div>';
     save.disabled = true;
     try {
-      const credentials = socialCredentialsFromForm(platform, form);
+      let credentials = socialCredentialsFromForm(platform, form);
       if (platform === 'vk') {
         const inspection = await operatorApi('/api/vk/token/inspect', {
           method: 'POST', body: JSON.stringify({ credentials })
@@ -108,20 +157,37 @@ function renderSocialConnectForm(platform) {
           syncVkFields();
           const groupInput = form.querySelector('input[name="groupId"]');
           if (!groupInput.value && inspection.groupId) groupInput.value = inspection.groupId;
-          if (!inspection.groupId) {
-            verifiedFingerprint = '';
-            save.disabled = false;
-            result.innerHTML = `<div class="operator-result"><strong>Ключ проверен.</strong><br>${operatorEsc(notice)}<br>Можно сохранить ключ сейчас. Для привязки к сообществу укажите его ID или ссылку и повторите проверку.</div>`;
-            return;
-          }
-          verifiedFingerprint = JSON.stringify(socialCredentialsFromForm('vk', form));
+          credentials = socialCredentialsFromForm('vk', form);
+        }
+
+        const checked = await operatorApi('/api/accounts/test', {
+          method: 'POST', body: JSON.stringify({ platform, credentials })
+        });
+        const details = checked?.details || {};
+        result.innerHTML = vkCapabilityCard(checked);
+
+        if (details.authKind === 'COMMUNITY' && details.destinationId) {
+          verifiedFingerprint = JSON.stringify(credentials);
           verifiedMode = 'COMMUNITY_KEY';
           save.textContent = 'Сохранить ключ VK';
           save.disabled = false;
-          result.innerHTML = `<div class="operator-result ok"><strong>Ключ сообщества действителен.</strong><br>${operatorEsc(inspection.groupName || inspection.identity)}<br>${operatorEsc(notice)}</div>`;
           return;
         }
+        if (details.publishReady === true) {
+          verifiedFingerprint = JSON.stringify(credentials);
+          verifiedMode = 'PUBLISH_READY';
+          save.textContent = 'Сохранить подключение';
+          save.disabled = false;
+          return;
+        }
+
+        verifiedFingerprint = '';
+        verifiedMode = 'PARTIAL';
+        save.textContent = 'Сохранить ключ VK';
+        save.disabled = !credentials.accessToken;
+        return;
       }
+
       const checked = await operatorApi('/api/accounts/test', { method: 'POST', body: JSON.stringify({ platform, credentials }) });
       verifiedFingerprint = JSON.stringify(credentials);
       verifiedMode = 'PUBLISH_READY';
@@ -193,7 +259,7 @@ async function renderSocialsPage() {
   try {
     const accounts = await operatorApi('/api/accounts');
     operatorView.innerHTML = `<div class="operator-page">
-      <div class="operator-page-head"><div><h2>Соцсети</h2><p>Подключите площадку, проверьте токен и укажите конкретный канал, группу или чат. Сохранить можно только проверенное подключение.</p></div></div>
+      <div class="operator-page-head"><div><h2>Соцсети</h2><p>Подключите площадку, проверьте токен и укажите конкретный канал, группу или чат. Для VK неполностью проверенный ключ можно сохранить только выключенным.</p></div></div>
       <div id="operator-oauth-banner"></div>
       <div class="operator-platform-grid">${Object.entries(OPERATOR_PLATFORM).map(([key, meta]) => `<div class="operator-platform-card" data-platform="${key}"><strong>${meta.label}</strong><span>${meta.note}</span><button class="secondary operator-add-platform" type="button" data-platform="${key}">Подключить</button></div>`).join('')}</div>
       <div id="operator-social-connect"></div>
@@ -224,10 +290,8 @@ async function renderSocialsPage() {
       out.innerHTML = '<div class="operator-result">Проверяю…</div>';
       try {
         const checked = await operatorApi(`/api/accounts/${encodeURIComponent(row.dataset.accountId)}/test`, { method: 'POST' });
-        out.innerHTML = checked.details?.verificationStatus === 'PENDING'
-          ? `<div class="operator-result ok">Ключ действителен: ${operatorEsc(checked.identity)}. Нажмите «Завершить проверку» для завершения подключения.</div>`
-          : checked.details?.credentialOnly
-          ? `<div class="operator-result ok">Ключ сообщества действителен: ${operatorEsc(checked.identity)} · публикация с фото недоступна.</div>`
+        out.innerHTML = checked?.platform === 'vk' && checked?.details?.keyValidity
+          ? vkCapabilityCard(checked)
           : `<div class="operator-result ok">${operatorEsc(checked.identity)} → <strong>${operatorEsc(checked.destination)}</strong></div>`;
       } catch (error) {
         out.innerHTML = `<div class="operator-result error">${operatorEsc(error instanceof Error ? error.message : String(error))}</div>`;

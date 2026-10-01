@@ -15,7 +15,7 @@ import {
   retryFailedTarget,
   setTargetSelection
 } from '../publisher.js';
-import { inspectVkToken, testConnection } from '../platforms/connection-test.js';
+import { checkVkConnection, inspectVkToken, testConnection } from '../platforms/connection-test.js';
 import { resolveVkDestination, vkDestinationKind } from '../platforms/vk.js';
 import { normalizeIanaTimezone, resolveExactSchedule, resolveScheduleInput } from '../schedule-time.js';
 import { parseRichTextJson, plainTextToRichText, richTextToPlain, serializeRichText } from '../rich-text.js';
@@ -301,6 +301,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (!PLATFORMS.has(platform)) return reply.code(400).send({ error: 'Неизвестная площадка' });
     if (!body.credentials || typeof body.credentials !== 'object' || Array.isArray(body.credentials)) return reply.code(400).send({ error: 'Нужны credentials' });
     try {
+      if (platform === 'vk') return await checkVkConnection(body.credentials as Record<string, unknown>);
       return await testConnection(platform, body.credentials as Record<string, unknown>);
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
@@ -407,28 +408,17 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (!row) return reply.code(404).send({ error: 'Аккаунт не найден' });
     try {
       const credentials = decryptJson<Record<string, unknown>>(row.credentials_encrypted);
-      if (row.platform === 'vk' && credentials.authKind === 'PENDING') {
-        const inspected = await inspectVkToken(credentials);
-        if (inspected.authKind === 'COMMUNITY') {
-          return {
-            ok: true, platform: 'vk', identity: inspected.identity,
-            destination: inspected.groupName || String(credentials.groupId || 'Сообщество не определено'),
-            details: { authKind: 'COMMUNITY', credentialOnly: true, verificationStatus: 'PENDING',
-              permissions: inspected.permissions || [] }
-          };
-        }
-        const checked = await testConnection('vk', credentials);
-        return { ...checked, details: { ...checked.details, credentialOnly: true, verificationStatus: 'PENDING' } };
-      }
-      if (row.platform === 'vk' && credentials.authKind === 'COMMUNITY') {
-        const inspected = await inspectVkToken(credentials);
-        if (inspected.authKind !== 'COMMUNITY') throw new Error('VK: сохранённый ключ больше не распознаётся как ключ сообщества');
+      if (row.platform === 'vk') {
+        const checked = await checkVkConnection(credentials);
+        const pending = credentials.authKind === 'PENDING';
+        const community = checked.details?.authKind === 'COMMUNITY';
         return {
-          ok: true,
-          platform: 'vk',
-          identity: inspected.identity,
-          destination: inspected.groupName || String(credentials.destinationName || `club${credentials.groupId}`),
-          details: { authKind: 'COMMUNITY', credentialOnly: true, permissions: inspected.permissions || [] }
+          ...checked,
+          details: {
+            ...checked.details,
+            ...(pending ? { credentialOnly: true, verificationStatus: 'PENDING' } : {}),
+            ...(community ? { credentialOnly: true } : {})
+          }
         };
       }
       return await testConnection(row.platform, credentials);

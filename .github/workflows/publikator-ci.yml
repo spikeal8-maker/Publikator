@@ -51,6 +51,12 @@ jobs:
           set -euo pipefail
           find public -maxdepth 1 -type f -name '*.js' -print0 | sort -z | xargs -0 -n1 node --check
 
+      - name: KEY-02 VK validity and capability separation
+        run: node scripts/key-02-vk-capability-e2e.mjs
+
+      - name: KEY-02 routed socials browser flow
+        run: node scripts/key-02-vk-browser-e2e.mjs
+
       - name: Production dependency security
         run: npm audit --omit=dev --audit-level=high
 

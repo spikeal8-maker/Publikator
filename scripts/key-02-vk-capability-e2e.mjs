@@ -152,7 +152,7 @@ try {
     }
   });
   assert.equal(partial.statusCode, 200, partial.body);
-  assert.equal(partial.json().identity, 'User Fixture');
+  assert.equal(partial.json().details.authenticatedUserName, 'User Fixture');
   assert.equal(partial.json().details.keyValidity, 'CONFIRMED');
   assert.equal(partial.json().details.authKind, 'USER');
   assert.equal(partial.json().details.destinationKind, 'COMMUNITY');
@@ -219,7 +219,7 @@ try {
     headers
   });
   assert.equal(pendingRetest.statusCode, 200, pendingRetest.body);
-  assert.equal(pendingRetest.json().identity, 'User Fixture');
+  assert.equal(pendingRetest.json().details.authenticatedUserName, 'User Fixture');
   assert.equal(pendingRetest.json().details.keyValidity, 'CONFIRMED');
   assert.equal(pendingRetest.json().details.publishReady, false);
   assert.equal(pendingRetest.body.includes('user-wall-denied'), false);
@@ -238,7 +238,7 @@ try {
     }
   });
   assert.equal(timeout.statusCode, 200, timeout.body);
-  assert.equal(timeout.json().identity, 'User Fixture');
+  assert.equal(timeout.json().details.authenticatedUserName, 'User Fixture');
   assert.equal(timeout.json().details.keyValidity, 'CONFIRMED');
   assert.equal(timeout.json().details.publishReady, false);
   assert.equal(
