@@ -1,6 +1,6 @@
 import type { Platform } from '../db.js';
 import { PlatformError, requireString, responseJson } from './types.js';
-import { normalizeVkCommunityId, normalizeVkUserId, vkCall, vkDestinationKind } from './vk.js';
+import { normalizeVkAlbumId, normalizeVkCommunityId, normalizeVkUserId, vkCall, vkDestinationKind } from './vk.js';
 
 export type VkMethodState = 'CONFIRMED' | 'DENIED' | 'UNAVAILABLE' | 'NOT_CHECKED' | 'NOT_IMPLEMENTED';
 
@@ -260,20 +260,12 @@ export async function checkVkConnection(credentials: Record<string, unknown>): P
   const applicationLimits: VkMethodCheck[] = [
     vkMethodNotChecked('wall.post', 'Проверка подключения не создаёт реальную публикацию.'),
     vkMethodNotImplemented(
-      'photos.getUploadServer',
-      'Альбомный upload-path из рабочего n8n в Publikator пока не реализован и этой проверкой не доказывается.'
-    ),
-    vkMethodNotImplemented(
-      'photos.save',
-      'Сохранение изображения в альбом не реализовано в рамках KEY-02.'
-    ),
-    vkMethodNotImplemented(
       'stories.getPhotoUploadServer',
-      'Stories не реализованы в рамках KEY-02.'
+      'Stories не реализованы в Publikator.'
     ),
     vkMethodNotImplemented(
       'stories.save',
-      'Stories не реализованы в рамках KEY-02.'
+      'Stories не реализованы в Publikator.'
     )
   ];
 
@@ -281,6 +273,10 @@ export async function checkVkConnection(credentials: Record<string, unknown>): P
     const strict = await vkTest(credentials);
     const details = strict.details || {};
     const kind = String(details.destinationKind || vkDestinationKind(credentials));
+    const albumId = kind === 'COMMUNITY'
+      && credentials.albumId !== undefined && credentials.albumId !== null && String(credentials.albumId).trim()
+      ? normalizeVkAlbumId(credentials.albumId)
+      : undefined;
     const methods: VkMethodCheck[] = [
       vkMethodConfirmed('users.get', 'VK вернул владельца пользовательского ключа.'),
       ...(kind === 'COMMUNITY'
@@ -290,6 +286,13 @@ export async function checkVkConnection(credentials: Record<string, unknown>): P
         )]
         : []),
       vkMethodConfirmed('photos.getWallUploadServer', 'VK выдал upload_url для wall-photo path.'),
+      vkMethodNotChecked(
+        'photos.getUploadServer',
+        kind === 'COMMUNITY'
+          ? 'Wall-photo path уже подтверждён; album fallback не запускался.'
+          : 'Album image path применяется только для COMMUNITY destination.'
+      ),
+      vkMethodNotChecked('photos.save', 'Диагностика не загружает и не сохраняет реальные изображения.'),
       ...applicationLimits
     ];
     return {
@@ -301,6 +304,11 @@ export async function checkVkConnection(credentials: Record<string, unknown>): P
         permissionsSource: 'NOT_CONFIRMED_FOR_USER_KEY',
         destinationStatus: 'CONFIRMED',
         destinationOwnershipConfirmed: kind === 'PERSONAL',
+        wallPhotoReady: true,
+        wallUploadReady: true,
+        albumUploadReady: false,
+        imageUploadMode: 'WALL',
+        ...(albumId ? { albumId } : {}),
         publishReady: true,
         methods
       }
@@ -331,6 +339,7 @@ export async function checkVkConnection(credentials: Record<string, unknown>): P
           destinationOwnershipConfirmed: false,
           wallPhotoReady: false,
           wallUploadReady: false,
+          albumUploadReady: false,
           wallPostNotExecuted: true,
           publishReady: false,
           methods: [
@@ -339,6 +348,11 @@ export async function checkVkConnection(credentials: Record<string, unknown>): P
               'photos.getWallUploadServer',
               'Ключ сообщества сохранён как ограниченный credential; текущий wall-photo preflight Publikator требует USER key.'
             ),
+            vkMethodNotChecked(
+              'photos.getUploadServer',
+              'Album image path также требует проверенный USER credential.'
+            ),
+            vkMethodNotChecked('photos.save', 'Диагностика не загружает и не сохраняет реальные изображения.'),
             ...applicationLimits
           ]
         }
@@ -362,6 +376,11 @@ export async function checkVkConnection(credentials: Record<string, unknown>): P
           'photos.getWallUploadServer',
           `Метод не запускался: настроенный PERSONAL userId id${configuredUserId} не совпадает с владельцем USER token id${authenticatedUserId}.`
         ));
+        methods.push(vkMethodNotChecked(
+          'photos.getUploadServer',
+          'Album image path применяется только для COMMUNITY destination.'
+        ));
+        methods.push(vkMethodNotChecked('photos.save', 'Диагностика не загружает и не сохраняет реальные изображения.'));
         return {
           ok: true,
           platform: 'vk',
@@ -383,6 +402,7 @@ export async function checkVkConnection(credentials: Record<string, unknown>): P
             destinationOwnershipConfirmed: false,
             wallPhotoReady: false,
             wallUploadReady: false,
+            albumUploadReady: false,
             wallPostNotExecuted: true,
             publishReady: false,
             initialPreflightError: strictError instanceof Error ? strictError.message : String(strictError),
@@ -391,6 +411,11 @@ export async function checkVkConnection(credentials: Record<string, unknown>): P
         };
       }
     }
+
+    const albumId = kind === 'COMMUNITY'
+      && credentials.albumId !== undefined && credentials.albumId !== null && String(credentials.albumId).trim()
+      ? normalizeVkAlbumId(credentials.albumId)
+      : undefined;
 
     let destinationId = authenticatedUserId;
     let destinationName = authenticatedUserName;
@@ -444,8 +469,53 @@ export async function checkVkConnection(credentials: Record<string, unknown>): P
       ));
     }
 
+    let albumUploadReady = false;
+    let imageUploadMode: 'WALL' | 'ALBUM' | undefined = wallPhotoReady ? 'WALL' : undefined;
+    if (kind !== 'COMMUNITY') {
+      methods.push(vkMethodNotChecked(
+        'photos.getUploadServer',
+        'Album image path применяется только для COMMUNITY destination.'
+      ));
+    } else if (wallPhotoReady) {
+      methods.push(vkMethodNotChecked(
+        'photos.getUploadServer',
+        'Wall-photo path уже подтверждён; album fallback не запускался.'
+      ));
+    } else if (destinationStatus !== 'CONFIRMED') {
+      methods.push(vkMethodNotChecked(
+        'photos.getUploadServer',
+        'Album probe не запускался, потому что destination не подтверждён.'
+      ));
+    } else if (!albumId) {
+      methods.push(vkMethodNotChecked(
+        'photos.getUploadServer',
+        'Для проверки album image path укажите albumId.'
+      ));
+    } else {
+      try {
+        const albumServer = await vkUserOnlyCall('photos.getUploadServer', {
+          ...common,
+          album_id: albumId,
+          group_id: destinationId
+        });
+        if (!albumServer?.upload_url) throw new Error('VK: метод не вернул upload_url');
+        albumUploadReady = true;
+        imageUploadMode = 'ALBUM';
+        methods.push(vkMethodConfirmed(
+          'photos.getUploadServer',
+          'VK выдал upload_url для album image path. Реальная загрузка во время диагностики не выполнялась.'
+        ));
+      } catch (error) {
+        methods.push(vkMethodFailure('photos.getUploadServer', error));
+      }
+    }
+    methods.push(vkMethodNotChecked(
+      'photos.save',
+      'Диагностика не загружает файл и не вызывает photos.save.'
+    ));
+
     const destination = destinationScreenName ? `https://vk.com/${destinationScreenName}` : destinationName;
-    const publishReady = wallPhotoReady && destinationStatus === 'CONFIRMED';
+    const publishReady = destinationStatus === 'CONFIRMED' && (wallPhotoReady || albumUploadReady);
     return {
       ok: true,
       platform: 'vk',
@@ -469,6 +539,9 @@ export async function checkVkConnection(credentials: Record<string, unknown>): P
         destinationOwnershipConfirmed,
         wallPhotoReady,
         wallUploadReady: wallPhotoReady,
+        albumUploadReady,
+        ...(imageUploadMode ? { imageUploadMode } : {}),
+        ...(albumId ? { albumId } : {}),
         wallPostNotExecuted: true,
         publishReady,
         initialPreflightError: strictError instanceof Error ? strictError.message : String(strictError),
