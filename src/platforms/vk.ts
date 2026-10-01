@@ -52,6 +52,23 @@ export function normalizeVkUserId(value: unknown): string {
   return normalizePositiveVkId(value, 'user');
 }
 
+export function normalizeVkAlbumId(value: unknown): string {
+  const raw = typeof value === 'number' ? String(value) : typeof value === 'string' ? value.trim() : '';
+  if (!/^\d+$/.test(raw) || BigInt(raw) <= 0n) {
+    throw new Error('VK: albumId должен быть положительным числом');
+  }
+  return BigInt(raw).toString();
+}
+
+export type VkImageUploadMode = 'WALL' | 'ALBUM';
+
+export function vkImageUploadMode(credentials: Record<string, unknown>): VkImageUploadMode {
+  const raw = typeof credentials.imageUploadMode === 'string' ? credentials.imageUploadMode.trim().toUpperCase() : '';
+  if (!raw) return 'WALL';
+  if (raw !== 'WALL' && raw !== 'ALBUM') throw new Error(`VK: неизвестный imageUploadMode ${raw}`);
+  return raw;
+}
+
 export function vkDestinationKind(credentials: Record<string, unknown>): VkDestinationKind {
   const explicit = typeof credentials.destinationKind === 'string' ? credentials.destinationKind.trim().toUpperCase() : '';
   if (explicit) {
@@ -154,6 +171,24 @@ async function uploadWallImage(uploadUrl: string, bytes: Buffer): Promise<any> {
   }
 }
 
+async function uploadAlbumImage(uploadUrl: string, bytes: Buffer, originalName: string): Promise<any> {
+  try {
+    const blobBytes = new Uint8Array(bytes.byteLength);
+    blobBytes.set(bytes);
+    const form = new FormData();
+    const filename = originalName.trim() || 'image.jpg';
+    form.set('file1', new Blob([blobBytes], { type: 'image/jpeg' }), filename);
+    const uploadResponse = await vkFetch(uploadUrl, {
+      method: 'POST',
+      body: form,
+      signal: AbortSignal.timeout(VK_REQUEST_TIMEOUT_MS)
+    });
+    return await responseJson(uploadResponse, 'VK upload album image');
+  } catch (error) {
+    throw preparationError(error, 'VK upload album image — подготовительная фаза');
+  }
+}
+
 async function uploadVideoFile(uploadUrl: string, bytes: Buffer, originalName: string): Promise<any> {
   try {
     const blobBytes = new Uint8Array(bytes.byteLength);
@@ -253,6 +288,60 @@ async function prepareImageAttachments(
   return attachments;
 }
 
+async function prepareAlbumImageAttachments(
+  input: PublishInput,
+  common: Record<string, string>,
+  destination: VkDestination
+): Promise<string[]> {
+  if (destination.kind !== 'COMMUNITY') {
+    throw new Error('VK: ALBUM imageUploadMode поддерживается только для COMMUNITY destination');
+  }
+  const albumId = normalizeVkAlbumId(input.credentials.albumId);
+  const attachments: string[] = [];
+  for (const media of input.media) {
+    const server = await vkCall('photos.getUploadServer', {
+      ...common,
+      album_id: albumId,
+      group_id: destination.id
+    });
+    if (!server?.upload_url) {
+      throw new PlatformError('VK: photos.getUploadServer не вернул upload_url', {
+        retryable: false,
+        outcomeUnknown: false
+      });
+    }
+
+    const bytes = await readPublicationMedia(mediaAbsolutePath(media));
+    const uploaded = await uploadAlbumImage(String(server.upload_url), bytes, media.original_name);
+    if (uploaded?.server === undefined
+      || typeof uploaded?.photos_list !== 'string' || !uploaded.photos_list.trim()
+      || typeof uploaded?.hash !== 'string' || !uploaded.hash.trim()) {
+      throw new PlatformError(`VK upload album image: неожиданный ответ ${JSON.stringify(uploaded)}`, {
+        retryable: false,
+        outcomeUnknown: false
+      });
+    }
+
+    const saved = await vkCall('photos.save', {
+      ...common,
+      album_id: albumId,
+      group_id: destination.id,
+      server: String(uploaded.server),
+      photos_list: uploaded.photos_list,
+      hash: uploaded.hash
+    });
+    const photo = Array.isArray(saved) ? saved[0] : null;
+    if (!photo?.id || photo.owner_id === undefined) {
+      throw new PlatformError(`VK: photos.save вернул неожиданный ответ: ${JSON.stringify(saved)}`, {
+        retryable: false,
+        outcomeUnknown: false
+      });
+    }
+    attachments.push(`photo${photo.owner_id}_${photo.id}`);
+  }
+  return attachments;
+}
+
 async function prepareVideoAttachment(
   input: PublishInput,
   common: Record<string, string>,
@@ -308,9 +397,22 @@ export const vkPublisher: SocialPublisher = {
     if (input.credentials.authKind === 'PENDING') {
       throw new Error('VK: сохранённый ключ ещё не проверен для публикации');
     }
-    resolveVkDestination(input.credentials);
-    if (isVideoPublication(input)) assertFeedVideo(input);
-    else assertImagePublication(input);
+    const destination = resolveVkDestination(input.credentials);
+    if (isVideoPublication(input)) {
+      assertFeedVideo(input);
+    } else {
+      assertImagePublication(input);
+      const imageUploadMode = vkImageUploadMode(input.credentials);
+      if (imageUploadMode === 'ALBUM') {
+        if (input.credentials.authKind !== 'USER') {
+          throw new Error('VK: ALBUM imageUploadMode требует проверенный USER credential');
+        }
+        if (destination.kind !== 'COMMUNITY') {
+          throw new Error('VK: ALBUM imageUploadMode поддерживается только для COMMUNITY destination');
+        }
+        normalizeVkAlbumId(input.credentials.albumId);
+      }
+    }
   },
   async publish(input: PublishInput): Promise<PublishResult> {
     this.validate(input);
@@ -322,7 +424,9 @@ export const vkPublisher: SocialPublisher = {
     const common = { access_token: accessToken, v: apiVersion };
     const attachments = isVideoPublication(input)
       ? [await prepareVideoAttachment(input, common, destination)]
-      : await prepareImageAttachments(input, common, destination);
+      : vkImageUploadMode(input.credentials) === 'ALBUM'
+        ? await prepareAlbumImageAttachments(input, common, destination)
+        : await prepareImageAttachments(input, common, destination);
 
     const context = input.publicationKind === 'STORY' ? 'story_caption' : input.media.length ? 'media_caption' : 'text';
     const compilation = input.textCompilation ?? compileLiteralPlainText('vk', input.text, context);
