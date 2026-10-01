@@ -57,7 +57,8 @@ function vkCapabilityCard(checked) {
     details.destinationKind ? `Тип: ${details.destinationKind}` : '',
     details.destinationName ? `Название: ${details.destinationName}` : '',
     details.destinationId ? `ID: ${details.destinationId}` : '',
-    details.destinationStatus ? `Статус: ${details.destinationStatus}` : ''
+    details.destinationStatus ? `Статус: ${details.destinationStatus}` : '',
+    details.imageUploadMode ? `Загрузка изображений: ${details.imageUploadMode}` : ''
   ].filter(Boolean);
   const ownershipNote = details.destinationKind === 'COMMUNITY' && details.destinationOwnershipConfirmed === false
     ? '<div class="small muted">Чтение данных группы не доказывает владение ею и не подтверждает право публикации.</div>'
@@ -67,7 +68,9 @@ function vkCapabilityCard(checked) {
     : '<div class="small muted">Отдельные методы ещё не проверялись.</div>';
   const keyState = details.keyValidity === 'CONFIRMED' ? 'Действительность ключа подтверждена' : 'Действительность ключа не подтверждена';
   const publishState = details.publishReady === true
-    ? 'Текущий wall-photo путь Publikator готов к сохранению как активное подключение.'
+    ? details.imageUploadMode === 'ALBUM'
+      ? 'Публикация доступна через album image path VK.'
+      : 'Текущий wall-photo путь Publikator готов к сохранению как активное подключение.'
     : 'Публикация не включается: ключ можно сохранить выключенным и повторить проверку позже.';
   const permissionText = permissions.length
     ? permissions.join(', ')
