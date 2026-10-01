@@ -4,7 +4,7 @@ Self-hosted система автопубликации контента в **Te
 
 Publikator намеренно построен как **модульный монолит**: один репозиторий, один production Docker-контейнер, один Web UI, одна SQLite/WAL база, локальное media storage и встроенный scheduler. n8n, Redis, RabbitMQ, Kafka, отдельный worker и отдельная runtime-БД не требуются.
 
-Текущая версия: **1.0.0-rc.4**. Стабильный `v1.0.0` выпускается только после реального live acceptance всех четырёх площадок на одном release build.
+Версия пакета: **1.0.0-rc.4**. Release V1 ведётся в `release/1.0`, дальнейшая разработка — в `main`. Номер пакета не определяет версию SQLite-схемы. Стабильный `v1.0.0` выпускается только после реального live acceptance всех четырёх площадок на одном release build.
 
 ## Основной контур
 
@@ -26,6 +26,8 @@ Web UI / REST API
 Каждая площадка имеет отдельный target state. Ошибка одной соцсети не заставляет публиковать остальные повторно.
 
 ## Что реализовано
+
+Ниже перечислен базовый image-publishing контур. Реализованные расширения `main`, их исходники и незакрытые требования сведены в [ROADMAP](docs/ROADMAP.md). Наличие адаптера или regression script само по себе не подтверждает production/live acceptance.
 
 - проекты и независимые очереди контента;
 - редактор поста с отдельным `override_text` для каждого аккаунта/площадки;
@@ -56,13 +58,15 @@ Web UI / REST API
 - AES-256-GCM для credentials;
 - same-origin guard для browser mutations и security headers;
 - явная конфигурация доверенного reverse proxy;
-- release `v1.0.0-rc.4`: SQLite schema v3; `main` vNext после M0-002: schema v4;
+- раздельные release/main schemas; актуальные milestones `main` определены в [`src/schema.ts`](src/schema.ts);
 - один GitHub Actions pipeline: **`Publikator CI / Acceptance`**.
 
 ## Для coding agents
 
 Перед любым изменением кода агент начинает с [AGENTS.md](AGENTS.md). Этот файл задаёт экономный порядок чтения контекста, правило **один checkpoint = одна ветка = один PR**, порядок тестов и обязательный короткий handoff для следующего агента. Нормативное vNext-ТЗ: [docs/VNEXT_TECHNICAL_SPEC.md](docs/VNEXT_TECHNICAL_SPEC.md).
 ## Установка из GitHub
+
+Команды ниже устанавливают именно `v1.0.0-rc.4`, а не текущий `main`. Новые vNext-функции из `main` в этот release tag не входят. Не подключайте более старую release-сборку к данным с более новой схемой.
 
 Для обычного пользователя рекомендуемый путь — использовать системный launcher. **Docker сам проект не устанавливает:** Docker Desktop/Engine и Git являются предварительными требованиями. Launcher проверяет их, а затем полностью создаёт runtime Publikator.
 
@@ -250,7 +254,7 @@ data/
   backups/
 ```
 
-SQLite работает в WAL mode. Release `v1.0.0-rc.4` использует schema **3**; ветка `main` vNext после M0-002 использует schema **4**.
+SQLite работает в WAL mode. Release `v1.0.0-rc.4` использует schema **3**. Текущая схема `main` определяется `DATABASE_SCHEMA_VERSION` в [`src/schema.ts`](src/schema.ts); список реализованных milestones приведён в [ROADMAP](docs/ROADMAP.md). Фактические `schemaVersion` и `buildSha` запущенной сборки возвращает `/api/health` — номер пакета их не заменяет.
 
 ## Backup / restore
 
@@ -271,7 +275,7 @@ Legacy `/api/backups` не создаёт SQLite-only копии и возвра
 
 ## Контент-план
 
-CSV/XLSX содержит:
+Базовый CSV/XLSX-контракт V1, schema 1, содержит:
 
 ```text
 project
@@ -284,9 +288,9 @@ platform_overrides
 media_references
 ```
 
-Импорт всегда начинается с dry-run. Apply разрешён только для того же файла по SHA-256 и создаёт исключительно `DRAFT`.
+Импорт V1 начинается с dry-run. Apply разрешён только для того же файла по SHA-256 и создаёт исключительно `DRAFT`.
 
-Подробно: [`docs/CONTENT_PLAN.md`](docs/CONTENT_PLAN.md).
+Подробно о V1: [`docs/CONTENT_PLAN.md`](docs/CONTENT_PLAN.md). В `main` также есть отдельный namespace `/api/content-plan/v3/` с source identity, повторным импортом и обработкой конфликтов; текущий объём и ограничения v3 указаны в [ROADMAP](docs/ROADMAP.md). Версия контент-плана не является версией SQLite-схемы.
 
 ## CI
 
@@ -301,14 +305,16 @@ media_references
 ```text
 npm ci / typecheck / build / frontend syntax
 npm audit
-legacy + schema-v3 migrations
+legacy + schema migrations from SCHEMA_MILESTONES
 HTTP CRUD / recovery / diagnostics
 browser security / trusted proxy
 scheduler reliability
 atomic publication concurrency
 Telegram / VK / MAX / Instagram adapters
 CSV/XLSX content-plan
-backup API / release gate
+editorial / rich text / templates / calendar / Integration API
+Google Sheets / cloud-media / source automation
+schema-specific backup regressions / backup API / release gate
 pinned Docker base + baked revision + non-root runtime
 cross-platform Docker Compose fresh install / persistence
 production Docker backup → mutation → restore → restart
