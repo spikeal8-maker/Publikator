@@ -119,7 +119,9 @@ Post / Content
 ContentRevision
 MediaAsset
 ContentMedia
-SocialAccount
+SocialAccount / SocialConnection
+CredentialSet
+CapabilityProfile
 PostTarget
 TargetRendition
 PublicationUnit
@@ -140,14 +142,20 @@ editable working content
         ▼
 immutable ContentRevision
         │
+        ├─ target selection
+        ├─ effective destination binding
+        └─ credential/capability profile binding
+        │
         ▼
 preflight / READY
         │
         ▼
-publication uses only immutable revision
+publication uses only immutable approved intent
 ```
 
 Publisher не должен после claim читать mutable working content.
+
+Аналогично publisher не должен молча получать новое effective destination/credential semantics для уже READY revision. Credential/destination change должен либо инвалидировать READY, либо публикация использует immutable binding/fingerprint одобренного target profile.
 
 ---
 
@@ -273,16 +281,27 @@ Drag QUEUE post в точное время требует явного `QUEUE ->
 
 ---
 
-# 9. Platform capability
+# 9. Platform capability + credential capability
 
-Каждый adapter должен объявлять capability contract, используемый одновременно:
+Каждый adapter должен объявлять platform capability contract, используемый одновременно:
 
 - backend preflight;
 - UI controls;
 - platform preview;
 - publish validation.
 
-Минимум capability:
+Отдельно social connection имеет Credential CapabilityProfile по `SOCIAL_CREDENTIAL_CAPABILITY_CONTRACT.md`.
+
+Это ортогональные contracts:
+
+```text
+PlatformCapability = что реализует adapter
+CapabilityProfile  = что может конкретный credential set на destination
+```
+
+Final publication readiness = их пересечение.
+
+Минимум platform capability:
 
 ```text
 supportsFeed
@@ -303,6 +322,10 @@ platformOptionsSchema
 ```
 
 Frontend не хранит независимую копию platform rules.
+
+Frontend также не является authority для credential verification: пользовательский access level, provider type, identity, permissions, destination evidence и method states приходят от backend. Direct client fields не могут активировать connection без server-side verification.
+
+Connection MAY содержать несколько encrypted credentials, если это действительно требуется provider/scenario. Для VK архитектура MUST различать credential types и их method eligibility. Текущая VK API schema для основных image/wall publication methods требует USER credential; GROUP/COMMUNITY credential хранится и диагностируется как самостоятельный ограниченный credential. Одновременное хранение нескольких VK credentials допустимо, но не является обязательным условием обычной публикации.
 
 ---
 
@@ -387,6 +410,7 @@ Cloud media после import копируется локально.
 - MIME sniffing;
 - upload/download size limits;
 - connector credential encryption;
+- social credential-set encryption, server-side verification and secret redaction;
 - hashed Integration API keys;
 - rich-text AST allowlist;
 - XSS-safe preview;
@@ -438,7 +462,7 @@ Downgrade binary на более новую DB блокируется.
 Рекомендуемое развитие текущих границ:
 
 ```text
-src/platforms/*       external API details/capabilities
+src/platforms/*       external API details, credential probes and adapter capabilities
 src/publisher.ts      publication orchestration/recovery
 src/scheduler.ts      due-work selection only
 src/http/*            HTTP validation/auth
@@ -466,6 +490,10 @@ src/backups*          canonical backup/restore
 - [`CONTENT_PIPELINE_V2.md`](CONTENT_PIPELINE_V2.md)
 - [`CONTENT_EXPERIENCE_V3.md`](CONTENT_EXPERIENCE_V3.md)
 - [`EDITORIAL_WORKFLOW_V4.md`](EDITORIAL_WORKFLOW_V4.md)
+
+Social credential/capability contract:
+
+- [`SOCIAL_CREDENTIAL_CAPABILITY_CONTRACT.md`](SOCIAL_CREDENTIAL_CAPABILITY_CONTRACT.md)
 
 Current V1 content-plan contract:
 

@@ -7,9 +7,10 @@
 Перед любым vNext feature PR разработчик/agent обязан прочитать:
 
 1. [`VNEXT_TECHNICAL_SPEC.md`](VNEXT_TECHNICAL_SPEC.md)
-2. [`ARCHITECTURE.md`](ARCHITECTURE.md)
-3. для user-facing UI, routes, кнопок, подсказок, источников и автоматизации — [`CANONICAL_OPERATOR_UI_FUNCTIONAL_SPEC.md`](CANONICAL_OPERATOR_UI_FUNCTIONAL_SPEC.md)
-4. соответствующий продуктовый документ Pipeline / Experience / Editorial.
+2. для credentials/social connections/platform authorization — [`SOCIAL_CREDENTIAL_CAPABILITY_CONTRACT.md`](SOCIAL_CREDENTIAL_CAPABILITY_CONTRACT.md)
+3. [`ARCHITECTURE.md`](ARCHITECTURE.md)
+4. для user-facing UI, routes, кнопок, подсказок, источников и автоматизации — [`CANONICAL_OPERATOR_UI_FUNCTIONAL_SPEC.md`](CANONICAL_OPERATOR_UI_FUNCTIONAL_SPEC.md)
+5. соответствующий продуктовый документ Pipeline / Experience / Editorial.
 
 При противоречии главным является `VNEXT_TECHNICAL_SPEC.md`. Канонический UI-документ задаёт продуктовый/operator contract, но не может ослаблять domain, publication-safety, concurrency, migration или security invariants более высокого уровня.
 
@@ -64,7 +65,12 @@ Checkpoint/feature branches считаются временными. После 
 - возвращать несколько постоянных CI workflows вместо одного Acceptance;
 - `TRUST_PROXY=*` / unconditional forwarded-header trust;
 - massive refactor «заодно» с feature milestone;
-- менять domain invariant без обновления нормативного ТЗ/ADR.
+- менять domain invariant без обновления нормативного ТЗ/ADR;
+- считать social credential просто "валидным/невалидным", скрывая пользовательский access level, provider type, permissions, method capabilities, destination rights и per-format publication readiness;
+- доверять client-supplied `authKind`, `publishReady`, destination/permission fields как доказательству server verification;
+- активировать/заменять social credential без server-side verification;
+- молча менять effective destination/credential semantics уже READY-поста;
+- предполагать, что одна secret строка обязана авторизовать все methods платформы, если provider имеет разные credential types/roles.
 
 ---
 
@@ -92,7 +98,33 @@ Multi-operation публикация обязана использовать `Pu
 
 ---
 
-# 3.3 Release and migration policy
+# 3.3 Social credential capability foundation
+
+Для любых social credentials действует отдельный нормативный контракт:
+
+SOCIAL_CREDENTIAL_CAPABILITY_CONTRACT.md
+
+Обязательные engineering invariants:
+
+- validity != declared permissions != method capability != destination rights != adapter capability != publication readiness;
+- backend является authority для verification/activation;
+- unverified credential хранится encrypted и не получает publish-ready status до проверки;
+- valid-but-limited credential НЕ выключается целиком: он может использоваться только для тех publication formats, которые CapabilityProfile помечает READY;
+- credential с нулём publish-ready formats не становится автоматической publish target;
+- одна platform connection MAY хранить несколько credentials, если это реально нужно конкретной платформе/сценарию;
+- VK MUST принимать и различать USER/GROUP/SERVICE/OPEN-like credential types по provider evidence;
+- два VK credentials не считаются обязательными по умолчанию;
+- current VK image/wall publication methods в актуальной schema требуют USER credential; GROUP/COMMUNITY credential диагностируется как отдельный ограниченный credential, а не как "плохой ключ";
+- normal credential check не делает public post;
+- provider outage/timeout не превращается в INVALID;
+- UI рендерит server-owned capability profile;
+- изменение credential/destination инвалидирует verification;
+- READY publication связывается с approved destination + credential/capability profile или инвалидируется при их изменении;
+- secret не возвращается в browser/API/log/event после save.
+
+Alternate transport нельзя добавлять только потому, что он существует в стороннем workflow. Сначала capability evidence должно доказать, что текущий transport не удовлетворяет требуемому credential/destination profile.
+
+# 3.4 Release and migration policy
 
 `docs/RELEASE_MIGRATION_POLICY.md` is normative for `release/1.0` fixes and every vNext schema change.
 A new schema version MUST be a single coherent milestone, update `SCHEMA_MILESTONES`, and add both a migration regression and canonical backup/restore regression to the existing Acceptance workflow.
@@ -386,13 +418,19 @@ Google/Yandex OAuth tokens и подобные reusable secrets:
 
 ---
 
-# 17. Platform capability ownership
+# 17. Platform capability and credential capability ownership
 
 Platform rules принадлежат adapter layer.
 
 UI получает capability/schema от backend.
 
 Нельзя хардкодить independent duplicate limits в frontend.
+
+Platform capability registry отвечает на вопрос "что умеет реализованный adapter".
+
+Credential CapabilityProfile отвечает на другой вопрос: "что может этот конкретный credential set на этом конкретном destination".
+
+READY разрешён только на пересечении этих contracts. Green adapter capability не может перекрыть DENIED credential capability, а сильный credential не включает format, которого нет в adapter.
 
 Новую platform capability включать только после:
 
@@ -550,7 +588,11 @@ Feature считается DONE только если:
 - audit/diagnostics дают расследовать ошибку;
 - backup/restore сохраняет state;
 - focused regression в Acceptance;
-- docs/spec синхронизированы.
+- docs/spec синхронизированы;
+- если feature затрагивает social credentials, server-side activation нельзя обойти прямым API request;
+- capability profile показывает access level + type/identity/permissions/method evidence/per-format readiness, а не один boolean;
+- valid-but-limited credential действительно остаётся usable для READY formats, а не глобально disabled;
+- READY target не может молча изменить destination/credential semantics после approval.
 
 `UI выглядит работающим` не является Definition of Done.
 

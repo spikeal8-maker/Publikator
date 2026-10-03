@@ -36,7 +36,7 @@ STORY_SEQUENCE  последовательность story slides
 
 Одна каноническая публикация может иметь platform-specific rendition. Например, одна тема может уйти в Telegram как `FEED + IMAGE`, а в Instagram как `STORY + VERTICAL_VIDEO`.
 
-Тип контента не должен жёстко означать конкретную соцсеть. Возможность публикации определяется capability конкретного platform adapter.
+Тип контента не должен жёстко означать конкретную соцсеть. Возможность публикации определяется одновременно capability конкретного platform adapter и CapabilityProfile конкретного credential set/destination.
 
 ## 2. Stories
 
@@ -374,7 +374,11 @@ DRAFT -> READY -> PUBLISHING -> PUBLISHED / PARTIAL / FAILED / RECOVERY_NEEDED
 
 ## 14. Capability matrix
 
-Каждый platform adapter должен объявлять capability, которую использует UI и preflight:
+UI и preflight используют две независимые capability dimensions.
+
+### Adapter capability
+
+Каждый platform adapter объявляет:
 
 ```text
 supportsFeed
@@ -391,7 +395,27 @@ textRules
 requiresPublicHttpsMedia
 ```
 
-Конкретные значения проверяются при реализации на актуальной документации API площадки и затем подтверждаются live acceptance. Не хардкодить предполагаемые одинаковые ограничения для всех платформ.
+### Credential/destination capability
+
+Каждое concrete connection получает server-owned CapabilityProfile по `SOCIAL_CREDENTIAL_CAPABILITY_CONTRACT.md`:
+
+```text
+credential validity
+provider type/role
+identity/owner
+declared permissions/scopes
+destination identity/role
+method-level capability states
+publication readiness by format
+missing requirements
+checked_at
+```
+
+UI MUST показывать обе dimensions. Нельзя отображать platform как "поддерживает IMAGE" и скрывать, что конкретный token/destination IMAGE denied.
+
+Для VK UI MUST определить тип введённого credential, показать его access level и exact method eligibility. USER/GROUP/SERVICE-like credentials не считаются взаимозаменяемыми. GROUP/COMMUNITY credential, которому недоступен USER-only method, показывается как valid-but-limited, а не "неверный". Несколько saved credentials MAY отображаться рядом, но UI не должен внушать, что два VK ключа обязательны для обычной публикации.
+
+Конкретные platform значения проверяются при реализации на актуальной документации API и затем подтверждаются live acceptance. Concrete credential readiness подтверждается provider evidence и не выводится только из platform matrix.
 
 ## 15. Связь с Content Pipeline v2
 
@@ -448,10 +472,12 @@ Google Sheets template имеет отдельные колонки format/kind/
 
 ### CX3-005 — Platform capability/preflight
 
-- capability DTO;
+- adapter capability DTO;
 - UI warnings;
 - adapter-specific supported formats;
 - READY block при несовместимости.
+
+Credential capability является отдельным foundation contract и не считается закрытым CX3-005. Его реализация следует `SOCIAL_CREDENTIAL_CAPABILITY_CONTRACT.md`.
 
 ### CX3-006 — Platform previews v2
 

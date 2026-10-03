@@ -300,40 +300,32 @@ Publikator уже прошёл маленькие additive milestones вмест
 
 # 6. Текущее состояние и оставшийся порядок разработки
 
-Сверено: **19.09.2026**, после accepted merge PR #105 (EW4-004), main `73748e291d750c89680ded8588dccfcba641790e`.
+Сверено: **03.10.2026**, main \`f5ea6e37a9a8f4c23a790e670c1b4c34ecb3db5f\`.
 
-Следующие foundation/product-этапы уже реализованы и **не должны создаваться заново параллельными слоями**:
+Актуальное состояние social credential lane:
 
-- CONTENT-M0 / schema 4–7;
-- EW4-001 — безопасный lifecycle + Content Inspector;
-- CX3-001…CX3-014 — календарь, библиотека, rich-media foundation и единый operator UI;
-- schema 8 — rich-media model;
-- реализации FEED/VIDEO для Telegram/VK/MAX/Instagram, пока live-gated;
-- Telegram Story image/video/sequence, пока live-gated;
-- Instagram Short/Reel, пока live-gated;
-- Google Sheets connector и automation lane #72/#79–#85;
-- Google Drive и Яндекс Диск для image binding;
-- настоящий browser acceptance из #86;
-- Sources UI consolidation из #87/#88;
-- FE-002…FE-007 frontend ownership consolidation; global `ui-page-polish-v5` runtime удалён в PR #102.
+- KEY-02 merged: VK validity отделена от method capability; PENDING/COMMUNITY credentials сохраняются безопасно;
+- существующий VK WALL publisher имеет system-path proof candidate PR #139, но live VK publication ещё не является доказанной;
+- Draft PR #138 с alternate VK album transport находится HOLD и не должен определять архитектуру до credential capability evidence;
+- выявлен обязательный следующий foundation: \`SOCIAL_CREDENTIAL_CAPABILITY_CONTRACT.md\`;
+- server-authoritative activation, READY destination/credential binding и unified cross-platform capability profile являются приоритетными blockers перед расширением platform transports.
 
-Идентификаторы `CP2-007A…D` и `CP2-008A`, использованные в merged Google Sheets lane, **не означают**, что исходные milestones CP2-007 AI producer и CP2-008 Advanced ingest завершены. Для этого reconciliation главным является issue #26.
+Предыдущие content/editorial foundation milestones остаются действующими; social credential foundation не отменяет их, но имеет приоритет для publisher/platform work.
 
 ## Оставшийся рекомендуемый порядок
 
-1. **EW4-005** — current Draft candidate PR #106 / `ew4-005/project-defaults`. Текущий короткий срез A1 добавляет только `Project.default_timezone` и schema candidate 11; default targets/platform options ещё не начаты.
-2. **EW4-006 Templates/Snippets** — NOT STARTED.
-3. **EW4-007 Calendar editing** — drag/drop, create-from-slot, quick edit и optimistic-conflict handling.
-4. **CP2-003 ZIP Content Bundle** — детерминированная media binding и acceptance на 100 posts / 150 media.
-5. **CP2-004 + EW4-009 Integration API v1** — полный product contract поверх уже существующей hashed/scoped API-key security foundation.
-6. **Завершение CP2-006** — cloud video ingest и browser-proven UI управления connectors.
-7. **CP2-007 AI Content Profile / producer** — AI создаёт DRAFT только через Integration API; прямой AI→social bypass запрещён.
-8. **CP2-008 Advanced ingest** — embedded images в XLSX, Google Sheets `IMAGE()` и явно ограниченные advanced-source сценарии.
-9. **EW4-010 + Pipeline mass acceptance + live capability enablement** — финальная product acceptance после закрытия контрактов выше.
+1. **CRED-01 Save-and-check + access level** — credential сохраняется encrypted и сразу получает FULL / PARTIAL / READ_ONLY / SETUP_REQUIRED / INVALID / UNAVAILABLE + per-format matrix.
+2. **CRED-02 Server authority** — POST/PATCH/activate не могут создать publish-ready connection на основании client-asserted verification; limited credentials остаются сохранёнными, а formats блокируются по capability.
+3. **CRED-03 Persisted CapabilityProfile** — identity/type/permissions/method evidence/readiness survives reload; stored secret не возвращается browser.
+4. **CRED-04 VK exact token diagnostics** — USER/GROUP/SERVICE detection/evidence, account.getAppPermissions for USER, groups.getTokenPermissions for GROUP, exact method-token matrix, no false "bad key".
+5. **CRED-05 Telegram/MAX/Instagram granular profiles** — provider-returned rights/permissions и per-format readiness вместо "connection works".
+6. **CRED-06 Unified Socials UX** — access-level card, expandable diagnostics, exact remediation, "где получить нужный credential/permission".
+7. **CRED-07 READY destination/credential binding** — approved post cannot silently move to another destination/profile.
+8. **CRED-08 Controlled live acceptance** — real public-write evidence on exact build without secrets in evidence.
+9. Далее продолжить remaining content/editorial roadmap: Templates/Snippets, Calendar editing, ZIP bundle, Integration API, cloud video ingest, AI producer, Advanced ingest, mass acceptance.
 
-V1 live acceptance ведётся отдельно в issue #12 и ветке `release/1.0`; он не переопределяет порядок vNext-разработки.
+Правило порядка: новые alternate platform transports, Stories/Shorts и расширение publisher methods не должны опережать credential capability foundation, если их необходимость определяется правами/типом конкретного credential.
 
----
 
 # 7. Visual Calendar contract
 
@@ -446,6 +438,18 @@ No direct AI→social network bypass.
 
 # 11. Acceptance gates by category
 
+## Social credentials
+
+- valid != capability != destination != readiness;
+- provider credential type/role determined or explicitly UNKNOWN;
+- provider-declared permissions preserved where available;
+- method states individually CONFIRMED/DENIED/UNAVAILABLE/NOT_CHECKED/NOT_SUPPORTED/REQUIRES_SETUP/NOT_IMPLEMENTED;
+- direct API cannot self-assert verified/active connection;
+- saved secret not returned to browser/log/events;
+- READY destination/credential mutation cannot redirect an approved post;
+- VK credential type is diagnosed correctly; GROUP/COMMUNITY remains valid-but-limited where USER-only methods are required; USER permission evidence and method readiness are shown;
+- cross-platform per-format readiness rendered by the same backend contract.
+
 ## Domain
 
 - migration from previous schema;
@@ -505,7 +509,9 @@ No direct AI→social network bypass.
 6. backup/restore proof;
 7. focused automated regression;
 8. full `Publikator CI / Acceptance = PASS`;
-9. updated documentation.
+9. updated documentation;
+10. for social/platform work: credential CapabilityProfile and server-side activation invariants pass;
+11. READY publication intent remains bound to approved destination/credential semantics.
 
 ---
 
@@ -535,6 +541,8 @@ Manual / XLSX / ZIP / Sheets / API / AI
                   ↓
        Edit text + image/video
                   ↓
+   Verify credentials/capabilities
+                  ↓
         Select target accounts
                   ↓
        Platform-aware preview
@@ -561,4 +569,8 @@ Manual / XLSX / ZIP / Sheets / API / AI
 7. кто/что изменил её последним;
 8. как перенести/дублировать/архивировать/удалить будущую публикацию;
 9. что уже реально опубликовано;
-10. где требуется recovery.
+10. где требуется recovery;
+11. какие credentials подключены и какого они типа/роли;
+12. какие permissions/method capabilities реально подтверждены;
+13. какие publication formats READY для конкретного destination;
+14. чего не хватает и как получить нужный credential/право.

@@ -43,6 +43,22 @@ The implementation was checked against current platform documentation before fre
 
 The matrix intentionally distinguishes **external platform capability** from **Publikator adapter capability**.
 
+A third, separate dimension is now normative: **concrete credential/destination capability**. It is defined in \`SOCIAL_CREDENTIAL_CAPABILITY_CONTRACT.md\`.
+
+Therefore final readiness is:
+
+~~~text
+external provider capability
+AND
+Publikator adapter capability
+AND
+verified credential-set capability
+AND
+verified destination capability
+~~~
+
+CX3-005 historical platform flags MUST NOT be interpreted as proof that an arbitrary saved credential can publish that format. A credential may be valid but only partially capable. For VK, current method eligibility MUST follow the provider token-type matrix: the main image/wall methods in the current schema require USER, while GROUP credentials remain valid for the group-scoped methods they actually support.
+
 EW4-004 adds a second, orthogonal rich-text capability dimension to this same registry; it does **not** create a second capability registry:
 
 | Feature | Telegram | MAX | VK | Instagram |

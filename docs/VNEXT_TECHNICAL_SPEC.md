@@ -2,7 +2,7 @@
 
 Статус: **AUTHORITATIVE / NORMATIVE**
 
-Версия документа: `1.0`
+Версия документа: `1.1`
 
 Назначение: этот документ является главным техническим контрактом для разработки vNext. Он сводит и нормализует требования `CONTENT_PIPELINE_V2.md`, `CONTENT_EXPERIENCE_V3.md` и `EDITORIAL_WORKFLOW_V4.md`, устраняет противоречия со старой V1-документацией и задаёт обязательные invariants для людей и coding agents.
 
@@ -13,10 +13,11 @@
 Если документы противоречат друг другу, применять приоритет:
 
 1. `VNEXT_TECHNICAL_SPEC.md` — нормативное ТЗ vNext.
-2. `ARCHITECTURE.md` и `DEVELOPMENT_RULES.md` — архитектурные/инженерные invariants, приведённые к этому ТЗ.
-3. `CONTENT_PIPELINE_V2.md`, `CONTENT_EXPERIENCE_V3.md`, `EDITORIAL_WORKFLOW_V4.md` — продуктовые требования и UX-детализация.
-4. `CONTENT_PLAN.md`, `PLATFORMS.md`, текущие V1 docs — контракт текущей V1 реализации, пока соответствующий участок не мигрирован во vNext.
-5. Исходный код — доказательство текущего поведения, но не основание игнорировать это ТЗ.
+2. `SOCIAL_CREDENTIAL_CAPABILITY_CONTRACT.md` — нормативный контракт credentials/capabilities/destination authorization для всех социальных платформ.
+3. `ARCHITECTURE.md` и `DEVELOPMENT_RULES.md` — архитектурные/инженерные invariants, приведённые к этому ТЗ.
+4. `CONTENT_PIPELINE_V2.md`, `CONTENT_EXPERIENCE_V3.md`, `EDITORIAL_WORKFLOW_V4.md` — продуктовые требования и UX-детализация.
+5. `CONTENT_PLAN.md`, `PLATFORMS.md`, текущие V1 docs — контракт текущей V1 реализации, пока соответствующий участок не мигрирован во vNext.
+6. Исходный код — доказательство текущего поведения, но не основание игнорировать это ТЗ.
 
 Coding agent не имеет права самостоятельно выбирать между противоречащими документами. При конфликте применяется этот порядок.
 
@@ -200,13 +201,46 @@ video
 poster
 ```
 
-## 3.6 SocialAccount
+## 3.6 SocialAccount / SocialConnection
 
-Текущая модель сохраняется: platform, display name, encrypted credentials, enabled.
+Текущая таблица `social_accounts` остаётся compatibility boundary, но vNext semantic model MUST быть богаче одного поля `credentials_encrypted`.
+
+Social connection содержит минимум:
+
+```text
+id
+platform
+display name
+destination identity
+CredentialSet
+CapabilityProfile
+enabled
+verification state
+capability profile revision/fingerprint
+last_checked_at
+```
+
+CredentialSet MAY содержать несколько credential roles для одной платформы/destination. Нельзя предполагать, что один token обязан авторизовать все provider methods.
+
+Нормативные требования определены в `SOCIAL_CREDENTIAL_CAPABILITY_CONTRACT.md`.
+
+## 3.6.1 CredentialSet / CapabilityProfile
+
+Credential validity, provider-declared permissions, method capability, destination rights, adapter implementation и publication readiness — разные сущности.
+
+Backend MUST быть authority для activation. Browser не может сам объявить credential `USER`, `verified` или `publishReady`.
+
+Непроверенный credential MAY храниться только encrypted + disabled/limited. Он не входит в project default targets до server-side verification.
+
+CapabilityProfile MUST содержать evidence по конкретным методам и readiness по конкретным форматам, а не один boolean "connection works".
+
+Для VK semantic model MUST принимать и различать provider credential types (как минимум USER и GROUP/COMMUNITY, а также SERVICE/OPEN/UNKNOWN where applicable), показывать их реальную пригодность и не считать типы взаимозаменяемыми. Текущая VK API schema для основных image/wall publication methods требует USER credential. Хранение нескольких credentials для одного destination MAY поддерживаться как дополнительная возможность, но два credentials не являются обязательным условием обычной публикации.
 
 ## 3.7 PostTarget
 
 Выбранный social account и aggregate delivery state.
+
+READY target MUST быть привязан к effective destination и credential/capability profile, одобренным preflight. Изменение credentials/destination после READY не может молча перенаправить уже одобренную публикацию.
 
 Сохраняются текущие гарантии:
 
@@ -1301,21 +1335,27 @@ Feature не считается DONE только потому, что UI её �
 # 29. Рекомендуемый порядок реализации после M0
 
 ```text
-1. safe Trash/Restore + Content Inspector on existing image posts
-2. visual calendar on schema-7 UTC/IANA scheduling
-3. canonical rich text + platform compilers using existing TargetRendition
-4. Content Plan v3 UX/template + ZIP bundle using existing ingestion guards
-5. Integration API v1 using existing API-key security foundation
-6. project defaults/templates/target options
-7. video metadata/player/poster pipeline
-8. story/short product model using existing PublicationUnit recovery
-9. Google Sheets connector
-10. Google Drive / Яндекс Диск
-11. AI producer/content profile
-12. platform-specific video/story/short live adapters
+1. Social Credential Capability foundation:
+   Save-and-check, пользовательский access level, capability matrix,
+   server-authoritative verification, immutable destination binding,
+   точная VK token-type/method diagnostics, unified capability UI
+2. safe Trash/Restore + Content Inspector on existing image posts
+3. visual calendar on schema-7 UTC/IANA scheduling
+4. canonical rich text + platform compilers using existing TargetRendition
+5. Content Plan v3 UX/template + ZIP bundle using existing ingestion guards
+6. Integration API v1 using existing API-key security foundation
+7. project defaults/templates/target options
+8. video metadata/player/poster pipeline
+9. story/short product model using existing PublicationUnit recovery
+10. Google Sheets connector
+11. Google Drive / Яндекс Диск
+12. AI producer/content profile
+13. platform-specific video/story/short live adapters
 ```
 
-Нельзя начинать platform Stories/Shorts adapter до готовности canonical model, capability matrix, player/preview и PublicationUnit recovery.
+Credential/capability foundation имеет приоритет над добавлением альтернативных platform transports: сначала нужно доказать, что существующий transport не удовлетворяет конкретному verified credential/destination profile.
+
+Нельзя начинать platform Stories/Shorts adapter до готовности canonical model, credential capability matrix, player/preview и PublicationUnit recovery.
 
 ---
 
@@ -1351,6 +1391,13 @@ Feature не считается DONE только потому, что UI её �
 как восстановить
 что уже реально ушло наружу
 что требует ручного recovery
+какие credentials подключены
+какого они provider type/role
+какие permissions/scopes подтверждены
+какие конкретные methods доступны или denied
+какие форматы реально READY для этого destination
+почему формат заблокирован и какой credential/setup нужен
+когда capability profile проверялся последний раз
 ```
 
 Если интерфейс не может однозначно ответить хотя бы на один из этих вопросов, соответствующий этап ещё не считается завершённым.
