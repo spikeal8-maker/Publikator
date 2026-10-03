@@ -2,6 +2,8 @@
 
 Этот checklist используется только для **реальной** проверки Telegram, VK, MAX и Instagram перед выпуском `v1.0.0`. Mock/E2E и зелёный CI не заменяют внешний API acceptance.
 
+Для current main/vNext credential semantics применяется `SOCIAL_CREDENTIAL_CAPABILITY_CONTRACT.md`. Live acceptance не заменяет capability profile: она добавляет evidence для public-write операций, которые нельзя безопасно доказать обычной проверкой credentials.
+
 Текущий release candidate: **`1.0.0-rc.4`**. Release tag: **`v1.0.0-rc.4`**. Release commit: **`095e289e503a79a21fa877f6afb2d300b87b4a21`**. SQLite schema: **v3**.
 
 ## 1. Зафиксировать release build
@@ -42,20 +44,31 @@ Live acceptance V1 проводится только на неизменённо
 
 ## 3. Общая публикационная матрица
 
-Для каждой площадки проверить:
+Для каждой площадки до public publish:
 
-1. **Проверить подключение** в UI.
-2. Одна JPEG-картинка + короткий текст.
-3. Кириллица, emoji, URL и переносы строк.
-4. Отдельный `override_text`: внешний текст совпадает именно с platform preview.
-5. Несколько изображений в допустимом количестве и правильном `sort_order`.
-6. `publish-now`.
-7. `AT` на несколько минут вперёд.
-8. `QUEUE` через отдельный тестовый schedule slot.
-9. После успешного/частичного publish текст, targets и media нельзя незаметно изменить.
-10. Target содержит внешний ID; если adapter возвращает URL — проверить URL.
-11. В журнале нет неожиданного второго `publish_started` / второго внешнего поста.
-12. Double-click на publish не должен создавать дубль.
+1. **Проверить credentials** в UI и сохранить capability evidence:
+   - credential validity;
+   - provider type/role;
+   - identity;
+   - declared permissions/scopes where available;
+   - destination identity/role;
+   - method states;
+   - per-format readiness;
+   - checked_at/build.
+2. Убедиться, что UI не показывает provider outage/timeout как INVALID.
+3. Убедиться, что valid-but-limited credential сохраняется и остаётся usable для READY formats; formats без capability блокируются отдельно. Credential с нулём READY publish formats не становится автоматической publish target.
+4. Убедиться, что direct API cannot activate connection by client-asserted authKind/publishReady.
+5. Одна JPEG-картинка + короткий текст.
+6. Кириллица, emoji, URL и переносы строк.
+7. Отдельный `override_text`: внешний текст совпадает именно с platform preview.
+8. Несколько изображений в допустимом количестве и правильном `sort_order`.
+9. `publish-now`.
+10. `AT` на несколько минут вперёд.
+11. `QUEUE` через отдельный тестовый schedule slot.
+12. После успешного/частичного publish текст, targets и media нельзя незаметно изменить.
+13. Target содержит внешний ID; если adapter возвращает URL — проверить URL.
+14. В журнале нет неожиданного второго `publish_started` / второго внешнего поста.
+15. Double-click на publish не должен создавать дубль.
 
 После проверки каждой площадки сразу записывать результат в **Release gate**. `LIVE PASS` ставится только после фактической внешней проверки.
 
@@ -70,14 +83,16 @@ Live acceptance V1 проводится только на неизменённо
 
 Acceptance:
 
-1. Connection test: `getMe → getChat → getChatMember` проходит.
-2. Single image с caption до 1024 символов.
-3. Media group из нескольких изображений; порядок совпадает с UI.
-4. Текст 1025–4096 символов: media публикуется один раз, затем один отдельный `sendMessage`.
-5. Проверить кириллицу/emoji около границ длины.
-6. Убедиться, что текст >4096 блокируется **до** внешней публикации.
-7. Проверить, что повторный быстрый publish/double-click не создаёт второй пост.
-8. Зафиксировать Telegram `LIVE PASS`.
+1. Credential capability report показывает bot identity, destination, member/admin role и provider-returned granular rights.
+2. Для channel отдельно зафиксировать `can_post_messages`; при наличии также `can_edit_messages`, `can_delete_messages`, story rights.
+3. Valid bot без publish right должен остаться valid credential, но access level = SETUP_REQUIRED, если точное исправление известно.
+4. Single image с caption до 1024 символов.
+5. Media group из нескольких изображений; порядок совпадает с UI.
+6. Текст 1025–4096 символов: media публикуется один раз, затем один отдельный `sendMessage`.
+7. Проверить кириллицу/emoji около границ длины.
+8. Убедиться, что текст >4096 блокируется **до** внешней публикации.
+9. Проверить, что повторный быстрый publish/double-click не создаёт второй пост.
+10. Зафиксировать Telegram `LIVE PASS`.
 
 Если long-text follow-up не подтверждён после уже опубликованного media, target обязан перейти в `RECOVERY_NEEDED`, а сообщение об ошибке должно содержать `message_id` уже опубликованного media.
 
@@ -85,14 +100,22 @@ Acceptance:
 
 Подготовка:
 
-- token имеет права нужного сообщества;
+- определить provider credential types/roles, а не использовать термин "VK token" без типа;
+- current wall/image publication path проверяется USER credential;
+- GROUP/COMMUNITY credential MAY быть сохранён и проверен отдельно, но не является обязательной второй publish-role;
 - `Group ID` корректен;
 - API version поддерживается текущим VK API.
 
 Acceptance:
 
-1. Connection test получает `photos.getWallUploadServer`.
-2. Single image + text.
+1. Save-and-check определяет access level каждого введённого VK credential.
+2. GROUP/COMMUNITY credential остаётся valid-but-limited, если group permissions подтверждены, но USER-only publish methods недоступны.
+3. USER credential показывает `account.getAppPermissions` evidence (если provider method доступен) и current preparation capability `photos.getWallUploadServer`.
+4. `users.get` success сам по себе не классифицирует token как USER.
+5. `groups.getById` не считать ownership/admin proof.
+6. Обычная credential check не вызывает `wall.post`.
+7. Publication matrix показывает IMAGE/CAROUSEL can/cannot и точное remediation.
+8. Single image + text.
 3. Несколько изображений; порядок правильный.
 4. Проверить `override_text`.
 5. Проверить `AT` и `QUEUE`.
@@ -101,7 +124,9 @@ Acceptance:
 8. Неопределённый исход после начала `wall.post` должен требовать recovery.
 9. Зафиксировать VK `LIVE PASS`.
 
-Тип токена обязательно проверять на реальном API: неподходящий community token может не пройти wall photo upload.
+Тип credential обязательно проверять на реальном API. Capability report должен сохранять факт, что credential может быть валидным и иметь declared group permissions, но не подходить для конкретного current publish method.
+
+Если current WALL transport не работает с verified credential/destination profile, сначала зафиксировать method-level evidence. Только после этого рассматривать alternate transport; наличие такого transport в стороннем workflow само по себе не является основанием.
 
 ## 6. MAX
 
@@ -114,8 +139,9 @@ Acceptance:
 
 Acceptance:
 
-1. Connection test: `/me` + membership/permission check.
-2. Single JPEG через публичный URL.
+1. Capability report: `/me` + destination membership/role + полный relevant permissions list.
+2. Valid token без `write` остаётся valid, но publication readiness blocked.
+3. Single JPEG через публичный URL.
 3. Несколько изображений, максимум 12.
 4. Текст с Unicode; >4000 должен блокироваться preflight.
 5. Из внешней сети открыть URL конкретного media, который получает MAX.
@@ -135,8 +161,10 @@ Acceptance:
 
 Acceptance:
 
-1. Connection test показывает нужный professional account.
-2. Single JPEG.
+1. Capability report показывает нужный professional account и отдельно publication readiness.
+2. Identity success не считается доказательством всех media formats.
+3. Если provider API безопасно отдаёт scopes/expiry/account type — evidence записывается отдельно.
+4. Single JPEG.
 3. Carousel из 2 изображений.
 4. Carousel из 10 изображений.
 5. Порядок совпадает с `media.sort_order`.
@@ -211,6 +239,8 @@ Stable `v1.0.0` разрешён только если одновременно:
 - все четыре PASS относятся к одному SHA;
 - SHA совпадает со встроенным release image revision;
 - нет `RECOVERY_NEEDED`;
+- active social connections имеют server-verified capability profile/evidence;
+- credential/destination semantics соответствуют approved/live-tested target;
 - diagnostics не содержит ошибок;
 - после последнего PASS создан новый full backup;
 - restore этого bundle проверен на тестовой установке;

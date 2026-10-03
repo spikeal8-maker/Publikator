@@ -714,107 +714,474 @@ Permanent delete проекта с публикационной историей
 
 ## 9.3 Подключённые площадки
 
-Карточка:
+Карточка подключения MUST сразу показывать пользовательский уровень доступа и публикационную матрицу:
 
-```text
-Telegram
-Основной канал
-@asa_lab
-✓ Проверено
-```
+~~~text
+VK · ASA Lab
+
+Ключ: ОГРАНИЧЕННЫЙ
+🟠 Требуется настройка
+
+✓ Ключ действителен
+Тип: GROUP / COMMUNITY
+
+Публикация
+✗ IMAGE
+✗ CAROUSEL
+◇ VIDEO — Publikator пока не реализовал
+◇ STORY — Publikator пока не реализовал
+
+Доступно
+✓ чтение сообщества
+✓ permissions: wall, photos
+
+Чтобы открыть IMAGE/CAROUSEL:
+нужен USER credential.
+
+[ Как получить полный доступ ]
+[ Подробности ]
+~~~
+
+Перед списком возможностей MUST быть простая оценка:
+- Ключ: ПОЛНОЦЕННЫЙ;
+- Ключ: ОГРАНИЧЕННЫЙ;
+- Ключ: НЕДЕЙСТВИТЕЛЬНЫЙ;
+- Ключ: НЕ ПРОВЕРЕН.
+
+Ниже показывается точный access level:
+🟢 Полный доступ;
+🟡 Ограниченный доступ;
+🔵 Только чтение / диагностика;
+🟠 Требуется настройка;
+🔴 Ключ недействителен;
+⚪ Не удалось проверить;
+⚪ Сохранён, ещё не проверен.
 
 Кнопки:
 
-- Проверить
-- Настройки
-- `…` → Отключить / Удалить
+- Проверить;
+- Подробные возможности;
+- Настройки;
+- Где взять ключ / Как улучшить доступ;
+- ... → Отключить / Удалить.
+
+Нельзя сворачивать результат до одного "✓ Проверено", если часть форматов DENIED/UNKNOWN/PARTIAL.
 
 ## 9.4 Общий connect contract
 
-Активное подключение нельзя сохранить до успешной проверки credentials + destination. Для VK доступно отдельное сохранение введённого ключа без успешной проверки: он шифруется, остаётся выключенным и не попадает в цели публикации.
+Основная кнопка: **Сохранить и проверить**.
 
 Канонический flow:
 
-```text
-ввести credentials
-→ указать destination
-→ Проверить подключение
-→ показать identity → destination
-→ только после этого разрешить Сохранить подключение
-```
+~~~text
+ввести credential + destination
+→ Сохранить и проверить
+→ secret сразу сохранить encrypted
+→ backend определить provider type/identity
+→ получить permissions/scopes, если provider безопасно их отдаёт
+→ выполнить безопасные method probes
+→ вычислить доступность каждого publication format
+→ сохранить diagnostic result
+→ показать уровень доступа
+→ показать что можно / нельзя / почему / как исправить
+~~~
 
-Изменение любого credential/destination после проверки инвалидирует verified state.
+Ограниченный credential не отклоняется только потому, что он не умеет всё.
+
+Он остаётся сохранённым, а недоступные formats блокируются отдельно.
+
+Для сохранённого credential повторная проверка использует server-stored secret.
+
+Активное подключение нельзя создать/заменить только на основании browser state.
+
+Изменение любого:
+
+- secret;
+- credential role;
+- destination;
+- provider API version;
+- capability-relevant option
+
+инвалидирует предыдущий verified state.
+
+Если credential действителен, но readiness неполная, он сохраняется encrypted как limited credential. Пользователь видит его реальные доступные возможности. Недоступный format не делает весь credential бесполезным. Включение в конкретный publication path допускается только там, где соответствующий format READY.
+
+Capability result использует статусы:
+
+- ✓ CONFIRMED;
+- ✗ DENIED;
+- ⚠ UNAVAILABLE;
+- ? NOT_CHECKED;
+- — NOT_SUPPORTED;
+- ◌ REQUIRES_SETUP;
+- ◇ NOT_IMPLEMENTED.
+
+Timeout/provider outage нельзя показывать как "ключ неверный".
+
+## 9.4.1 Паспорт credentials
+
+После "Сохранить и проверить" MUST отображаться сначала уровень доступа, затем:
+
+~~~text
+Состояние credential
+Тип credential
+Владелец / identity
+Срок действия, если известен
+Заявленные permissions/scopes
+Источник permissions
+
+Destination
+Тип
+ID
+Название
+Роль/доступ
+Что подтверждено, а что только прочитано
+
+Методы
+method → status → причина → credential role
+
+Что можно публиковать
+TEXT
+IMAGE
+CAROUSEL
+VIDEO
+SHORT
+STORY
+
+Что отсутствует
+Какой credential/setup нужен
+~~~
+
+Полный контракт: SOCIAL_CREDENTIAL_CAPABILITY_CONTRACT.md.
+
+## 9.4.2 Где взять credential
+
+Connect form каждой платформы MUST содержать блок помощи:
+
+- рекомендуемый способ авторизации;
+- ручной способ, если он поддерживается;
+- какой тип credential ожидается;
+- какие права нужны;
+- какой тип может быть действительным, но недостаточным;
+- нужен ли другой provider credential type или дополнительное разрешение;
+- ссылка/инструкция провайдера;
+- предупреждение никогда не вставлять secret в issue/chat/log.
+
+Помощь должна быть контекстной: если пользователь вставил limited credential, UI объясняет именно чего не хватает.
 
 ## 9.5 Telegram
 
 Поля:
 
-- Название подключения
-- Токен бота
-- Куда публиковать
+- Название подключения;
+- Bot token;
+- Куда публиковать.
 
 Placeholder:
 > @my_channel или https://t.me/my_channel
 
-Подсказка токена:
-> Токен из BotFather. Он хранится в Publikator в зашифрованном виде.
+Подсказка token:
+> Token из BotFather. Publikator хранит его зашифрованно и после сохранения не показывает обратно.
 
-Подсказка destination:
-> Укажите канал или чат. Бот должен иметь право публиковать туда.
+Основная кнопка: **Сохранить и проверить**.
 
-Кнопка:
-- Проверить подключение
+Проверка MUST отображать:
 
-Успех:
-> Подключение работает. @asa_bot → ASA Lab
+- bot identity из getMe;
+- destination identity из getChat;
+- membership/status из getChatMember;
+- administrator/creator;
+- can_post_messages, если поле применимо;
+- can_edit_messages, если возвращено;
+- can_delete_messages, если возвращено;
+- can_post_stories / can_edit_stories / can_delete_stories, если возвращено;
+- иные provider-returned relevant admin rights в detail view.
 
-Кнопка после проверки:
-- Сохранить подключение
+Пример:
+
+~~~text
+Ключ: ПОЛНОЦЕННЫЙ
+🟢 Полный доступ для текущих IMAGE/CAROUSEL возможностей
+
+Bot token: ✓ действителен
+Bot: @asa_bot
+
+ASA Lab
+Role: administrator
+can_post_messages: ✓
+can_edit_messages: ✓
+can_delete_messages: ✗
+can_post_stories: ✓
+
+Publikator readiness:
+IMAGE: ✓ READY
+CAROUSEL: ✓ READY
+STORY: ◇ adapter not implemented / not accepted
+~~~
+
+Наличие story/admin permission не включает format автоматически, если Publikator adapter его ещё не поддерживает.
 
 ## 9.6 VK
 
-Поля:
+VK MUST сначала определить тип введённого credential и показать его реальный уровень доступа.
 
-- Название
-- Access token
-- Группа / group id / допустимый URL
+Нельзя считать любой VK access token взаимозаменяемым с любым другим.
 
-Подсказка:
-> Проверка отдельно сообщает, действителен ли ключ VK и можно ли с ним публиковать в выбранное назначение. Действующий ключ сообщества показывается как действительный и может быть сохранён для повторной проверки. Такой ключ остаётся выключенным для публикации: загрузка фото на стену требует пользовательский ключ VK.
+Поддерживаемые provider types/roles в модели:
 
-«Сохранить подключение» для публикации доступно только после проверки пользовательского ключа, назначения и возможности загрузить фотографию на стену. Действие «Сохранить ключ VK» доступно после ввода ключа даже при ошибке проверки VK (включая привязку к другому IP): ключ хранится зашифрованно со статусом PENDING, выключен и исключён из целей публикации. Название по умолчанию создаётся автоматически, если поле оставлено пустым. В списке есть повторная проверка и явное «Завершить проверку»: пользовательский ключ включается только после полного preflight; ключ сообщества остаётся ограниченным и выключенным. Проверка ничего не публикует.
+- USER;
+- COMMUNITY/GROUP;
+- SERVICE;
+- OPEN/UNKNOWN where applicable.
 
-VK capability card MUST отдельно показывать подтверждённую действительность/identity ключа, provider-reported permissions, выбранный destination и результат каждого реально проверенного метода. Отказ или timeout `photos.getWallUploadServer` не отменяет уже подтверждённую identity ключа: это отдельный отказ/недоступность wall-photo метода, поэтому активная публикация остаётся выключенной, а ключ MAY быть сохранён как PENDING. `groups.getById` подтверждает только чтение данных группы и не доказывает владение или право публикации. Альбомный путь `photos.getUploadServer → photos.save` и Stories, если они не реализованы в Publikator, показываются как ограничение приложения, а не как отсутствие прав ключа.
+Основной UI для подключения:
+
+~~~text
+VK
+
+Название
+[________________]
+
+Destination
+[ личная страница / сообщество ]
+
+Рекомендуется
+[ Подключить через VK ]
+
+или credential вручную
+[________________________]
+
+[ Сохранить и проверить ]
+~~~
+
+После проверки Publikator сам определяет USER / GROUP / SERVICE / другой распознаваемый тип и показывает, насколько он пригоден.
+
+Отдельное поле для дополнительного GROUP/COMMUNITY credential MAY быть доступно, но UI не должен создавать впечатление, что два ключа обязательны для обычной VK-публикации.
+
+### VK USER credential
+
+Preferred route: "Подключить через VK".
+
+Проверка отдельно показывает:
+
+- valid/invalid/unavailable;
+- USER identity;
+- user id;
+- declared scopes/permissions, если текущий API их надёжно предоставляет;
+- destination;
+- safe method probes;
+- readiness.
+
+### VK COMMUNITY/GROUP credential
+
+Действительный community token MUST показываться как действительный, даже если конкретный USER-oriented publish method ему denied.
+
+Показывать:
+
+- group identity;
+- provider permissions from groups.getTokenPermissions when available;
+- group object readability;
+- safe method capabilities;
+- какие текущие publication formats Publikator сможет или не сможет выполнить этим credential.
+
+groups.getById подтверждает только чтение объекта. Это не proof владения/admin/wall.post.
+
+### VK capability card
+
+Пример limited community credential:
+
+~~~text
+Ключ: ОГРАНИЧЕННЫЙ
+🟠 Требуется настройка
+
+COMMUNITY credential
+✓ Действителен
+Group: ASA Lab
+Declared permissions:
+  ✓ wall
+  ✓ photos
+
+Method evidence:
+  groups.getTokenPermissions: ✓ CONFIRMED
+  groups.getById: ✓ CONFIRMED
+  photos.getWallUploadServer: ✗ DENIED
+  wall.post: ? NOT_CHECKED
+
+Credential не является "неверным".
+Текущий IMAGE transport этим credential не подтверждён.
+Добавьте/подключите USER credential.
+~~~
+
+Пример USER credential:
+
+~~~text
+Ключ: ПОЛНОЦЕННЫЙ
+🟢 Полный доступ для текущего IMAGE/CAROUSEL Publikator
+
+USER credential
+✓ действителен
+Owner: id123
+
+App permissions:
+✓ photos
+✓ wall
+✓ groups
+
+Methods:
+✓ photos.getWallUploadServer
+? wall.post — публичная операция, при проверке не выполнялась
+
+Publication readiness
+IMAGE: ✓ READY
+CAROUSEL: ✓ READY
+VIDEO: ◇ согласно текущему adapter
+STORY: ◇ согласно текущему adapter
+~~~
+
+Обычная проверка credential НЕ вызывает wall.post и не создаёт публичную запись.
+
+Отказ/timeout одного method не отменяет уже подтверждённую identity.
+
+Если проверка недоступна, key MAY быть сохранён encrypted + disabled/PENDING.
+
+### VK acquisition help
+
+UI MUST явно объяснять:
+
+1. "Подключить через VK" — рекомендуемый способ получить USER credential, если OAuth настроен.
+2. Community key из настроек сообщества — отдельный provider credential type; он может быть полезен для group-scoped capabilities, но не обязан заменять USER credential.
+3. Если текущий credential ограничен, UI называет точный недостающий тип или permission. Например: "Для IMAGE нужен USER credential".
+4. Никогда не показывать stored secret после save.
 
 ## 9.7 MAX
 
 Поля:
 
-- Название
-- Token
-- ID чата/канала
+- Название;
+- Token;
+- ID чата/канала.
+
+Основная кнопка: **Сохранить и проверить**.
+
+Проверка MUST показывать:
+
+- identity через /me;
+- destination;
+- owner/admin state;
+- полный relevant permissions list, возвращённый provider;
+- write status;
+- readiness по форматам.
+
+Если /me успешен, но write отсутствует:
+
+~~~text
+Ключ: ОГРАНИЧЕННЫЙ
+🟠 Требуется настройка
+
+Credential: ✓ valid
+Identity: @bot
+write: ✗ DENIED
+
+TEXT: ◇ текущий TEXT_ONLY adapter не включён
+IMAGE: ✗
+CAROUSEL: ✗
+
+Чтобы исправить:
+выдайте боту permission write.
+
+[ Как изменить права MAX ]
+[ Проверить снова ]
+~~~
+
+Это не "неверный token".
 
 ## 9.8 Instagram
 
 Поля:
 
-- Название
-- Access token
-- Instagram Professional User ID
-- Graph API version, если её не фиксирует backend
+- Название;
+- Access token;
+- Instagram Professional User ID;
+- Graph/API version, если backend не фиксирует её.
 
-## 9.9 Capability display
+Основная кнопка: **Сохранить и проверить**.
 
-Для каждого подключения SHOULD показываться не raw flags, а:
+Проверка MUST отделять:
 
-```text
-Посты: поддерживаются
-Видео: поддерживаются / не проверены
-Истории: поддерживаются / не проверены
-Короткие видео: поддерживаются / не проверены
-```
+- token/account identity;
+- professional account identity/type, если provider возвращает;
+- declared permissions/scopes, когда их можно безопасно получить;
+- account/destination match;
+- media publishing prerequisites;
+- format readiness IMAGE/CAROUSEL/VIDEO/SHORT/STORY;
+- public HTTPS media prerequisite;
+- token expiry, если надёжно известен.
 
-Capability нельзя включать только потому, что код существует; требуется нормативное API/тест/live acceptance согласно `VNEXT_TECHNICAL_SPEC.md`.
+Успешное чтение id/username не означает автоматически "можно публиковать всё".
+
+Пример:
+
+~~~text
+Ключ: ОГРАНИЧЕННЫЙ
+🟠 Требуется настройка
+
+✓ Account identified
+✓ Professional account
+✗ Public media URL недоступен
+
+IMAGE: ◌ SETUP_REQUIRED
+CAROUSEL: ◌ SETUP_REQUIRED
+
+Чтобы исправить:
+настройте PUBLIC_BASE_URL как публичный HTTPS URL.
+
+[ Как настроить Instagram ]
+[ Проверить снова ]
+~~~
+
+## 9.9 Unified capability display
+
+Для всех платформ UI использует один смысловой формат:
+
+~~~text
+УРОВЕНЬ ДОСТУПА
+
+Что можно публиковать
+  TEXT
+  IMAGE
+  CAROUSEL
+  VIDEO
+  SHORT
+  STORY
+
+Почему что-то нельзя
+  конкретный method / permission / setup / limitation Publikator
+
+Что сделать
+  конкретная кнопка или инструкция
+
+Подробности
+  credential validity/type/identity/expiry/permissions
+  destination evidence
+  method-level evidence
+~~~
+
+Frontend не хранит отдельную от backend модель capability.
+
+Platform capability и concrete credential capability — разные вещи. Format READY только если одновременно:
+
+~~~text
+Publikator adapter supports format
+AND
+credential set supports required methods
+AND
+destination is resolved/authorized
+AND
+current target configuration matches verified profile
+~~~
+
+Изменение credentials/destination после READY MUST invalidate READY или publication MUST remain bound to immutable verified destination/profile. Уже одобренный post нельзя молча отправить в другое место.
+
 
 ---
 

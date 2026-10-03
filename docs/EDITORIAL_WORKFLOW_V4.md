@@ -73,6 +73,7 @@ FAILED
 - schedule mode;
 - список площадок;
 - конкретные social accounts;
+- social destination только через новый preflight, если изменились credential/destination semantics;
 - source note;
 - теги;
 - шаблон/пресет;
@@ -197,6 +198,8 @@ Restore запрещён для PUBLISHING/PARTIAL/PUBLISHED и не обход�
 Media safety: все historical media IDs должны существовать, canonical files должны существовать и совпадать по identity/hash. Retained historical media storage этим checkpoint не вводится.
 
 Target safety: historical account identity должна существовать; credentials не восстанавливаются и внешние platform API не вызываются.
+
+READY/approved revision MUST additionally preserve publication intent for social targets: effective destination and credential/capability profile binding/fingerprint. Если operator меняет credential set или destination у выбранного account после READY, уже одобренный post нельзя молча отправить в новое место. Изменение либо инвалидирует READY, либо publication продолжает использовать immutable approved binding. Нормативная семантика находится в `SOCIAL_CREDENTIAL_CAPABILITY_CONTRACT.md`.
 
 ---
 
@@ -833,6 +836,8 @@ Editor
 
 Targets
 - checkboxes
+- credential/destination capability summary
+- warning when profile is stale/partial
 
 Schedule
 - mode/date/time/timezone

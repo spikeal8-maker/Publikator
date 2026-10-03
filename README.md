@@ -37,7 +37,7 @@ Web UI / REST API
 - VK: загрузка нескольких изображений и `wall.post` с `guid=post.id`;
 - MAX: до 12 изображений через публичные HTTPS URL;
 - Instagram: single JPEG и carousel 2–10 JPEG;
-- проверка подключения и прав до сохранения/использования аккаунта;
+- social credentials: "Сохранить и проверить" сохраняет secret encrypted, затем показывает ПОЛНОЦЕННЫЙ/ОГРАНИЧЕННЫЙ/НЕДЕЙСТВИТЕЛЬНЫЙ/НЕ ПРОВЕРЕН, method evidence и доступность каждого publication format;
 - ручная публикация;
 - `AT` — точная дата/время;
 - `QUEUE` — проектные недельные слоты с timezone и grace-window;
@@ -62,6 +62,8 @@ Web UI / REST API
 ## Для coding agents
 
 Перед любым изменением кода агент начинает с [AGENTS.md](AGENTS.md). Этот файл задаёт экономный порядок чтения контекста, правило **один checkpoint = одна ветка = один PR**, порядок тестов и обязательный короткий handoff для следующего агента. Нормативное vNext-ТЗ: [docs/VNEXT_TECHNICAL_SPEC.md](docs/VNEXT_TECHNICAL_SPEC.md).
+
+Для любых задач про social credentials, типы ключей, permissions, destination rights и publish readiness обязателен отдельный контракт: [docs/SOCIAL_CREDENTIAL_CAPABILITY_CONTRACT.md](docs/SOCIAL_CREDENTIAL_CAPABILITY_CONTRACT.md). Он запрещает модель "ключ просто работает/не работает" и требует server-owned capability profile.
 ## Установка из GitHub
 
 Для обычного пользователя рекомендуемый путь — использовать системный launcher. **Docker сам проект не устанавливает:** Docker Desktop/Engine и Git являются предварительными требованиями. Launcher проверяет их, а затем полностью создаёт runtime Publikator.
@@ -221,6 +223,8 @@ QUEUE  — следующий подходящий slot проекта
 
 ### VK
 
+VK credentials не считаются взаимозаменяемыми. Текущая VK API schema для `photos.getWallUploadServer`, `photos.saveWallPhoto`, `photos.getUploadServer`, `photos.save` и `wall.post` требует USER credential. GROUP/COMMUNITY credential всё равно принимается, сохраняется и диагностируется как действительный ограниченный ключ для поддерживаемых им group methods/permissions.
+
 Подготовительные шаги `getWallUploadServer → upload → saveWallPhoto` не создают запись стены. Их временные ошибки можно безопасно повторять. Только `wall.post` является публичной фазой; неопределённый исход этой фазы требует recovery.
 
 ### MAX
@@ -348,6 +352,7 @@ Authoritative technical specification for further product development: [`docs/VN
 
 Supporting product specifications:
 
+- [`docs/SOCIAL_CREDENTIAL_CAPABILITY_CONTRACT.md`](docs/SOCIAL_CREDENTIAL_CAPABILITY_CONTRACT.md)
 - [`docs/CONTENT_PIPELINE_V2.md`](docs/CONTENT_PIPELINE_V2.md)
 - [`docs/CONTENT_EXPERIENCE_V3.md`](docs/CONTENT_EXPERIENCE_V3.md)
 - [`docs/EDITORIAL_WORKFLOW_V4.md`](docs/EDITORIAL_WORKFLOW_V4.md)

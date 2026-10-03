@@ -39,9 +39,10 @@ For a normal implementation task read only:
 1. this `AGENTS.md`;
 2. the GitHub issue/checkpoint being implemented;
 3. the relevant section(s) of `docs/VNEXT_TECHNICAL_SPEC.md`;
-4. for any user-facing page, route, button, hint, source workflow or automation behavior: `docs/CANONICAL_OPERATOR_UI_FUNCTIONAL_SPEC.md`;
-5. `docs/DEVELOPMENT_RULES.md` only for invariants touched by the change;
-6. the minimum source/test files needed for that checkpoint.
+4. for any social credential, connection, capability, platform authorization, publisher preflight or destination task: `docs/SOCIAL_CREDENTIAL_CAPABILITY_CONTRACT.md`;
+5. for any user-facing page, route, button, hint, source workflow or automation behavior: `docs/CANONICAL_OPERATOR_UI_FUNCTIONAL_SPEC.md`;
+6. `docs/DEVELOPMENT_RULES.md` only for invariants touched by the change;
+7. the minimum source/test files needed for that checkpoint.
 
 Use search before opening large files. Do not repeatedly reread unchanged documentation in the same task.
 
@@ -92,7 +93,14 @@ During implementation:
 - use additive/milestone migrations rather than a giant schema rewrite;
 - for any schema change follow `docs/RELEASE_MIGRATION_POLICY.md`: update `SCHEMA_MILESTONES`, add migration regression and canonical backup/restore regression in the same PR;
 - do not bypass atomic publication/recovery/concurrency rules;
-- do not invent platform capabilities not confirmed by the spec/current official API work item.
+- do not invent platform capabilities not confirmed by the spec/current official API work item;
+- for social credentials, never collapse validity, declared permissions, destination rights, method capability and publication readiness into one boolean;
+- never trust browser-supplied authKind/publishReady/destination fields as proof: enabled connections require server-side verification;
+- for social credentials, implement the user contract first: Save and check → persist encrypted secret → access level → per-format can/cannot → exact remediation;
+- accept valid-but-limited credentials instead of relabeling them invalid;
+- never assume multiple credentials are required unless current provider method evidence proves the need;
+- do not add an alternate publication transport merely because it exists elsewhere; first prove through the capability profile that the current transport cannot satisfy the required credential/destination combination;
+- a READY post must not silently change effective destination or credential semantics after account credentials are edited.
 
 ## 5. Test order
 
@@ -143,6 +151,8 @@ Do not silently broaden scope when any of these occurs:
 - implementation would require a new infrastructure service;
 - current checkpoint needs a domain-model change not covered by the master spec;
 - platform behavior depends on an unverified API capability;
+- a social credential task cannot distinguish provider-declared permissions from observed method capability;
+- a credential/destination change would alter an already READY publication without invalidation or immutable binding;
 - safe migration/backward compatibility cannot be demonstrated.
 
 In those cases make the smallest safe change possible and record the unresolved decision explicitly.
@@ -152,3 +162,5 @@ In those cases make the smallest safe change possible and record the unresolved 
 A checkpoint is not DONE because code compiles.
 
 DONE requires the checkpoint acceptance from the issue/spec, focused regression coverage, required migration/backup compatibility, updated docs when the public contract changed, and `Publikator CI / Acceptance = PASS` on the PR head.
+
+For social credential/capability work, DONE additionally requires compliance with `docs/SOCIAL_CREDENTIAL_CAPABILITY_CONTRACT.md`: Save-and-check UX, persisted user-visible access level, server-authoritative verification, secret non-leakage, per-method evidence, per-format can/cannot readiness, exact remediation, and READY destination/credential safety where the checkpoint touches activation or publication.

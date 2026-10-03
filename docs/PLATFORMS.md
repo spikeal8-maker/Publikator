@@ -2,7 +2,18 @@
 
 Каждый adapter реализует единый контракт `SocialPublisher`, но самостоятельно отвечает за ограничения, API phases и классификацию ошибок своей площадки.
 
+Credential/destination diagnostics регулируются отдельным нормативным контрактом `SOCIAL_CREDENTIAL_CAPABILITY_CONTRACT.md`.
+
 Перед `READY` и непосредственно перед publish используется один и тот же `PublishInput`. Поэтому UI approval и runtime не должны иметь разные platform rules.
+
+Для каждой платформы существуют две независимые матрицы:
+
+```text
+adapter capability      — что реализует Publikator
+credential capability   — что может конкретный credential set на конкретном destination
+```
+
+Формат READY только на пересечении обеих матриц.
 
 ## Общая модель ошибок
 
@@ -33,13 +44,17 @@ botToken
 chatId
 ```
 
-Connection test:
+Connection inspection:
 
 ```text
 getMe → getChat → getChatMember
 ```
 
-Бот должен видеть назначение и иметь право публикации.
+Результат MUST сохранять отдельно token validity, bot identity, destination identity, membership/role и granular administrator rights.
+
+Как минимум UI/capability profile показывает provider-returned `can_post_messages`, `can_edit_messages`, `can_delete_messages`, story/admin rights и иные relevant fields, когда они присутствуют.
+
+Валидный bot token без права публикации остаётся валидным credential, но publication readiness нужного формата = BLOCKED/PARTIAL.
 
 ### Media
 
@@ -74,46 +89,156 @@ Publikator считает Unicode code points:
 
 ## VK
 
-Credentials:
+Full credential/access contract: SOCIAL_CREDENTIAL_CAPABILITY_CONTRACT.md.
 
-```text
-accessToken
-groupId
-apiVersion
-```
+VK credential handling is diagnostic-first:
 
-Ключ из настроек сообщества («Работа с API → Ключи доступа») — **community token**. Он пригоден для отдельных методов сообщества, но текущий путь публикации поста с фото требует **user access token** для `photos.getWallUploadServer`, `photos.saveWallPhoto` и `wall.post`. Метод `users.get` сам по себе допускает несколько типов ключей и не определяет тип токена. Введённый ключ можно сохранить зашифрованным даже тогда, когда VK сейчас не даёт его проверить: он получает статус PENDING, остаётся выключенным и не добавляется к целям проекта. Повторная проверка сохранённого ключа доступна в списке подключений. Успешно проверенный community token остаётся ограниченным и выключенным; включение публикации для пользовательского ключа требует полного preflight. Ошибка VK о привязке ключа к другому IP не удаляет сохранённый ключ. Для публикации постов с фото нужен user access token.
+~~~text
+Save and check
+→ detect/establish token type
+→ show owner/identity
+→ show provider permissions where available
+→ probe only safe methods
+→ compute publication readiness
+→ show exact remediation
+~~~
 
-Предпочтительный способ подключения — кнопка «Подключить через VK» на странице «Соцсети». Для неё нужно создать VK web application, зарегистрировать точный URL `https://<домен>/api/vk/oauth/callback` и задать на сервере `VK_OAUTH_CLIENT_ID`, `VK_OAUTH_CLIENT_SECRET`, `VK_OAUTH_REDIRECT_URI`. `PUBLIC_BASE_URL` должен иметь тот же origin. Docker Compose передаёт эти переменные контейнеру. Для локального адреса допустим `http://127.0.0.1:<порт>/api/vk/oauth/callback`, если VK разрешает такой redirect в настройках приложения; публичный адрес должен использовать HTTPS. Ключ приложения остаётся на сервере. Публикатор запрашивает пользовательские права `wall,groups,photos,offline`, после callback проверяет владельца ключа и возможность загрузки фото на выбранную стену и только затем сохраняет зашифрованный ключ.
+Current VK API 5.199 schema distinguishes access-token types including user, group, service and open.
 
-Ручной ввод user access token остаётся доступным. Для сообщества пользователь должен иметь право публикации. Connection test проверяет `users.get`, `groups.getById` и `photos.getWallUploadServer(group_id)`; сам `wall.post` при проверке не вызывается.
+### Current method/token matrix
 
-### Publication phases
+| Method | USER | GROUP | SERVICE | Meaning |
+| --- | --- | --- | --- | --- |
+| users.get | yes | yes | yes | reads user data; success alone does not classify token as USER |
+| groups.getById | yes | yes | yes | reads group object; not ownership/admin proof |
+| groups.getTokenPermissions | no | yes | no | GROUP credential permission set |
+| account.getAppPermissions | yes | no | no | USER application permission mask |
+| photos.getWallUploadServer | yes | no | no | current wall-photo preparation |
+| photos.saveWallPhoto | yes | no | no | current wall-photo save |
+| photos.getUploadServer | yes | no | no | album upload preparation |
+| photos.save | yes | no | no | album photo save |
+| wall.post | yes | no | no | public wall publication |
 
-```text
+Therefore the current VK image/wall publisher is a USER-credential path.
+
+A GROUP/COMMUNITY credential is still accepted, encrypted, inspected and displayed. It may provide group-scoped identity/permissions, but it is not the mandatory second half of wall publication.
+
+### VK access levels
+
+Example USER credential:
+
+~~~text
+Credential verdict: FULL / ПОЛНОЦЕННЫЙ
+🟢 Full access for current IMAGE/CAROUSEL Publikator
+
+USER credential
+✓ valid
+Owner: id123
+
+Permissions:
+✓ photos
+✓ wall
+✓ groups
+
+Methods:
+✓ photos.getWallUploadServer
+? wall.post — not executed during normal inspection
+
+Publication:
+✓ IMAGE
+✓ CAROUSEL
+◇ VIDEO — adapter status
+◇ STORY — adapter status
+~~~
+
+Example GROUP credential:
+
+~~~text
+Credential verdict: LIMITED / ОГРАНИЧЕННЫЙ
+🟠 Setup required
+
+GROUP credential
+✓ valid
+Group: club456
+
+Declared permissions:
+✓ wall
+✓ photos
+
+Methods:
+✓ groups.getTokenPermissions
+✓ groups.getById
+— photos.getWallUploadServer: USER required
+— wall.post: USER required in current schema
+
+Publication:
+✗ IMAGE — USER credential required
+✗ CAROUSEL — USER credential required
+◇ VIDEO — adapter status
+◇ STORY — adapter status
+~~~
+
+This GROUP credential remains saved and must not be described as invalid.
+
+### USER permission inspection
+
+For a confirmed USER credential, inspection SHOULD call account.getAppPermissions where current provider behavior allows it and persist the returned permission mask as provider evidence.
+
+If Publikator decodes the mask into names, the mapping MUST be versioned/tested. Unknown bits remain visible as raw evidence rather than being silently invented or dropped.
+
+### Safe probes
+
+Safe inspection MAY include:
+
+- users.get;
+- groups.getTokenPermissions for GROUP;
+- account.getAppPermissions for USER;
+- groups.getById;
+- photos.getWallUploadServer for current USER image readiness.
+
+wall.post is public and MUST NOT run during ordinary credential inspection.
+
+### Publication phases: current WALL image transport
+
+~~~text
 photos.getWallUploadServer   preparation
 binary upload                preparation
 photos.saveWallPhoto         preparation
 wall.post                    PUBLIC
-```
+~~~
 
-Первые три шага ещё не создают запись стены. Их timeout/5xx не должны давать ложный recovery; временные сбои можно безопасно повторить.
+Preparation failures do not create a wall post and must not become false public recovery.
 
-`wall.post` вызывается с:
+Only an ambiguous outcome after wall.post starts may become RECOVERY_NEEDED.
 
-```text
-guid = post.id
-```
+A different media transport is not added merely because it exists in another workflow. It requires an actual product need demonstrated by credential/destination capability evidence plus focused tests/live acceptance.
 
-чтобы использовать platform idempotency там, где VK её поддерживает.
+### User remediation
 
-VK API/upload timeout: 30 секунд.
+Blocked capability MUST name the exact fix.
 
-- явная VK API error остаётся известной ошибкой;
-- transport/5xx после начала `wall.post` → unknown public outcome;
-- success-like ответ `wall.post` без `post_id` → recovery.
+Examples:
 
-Актуальные права/token type необходимо повторно проверять на live API перед каждым стабильным release.
+~~~text
+IMAGE unavailable:
+current credential type is GROUP.
+Current VK image methods require USER.
+
+[ Connect via VK ]
+[ Enter USER credential ]
+~~~
+
+or:
+
+~~~text
+USER credential detected,
+but required application permission is missing.
+
+[ Re-authorize VK ]
+[ Show required permissions ]
+~~~
+
+Do not say only "get a stronger key".
 
 ## MAX
 
@@ -124,14 +249,14 @@ accessToken
 chatId
 ```
 
-Connection test:
+Connection inspection:
 
 ```text
 GET /me
 GET /chats/{chatId}/members/me
 ```
 
-Требуется owner либо admin с permission `write`.
+CapabilityProfile сохраняет identity, owner/admin state и полный relevant provider permissions list. `write` участвует в publication readiness, но отсутствие `write` не делает token INVALID, если identity уже CONFIRMED.
 
 ### Media / text
 
@@ -166,7 +291,11 @@ igUserId
 graphVersion
 ```
 
-Connection test получает `id,username` professional Instagram account.
+Connection inspection не ограничивается фразой "account найден".
+
+CapabilityProfile отдельно хранит token/account identity, professional account identity/type когда provider его отдаёт, scopes/permissions когда их можно безопасно определить, account/destination match, expiry если известен, public-media prerequisites и readiness каждого implemented format.
+
+Успешное чтение `id,username` не является доказательством готовности IMAGE/CAROUSEL/VIDEO/SHORT/STORY.
 
 `graphVersion` хранится явно, а не hardcoded навсегда.
 
@@ -235,6 +364,7 @@ Meta скачивает изображения с `PUBLIC_BASE_URL`, поэто�
 
 Новый adapter должен:
 
+- определить credential types/roles и CapabilityProfile по `SOCIAL_CREDENTIAL_CAPABILITY_CONTRACT.md`;
 - реализовать `SocialPublisher`;
 - иметь local preflight;
 - явно разделить preparation и public phases;
