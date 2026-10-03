@@ -440,16 +440,27 @@ Temporary import/transcode files в backup не входят.
 
 # 15. Schema evolution
 
-Текущая schema: `3`.
+Текущая vNext schema в `main`: `12`. Следующий запланированный coherent milestone — schema `13` для persisted social credential CapabilityProfile.
 
-vNext меняется небольшими milestones, а не giant migration:
+vNext меняется небольшими milestones, а не giant migration. Accepted ledger находится в `src/schema.ts` и `RELEASE_MIGRATION_POLICY.md`; schema 13 принадлежит только CRED-01A.
+
+Credential persistence boundary:
 
 ```text
-M1 identity/versioning/revisions
-M2 rich text/renditions/templates
-M3 rich media/publication units
-M4 connectors/API keys/import batches
+social_accounts
+  credentials_encrypted      secret/config compatibility object
+  credential_version         mutation generation
+
+social_account_capability_profiles
+  safe non-secret evidence
+  access level
+  provider type
+  per-format readiness
+  semantic fingerprint
+  check timestamps/status
 ```
+
+Migration 12→13 не делает provider network calls и не отключает historical accounts.
 
 Старые V1 image posts должны мигрировать без потери публикационной истории.
 

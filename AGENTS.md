@@ -63,6 +63,14 @@ A checkpoint PR SHOULD:
 
 If a change crosses multiple schema milestones, multiple unrelated modules, or cannot be reviewed independently, split it before coding.
 
+For the credential lane, CRED-01 is a parent objective, not one giant PR. Implement only the exact active slice:
+
+- CRED-01A — schema 13 + capability persistence;
+- CRED-01B — Save-and-check/Recheck server flow;
+- CRED-01C — visible Socials access-level UI.
+
+Do not pull CRED-02/CRED-03 behavior into CRED-01A/B/C early.
+
 ## 3. Token/context economy
 
 Agents MUST prefer targeted retrieval over broad context loading.

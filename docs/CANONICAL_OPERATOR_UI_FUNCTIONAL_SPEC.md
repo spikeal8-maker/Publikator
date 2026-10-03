@@ -792,6 +792,17 @@ VK · ASA Lab
 
 Для сохранённого credential повторная проверка использует server-stored secret.
 
+Canonical backend calls for the new UI:
+
+```text
+POST /api/accounts/save-and-check
+POST /api/accounts/:id/recheck
+```
+
+UI MUST NOT implement Save-and-check by first calling an unsaved test endpoint and only then deciding whether saving is allowed. Persist-first/inspect-second semantics are owned by the backend contract.
+
+`enabled` is an operator master switch, not a capability summary. A valid limited account may remain enabled while blocked formats stay unavailable; the UI must render the per-format matrix.
+
 Активное подключение нельзя создать/заменить только на основании browser state.
 
 Изменение любого:
