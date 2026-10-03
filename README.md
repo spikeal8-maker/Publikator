@@ -56,7 +56,7 @@ Web UI / REST API
 - AES-256-GCM для credentials;
 - same-origin guard для browser mutations и security headers;
 - явная конфигурация доверенного reverse proxy;
-- release `v1.0.0-rc.4`: SQLite schema v3; `main` vNext после M0-002: schema v4;
+- release `v1.0.0-rc.4`: SQLite schema v3; текущий `main` vNext: schema v12; следующий credential milestone CRED-01A запланирован как schema v13;
 - один GitHub Actions pipeline: **`Publikator CI / Acceptance`**.
 
 ## Для coding agents

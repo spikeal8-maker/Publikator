@@ -124,6 +124,20 @@ SOCIAL_CREDENTIAL_CAPABILITY_CONTRACT.md
 
 Alternate transport нельзя добавлять только потому, что он существует в стороннем workflow. Сначала capability evidence должно доказать, что текущий transport не удовлетворяет требуемому credential/destination profile.
 
+Implementation staging is fixed:
+
+- CRED-01A owns schema 13 only: credential_version + safe profile table + migration/backup evidence;
+- CRED-01B owns Save-and-check/Recheck server flow;
+- CRED-01C owns visible access-level UI;
+- CRED-02 converges legacy create/update/activate authority;
+- CRED-03 owns capability-aware READY/publish binding.
+
+social_accounts.enabled is only the operator master switch. It is not proof that every format is allowed.
+
+CRED-01A migration MUST NOT call any external provider and MUST preserve historical encrypted credentials, enabled flags and project default targets unchanged.
+
+No CRED agent may replace schema 13 with ad-hoc extra columns, encrypted profile JSON, a second social-account table or a new service without changing the normative contract first.
+
 # 3.4 Release and migration policy
 
 `docs/RELEASE_MIGRATION_POLICY.md` is normative for `release/1.0` fixes and every vNext schema change.

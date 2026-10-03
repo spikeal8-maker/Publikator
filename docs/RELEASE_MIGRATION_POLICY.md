@@ -37,18 +37,20 @@ Publikator uses monotonic, one-step schema milestones. Current ledger:
 | 9 | EW4-002 | revision-history metadata and complete immutable revision capture for schema-9 content |
 | 10 | EW4-003 | canonical rich-text AST + deterministic plain fallback for working posts and immutable revisions |
 | 11 | EW4-005 | accepted project defaults: timezone, default targets and per-post isolation |
-| 12 | EW4-006 | templates candidate: persistent Post Template snapshots |
+| 12 | EW4-006 | accepted templates / reusable content blocks |
+| 13 | CRED-01A | planned social credential capability profile persistence |
 
 A feature PR MUST NOT combine several unrelated future data-model milestones into one schema jump.
 A new schema version must represent one coherent data ownership/invariant change and migrate from the immediately previous version.
 ## 4. Mandatory evidence for every new schema version
 
-Schema 11 `project-defaults` is accepted in `main`. EW4-006 Draft candidate introduces schema 12 `templates`; evidence is:
+Schema 11 `project-defaults` and schema 12 `templates` are accepted in `main`. Schema 12 evidence includes:
 - migration regression: `scripts/schema-v12-templates-e2e.mjs`;
 - backup regression: `scripts/backup-v12-templates-e2e.mjs`;
 - feature/domain regression: `scripts/ew4-006-templates-e2e.mjs`;
-- migration 11 → 12 is additive and preserves existing projects, posts, revisions, targets, media and schedules;
-- schema 12 remains candidate until EW4-006 Post Templates is accepted/merged.
+- migration 11 → 12 is additive and preserves existing projects, posts, revisions, targets, media and schedules.
+
+The next planned milestone is schema 13 `social-credential-capability-profile`, owned only by CRED-01A. Its exact columns, legacy migration semantics and no-network migration rule are normative in `SOCIAL_CREDENTIAL_CAPABILITY_CONTRACT.md` sections 22–23.
 
 Every schema `N` after the V1 baseline MUST add all of the following in the same checkpoint PR:
 1. explicit migration code from `N-1` to `N`;

@@ -291,7 +291,9 @@ Publikator уже прошёл маленькие additive milestones вмест
 8  rich-media model
 9  revision-history — EW4-002 accepted/merged
 10 canonical-rich-text — EW4-003 accepted/merged
-11 project-defaults — EW4-005 Draft candidate; A1 currently owns only Project.default_timezone
+11 project-defaults — EW4-005 accepted/merged
+12 templates / reusable content blocks — EW4-006 accepted/merged (#107/#108)
+13 social-credential-capability-profile — planned CRED-01A
 ```
 
 Новые feature PR не должны повторно создавать эти primitives. Следующая schema version появляется только при новом coherent data invariant и обязана следовать `docs/RELEASE_MIGRATION_POLICY.md` + `SCHEMA_MILESTONES`.
@@ -300,29 +302,31 @@ Publikator уже прошёл маленькие additive milestones вмест
 
 # 6. Текущее состояние и оставшийся порядок разработки
 
-Сверено: **03.10.2026**, main \`f5ea6e37a9a8f4c23a790e670c1b4c34ecb3db5f\`.
+Сверено: **03.10.2026**, credential documentation baseline merged into main at `b21938157ba65f9c40241778b90bab363dedb9ff`.
 
 Актуальное состояние social credential lane:
 
 - KEY-02 merged: VK validity отделена от method capability; PENDING/COMMUNITY credentials сохраняются безопасно;
 - существующий VK WALL publisher имеет system-path proof candidate PR #139, но live VK publication ещё не является доказанной;
-- Draft PR #138 с alternate VK album transport находится HOLD и не должен определять архитектуру до credential capability evidence;
-- выявлен обязательный следующий foundation: \`SOCIAL_CREDENTIAL_CAPABILITY_CONTRACT.md\`;
-- server-authoritative activation, READY destination/credential binding и unified cross-platform capability profile являются приоритетными blockers перед расширением platform transports.
+- PR #138 с alternate VK album transport является superseded experiment и не должен влиять на CRED architecture;
+- PR #139 — test-only доказательство существующего WALL publisher; держать HOLD до convergence с credential lane;
+- нормативный foundation: `SOCIAL_CREDENTIAL_CAPABILITY_CONTRACT.md`;
+- schema 13 persistence + Save-and-check + visible access-level UX являются первым executable credential lane;
+- server-authoritative updates и READY destination/profile binding идут отдельными следующими checkpoints.
 
 Предыдущие content/editorial foundation milestones остаются действующими; social credential foundation не отменяет их, но имеет приоритет для publisher/platform work.
 
 ## Оставшийся рекомендуемый порядок
 
-1. **CRED-01 Save-and-check + access level** — credential сохраняется encrypted и сразу получает FULL / PARTIAL / READ_ONLY / SETUP_REQUIRED / INVALID / UNAVAILABLE + per-format matrix.
-2. **CRED-02 Server authority** — POST/PATCH/activate не могут создать publish-ready connection на основании client-asserted verification; limited credentials остаются сохранёнными, а formats блокируются по capability.
-3. **CRED-03 Persisted CapabilityProfile** — identity/type/permissions/method evidence/readiness survives reload; stored secret не возвращается browser.
-4. **CRED-04 VK exact token diagnostics** — USER/GROUP/SERVICE detection/evidence, account.getAppPermissions for USER, groups.getTokenPermissions for GROUP, exact method-token matrix, no false "bad key".
-5. **CRED-05 Telegram/MAX/Instagram granular profiles** — provider-returned rights/permissions и per-format readiness вместо "connection works".
-6. **CRED-06 Unified Socials UX** — access-level card, expandable diagnostics, exact remediation, "где получить нужный credential/permission".
-7. **CRED-07 READY destination/credential binding** — approved post cannot silently move to another destination/profile.
-8. **CRED-08 Controlled live acceptance** — real public-write evidence on exact build without secrets in evidence.
-9. Далее продолжить remaining content/editorial roadmap: Templates/Snippets, Calendar editing, ZIP bundle, Integration API, cloud video ingest, AI producer, Advanced ingest, mass acceptance.
+1. **CRED-01A Schema 13 + CapabilityProfile persistence** — credential_version, safe profile table, migration 12→13, backup/restore regression; no provider network during migration.
+2. **CRED-01B Save-and-check + Recheck server flow** — persist first, inspect second, provider denial becomes profile state rather than lost credential.
+3. **CRED-01C Visible Socials UX** — ПОЛНОЦЕННЫЙ/ОГРАНИЧЕННЫЙ/НЕДЕЙСТВИТЕЛЬНЫЙ/НЕ ПРОВЕРЕН, per-format matrix, exact remediation.
+4. **CRED-02 Server authority convergence** — legacy POST/PATCH/activate cannot bypass verification; valid-but-limited remains usable only for READY formats.
+5. **CRED-03 READY capability binding** — capability-aware preflight + immutable destination/credential_version/profile_fingerprint binding.
+6. **CRED-04 VK exact diagnostics** — USER/GROUP/SERVICE evidence, account.getAppPermissions for USER, groups.getTokenPermissions for GROUP, exact method-token matrix.
+7. **CRED-05 Telegram/MAX/Instagram granular diagnostics**.
+8. **CRED-06 Controlled live acceptance** — real public-write evidence on exact build without secrets.
+9. Далее продолжить remaining content/editorial roadmap.
 
 Правило порядка: новые alternate platform transports, Stories/Shorts и расширение publisher methods не должны опережать credential capability foundation, если их необходимость определяется правами/типом конкретного credential.
 

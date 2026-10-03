@@ -947,26 +947,491 @@ For VK additionally:
 
 # 21. Implementation priority
 
-Before speculative alternate transports, implement the credential UX described above.
+Before speculative alternate transports, implement the credential foundation in bounded checkpoints.
 
-Recommended sequence:
+Canonical order:
 
-1. Save-and-check server contract.
-2. Persisted access level + capability profile.
-3. Unified result UI with FULL/PARTIAL/READ_ONLY/SETUP_REQUIRED/INVALID/UNAVAILABLE.
-4. VK exact type/permission/method inspection.
-5. Telegram granular rights.
-6. MAX permissions.
-7. Instagram publication prerequisites.
-8. Server-authoritative activation/update.
-9. READY destination/credential binding.
-10. Controlled live publication acceptance.
+1. CRED-01A — schema 13 + persisted safe CapabilityProfile DTO.
+2. CRED-01B — canonical Save-and-check / Recheck server flow.
+3. CRED-01C — visible Socials UI: verdict, access level, can/cannot matrix and remediation.
+4. CRED-02 — remove server activation/update bypasses from legacy POST/PATCH/activate paths.
+5. CRED-03 — READY destination + credential/profile binding and capability-aware preflight.
+6. CRED-04 — exact VK USER/GROUP/SERVICE diagnostics and permission evidence.
+7. CRED-05 — Telegram/MAX/Instagram granular diagnostics.
+8. CRED-06 — controlled live publication acceptance and evidence.
+
+Each A/B/C slice is a separate checkpoint/branch/PR. Do not implement CRED-01 as one giant PR.
 
 An alternate transport becomes justified only after the diagnostic profile proves why the current implemented transport cannot satisfy a real required credential/destination scenario.
 
 ---
 
-# 22. Definition of Done
+# 22. Exact persistence contract — schema 13
+
+Current main before CRED implementation is schema 12.
+
+CRED-01A owns schema 13: social-credential-capability-profile.
+
+Do not redesign the entire social account model in this migration.
+
+The existing table remains the secret/account owner:
+
+~~~text
+social_accounts
+- id
+- platform
+- name
+- credentials_encrypted
+- enabled
+- credential_version      NEW
+- created_at
+- updated_at
+~~~
+
+Add:
+
+~~~text
+credential_version INTEGER NOT NULL DEFAULT 1 CHECK(credential_version >= 1)
+~~~
+
+credential_version increments only when publication-relevant credential/config stored in credentials_encrypted changes, including destination or provider API version when those fields are stored there.
+
+Changing only display name or operator enabled MUST NOT increment credential_version.
+
+Add one new table:
+
+~~~text
+social_account_capability_profiles
+
+account_id                  TEXT PRIMARY KEY
+profile_schema_version      INTEGER NOT NULL
+credential_version          INTEGER NOT NULL
+access_level                TEXT NOT NULL
+provider_type               TEXT NOT NULL
+profile_json                TEXT NOT NULL
+profile_fingerprint         TEXT NOT NULL
+last_check_status           TEXT NOT NULL
+last_check_at               TEXT
+last_successful_checked_at  TEXT
+updated_at                  TEXT NOT NULL
+~~~
+
+Foreign key:
+
+~~~text
+account_id -> social_accounts(id) ON DELETE CASCADE
+~~~
+
+Allowed access_level:
+
+~~~text
+FULL
+PARTIAL
+READ_ONLY
+SETUP_REQUIRED
+INVALID
+UNAVAILABLE
+UNCHECKED
+~~~
+
+Allowed last_check_status:
+
+~~~text
+SUCCESS
+INVALID
+UNAVAILABLE
+UNCHECKED
+~~~
+
+profile_json is safe non-secret evidence only. It MAY contain identity, destination, declared permissions, method statuses, per-format readiness and remediation. It MUST NOT contain access tokens, bot tokens, client secrets, authorization codes or any secret-bearing URL.
+
+profile_schema_version starts at 1.
+
+provider_type is a normalized provider credential type such as USER, GROUP, SERVICE, BOT, UNKNOWN; platform-specific values are allowed but must be documented.
+
+## 22.1 Capability DTO v1
+
+The server-owned DTO persisted inside/synthesized from the profile MUST have these semantics:
+
+~~~text
+profileVersion: 1
+accountId
+credentialVersion
+profileFingerprint
+checkedAt
+lastCheckStatus
+
+verdict:
+  FULL | LIMITED | INVALID | UNCHECKED
+
+accessLevel:
+  FULL | PARTIAL | READ_ONLY | SETUP_REQUIRED |
+  INVALID | UNAVAILABLE | UNCHECKED
+
+credential:
+  validity
+  providerType
+  identity
+  ownerId nullable
+  expiresAt nullable
+  declaredPermissions[]
+  permissionsSource nullable
+
+destination:
+  kind nullable
+  id nullable
+  name nullable
+  role nullable
+  ownershipConfirmed nullable
+
+methods[]:
+  method
+  state
+  reason
+  evidenceSource
+
+publicationReadiness:
+  TEXT
+  IMAGE
+  CAROUSEL
+  VIDEO
+  SHORT
+  STORY
+
+remediation[]:
+  code
+  title
+  explanation
+  requiredCredentialType nullable
+  requiredPermissions[]
+  steps[]
+  primaryAction nullable
+  secondaryActions[]
+
+warnings[]
+~~~
+
+Publication readiness entry contains at minimum:
+
+~~~text
+state:
+  READY | BLOCKED | SETUP_REQUIRED |
+  NOT_IMPLEMENTED | UNKNOWN | UNAVAILABLE
+
+reason
+requiredMethods[]
+remediationCodes[]
+~~~
+
+Frontend MUST render this DTO rather than recreate the classification algorithm independently.
+
+## 22.2 Semantic fingerprint
+
+profile_fingerprint is SHA-256 of a deterministic canonical representation of semantic publication evidence:
+
+~~~text
+profile_schema_version
+credential_version
+provider_type
+credential validity/type/identity
+destination kind/id/role evidence
+declared permissions
+method states
+publication readiness
+publication-relevant adapter/config evidence
+~~~
+
+Exclude volatile fields such as checkedAt, request IDs, latency and transient prose.
+
+A successful re-check with identical semantic capabilities SHOULD keep the same fingerprint.
+
+A real change in credential type, destination, permissions, method capability or per-format readiness MUST change the fingerprint.
+
+CRED-03 will snapshot this fingerprint into READY target intent.
+
+---
+
+# 23. Schema-13 migration contract
+
+Migration 12 → 13 MUST be local-only and deterministic.
+
+It MUST:
+
+1. add social_accounts.credential_version with value 1 for historical rows;
+2. create social_account_capability_profiles;
+3. add schema 13 to SCHEMA_MILESTONES;
+4. set database user_version to 13 through the existing milestone mechanism;
+5. add dedicated migration regression;
+6. add dedicated canonical backup/restore regression;
+7. preserve all existing encrypted credentials byte-for-byte;
+8. preserve social_accounts.enabled;
+9. preserve project_default_targets;
+10. perform zero external provider requests.
+
+Historical accounts receive no fabricated capability profile row.
+
+No profile row means:
+
+~~~text
+verdict = UNCHECKED
+accessLevel = UNCHECKED
+credentialVersion = current account credential_version
+~~~
+
+at API/render time until the operator runs Save-and-check/Recheck.
+
+This is a bounded legacy compatibility window. CRED-01 migration MUST NOT disable existing working accounts merely because historical evidence did not yet exist.
+
+CRED-02/CRED-03 introduce strict server-authority/preflight rules for new/changed/READY publication paths.
+
+---
+
+# 24. enabled semantics
+
+social_accounts.enabled is only the operator master switch.
+
+It MUST NOT mean:
+
+~~~text
+all publication formats are allowed
+~~~
+
+Final format eligibility is:
+
+~~~text
+account.enabled == true
+AND
+CapabilityProfile.publicationReadiness[requestedFormat] == READY
+AND
+platform adapter capability == implemented
+AND
+normal target/preflight invariants pass
+~~~
+
+Therefore this is valid:
+
+~~~text
+enabled = 1
+
+TEXT      = READY
+IMAGE     = BLOCKED
+CAROUSEL  = BLOCKED
+~~~
+
+The account remains usable for TEXT.
+
+A valid-but-limited credential MUST NOT be globally disabled merely because some formats are blocked.
+
+For a newly created account through Save-and-check:
+
+- if at least one currently implemented publication format is READY, default enabled=1;
+- if zero currently implemented publication formats are READY, default enabled=0;
+- INVALID or initial UNAVAILABLE/UNCHECKED accounts default enabled=0.
+
+For an existing account re-check:
+
+- do not silently change operator enabled for PARTIAL/FULL/SETUP_REQUIRED/READ_ONLY;
+- explicit INVALID MAY force enabled=0 because no provider authorization remains;
+- transient UNAVAILABLE MUST NOT erase a prior successful profile or silently toggle enabled.
+
+Project-default-target insertion is allowed only when the new account is enabled and has at least one READY implemented format.
+
+A later re-check that gains capability MUST NOT silently add the account to project defaults; show an explicit "Включить подключение" / project-default action.
+
+---
+
+# 25. Canonical Save-and-check API
+
+CRED-01B introduces the canonical creation endpoint:
+
+~~~text
+POST /api/accounts/save-and-check
+Content-Type: application/json
+~~~
+
+Request v1:
+
+~~~json
+{
+  "platform": "vk",
+  "name": "ASA Lab",
+  "credentials": {
+    "...": "platform-specific input including destination fields used by the current compatibility model"
+  }
+}
+~~~
+
+CRED-01 does NOT split destination/config into a new table. It preserves the current credentials_encrypted compatibility shape and adds a safe external CapabilityProfile.
+
+For a syntactically valid non-empty credential, server order is:
+
+~~~text
+validate request shape
+→ create account id
+→ encrypt and persist credentials
+→ credential_version=1
+→ persist UNCHECKED profile state
+→ run provider inspection
+→ persist capability result
+→ return safe account + CapabilityProfile
+~~~
+
+Provider capability result is NOT an HTTP validation result.
+
+Therefore these outcomes still return a persisted account:
+
+~~~text
+FULL
+PARTIAL
+READ_ONLY
+SETUP_REQUIRED
+INVALID
+UNAVAILABLE
+~~~
+
+Recommended response:
+
+~~~text
+201 Created
+~~~
+
+~~~json
+{
+  "account": {
+    "id": "acc_...",
+    "platform": "vk",
+    "name": "ASA Lab",
+    "enabled": false
+  },
+  "capabilityProfile": {
+    "profileVersion": 1,
+    "verdict": "LIMITED",
+    "accessLevel": "SETUP_REQUIRED"
+  }
+}
+~~~
+
+HTTP 400 is reserved for malformed input such as missing platform, missing/empty secret, invalid request shape or impossible local normalization.
+
+Provider rejection/insufficient permissions MUST be represented in the capability profile, not converted into a generic 400 that loses the saved credential.
+
+Structural duplicate conflicts MAY return 409 when the existing repository invariant forbids creating the same canonical connection twice.
+
+## 25.1 Recheck
+
+Canonical saved-account inspection:
+
+~~~text
+POST /api/accounts/:id/recheck
+~~~
+
+Normal body is empty.
+
+It:
+
+1. loads encrypted secret server-side;
+2. performs current safe provider inspection;
+3. updates check metadata/profile;
+4. returns only safe account/profile data.
+
+Browser MUST NOT resend a saved secret.
+
+Existing /api/accounts/:id/test MAY temporarily delegate to the same implementation for compatibility, but new UI uses /recheck.
+
+## 25.2 Existing unsaved test endpoint
+
+POST /api/accounts/test MAY remain as an optional ephemeral diagnostic endpoint.
+
+It is not activation authority and is not the primary UI flow.
+
+The primary UI is Save-and-check.
+
+## 25.3 Legacy create/update endpoints
+
+After CRED-01B:
+
+- existing POST /api/accounts MUST NOT create an enabled publish connection from client-asserted authKind, permissions or publishReady;
+- it SHOULD delegate to the same server-authoritative save/inspection path where compatibility requires the route;
+- existing PATCH/activate bypasses are fully converged in CRED-02.
+
+No endpoint may treat browser-provided capability fields as evidence.
+
+---
+
+# 26. Recheck and freshness policy
+
+CRED-01 deliberately introduces no background polling and no arbitrary time TTL.
+
+A profile is current when:
+
+- its credential_version equals the account credential_version;
+- no credential/destination/capability-relevant mutation has occurred since inspection.
+
+Immediate invalidation triggers:
+
+- secret replacement;
+- destination change;
+- provider API version/config change that affects capability;
+- any other publication-relevant credential/config mutation.
+
+Mutation transaction:
+
+~~~text
+update credentials_encrypted
+→ credential_version += 1
+→ remove/invalidate current capability profile
+→ effective state becomes UNCHECKED
+~~~
+
+Manual Recheck creates fresh evidence.
+
+UI always shows:
+
+- last check attempt;
+- last successful check when available.
+
+Transient provider/network failure on recheck:
+
+- MUST NOT destroy a previous successful semantic profile;
+- sets last_check_status=UNAVAILABLE and updates last_check_at;
+- preserves previous access level, profile_json and semantic fingerprint when a prior successful profile exists;
+- UI shows a warning that the latest recheck failed and displays the time of the last successful evidence.
+
+If there is no prior successful profile, the effective access level is UNAVAILABLE.
+
+Explicit provider INVALID/REVOKED evidence replaces the effective profile with INVALID and MAY disable the account as defined in section 24.
+
+Future automatic revalidation before READY/publish is CRED-03 scope.
+
+---
+
+# 27. Legacy compatibility stages
+
+The credential foundation is intentionally staged.
+
+## CRED-01
+
+Adds schema/profile persistence, Save-and-check/Recheck and visible access-level UX.
+
+Historical accounts remain operational under the bounded legacy compatibility described in section 23.
+
+## CRED-02
+
+Makes server verification authoritative for every create/update/enable/credential replacement path.
+
+No direct API bypass remains.
+
+## CRED-03
+
+Adds capability-aware READY/publish preflight and immutable destination/credential/profile binding.
+
+At this point a target cannot enter/use READY publication intent without an appropriate current capability profile for the requested format, except for any explicitly documented one-time migration exception.
+
+This staged rollout prevents schema migration itself from depending on provider availability or unexpectedly disabling all historical accounts.
+
+---
+
+# 28. Definition of Done
 
 Credential handling is DONE only when a non-technical user can paste/save a credential and immediately understand:
 
