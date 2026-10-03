@@ -302,7 +302,7 @@ Publikator уже прошёл маленькие additive milestones вмест
 
 # 6. Текущее состояние и оставшийся порядок разработки
 
-Сверено: **03.10.2026**, current main `9af5a27399a47aad5c103736f4542cadd1ec9396`.
+Сверено: **03.10.2026**. Credential readiness contract принят через PR #141; executable tracking — #142–#145 ниже. Перед каждым implementation checkpoint обязателен fresh guard текущего `main`, поэтому exact main SHA намеренно не фиксируется в roadmap.
 
 Актуальное состояние social credential lane:
 
