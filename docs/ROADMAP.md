@@ -302,7 +302,7 @@ Publikator уже прошёл маленькие additive milestones вмест
 
 # 6. Текущее состояние и оставшийся порядок разработки
 
-Сверено: **03.10.2026**, credential documentation baseline merged into main at `b21938157ba65f9c40241778b90bab363dedb9ff`.
+Сверено: **03.10.2026**, current main `9af5a27399a47aad5c103736f4542cadd1ec9396`.
 
 Актуальное состояние social credential lane:
 
@@ -318,9 +318,11 @@ Publikator уже прошёл маленькие additive milestones вмест
 
 ## Оставшийся рекомендуемый порядок
 
-1. **CRED-01A Schema 13 + CapabilityProfile persistence** — credential_version, safe profile table, migration 12→13, backup/restore regression; no provider network during migration.
-2. **CRED-01B Save-and-check + Recheck server flow** — persist first, inspect second, provider denial becomes profile state rather than lost credential.
-3. **CRED-01C Visible Socials UX** — ПОЛНОЦЕННЫЙ/ОГРАНИЧЕННЫЙ/НЕДЕЙСТВИТЕЛЬНЫЙ/НЕ ПРОВЕРЕН, per-format matrix, exact remediation.
+Parent tracking: **#142 CRED-01**.
+
+1. **#143 CRED-01A Schema 13 + CapabilityProfile persistence** — ACTIVE FIRST; credential_version, safe profile table, migration 12→13, backup/restore regression; no provider network during migration.
+2. **#144 CRED-01B Save-and-check + Recheck server flow** — BLOCKED by #143; persist first, inspect second, provider denial becomes profile state rather than lost credential.
+3. **#145 CRED-01C Visible Socials UX** — BLOCKED by #144; ПОЛНОЦЕННЫЙ/ОГРАНИЧЕННЫЙ/НЕДЕЙСТВИТЕЛЬНЫЙ/НЕ ПРОВЕРЕН, per-format matrix, exact remediation.
 4. **CRED-02 Server authority convergence** — legacy POST/PATCH/activate cannot bypass verification; valid-but-limited remains usable only for READY formats.
 5. **CRED-03 READY capability binding** — capability-aware preflight + immutable destination/credential_version/profile_fingerprint binding.
 6. **CRED-04 VK exact diagnostics** — USER/GROUP/SERVICE evidence, account.getAppPermissions for USER, groups.getTokenPermissions for GROUP, exact method-token matrix.
