@@ -302,7 +302,7 @@ Publikator уже прошёл маленькие additive milestones вмест
 
 # 6. Текущее состояние и оставшийся порядок разработки
 
-Сверено: **03.10.2026**. Credential readiness contract принят через PR #141; executable tracking — #142–#145 ниже. Перед каждым implementation checkpoint обязателен fresh guard текущего `main`, поэтому exact main SHA намеренно не фиксируется в roadmap.
+Сверено: **04.10.2026**. Credential foundation tracking — #142, active #143, then blocked #148 → #144 → #145. Перед каждым implementation checkpoint обязателен fresh guard текущего `main`, поэтому exact main SHA намеренно не фиксируется в roadmap.
 
 Актуальное состояние social credential lane:
 
@@ -311,8 +311,8 @@ Publikator уже прошёл маленькие additive milestones вмест
 - PR #138 с alternate VK album transport является superseded experiment и не должен влиять на CRED architecture;
 - PR #139 — test-only доказательство существующего WALL publisher; держать HOLD до convergence с credential lane;
 - нормативный foundation: `SOCIAL_CREDENTIAL_CAPABILITY_CONTRACT.md`;
-- schema 13 persistence + Save-and-check + visible access-level UX являются первым executable credential lane;
-- server-authoritative updates и READY destination/profile binding идут отдельными следующими checkpoints.
+- schema 13 persistence → structured inspection → Save-and-check/mutation authority → visible access-level UX являются единым staged CRED-01 foundation;
+- capability-aware READY destination/profile binding идёт отдельным CRED-02 checkpoint.
 
 Предыдущие content/editorial foundation milestones остаются действующими; social credential foundation не отменяет их, но имеет приоритет для publisher/platform work.
 
@@ -320,15 +320,13 @@ Publikator уже прошёл маленькие additive milestones вмест
 
 Parent tracking: **#142 CRED-01**.
 
-1. **#143 CRED-01A Schema 13 + CapabilityProfile persistence** — ACTIVE FIRST; credential_version, safe profile table, migration 12→13, backup/restore regression; no provider network during migration.
-2. **#144 CRED-01B Save-and-check + Recheck server flow** — BLOCKED by #143; persist first, inspect second, provider denial becomes profile state rather than lost credential.
-3. **#145 CRED-01C Visible Socials UX** — BLOCKED by #144; ПОЛНОЦЕННЫЙ/ОГРАНИЧЕННЫЙ/НЕДЕЙСТВИТЕЛЬНЫЙ/НЕ ПРОВЕРЕН, per-format matrix, exact remediation.
-4. **CRED-02 Server authority convergence** — legacy POST/PATCH/activate cannot bypass verification; valid-but-limited remains usable only for READY formats.
-5. **CRED-03 READY capability binding** — capability-aware preflight + immutable destination/credential_version/profile_fingerprint binding.
-6. **CRED-04 VK exact diagnostics** — USER/GROUP/SERVICE evidence, account.getAppPermissions for USER, groups.getTokenPermissions for GROUP, exact method-token matrix.
-7. **CRED-05 Telegram/MAX/Instagram granular diagnostics**.
-8. **CRED-06 Controlled live acceptance** — real public-write evidence on exact build without secrets.
-9. Далее продолжить remaining content/editorial roadmap.
+1. **#143 CRED-01A Schema 13 + canonical profile domain/persistence** — ACTIVE FIRST; credential_version, one profile write-path, deterministic classifier/fingerprint, stale-profile rejection, secret-safe normalization, migration 12→13 and backup/restore; no provider network.
+2. **#148 CRED-01B Structured credential inspection** — BLOCKED by #143; normalized machine evidence for VK/Telegram/MAX/Instagram; valid-but-limited and UNAVAILABLE are data, not generic errors.
+3. **#144 CRED-01C Save-and-check / Recheck + credential mutation authority** — BLOCKED by #148; persist first, inspect second, all current credential-changing routes/OAuth paths converge on credential_version/profile invalidation.
+4. **#145 CRED-01D Visible Socials UX** — BLOCKED by #144; ПОЛНОЦЕННЫЙ/ОГРАНИЧЕННЫЙ/НЕДЕЙСТВИТЕЛЬНЫЙ/НЕ ПРОВЕРЕН, per-format matrix, expandable evidence, exact remediation.
+5. **CRED-02 READY capability binding** — capability-aware preflight + immutable destination/credential_version/profile_fingerprint binding.
+6. **CRED-03 Controlled live acceptance** — real public-write evidence on exact build without secrets.
+7. Далее продолжить remaining content/editorial roadmap.
 
 Правило порядка: новые alternate platform transports, Stories/Shorts и расширение publisher methods не должны опережать credential capability foundation, если их необходимость определяется правами/типом конкретного credential.
 

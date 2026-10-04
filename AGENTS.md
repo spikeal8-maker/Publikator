@@ -65,11 +65,13 @@ If a change crosses multiple schema milestones, multiple unrelated modules, or c
 
 For the credential lane, CRED-01 is a parent objective, not one giant PR. Implement only the exact active slice:
 
-- CRED-01A — schema 13 + capability persistence;
-- CRED-01B — Save-and-check/Recheck server flow;
-- CRED-01C — visible Socials access-level UI.
+- CRED-01A — schema 13 + capability persistence/domain primitives;
+- CRED-01B — structured VK/Telegram/MAX/Instagram credential inspection;
+- CRED-01C — Save-and-check/Recheck + credential mutation/version invalidation convergence;
+- CRED-01D — visible Socials access-level UI;
+- CRED-02 — capability-aware READY/preflight binding.
 
-Do not pull CRED-02/CRED-03 behavior into CRED-01A/B/C early.
+Do not implement Save-and-check before structured inspection exists. Do not pull CRED-02 behavior into CRED-01A/B/C/D early.
 
 ## 3. Token/context economy
 
@@ -104,7 +106,7 @@ During implementation:
 - do not invent platform capabilities not confirmed by the spec/current official API work item;
 - for social credentials, never collapse validity, declared permissions, destination rights, method capability and publication readiness into one boolean;
 - never trust browser-supplied authKind/publishReady/destination fields as proof: enabled connections require server-side verification;
-- for social credentials, implement the user contract first: Save and check → persist encrypted secret → access level → per-format can/cannot → exact remediation;
+- for social credentials, preserve the user contract: Save and check → persisted encrypted secret → access level → per-format can/cannot → exact remediation; implementation dependency order is CRED-01A persistence → CRED-01B structured inspection → CRED-01C Save/Recheck authority → CRED-01D UI;
 - accept valid-but-limited credentials instead of relabeling them invalid;
 - never assume multiple credentials are required unless current provider method evidence proves the need;
 - do not add an alternate publication transport merely because it exists elsewhere; first prove through the capability profile that the current transport cannot satisfy the required credential/destination combination;

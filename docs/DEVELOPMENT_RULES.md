@@ -126,17 +126,19 @@ Alternate transport нельзя добавлять только потому, �
 
 Implementation staging is fixed:
 
-- CRED-01A owns schema 13 only: credential_version + safe profile table + migration/backup evidence;
-- CRED-01B owns Save-and-check/Recheck server flow;
-- CRED-01C owns visible access-level UI;
-- CRED-02 converges legacy create/update/activate authority;
-- CRED-03 owns capability-aware READY/publish binding.
+- CRED-01A owns schema 13 + canonical profile persistence/classifier/fingerprint/stale/secret-safety primitives;
+- CRED-01B owns normalized structured credential inspection for VK/Telegram/MAX/Instagram;
+- CRED-01C owns Save-and-check/Recheck and convergence of every credential-changing path onto credential_version/profile invalidation;
+- CRED-01D owns visible access-level UI;
+- CRED-02 owns capability-aware READY/publish binding.
 
 social_accounts.enabled is only the operator master switch. It is not proof that every format is allowed.
 
 CRED-01A migration MUST NOT call any external provider and MUST preserve historical encrypted credentials, enabled flags and project default targets unchanged.
 
 No CRED agent may replace schema 13 with ad-hoc extra columns, encrypted profile JSON, a second social-account table or a new service without changing the normative contract first.
+
+CRED-01B MUST NOT derive provider capability by matching localized error strings. Limited/invalid/unavailable outcomes are structured machine evidence. CRED-01C MUST inventory and converge every current credential mutation path, including VK OAuth and VK community creation/update, before saved profiles can be treated as current.
 
 # 3.4 Release and migration policy
 
