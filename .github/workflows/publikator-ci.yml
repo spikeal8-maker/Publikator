@@ -112,6 +112,9 @@ jobs:
       - name: CRED-01A capability profile domain
         run: node scripts/cred-01a-capability-profile-e2e.mjs
 
+      - name: CRED-01B structured credential inspection
+        run: node scripts/cred-01b-structured-inspection-e2e.mjs
+
       - name: M0-005 time rendition sequence semantics
         run: node scripts/m005-e2e.mjs
 
