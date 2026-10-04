@@ -37,7 +37,7 @@ Web UI / REST API
 - VK: загрузка нескольких изображений и `wall.post` с `guid=post.id`;
 - MAX: до 12 изображений через публичные HTTPS URL;
 - Instagram: single JPEG и carousel 2–10 JPEG;
-- social credentials: нормативный capability-contract принят; schema/profile foundation реализуется в CRED-01A, structured inspection — CRED-01B, а пользовательский "Сохранить и проверить" + единый access-level UI появятся только после CRED-01C/CRED-01D;
+- social credentials: schema/profile foundation (CRED-01A) и structured VK/Telegram/MAX/Instagram inspection (CRED-01B) уже реализованы; пользовательский "Сохранить и проверить" и server-authoritative mutation flow идут в CRED-01C, единый access-level UI — в CRED-01D;
 - ручная публикация;
 - `AT` — точная дата/время;
 - `QUEUE` — проектные недельные слоты с timezone и grace-window;

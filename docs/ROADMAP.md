@@ -302,7 +302,7 @@ Publikator уже прошёл маленькие additive milestones вмест
 
 # 6. Текущее состояние и оставшийся порядок разработки
 
-Сверено: **04.10.2026**. CRED-01A schema/profile foundation завершён; следующий активный checkpoint — #148, затем #144 → #145. Перед каждым implementation checkpoint обязателен fresh guard текущего `main`, поэтому exact main SHA намеренно не фиксируется в roadmap.
+Сверено: **05.10.2026**. CRED-01A schema/profile foundation и CRED-01B structured inspection завершены; следующий активный checkpoint — #144, затем #145. Перед каждым implementation checkpoint обязателен fresh guard текущего `main`, поэтому exact main SHA намеренно не фиксируется в roadmap.
 
 Актуальное состояние social credential lane:
 
@@ -321,8 +321,8 @@ Publikator уже прошёл маленькие additive milestones вмест
 Parent tracking: **#142 CRED-01**.
 
 1. **#143 CRED-01A Schema 13 + canonical profile domain/persistence** — DONE; credential_version, one profile write-path, deterministic classifier/fingerprint, stale-profile rejection, secret-safe normalization, migration 12→13 and backup/restore.
-2. **#148 CRED-01B Structured credential inspection** — ACTIVE NEXT; normalized machine evidence for VK/Telegram/MAX/Instagram; valid-but-limited and UNAVAILABLE are data, not generic errors.
-3. **#144 CRED-01C Save-and-check / Recheck + credential mutation authority** — BLOCKED by #148; persist first, inspect second, all current credential-changing routes/OAuth paths converge on credential_version/profile invalidation.
+2. **#148 CRED-01B Structured credential inspection** — DONE; normalized machine evidence for VK/Telegram/MAX/Instagram; valid-but-limited and UNAVAILABLE are data, not generic errors.
+3. **#144 CRED-01C Save-and-check / Recheck + credential mutation authority** — ACTIVE NEXT; persist first, inspect second, all current credential-changing routes/OAuth paths converge on credential_version/profile invalidation.
 4. **#145 CRED-01D Visible Socials UX** — BLOCKED by #144; ПОЛНОЦЕННЫЙ/ОГРАНИЧЕННЫЙ/НЕДЕЙСТВИТЕЛЬНЫЙ/НЕ ПРОВЕРЕН, per-format matrix, expandable evidence, exact remediation.
 5. **CRED-02 READY capability binding** — capability-aware preflight + immutable destination/credential_version/profile_fingerprint binding.
 6. **CRED-03 Controlled live acceptance** — real public-write evidence on exact build without secrets.
