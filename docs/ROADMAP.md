@@ -293,7 +293,7 @@ Publikator уже прошёл маленькие additive milestones вмест
 10 canonical-rich-text — EW4-003 accepted/merged
 11 project-defaults — EW4-005 accepted/merged
 12 templates / reusable content blocks — EW4-006 accepted/merged (#107/#108)
-13 social-credential-capability-profile — planned CRED-01A
+13 social-credential-capability-profile — CRED-01A accepted foundation
 ```
 
 Новые feature PR не должны повторно создавать эти primitives. Следующая schema version появляется только при новом coherent data invariant и обязана следовать `docs/RELEASE_MIGRATION_POLICY.md` + `SCHEMA_MILESTONES`.
@@ -302,14 +302,14 @@ Publikator уже прошёл маленькие additive milestones вмест
 
 # 6. Текущее состояние и оставшийся порядок разработки
 
-Сверено: **04.10.2026**. Credential foundation tracking — #142, active #143, then blocked #148 → #144 → #145. Перед каждым implementation checkpoint обязателен fresh guard текущего `main`, поэтому exact main SHA намеренно не фиксируется в roadmap.
+Сверено: **04.10.2026**. CRED-01A schema/profile foundation завершён; следующий активный checkpoint — #148, затем #144 → #145. Перед каждым implementation checkpoint обязателен fresh guard текущего `main`, поэтому exact main SHA намеренно не фиксируется в roadmap.
 
 Актуальное состояние social credential lane:
 
 - KEY-02 merged: VK validity отделена от method capability; PENDING/COMMUNITY credentials сохраняются безопасно;
-- существующий VK WALL publisher имеет system-path proof candidate PR #139, но live VK publication ещё не является доказанной;
-- PR #138 с alternate VK album transport является superseded experiment и не должен влиять на CRED architecture;
-- PR #139 — test-only доказательство существующего WALL publisher; держать HOLD до convergence с credential lane;
+- существующий VK WALL publisher имеет историческое system-path evidence из закрытого PR #139, но live VK publication ещё не является доказанной;
+- PR #138 с alternate VK album transport является superseded/closed experiment и не должен влиять на CRED architecture;
+- PR #139 закрыт как архив test-only evidence; при необходимости regression переносится на свежий `main`, старую ветку не возрождать;
 - нормативный foundation: `SOCIAL_CREDENTIAL_CAPABILITY_CONTRACT.md`;
 - schema 13 persistence → structured inspection → Save-and-check/mutation authority → visible access-level UX являются единым staged CRED-01 foundation;
 - capability-aware READY destination/profile binding идёт отдельным CRED-02 checkpoint.
@@ -320,8 +320,8 @@ Publikator уже прошёл маленькие additive milestones вмест
 
 Parent tracking: **#142 CRED-01**.
 
-1. **#143 CRED-01A Schema 13 + canonical profile domain/persistence** — ACTIVE FIRST; credential_version, one profile write-path, deterministic classifier/fingerprint, stale-profile rejection, secret-safe normalization, migration 12→13 and backup/restore; no provider network.
-2. **#148 CRED-01B Structured credential inspection** — BLOCKED by #143; normalized machine evidence for VK/Telegram/MAX/Instagram; valid-but-limited and UNAVAILABLE are data, not generic errors.
+1. **#143 CRED-01A Schema 13 + canonical profile domain/persistence** — DONE; credential_version, one profile write-path, deterministic classifier/fingerprint, stale-profile rejection, secret-safe normalization, migration 12→13 and backup/restore.
+2. **#148 CRED-01B Structured credential inspection** — ACTIVE NEXT; normalized machine evidence for VK/Telegram/MAX/Instagram; valid-but-limited and UNAVAILABLE are data, not generic errors.
 3. **#144 CRED-01C Save-and-check / Recheck + credential mutation authority** — BLOCKED by #148; persist first, inspect second, all current credential-changing routes/OAuth paths converge on credential_version/profile invalidation.
 4. **#145 CRED-01D Visible Socials UX** — BLOCKED by #144; ПОЛНОЦЕННЫЙ/ОГРАНИЧЕННЫЙ/НЕДЕЙСТВИТЕЛЬНЫЙ/НЕ ПРОВЕРЕН, per-format matrix, expandable evidence, exact remediation.
 5. **CRED-02 READY capability binding** — capability-aware preflight + immutable destination/credential_version/profile_fingerprint binding.

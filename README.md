@@ -37,7 +37,7 @@ Web UI / REST API
 - VK: загрузка нескольких изображений и `wall.post` с `guid=post.id`;
 - MAX: до 12 изображений через публичные HTTPS URL;
 - Instagram: single JPEG и carousel 2–10 JPEG;
-- social credentials: "Сохранить и проверить" сохраняет secret encrypted, затем показывает ПОЛНОЦЕННЫЙ/ОГРАНИЧЕННЫЙ/НЕДЕЙСТВИТЕЛЬНЫЙ/НЕ ПРОВЕРЕН, method evidence и доступность каждого publication format;
+- social credentials: нормативный capability-contract принят; schema/profile foundation реализуется в CRED-01A, structured inspection — CRED-01B, а пользовательский "Сохранить и проверить" + единый access-level UI появятся только после CRED-01C/CRED-01D;
 - ручная публикация;
 - `AT` — точная дата/время;
 - `QUEUE` — проектные недельные слоты с timezone и grace-window;
@@ -56,7 +56,7 @@ Web UI / REST API
 - AES-256-GCM для credentials;
 - same-origin guard для browser mutations и security headers;
 - явная конфигурация доверенного reverse proxy;
-- release `v1.0.0-rc.4`: SQLite schema v3; текущий `main` vNext: schema v12; следующий credential milestone CRED-01A запланирован как schema v13;
+- release `v1.0.0-rc.4`: SQLite schema v3; текущий vNext после CRED-01A использует schema v13 `social-credential-capability-profile`;
 - один GitHub Actions pipeline: **`Publikator CI / Acceptance`**.
 
 ## Для coding agents

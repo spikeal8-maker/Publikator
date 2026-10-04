@@ -8,6 +8,7 @@ import { migrateRevisionHistory } from './revision-history-migration.js';
 import { migrateCanonicalRichText } from './canonical-rich-text-migration.js';
 import { migrateProjectDefaults } from './project-defaults-migration.js';
 import { migrateTemplates } from './templates-migration.js';
+import { migrateSocialCredentialCapability } from './social-credential-capability-migration.js';
 import { canonicalPlainRichJson } from './rich-text.js';
 
 export { DATABASE_SCHEMA_VERSION } from './schema.js';
@@ -271,6 +272,7 @@ export function migrate(): void {
       name TEXT NOT NULL,
       credentials_encrypted TEXT NOT NULL,
       enabled INTEGER NOT NULL DEFAULT 1,
+      credential_version INTEGER NOT NULL DEFAULT 1 CHECK(credential_version >= 1),
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -390,6 +392,7 @@ export function migrate(): void {
   if (currentSchemaVersion < 10) migrateCanonicalRichText(db);
   if (currentSchemaVersion < 11) migrateProjectDefaults(db);
   if (currentSchemaVersion < 12) migrateTemplates(db);
+  if (currentSchemaVersion < 13) migrateSocialCredentialCapability(db);
 
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_posts_status_schedule ON posts(status, schedule_mode, scheduled_at);
