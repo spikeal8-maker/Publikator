@@ -834,11 +834,12 @@ with the application permissions needed for photos/wall access.
 
 # 17. Persistence of diagnostic result
 
-Publikator SHOULD persist the latest capability result/evidence metadata so the connection card survives reload.
+Publikator MUST persist the canonical safe capability result/evidence metadata so the connection card survives reload and all server consumers use the same evidence.
 
 Persist at least:
 
-- checked_at;
+- credential_version;
+- last check attempt, safe machine code/message, and last successful check;
 - access level;
 - credential provider type;
 - identity;
@@ -846,11 +847,13 @@ Persist at least:
 - declared permissions/scopes;
 - method statuses/evidence;
 - per-format readiness;
-- profile version/fingerprint.
+- profile schema version/fingerprint.
 
-Never persist secret copies inside capability evidence.
+Never persist secret copies or arbitrary raw provider responses inside capability evidence.
 
-A re-check replaces/versions the evidence.
+All persistence MUST use the canonical write/read rules in section 22.
+
+A successful re-check replaces the current semantic profile. A transient UNAVAILABLE re-check preserves the previous successful semantic profile when credential_version still matches and only updates check-status/timestamps as defined in section 27.
 
 ---
 
@@ -947,20 +950,18 @@ For VK additionally:
 
 # 21. Implementation priority
 
-Before speculative alternate transports, implement the credential foundation in bounded checkpoints.
+Before speculative alternate transports, implement the credential foundation in this fixed order:
 
-Canonical order:
+1. **CRED-01A — persistence/domain foundation**: schema 13, safe CapabilityProfile persistence, deterministic classifier, semantic fingerprint, stale-profile handling and secret-safe normalization. No provider calls and no route/UI changes.
+2. **CRED-01B — structured credential inspection foundation**: one normalized inspection result for VK/Telegram/MAX/Instagram; validity separated from destination/method rights; limited/unavailable/invalid represented as data, not generic exceptions.
+3. **CRED-01C — Save-and-check / Recheck + credential mutation authority**: persist-first/inspect-second API and convergence of every credential-changing path onto credential_version/profile invalidation.
+4. **CRED-01D — visible Socials UI**: verdict, access level, can/cannot matrix, expandable evidence and exact remediation.
+5. **CRED-02 — capability-aware READY/preflight binding**: destination + credential_version + profile_fingerprint become immutable publication intent.
+6. **CRED-03 — controlled live publication acceptance**: real public-write evidence without secrets.
 
-1. CRED-01A — schema 13 + persisted safe CapabilityProfile DTO.
-2. CRED-01B — canonical Save-and-check / Recheck server flow.
-3. CRED-01C — visible Socials UI: verdict, access level, can/cannot matrix and remediation.
-4. CRED-02 — remove server activation/update bypasses from legacy POST/PATCH/activate paths.
-5. CRED-03 — READY destination + credential/profile binding and capability-aware preflight.
-6. CRED-04 — exact VK USER/GROUP/SERVICE diagnostics and permission evidence.
-7. CRED-05 — Telegram/MAX/Instagram granular diagnostics.
-8. CRED-06 — controlled live publication acceptance and evidence.
+Each lettered slice is one checkpoint = one branch = one PR.
 
-Each A/B/C slice is a separate checkpoint/branch/PR. Do not implement CRED-01 as one giant PR.
+Do not implement Save-and-check before the structured inspection foundation exists. Persisting an inaccurate capability result is worse than having no capability profile.
 
 An alternate transport becomes justified only after the diagnostic profile proves why the current implemented transport cannot satisfy a real required credential/destination scenario.
 
@@ -1013,6 +1014,8 @@ profile_fingerprint         TEXT NOT NULL
 last_check_status           TEXT NOT NULL
 last_check_at               TEXT
 last_successful_checked_at  TEXT
+last_check_code             TEXT
+last_check_message          TEXT
 updated_at                  TEXT NOT NULL
 ~~~
 
@@ -1043,15 +1046,23 @@ UNAVAILABLE
 UNCHECKED
 ~~~
 
-profile_json is safe non-secret evidence only. It MAY contain identity, destination, declared permissions, method statuses, per-format readiness and remediation. It MUST NOT contain access tokens, bot tokens, client secrets, authorization codes or any secret-bearing URL.
+`last_check_code` is an optional stable machine code for the latest attempt (for example provider invalid-token code, NETWORK_TIMEOUT, PROVIDER_5XX).
+
+`last_check_message` is an optional short operator-facing message for the latest attempt. It MUST be sanitized/redacted and MUST NOT contain a secret-bearing URL or provider raw body.
+
+Both latest-attempt fields are diagnostic metadata and are excluded from semantic fingerprint.
+
+profile_json is the safe non-secret semantic evidence payload only. It MAY contain credential validity/identity, destination, declared permissions, method statuses, per-format readiness, remediation and warnings. It MUST NOT duplicate storage/check metadata or contain access tokens, bot tokens, client secrets, authorization codes or any secret-bearing URL.
 
 profile_schema_version starts at 1.
+
+Application code MUST expose one `CURRENT_CAPABILITY_PROFILE_VERSION`. Any material change to inspection/classification/profile semantics that makes stored evidence unsafe to reuse increments this version. Canonical read treats an older/newer unsupported profile version as stale/UNCHECKED.
 
 provider_type is a normalized provider credential type such as USER, GROUP, SERVICE, BOT, UNKNOWN; platform-specific values are allowed but must be documented.
 
 ## 22.1 Capability DTO v1
 
-The server-owned DTO persisted inside/synthesized from the profile MUST have these semantics:
+The server-owned API DTO synthesized from persisted metadata + semantic evidence MUST have these semantics:
 
 ~~~text
 profileVersion: 1
@@ -1059,7 +1070,10 @@ accountId
 credentialVersion
 profileFingerprint
 checkedAt
+lastSuccessfulCheckedAt nullable
 lastCheckStatus
+lastCheckCode nullable
+lastCheckMessage nullable
 
 verdict:
   FULL | LIMITED | INVALID | UNCHECKED
@@ -1124,33 +1138,267 @@ remediationCodes[]
 ~~~
 
 Frontend MUST render this DTO rather than recreate the classification algorithm independently.
+The API DTO is synthesized from table metadata plus one persisted semantic payload.
 
-## 22.2 Semantic fingerprint
-
-profile_fingerprint is SHA-256 of a deterministic canonical representation of semantic publication evidence:
+`profile_json` MUST contain only safe semantic evidence:
 
 ~~~text
-profile_schema_version
-credential_version
-provider_type
-credential validity/type/identity
-destination kind/id/role evidence
-declared permissions
-method states
-publication readiness
-publication-relevant adapter/config evidence
+credential:
+  validity
+  identity
+  ownerId
+  expiresAt
+  declaredPermissions[]
+  permissionsSource
+
+destination
+methods[]
+publicationReadiness
+remediation[]
+warnings[]
 ~~~
 
-Exclude volatile fields such as checkedAt, request IDs, latency and transient prose.
+The following are storage metadata or derived API fields and MUST NOT be duplicated inside `profile_json`:
 
-A successful re-check with identical semantic capabilities SHOULD keep the same fingerprint.
+- profileVersion / profile_schema_version;
+- credentialVersion / credential_version;
+- profileFingerprint / profile_fingerprint;
+- checkedAt / last_check_at;
+- lastSuccessfulCheckedAt / last_successful_checked_at;
+- lastCheckStatus / last_check_status;
+- lastCheckCode / last_check_code;
+- lastCheckMessage / last_check_message;
+- accessLevel / access_level;
+- verdict;
+- credential.providerType / provider_type.
 
-A real change in credential type, destination, permissions, method capability or per-format readiness MUST change the fingerprint.
+The API assembler injects these fields into the returned CapabilityProfile DTO.
 
-CRED-03 will snapshot this fingerprint into READY target intent.
+## 22.2 One canonical persistence write-path
+
+There are two canonical domain operations:
+
+~~~text
+buildCapabilityProfile(structuredInspection, adapterCapability, runtimePrerequisites)
+→ normalized CapabilityProfile input
+
+saveCapabilityProfile(account, normalizedProfileInput)
+~~~
+
+`buildCapabilityProfile` owns final per-format readiness and access-level derivation.
+
+For each format:
+
+1. if Publikator adapter does not implement it → `NOT_IMPLEMENTED` regardless of key strength;
+2. else provider evidence `DENIED` → `BLOCKED` or `SETUP_REQUIRED` according to remediation;
+3. else provider evidence `UNAVAILABLE` → `UNAVAILABLE`;
+4. else provider evidence insufficient → `UNKNOWN`;
+5. else runtime prerequisite missing (for example public HTTPS media) → `SETUP_REQUIRED`;
+6. only confirmed provider prerequisites + implemented adapter + satisfied runtime prerequisites → `READY`.
+
+The access-level classifier then consumes this final publicationReadiness map.
+
+There is exactly one canonical profile write operation:
+
+~~~text
+saveCapabilityProfile(account, normalizedInspectionOrProfileInput)
+~~~
+
+It MUST:
+
+1. validate the strict semantic evidence shape;
+2. normalize and sanitize safe evidence;
+3. compute access level with the canonical classifier;
+4. derive verdict from access level at API assembly time;
+5. derive provider_type from normalized credential-type evidence;
+6. bind the current account credential_version;
+7. calculate the semantic fingerprint;
+8. serialize only the canonical safe semantic payload into profile_json;
+9. persist metadata columns + semantic JSON atomically.
+
+Callers MUST NOT independently write `social_account_capability_profiles` or provide precomputed `access_level`, `provider_type`, `profile_fingerprint` or serialized `profile_json`.
+
+Canonical read MUST:
+
+- parse and validate the semantic payload;
+- verify supported profile_schema_version;
+- verify profile credential_version matches the account;
+- recompute and verify profile_fingerprint;
+- synthesize the API DTO from columns + semantic payload;
+- derive verdict from access_level.
+
+Invalid semantic JSON, unsupported profile version, stale credential version or fingerprint mismatch makes the row non-current and unusable as authorization evidence.
+## 22.3 Semantic fingerprint
+
+`profile_fingerprint` is SHA-256 of machine semantics only.
+
+Canonicalization MUST be deterministic:
+
+- object keys serialized in lexicographic order;
+- `declaredPermissions` sorted and deduplicated;
+- methods sorted by stable method identifier;
+- publication formats emitted in fixed order: `TEXT`, `IMAGE`, `CAROUSEL`, `VIDEO`, `SHORT`, `STORY`;
+- `requiredMethods` sorted and deduplicated;
+- `requiredPermissions` sorted and deduplicated;
+- stable machine state/evidence identifiers included;
+- `profile_schema_version` included;
+- `credential_version` included;
+- canonical `access_level` included;
+- provider type/validity and stable provider principal ID (`ownerId` or equivalent) included;
+- destination kind/id/role/ownership evidence included;
+- human display names/usernames are excluded unless the provider has no separate stable routing identifier and that exact identifier is publication-relevant.
+
+Exclude from fingerprint:
+
+- check timestamps/status/code/message (`last_check_*`);
+- request IDs;
+- latency;
+- provider raw response ordering;
+- human-readable identity/display names when a stable provider ID exists;
+- human-readable reason/title/explanation text;
+- remediation/warning prose;
+- UI labels;
+- all secrets.
+
+Semantically equivalent evidence with different provider array ordering MUST produce the same fingerprint.
+
+A real change in credential type, destination, permission set, method state or publication readiness MUST change the fingerprint.
+
+CRED-02 will snapshot this fingerprint into READY target intent.
+
+## 22.4 Stale-profile rule
+
+A profile is current only when BOTH are true:
+
+~~~text
+profile.profileVersion == CURRENT_CAPABILITY_PROFILE_VERSION
+profile.credentialVersion == social_accounts.credential_version
+~~~
+
+If they differ:
+
+~~~text
+profileCurrent = false
+effective verdict = UNCHECKED
+effective accessLevel = UNCHECKED
+~~~
+
+The stale row MAY remain for audit/debug evidence, but it MUST NOT authorize publication or be rendered as current FULL/PARTIAL capability.
+
+Canonical read helpers MUST enforce this comparison centrally.
+
+Required regression:
+
+~~~text
+case A:
+account credential_version = N+1
+stored profile credential_version = N
+→ current profile rejected
+→ effective UNCHECKED
+
+case B:
+stored profile profileVersion != CURRENT_CAPABILITY_PROFILE_VERSION
+→ current profile rejected
+→ effective UNCHECKED
+~~~
+
+## 22.5 Secret-safe profile normalization
+
+CapabilityProfile persistence uses a strict allowlisted DTO, never arbitrary provider objects.
+
+The canonical normalizer MUST reject or remove secret-bearing fields and values before persistence and fingerprinting.
+
+Forbidden field names include at least:
+
+~~~text
+accessToken
+access_token
+botToken
+token
+refreshToken
+refresh_token
+clientSecret
+client_secret
+authorizationCode
+authorization_code
+code_verifier
+secret
+password
+~~~
+
+Secret-bearing URLs/query parameters MUST be sanitized before evidence persistence. Provider raw response bodies MUST NOT be stored wholesale. Human-readable provider errors may be persisted only after redaction.
+
+Required regression injects one fake secret into provider error text, a URL query and an unexpected nested object and proves that the secret is absent from:
+
+- `profile_json`;
+- fingerprint input/debug serialization;
+- returned safe profile;
+- capability-module event/log evidence.
+
+## 22.6 Deterministic access-level classifier
+
+Access level is computed in the canonical domain module, never supplied by browser or provider prose.
+
+Classification order:
+
+1. provider explicitly proves invalid/expired/revoked → `INVALID`;
+2. no reliable validity verdict because provider/network is unavailable → `UNAVAILABLE`;
+3. inspection not completed → `UNCHECKED`;
+4. credential valid and every currently implemented relevant publication format is `READY` → `FULL`;
+5. credential valid, at least one implemented format `READY`, and another relevant implemented format is not `READY` → `PARTIAL`;
+6. credential valid, zero `READY`, but a concrete known remediation can make an implemented format ready → `SETUP_REQUIRED`;
+7. credential valid, zero `READY`, useful read/diagnostic capability exists, and no current remediation for this credential is known → `READ_ONLY`.
+
+`NOT_IMPLEMENTED` formats MUST NOT lower FULL/PARTIAL because they are a Publikator limitation, not a key limitation.
+
+Required classifier regressions:
+
+- all implemented relevant formats READY → FULL;
+- one READY + one BLOCKED → PARTIAL;
+- zero READY + known remediation → SETUP_REQUIRED;
+- zero READY + read capability + no remediation → READ_ONLY;
+- explicit invalid → INVALID;
+- transport/provider unavailable without invalid evidence → UNAVAILABLE;
+- NOT_IMPLEMENTED-only differences do not lower FULL.
 
 ---
 
+## 22.7 Canonical credential mutation primitive
+
+CRED-01A MAY define the DB/domain primitive without changing routes yet.
+
+Conceptual operation:
+
+~~~text
+replaceSocialAccountCredentials(accountId, encryptedCredentials)
+~~~
+
+For any publication-relevant credential/config replacement it atomically:
+
+~~~text
+update credentials_encrypted
+credential_version = credential_version + 1
+updated_at = now
+invalidate/remove current capability profile
+~~~
+
+Display-name-only and `enabled`-only changes MUST use separate operations and MUST NOT bump `credential_version`.
+
+Before any live saved CapabilityProfile is relied upon, all current credential-changing paths MUST converge on this primitive.
+
+Known current mutation paths include:
+
+- `POST /api/accounts`;
+- `PATCH /api/accounts/:id` when credentials change;
+- `POST /api/accounts/:id/activate`;
+- `POST /api/accounts/:id/vk-community` when it creates or changes credential/config semantics;
+- VK OAuth completion create/update;
+- canonical Save-and-check;
+- any future credential replacement path.
+
+Creating a new account starts at `credential_version=1`.
+
+---
 # 23. Schema-13 migration contract
 
 Migration 12 → 13 MUST be local-only and deterministic.
@@ -1240,45 +1488,208 @@ A later re-check that gains capability MUST NOT silently add the account to proj
 
 ---
 
-# 25. Canonical Save-and-check API
+# 25. Structured credential inspection contract
 
-CRED-01B introduces the canonical creation endpoint:
+Save-and-check MUST NOT build CapabilityProfile from legacy success-or-throw connection tests.
+
+CRED-01B introduces one normalized inspection function in application code, conceptually:
+
+~~~text
+inspectSocialCredential(platform, credentials, destination)
+→ CredentialInspectionResult
+~~~
+
+Provider capability outcomes are returned as structured data. Exceptions are reserved for local programmer/invariant failures, not ordinary provider limitations.
+
+CredentialInspectionResult MUST contain enough machine evidence to build a CapabilityProfile without parsing human error strings:
+
+~~~text
+credential:
+  validity = CONFIRMED | INVALID | UNAVAILABLE | UNKNOWN
+  providerType
+  identity
+  ownerId nullable
+  declaredPermissions[]
+  permissionsSource nullable
+
+destination:
+  resolutionState
+  kind nullable
+  id nullable
+  name nullable
+  role nullable
+  ownershipConfirmed nullable
+
+methods[]:
+  method
+  state
+  evidenceSource
+  machineCode nullable
+  reason
+
+publicationEvidence:
+  TEXT | IMAGE | CAROUSEL | VIDEO | SHORT | STORY each:
+    state = CONFIRMED | DENIED | SETUP_REQUIRED | UNKNOWN | UNAVAILABLE
+    requiredMethods[]
+    remediationCodes[]
+
+runtimePrerequisiteEvidence[]
+remediation[]
+~~~
+
+## 25.1 Failure classification
+
+Provider/network outcomes MUST be classified before Save-and-check:
+
+- explicit invalid/expired/revoked → credential `INVALID`;
+- valid identity + insufficient destination/method right → credential stays `CONFIRMED`, capability becomes `DENIED` / `SETUP_REQUIRED`;
+- timeout, DNS, 5xx, temporary provider failure → `UNAVAILABLE`;
+- provider method unsupported for credential type → `NOT_SUPPORTED_FOR_CREDENTIAL_TYPE`;
+- public/destructive method intentionally not executed → `NOT_CHECKED`.
+
+No caller may infer capability/validity by matching localized human prose.
+
+Classification is evidence-layered and monotonic within one inspection:
+
+- once credential identity/validity is CONFIRMED, a later destination/method timeout MUST NOT downgrade credential validity to UNAVAILABLE;
+- instead, preserve confirmed credential facts and mark only the unresolved destination/method/readiness layer UNAVAILABLE;
+- similarly, a confirmed destination read does not disappear because a later publish-preparation probe is unavailable;
+- only facts not yet established remain UNKNOWN/UNAVAILABLE.
+
+Example:
+
+~~~text
+Telegram getMe = CONFIRMED
+getChat = CONFIRMED
+getChatMember = timeout
+
+credential.validity = CONFIRMED
+destination.resolution = CONFIRMED
+membership/method readiness = UNAVAILABLE
+overall publication access may be UNAVAILABLE,
+but the key itself is not "unverified" or "invalid".
+~~~
+
+## 25.2 VK inspection requirements
+
+Current VK classifier MUST NOT use `users.get` success as proof of USER because that method may succeed for multiple token types.
+
+Type-specific evidence:
+
+- GROUP: `groups.getTokenPermissions` success is GROUP evidence;
+- USER: `account.getAppPermissions` success is USER evidence;
+- `users.get` may provide user identity/read evidence but not USER classification by itself;
+- `groups.getById` proves destination readability only;
+- `photos.getWallUploadServer` is USER image-preparation evidence;
+- `wall.post` remains `NOT_CHECKED` during normal inspection.
+
+If GROUP- and USER-specific probes both fail without explicit invalid evidence, classify SERVICE/UNKNOWN or UNAVAILABLE from machine provider evidence. Do not invent USER.
+
+Historical implementation prose such as `n8n`, `KEY-02`, checkpoint names or experiment names MUST NOT appear in user-facing method reasons.
+
+## 25.3 Telegram inspection requirements
+
+Telegram inspection preserves evidence even when publish rights are insufficient:
+
+~~~text
+getMe
+→ credential validity + bot identity
+
+getChat
+→ destination resolution
+
+getChatMember
+→ membership/admin rights
+~~~
+
+If `getMe` succeeds but bot is not administrator or `can_post_messages=false`:
+
+- credential validity remains CONFIRMED;
+- identity/destination evidence remains preserved;
+- publication capability becomes BLOCKED/SETUP_REQUIRED;
+- remediation names the exact administrator/right change.
+
+Preserve relevant provider-returned granular rights including post/edit/delete/story rights when present.
+
+## 25.4 MAX inspection requirements
+
+MAX inspection preserves token identity independently from destination write access:
+
+~~~text
+GET /me
+→ credential validity + identity
+
+GET /chats/{chatId}/members/me
+→ destination role + permissions
+~~~
+
+If `/me` succeeds but `write` is absent, the credential remains CONFIRMED and write readiness becomes DENIED/SETUP_REQUIRED.
+
+Preserve relevant provider-returned permissions as structured evidence.
+
+## 25.5 Instagram inspection requirements
+
+Instagram identity success alone MUST NOT imply media publishing READY.
+
+Inspection separates:
+
+- token/account identity;
+- professional account identity/type when safely available;
+- scopes/permissions when safely obtainable;
+- destination/account match;
+- public HTTPS media prerequisite;
+- per-format provider evidence.
+
+If safe inspection cannot prove publish authorization for IMAGE/CAROUSEL, readiness is UNKNOWN or SETUP_REQUIRED, never fabricated READY.
+
+CRED-01B may conservatively under-claim; it MUST NOT over-claim.
+
+## 25.6 Inspection acceptance
+
+Focused regressions MUST cover:
+
+- valid + fully capable;
+- valid + limited rights;
+- valid + read-only;
+- invalid;
+- unavailable;
+- destination mismatch;
+- provider permission present but required method denied;
+- no public publish call;
+- no secret leakage;
+- no parsing of human prose to determine capability.
+
+---
+# 26. Canonical Save-and-check / Recheck + mutation authority
+
+CRED-01C introduces the canonical creation and recheck endpoints:
 
 ~~~text
 POST /api/accounts/save-and-check
-Content-Type: application/json
+POST /api/accounts/:id/recheck
 ~~~
 
-Request v1:
+CRED-01C consumes only the normalized structured inspection result from CRED-01B.
 
-~~~json
-{
-  "platform": "vk",
-  "name": "ASA Lab",
-  "credentials": {
-    "...": "platform-specific input including destination fields used by the current compatibility model"
-  }
-}
-~~~
-
-CRED-01 does NOT split destination/config into a new table. It preserves the current credentials_encrypted compatibility shape and adds a safe external CapabilityProfile.
+Request v1 preserves the current platform-specific credential/config compatibility shape. CRED-01 does not split destination/config into a new table.
 
 For a syntactically valid non-empty credential, server order is:
 
 ~~~text
-validate request shape
-→ create account id
-→ encrypt and persist credentials
-→ credential_version=1
-→ persist UNCHECKED profile state
-→ run provider inspection
-→ persist capability result
+validate local request
+→ persist encrypted credentials
+→ initialize/bump credential_version
+→ effective profile becomes UNCHECKED
+→ commit local persistence
+→ run CRED-01B structured inspection
+→ normalize/classify
+→ save through canonical profile write-path
 → return safe account + CapabilityProfile
 ~~~
 
-Provider capability result is NOT an HTTP validation result.
+Provider capability outcome is NOT an HTTP validation result.
 
-Therefore these outcomes still return a persisted account:
+These outcomes still retain the saved account:
 
 ~~~text
 FULL
@@ -1289,101 +1700,82 @@ INVALID
 UNAVAILABLE
 ~~~
 
-Recommended response:
+HTTP 400 is reserved for malformed/local-invalid request such as missing platform, missing/empty required secret, invalid request shape or impossible local normalization.
 
-~~~text
-201 Created
-~~~
+Provider rejection, insufficient permissions or temporary provider failure MUST become structured profile state rather than a generic 400 that loses the saved credential.
 
-~~~json
-{
-  "account": {
-    "id": "acc_...",
-    "platform": "vk",
-    "name": "ASA Lab",
-    "enabled": false
-  },
-  "capabilityProfile": {
-    "profileVersion": 1,
-    "verdict": "LIMITED",
-    "accessLevel": "SETUP_REQUIRED"
-  }
-}
-~~~
+Structural duplicate conflicts MAY return 409 when the repository invariant forbids creating the same canonical connection twice.
 
-HTTP 400 is reserved for malformed input such as missing platform, missing/empty secret, invalid request shape or impossible local normalization.
+## 26.1 Recheck
 
-Provider rejection/insufficient permissions MUST be represented in the capability profile, not converted into a generic 400 that loses the saved credential.
-
-Structural duplicate conflicts MAY return 409 when the existing repository invariant forbids creating the same canonical connection twice.
-
-## 25.1 Recheck
-
-Canonical saved-account inspection:
-
-~~~text
-POST /api/accounts/:id/recheck
-~~~
-
-Normal body is empty.
+`POST /api/accounts/:id/recheck` normally has an empty body.
 
 It:
 
 1. loads encrypted secret server-side;
-2. performs current safe provider inspection;
-3. updates check metadata/profile;
+2. performs CRED-01B structured inspection;
+3. updates check metadata/profile through the canonical write-path;
 4. returns only safe account/profile data.
 
-Browser MUST NOT resend a saved secret.
+Browser MUST NOT resend a stored secret.
 
-Existing /api/accounts/:id/test MAY temporarily delegate to the same implementation for compatibility, but new UI uses /recheck.
+Transient UNAVAILABLE on recheck:
 
-## 25.2 Existing unsaved test endpoint
+- updates `last_check_status` and `last_check_at`;
+- preserves prior successful semantic profile/fingerprint when credential_version still matches;
+- does not silently toggle operator `enabled`.
 
-POST /api/accounts/test MAY remain as an optional ephemeral diagnostic endpoint.
+Explicit INVALID replaces effective profile and may disable according to section 24.
 
-It is not activation authority and is not the primary UI flow.
+## 26.2 Credential mutation convergence is mandatory in CRED-01C
 
-The primary UI is Save-and-check.
+CRED-01C is the first live route layer that persists/uses capability profiles. Therefore every current credential-changing path MUST use the canonical mutation primitive before this checkpoint is DONE.
 
-## 25.3 Legacy create/update endpoints
+Required inventory:
 
-After CRED-01B:
+- `POST /api/accounts`;
+- `PATCH /api/accounts/:id` credential/config replacement;
+- `POST /api/accounts/:id/activate`;
+- `POST /api/accounts/:id/vk-community` when it creates/changes credential/config semantics;
+- VK OAuth completion create/update;
+- new Save-and-check;
+- any future credential replacement path.
 
-- existing POST /api/accounts MUST NOT create an enabled publish connection from client-asserted authKind, permissions or publishReady;
-- it SHOULD delegate to the same server-authoritative save/inspection path where compatibility requires the route;
-- existing PATCH/activate bypasses are fully converged in CRED-02.
+Creating a new account starts at `credential_version=1`.
 
-No endpoint may treat browser-provided capability fields as evidence.
+Updating an existing credential/config must be atomic:
+
+~~~text
+credentials_encrypted changes
+→ credential_version++
+→ old profile invalidated
+→ new inspection/profile or effective UNCHECKED
+~~~
+
+No route may leave a current-looking FULL/PARTIAL profile attached to changed credentials.
+
+This requirement supersedes the earlier plan to defer credential mutation convergence to a later server-authority checkpoint.
+
+## 26.3 Legacy endpoints
+
+Existing `POST /api/accounts` MAY delegate to Save-and-check for compatibility.
+
+Existing `/api/accounts/:id/test` MAY delegate to Recheck or remain an explicitly ephemeral diagnostic endpoint, but it cannot be an independent source of truth.
+
+Browser-provided `authKind`, `publishReady`, provider type, permission flags and access level are never evidence.
 
 ---
 
-# 26. Recheck and freshness policy
+# 27. Recheck and freshness policy
 
-CRED-01 deliberately introduces no background polling and no arbitrary time TTL.
+CRED-01 introduces no background polling and no arbitrary time TTL.
 
-A profile is current when:
+A profile is current only when:
 
-- its credential_version equals the account credential_version;
-- no credential/destination/capability-relevant mutation has occurred since inspection.
+- profile credential_version equals account credential_version;
+- no publication-relevant credential/destination mutation occurred after inspection.
 
-Immediate invalidation triggers:
-
-- secret replacement;
-- destination change;
-- provider API version/config change that affects capability;
-- any other publication-relevant credential/config mutation.
-
-Mutation transaction:
-
-~~~text
-update credentials_encrypted
-→ credential_version += 1
-→ remove/invalidate current capability profile
-→ effective state becomes UNCHECKED
-~~~
-
-Manual Recheck creates fresh evidence.
+Mutation invalidates the current profile immediately.
 
 UI always shows:
 
@@ -1392,46 +1784,91 @@ UI always shows:
 
 Transient provider/network failure on recheck:
 
-- MUST NOT destroy a previous successful semantic profile;
-- sets last_check_status=UNAVAILABLE and updates last_check_at;
-- preserves previous access level, profile_json and semantic fingerprint when a prior successful profile exists;
-- UI shows a warning that the latest recheck failed and displays the time of the last successful evidence.
+- MUST NOT destroy prior successful semantic profile;
+- sets `last_check_status=UNAVAILABLE`, updates `last_check_at`, and stores safe redacted `last_check_code` / `last_check_message`;
+- preserves previous access level/profile_json/fingerprint when credential_version still matches;
+- UI warns that the latest recheck failed and shows last successful evidence time.
 
-If there is no prior successful profile, the effective access level is UNAVAILABLE.
+If no prior successful profile exists, effective access level is UNAVAILABLE.
 
-Explicit provider INVALID/REVOKED evidence replaces the effective profile with INVALID and MAY disable the account as defined in section 24.
+Explicit provider INVALID/REVOKED evidence replaces the effective profile with INVALID and may disable the account as defined in section 24.
 
-Future automatic revalidation before READY/publish is CRED-03 scope.
+Future automatic revalidation before READY/publish is CRED-02 scope.
 
 ---
 
-# 27. Legacy compatibility stages
+# 28. Visible Socials UI
 
-The credential foundation is intentionally staged.
+CRED-01D implements the operator UX only after CRED-01A/B/C are accepted.
 
-## CRED-01
+UI consumes the server-owned profile and shows:
 
-Adds schema/profile persistence, Save-and-check/Recheck and visible access-level UX.
+- key verdict;
+- exact access level;
+- TEXT / IMAGE / CAROUSEL / VIDEO / SHORT / STORY matrix;
+- expandable identity/permission/method evidence;
+- last check status/timestamps;
+- exact remediation actions.
 
-Historical accounts remain operational under the bounded legacy compatibility described in section 23.
+UI MUST NOT parse provider errors or re-run the access classifier.
+
+---
+
+# 29. READY capability binding
+
+CRED-02 makes capability evidence part of immutable publication intent.
+
+READY/preflight must require:
+
+~~~text
+account enabled
+current profile credential_version == account credential_version
+requested format == READY
+profile fingerprint current
+destination current
+adapter capability implemented
+~~~
+
+READY target snapshot/fingerprint binds at least:
+
+- account id;
+- destination kind/id;
+- credential_version;
+- profile_fingerprint;
+- publication-relevant options.
+
+Credential/destination change after READY must invalidate READY or leave publication bound to the old immutable approved intent. It must never silently redirect.
+
+---
+
+# 30. Legacy compatibility stages
+
+## CRED-01A
+
+Adds schema/profile persistence primitives only. Historical accounts remain operational; migration performs no provider calls.
+
+## CRED-01B
+
+Adds structured provider inspection. No saved profile route flow yet.
+
+## CRED-01C
+
+Adds Save-and-check/Recheck and converges all credential mutation paths onto credential_version/profile invalidation.
+
+## CRED-01D
+
+Adds the visible access-level/capability/remediation UI.
 
 ## CRED-02
 
-Makes server verification authoritative for every create/update/enable/credential replacement path.
-
-No direct API bypass remains.
-
-## CRED-03
-
-Adds capability-aware READY/publish preflight and immutable destination/credential/profile binding.
-
-At this point a target cannot enter/use READY publication intent without an appropriate current capability profile for the requested format, except for any explicitly documented one-time migration exception.
+Adds capability-aware READY/publish preflight and immutable destination/profile binding.
 
 This staged rollout prevents schema migration itself from depending on provider availability or unexpectedly disabling all historical accounts.
 
 ---
 
-# 28. Definition of Done
+# 31. Definition of Done
+
 
 Credential handling is DONE only when a non-technical user can paste/save a credential and immediately understand:
 

@@ -232,7 +232,7 @@ Backend MUST быть authority для activation. Browser не может са�
 
 Непроверенный credential MAY храниться encrypted со статусом UNCHECKED/UNAVAILABLE и без publish-ready formats. Valid-but-limited credential после server inspection может оставаться enabled для тех formats, которые CapabilityProfile помечает READY; blocked formats не выключают весь account. Project default target создаётся только если новый account enabled и имеет хотя бы один READY implemented format.
 
-CapabilityProfile MUST содержать evidence по конкретным методам и readiness по конкретным форматам, а не один boolean "connection works". Exact schema 13 persistence, DTO v1, Save-and-check API, legacy migration and freshness rules are normative in `SOCIAL_CREDENTIAL_CAPABILITY_CONTRACT.md` sections 22–27.
+CapabilityProfile MUST содержать evidence по конкретным методам и readiness по конкретным форматам, а не один boolean "connection works". Exact schema 13 persistence, deterministic classifier/fingerprint, structured provider inspection, Save-and-check API, mutation invalidation and freshness rules are normative in `SOCIAL_CREDENTIAL_CAPABILITY_CONTRACT.md` sections 22–29.
 
 Для VK semantic model MUST принимать и различать provider credential types (как минимум USER и GROUP/COMMUNITY, а также SERVICE/OPEN/UNKNOWN where applicable), показывать их реальную пригодность и не считать типы взаимозаменяемыми. Текущая VK API schema для основных image/wall publication methods требует USER credential. Хранение нескольких credentials для одного destination MAY поддерживаться как дополнительная возможность, но два credentials не являются обязательным условием обычной публикации.
 
@@ -241,14 +241,16 @@ CapabilityProfile MUST содержать evidence по конкретным м�
 First executable credential milestone:
 
 ```text
-CRED-01A = schema 13 capability persistence only
-CRED-01B = Save-and-check / Recheck server authority for create
-CRED-01C = visible Socials access-level UI
+CRED-01A = schema 13 + profile domain primitives
+CRED-01B = structured credential inspection for all current platforms
+CRED-01C = Save-and-check / Recheck + credential mutation authority
+CRED-01D = visible Socials access-level UI
+CRED-02  = capability-aware READY/preflight binding
 ```
 
 Schema 13 adds social_accounts.credential_version plus social_account_capability_profiles; it does not split destination/config out of the current encrypted compatibility object and performs no provider network calls during migration.
 
-Existing accounts remain byte-for-byte credential-preserved and keep their current enabled/default-target state until explicit recheck and later CRED-02/CRED-03 enforcement.
+Existing accounts remain byte-for-byte credential-preserved and keep their current enabled/default-target state during CRED-01A migration. Before any saved CapabilityProfile is trusted by live routes, all credential-changing paths must participate in credential_version/profile invalidation in CRED-01C. Capability-aware READY enforcement belongs to CRED-02.
 
 ## 3.7 PostTarget
 
@@ -1350,9 +1352,9 @@ Feature не считается DONE только потому, что UI её �
 
 ```text
 1. Social Credential Capability foundation:
-   Save-and-check, пользовательский access level, capability matrix,
-   server-authoritative verification, immutable destination binding,
-   точная VK token-type/method diagnostics, unified capability UI
+   schema/profile domain → structured cross-platform inspection →
+   Save-and-check/mutation authority → user access-level UI →
+   immutable READY destination/profile binding
 2. safe Trash/Restore + Content Inspector on existing image posts
 3. visual calendar on schema-7 UTC/IANA scheduling
 4. canonical rich text + platform compilers using existing TargetRendition
