@@ -261,19 +261,19 @@ export async function checkVkConnection(credentials: Record<string, unknown>): P
     vkMethodNotChecked('wall.post', 'Проверка подключения не создаёт реальную публикацию.'),
     vkMethodNotImplemented(
       'photos.getUploadServer',
-      'Альбомный upload-path из рабочего n8n в Publikator пока не реализован и этой проверкой не доказывается.'
+      'Альбомный upload-path не входит в текущий подтверждённый Publikator adapter и этой проверкой не доказывается.'
     ),
     vkMethodNotImplemented(
       'photos.save',
-      'Сохранение изображения в альбом не реализовано в рамках KEY-02.'
+      'Сохранение изображения в альбом не входит в текущий подтверждённый Publikator adapter.'
     ),
     vkMethodNotImplemented(
       'stories.getPhotoUploadServer',
-      'Stories не реализованы в рамках KEY-02.'
+      'Stories пока не включены в production capability Publikator.'
     ),
     vkMethodNotImplemented(
       'stories.save',
-      'Stories не реализованы в рамках KEY-02.'
+      'Stories пока не включены в production capability Publikator.'
     )
   ];
 
