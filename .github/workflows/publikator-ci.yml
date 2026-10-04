@@ -106,6 +106,12 @@ jobs:
       - name: Schema v12 templates migration
         run: node scripts/schema-v12-templates-e2e.mjs
 
+      - name: Schema v13 social credential capability migration
+        run: node scripts/schema-v13-social-credential-capability-e2e.mjs
+
+      - name: CRED-01A capability profile domain
+        run: node scripts/cred-01a-capability-profile-e2e.mjs
+
       - name: M0-005 time rendition sequence semantics
         run: node scripts/m005-e2e.mjs
 
@@ -316,6 +322,9 @@ jobs:
 
       - name: Schema v12 templates backup and restore
         run: node scripts/backup-v12-templates-e2e.mjs
+
+      - name: Schema v13 social credential capability backup and restore
+        run: node scripts/backup-v13-social-credential-capability-e2e.mjs
 
       - name: Canonical backup API
         env:
