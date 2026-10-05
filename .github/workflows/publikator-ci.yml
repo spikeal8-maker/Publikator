@@ -115,6 +115,9 @@ jobs:
       - name: CRED-01B structured credential inspection
         run: node scripts/cred-01b-structured-inspection-e2e.mjs
 
+      - name: CRED-01C canonical save and recheck
+        run: node scripts/cred-01c-save-recheck-e2e.mjs
+
       - name: M0-005 time rendition sequence semantics
         run: node scripts/m005-e2e.mjs
 

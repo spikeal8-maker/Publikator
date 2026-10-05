@@ -16,6 +16,12 @@ import {
   setTargetSelection
 } from '../publisher.js';
 import { checkVkConnection, inspectVkToken, testConnection } from '../platforms/connection-test.js';
+import {
+  recheckSocialAccount,
+  saveAndCheckSocialAccount,
+  SocialAccountNotFoundError,
+  SocialCredentialRequestError
+} from '../social-account-credentials.js';
 import { resolveVkDestination, vkDestinationKind } from '../platforms/vk.js';
 import { normalizeIanaTimezone, resolveExactSchedule, resolveScheduleInput } from '../schedule-time.js';
 import { parseRichTextJson, plainTextToRichText, richTextToPlain, serializeRichText } from '../rich-text.js';
@@ -305,6 +311,42 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       return await testConnection(platform, body.credentials as Record<string, unknown>);
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+  app.post('/api/accounts/save-and-check', async (request, reply) => {
+    let body: Record<string, any>;
+    try {
+      body = bodyObject(request.body);
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+
+    try {
+      const result = await saveAndCheckSocialAccount({
+        platform: body.platform,
+        name: body.name,
+        credentials: body.credentials
+      });
+      return reply.code(201).send(result);
+    } catch (error) {
+      if (error instanceof SocialCredentialRequestError) {
+        return reply.code(400).send({ error: error.message });
+      }
+      throw error;
+    }
+  });
+  app.post('/api/accounts/:id/recheck', async (request, reply) => {
+    const params = request.params as { id: string };
+    try {
+      return await recheckSocialAccount(params.id);
+    } catch (error) {
+      if (error instanceof SocialAccountNotFoundError) {
+        return reply.code(404).send({ error: 'Аккаунт не найден' });
+      }
+      if (error instanceof SocialCredentialRequestError) {
+        return reply.code(400).send({ error: error.message });
+      }
+      throw error;
     }
   });
   app.post('/api/accounts', async (request, reply) => {
