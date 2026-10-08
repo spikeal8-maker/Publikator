@@ -51,6 +51,9 @@ jobs:
           set -euo pipefail
           find public -maxdepth 1 -type f -name '*.js' -print0 | sort -z | xargs -0 -n1 node --check
 
+      - name: MAX real dispatcher compatibility and certificate verification
+        run: node scripts/max-transport-e2e.mjs
+
       - name: TG-MAX-FEED-PUBLISH-001 text and local-image operator journey
         run: node scripts/telegram-max-feed-publish-e2e.mjs
 
