@@ -197,6 +197,8 @@ function assertNoPublicWrites(calls) {
   assert.equal(result.credential.validity, 'CONFIRMED');
   assert.equal(result.credential.providerType, 'GROUP');
   assert.deepEqual(result.credential.declaredPermissions, ['photos', 'wall']);
+  assert.equal(result.publicationEvidence.TEXT?.state, 'CONFIRMED');
+  assert.equal(result.destination.ownershipConfirmed, true);
   assert.equal(result.publicationEvidence.IMAGE?.state, 'SETUP_REQUIRED');
   assert.ok(result.methods.some((item) => item.method === 'photos.getWallUploadServer'
     && item.state === 'NOT_SUPPORTED_FOR_CREDENTIAL_TYPE'));

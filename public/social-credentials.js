@@ -9,7 +9,7 @@ export function socialCredentialFields(platform) {
       <label class="target-check"><input type="radio" name="destinationKind" value="COMMUNITY"> Сообщество</label>
     </div>
     <div class="full"><button id="operator-vk-oauth" class="secondary" type="button">Подключить через VK</button><span class="operator-field-help">Авторизуйтесь как пользователь VK с правом публикации на выбранной стене. Публикатор проверит доступ и сохранит ключ без ручного копирования.</span></div>
-    <label class="full">Ключ VK (ручной ввод)<input name="accessToken" type="password" autocomplete="off" required><span class="operator-field-help">Проверка покажет, действителен ли ключ и какого он типа. Ключ из «Работа с API → Ключи доступа» можно проверить и сохранить. Для публикации постов с фотографиями требуется пользовательский ключ.</span><span class="operator-field-help hidden" data-vk-community-auth-hint>Для сообщества пользователь должен иметь право публикации. Ключ сообщества не подходит для загрузки фотографий на стену.</span></label>
+    <label class="full">Ключ VK (ручной ввод)<input name="accessToken" type="password" autocomplete="off" required><span class="operator-field-help">Проверка покажет, действителен ли ключ и какого он типа. Ключ из «Работа с API → Ключи доступа» можно проверить и сохранить для текстовых постов в его сообщество при праве wall. Для публикации постов с фотографиями требуется пользовательский ключ.</span><span class="operator-field-help hidden" data-vk-community-auth-hint>Для сообщества пользователь должен иметь право публикации. Ключ сообщества не подходит для загрузки фотографий на стену.</span></label>
     <label class="full hidden" data-vk-community-field>Сообщество / ID<input name="groupId" placeholder="123456789, club123456789 или ссылка VK"><span class="operator-field-help">Для сохранения ключа поле можно оставить пустым. Для подключения публикации укажите сообщество.</span></label>
     <div class="full muted small" data-vk-personal-hint>Личная страница определяется по владельцу access token через официальный VK API.</div>
     <label>API version<input name="apiVersion" required value="5.199"></label>`;
@@ -122,12 +122,15 @@ export function vkCommunityTokenNotice(inspection) {
   const permissions = Array.isArray(inspection.permissions) && inspection.permissions.length
     ? ` VK подтвердил права: ${inspection.permissions.join(', ')}.`
     : '';
-  return `Ключ VK действителен: это ключ сообщества.${permissions} Ключ можно сохранить для повторной проверки. Для публикации постов с фото нужен пользовательский ключ VK. Это ограничение не означает, что введённый ключ неверный.`;
+  return `Ключ VK действителен: это ключ сообщества.${permissions} Ключ можно сохранить; текст доступен при праве wall и совпадении сообщества. Для публикации постов с фото нужен пользовательский ключ VK. Это ограничение не означает, что введённый ключ неверный.`;
 }
 
 export function verifiedVkCommunityKeyFromInspection(form, inspection) {
   if (inspection?.valid !== true || inspection.authKind !== 'COMMUNITY') {
     throw new Error('VK: ключ сообщества не прошёл проверку');
+  }
+  if (inspection.destinationMatchesToken === false) {
+    throw new Error('VK: выбранное сообщество не совпадает с сообществом ключа. Укажите сообщество самого ключа.');
   }
   const groupId = String(inspection.groupId || '').trim();
   if (!groupId) throw new Error('VK: укажите ID или ссылку сообщества и проверьте ключ ещё раз');

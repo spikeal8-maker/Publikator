@@ -66,7 +66,9 @@ function vkCapabilityCard(checked) {
     ? `<ul>${methods.map((item) => `<li><strong>${operatorEsc(item.method)}</strong> — ${operatorEsc(VK_METHOD_STATE_LABEL[item.state] || item.state)}<div class="small muted">${operatorEsc(item.reason || '')}</div></li>`).join('')}</ul>`
     : '<div class="small muted">Отдельные методы ещё не проверялись.</div>';
   const keyState = details.keyValidity === 'CONFIRMED' ? 'Действительность ключа подтверждена' : 'Действительность ключа не подтверждена';
-  const publishState = details.publishReady === true
+  const publishState = details.textPublishReady === true
+    ? 'Текст: доступен для сообщества. Фото и карусель: нужен пользовательский ключ.'
+    : details.publishReady === true
     ? 'Текущий wall-photo путь Publikator готов к сохранению как активное подключение.'
     : 'Публикация не включается: ключ можно сохранить выключенным и повторить проверку позже.';
   const permissionText = permissions.length
@@ -232,7 +234,7 @@ function renderSocialConnectForm(platform) {
         await operatorApi('/api/accounts', {
           method: 'POST', body: JSON.stringify({ platform, name, credentials: verifiedCredentials })
         });
-        result.innerHTML = '<div class="operator-result ok">Ключ VK сохранён. Публикация с фото для него недоступна.</div>';
+        result.innerHTML = '<div class="operator-result ok">Ключ VK сохранён. Доступность текста показана в списке. Для загрузки фото нужен пользовательский ключ.</div>';
       } else {
         const checked = await operatorApi('/api/accounts/test', { method: 'POST', body: JSON.stringify({ platform, credentials }) });
         const verifiedCredentials = verifiedSocialCredentialsFromTest(platform, form, checked);
@@ -268,7 +270,7 @@ async function renderSocialsPage() {
           const credentialOnly = account.platform === 'vk' && account.credential_only === true;
           const pendingKey = account.platform === 'vk' && account.verification_status === 'PENDING';
           const canAddVkCommunity = account.platform === 'vk' && !pendingKey && !credentialOnly && account.destination_kind === 'PERSONAL';
-          return `<div class="operator-connection" data-account-id="${operatorEsc(account.id)}"><span class="operator-platform-badge">${operatorEsc(account.platform)}</span><div class="operator-connection-main"><strong>${operatorEsc(account.name)}</strong><span>${pendingKey ? 'Ключ сохранён · проверка не завершена · публикация выключена' : credentialOnly ? 'Ключ сообщества сохранён · публикация с фото недоступна' : account.enabled ? 'Включено · назначение можно подтвердить кнопкой «Проверить»' : 'Отключено · назначение можно подтвердить кнопкой «Проверить»'}</span><div class="operator-account-result"></div></div><div class="operator-connection-actions"><button class="secondary operator-test-account" type="button">Проверить</button>${canAddVkCommunity ? '<button class="secondary operator-add-vk-community" type="button">Добавить сообщество</button>' : ''}${pendingKey ? '<button class="secondary operator-activate-account" type="button">Завершить проверку</button>' : ''}${credentialOnly ? '' : `<button class="secondary operator-toggle-account" type="button" data-enabled="${account.enabled ? '1' : '0'}">${account.enabled ? 'Отключить' : 'Включить'}</button>`}</div></div>`;
+          return `<div class="operator-connection" data-account-id="${operatorEsc(account.id)}"><span class="operator-platform-badge">${operatorEsc(account.platform)}</span><div class="operator-connection-main"><strong>${operatorEsc(account.name)}</strong><span>${pendingKey ? 'Ключ сохранён · проверка не завершена · публикация выключена' : credentialOnly ? `Ключ сообщества · текст: ${account.enabled && account.text_publish_ready ? 'включён' : 'выключен'} · фото: нужен пользовательский ключ` : account.enabled ? 'Включено · назначение можно подтвердить кнопкой «Проверить»' : 'Отключено · назначение можно подтвердить кнопкой «Проверить»'}</span>${credentialOnly && account.capabilityProfile?.profileCurrent ? `<div class="small">Доступ: ${account.capabilityProfile.accessLevel === 'PARTIAL' ? 'частичный' : 'ограниченный'} · текст: ${account.capabilityProfile.semantic?.publicationReadiness?.TEXT?.state === 'READY' ? 'доступен' : 'не подтверждён'} · фото и карусель: подключите пользовательский ключ</div>` : ''}<div class="operator-account-result"></div></div><div class="operator-connection-actions"><button class="secondary operator-test-account" type="button">Проверить</button>${canAddVkCommunity ? '<button class="secondary operator-add-vk-community" type="button">Добавить сообщество</button>' : ''}${pendingKey ? '<button class="secondary operator-activate-account" type="button">Завершить проверку</button>' : ''}${pendingKey ? '' : `<button class="secondary operator-toggle-account" type="button" data-enabled="${account.enabled ? '1' : '0'}">${account.enabled ? 'Отключить' : 'Включить'}</button>`}</div></div>`;
         }).join('') : '<div class="operator-empty">Пока нет ни одного подключения. Выберите площадку выше.</div>'}</div>
       </section>
     </div>`;

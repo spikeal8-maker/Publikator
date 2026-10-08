@@ -100,7 +100,7 @@ export const PLATFORM_CAPABILITIES: Record<Platform, PlatformCapability> = {
     supportsFeed: true,
     supportsStories: false,
     supportsShortVideo: false,
-    supportsTextOnly: false,
+    supportsTextOnly: true,
     supportsImage: true,
     supportsVideo: false,
     supportsCarousel: true,
