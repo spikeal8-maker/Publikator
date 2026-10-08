@@ -88,7 +88,9 @@ try {
   const imagePath = path.join(dataDir, 'image.jpg');
   await sharp({ create: { width: 1200, height: 800, channels: 3, background: '#123456' } }).jpeg().toFile(imagePath);
   await form.locator('#media-file').setInputFiles(imagePath);
-  await page.waitForFunction(() => document.querySelector('#post-form .media-list img'));
+  await form.waitFor({ state: 'detached' });
+  await page.getByRole('button', { name: 'Редактировать', exact: true }).click();
+  await page.locator('#post-form .media-list img').waitFor({ state: 'visible' });
   await page.locator('.platform-editor-card').waitFor({ state: 'visible' });
   form = page.locator('#post-form');
   await form.locator('#mark-ready').click();
