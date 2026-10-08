@@ -39,9 +39,12 @@ EYVMxjh8zNbFuoc7fzvvrFILLe7ifvEIUqSVIC/AzplM/Jxw7buXFeGP1qVCBEHq
 391d/9RAfaZ12zkwFsl+IKwE/OZxW8AHa9i1p4GO0YSNuczzEm4=
 -----END CERTIFICATE-----`;
 
-const maxDispatcher = new Agent({
-  connect: { ca: [...rootCertificates, MAX_ROOT_CA], rejectUnauthorized: true }
-});
+export function createMaxDispatcher(): Agent {
+  return new Agent({
+    connect: { ca: [...rootCertificates, MAX_ROOT_CA], rejectUnauthorized: true }
+  });
+}
+const maxDispatcher = createMaxDispatcher();
 const MAX_TLS_HOSTS = new Set(['platform-api2.max.ru', 'iu.oneme.ru', 'omub.okcdn.ru']);
 
 export async function maxFetch(input: string | URL, init: RequestInit = {}): Promise<Response> {

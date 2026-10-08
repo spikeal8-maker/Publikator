@@ -40,3 +40,11 @@ A verified-CA read-only probe from the actual Docker runtime returned HTTP 200
 and the expected bot identity; this is connection evidence, not a publication test.
 The acceptance journey asserts transport isolation and pre-request rejection of
 unapproved hosts, credentials in URLs, non-HTTPS and nonstandard ports.
+
+Live connection after PR #157 exposed a second failure: Undici 8's dispatcher
+handler is incompatible with Node 22's built-in fetch (bundled Undici 6).
+Pin the maintained compatible 6.29.0 line. The new named real-socket transport
+regression verifies built-in fetch over an actual loopback HTTP server and rejects
+an ephemeral self-signed HTTPS server with DEPTH_ZERO_SELF_SIGNED_CERT. Mocked
+provider responses alone do not establish dispatcher compatibility. No real public
+post was created by the failed connection checks.
