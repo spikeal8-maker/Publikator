@@ -48,3 +48,17 @@ regression verifies built-in fetch over an actual loopback HTTP server and rejec
 an ephemeral self-signed HTTPS server with DEPTH_ZERO_SELF_SIGNED_CERT. Mocked
 provider responses alone do not establish dispatcher compatibility. No real public
 post was created by the failed connection checks.
+
+## Real MAX content verification
+
+On 2026-10-08 the ordinary encrypted-connect/editor/READY/publish journey sent
+TEXT_ONLY and a locally uploaded JPEG to the authorized n8n AI channel. Both
+product targets became PUBLISHED after one attempt. GET /messages/{mid} returned
+HTTP 200, matching IDs/destination and respectively zero / one image attachment.
+However the provider text lacked paragraph separators: the prior MAX HTML compiler
+emitted unsupported br tags, which the real provider silently removes. That is not
+full content acceptance. MAX HTML now uses literal newline characters for hard
+breaks, paragraphs, list items and quote paragraphs, keeping supported tags and
+escaping intact. Regression covers exact layout in text/media contexts and the
+actual outgoing operator payload; full CI and live publication after deployment
+are required. Reference: https://dev.max.ru/docs-api/use-cases/sending-messages/text-formatting.
