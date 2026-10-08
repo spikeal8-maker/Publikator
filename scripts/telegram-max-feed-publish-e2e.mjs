@@ -126,7 +126,7 @@ try {
   async function edit(title) {
     await page.getByRole('row').filter({ hasText: title }).getByRole('button', { name: 'Открыть', exact: true }).click();
     await page.getByRole('button', { name: 'Редактировать', exact: true }).click();
-    await page.locator('.platform-editor-card').waitFor({ state: 'visible' });
+    await page.locator('.platform-editor-card').first().waitFor({ state: 'visible' });
     return page.locator('#post-form');
   }
   for (const [title, format] of [['Browser text', 'TEXT_ONLY'], ['Browser image', 'MEDIA']]) {
