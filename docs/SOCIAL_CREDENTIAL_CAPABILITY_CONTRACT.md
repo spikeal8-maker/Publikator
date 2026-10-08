@@ -1885,3 +1885,9 @@ Credential handling is DONE only when a non-technical user can paste/save a cred
 10. that the limited credential is still safely saved and usable for whatever it actually supports.
 
 A page that says only "Подключение работает" or "Ключ неверный" is non-compliant.
+
+
+## VK photo credential roles — VK-PHOTO-CREDENTIAL-ROLES-001
+An existing COMMUNITY connection may carry an optional encrypted USER uploadAccessToken. GROUP eligibility for photos is not inferred: the secondary USER is separately verified with account.getAppPermissions, users.get identity and a safe photos.getWallUploadServer request for the primary's bound community. The primary GROUP's wall permission and destination match remain required. Photo-method evidence must identify the secondary actor; primary credential validity remains independent of secondary readiness.
+
+The implemented transport is the existing wall-photo path. photos.getWallUploadServer/photos.saveWallPhoto use USER; wall.post uses the verified GROUP. Inspection/save/READY never upload a file or publish. A missing, invalid, IP-bound or wrong-type secondary key leaves TEXT available and IMAGE/CAROUSEL SETUP_REQUIRED with exact remediation. Browser readiness flags are never authority. The secondary secret is part of the same encrypted/versioned credential envelope, is never returned by account listing, and its verified owner is checked again before upload. Album/archive transport remains unimplemented.

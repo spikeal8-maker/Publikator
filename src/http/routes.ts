@@ -72,6 +72,9 @@ function vkDestinationMetadata(credentialsEncrypted: string): {
   credential_only?: boolean;
   verification_status?: 'PENDING';
   text_publish_ready?: boolean;
+  photo_publish_ready?: boolean;
+  photo_key_present?: boolean;
+  photo_setup_error?: string;
 } {
   try {
     const credentials = decryptJson<Record<string, unknown>>(credentialsEncrypted);
@@ -82,14 +85,27 @@ function vkDestinationMetadata(credentialsEncrypted: string): {
     }
     const destination = resolveVkDestination(credentials);
     return { destination_kind: destination.kind, destination_id: destination.id,
-      ...(credentialOnly ? { credential_only: true, text_publish_ready: credentials.textPublishReady === true } : {}) };
+      ...(credentialOnly ? { credential_only: true, text_publish_ready: credentials.textPublishReady === true,
+        photo_key_present: Boolean(credentials.uploadAccessToken), photo_publish_ready: credentials.photoPublishReady === true,
+        photo_setup_error: typeof credentials.photoSetupError === 'string' ? credentials.photoSetupError : undefined } : {}) };
   } catch {
     return {};
   }
 }
 
+function vkCommunityPhotoCredentials(credentials: Record<string, unknown>, inspected: VkTokenInspection): Record<string, unknown> {
+  const uploadAccessToken = typeof credentials.uploadAccessToken === 'string' ? credentials.uploadAccessToken.trim() : '';
+  return {
+    ...(uploadAccessToken ? { uploadAccessToken } : {}),
+    photoPublishReady: Boolean(uploadAccessToken && inspected.photoPublishReady),
+    uploadUserId: inspected.uploadUserId || null,
+    photoSetupError: inspected.photoSetupError || null
+  };
+}
+
 function persistVkCommunityProfile(accountId: string, inspected: VkTokenInspection): void {
   const textReady = inspected.textPublishReady === true;
+  const photoReady = textReady && inspected.photoPublishReady === true;
   saveCapabilityProfile(accountId, {
     inspectionCompleted: true,
     providerType: 'GROUP',
@@ -109,19 +125,25 @@ function persistVkCommunityProfile(accountId: string, inspected: VkTokenInspecti
       })),
       { method: 'wall.post', state: 'NOT_CHECKED', evidenceSource: 'vk', machineCode: 'PUBLIC_WRITE_NOT_EXECUTED',
         reason: 'Проверка ключа не создаёт публичный пост.' },
-      { method: 'photos.getWallUploadServer', state: 'NOT_SUPPORTED_FOR_CREDENTIAL_TYPE', evidenceSource: 'vk',
-        machineCode: 'USER_CREDENTIAL_REQUIRED', reason: 'Загрузка фото требует пользовательский ключ.' }
+      ...((inspected.methods || []).some(item => item.method === 'photos.getWallUploadServer') ? [] : [{ method: 'photos.getWallUploadServer', state: inspected.photoSetupError ? 'NOT_CHECKED' : 'NOT_SUPPORTED_FOR_CREDENTIAL_TYPE', evidenceSource: 'vk',
+        machineCode: 'USER_CREDENTIAL_REQUIRED', reason: inspected.photoSetupError || 'Загрузка фото требует пользовательский ключ.' }])
     ],
     publicationEvidence: {
       TEXT: { state: textReady ? 'CONFIRMED' : 'DENIED', requiredMethods: ['groups.getTokenPermissions', 'groups.getById', 'wall.post'],
         reason: textReady ? 'Сообщество ключа совпадает с назначением; право wall подтверждено.'
           : 'Текст требует совпадения сообщества и права wall.' },
-      IMAGE: { state: 'SETUP_REQUIRED', remediationCodes: ['VK_USER_CREDENTIAL_REQUIRED'] },
-      CAROUSEL: { state: 'SETUP_REQUIRED', remediationCodes: ['VK_USER_CREDENTIAL_REQUIRED'] }
+      IMAGE: { state: photoReady ? 'CONFIRMED' : 'SETUP_REQUIRED',
+        requiredMethods: ['photos.getWallUploadServer', 'photos.saveWallPhoto', 'wall.post'],
+        reason: inspected.photoSetupError || 'Фото загружает USER, пост отправляет ключ сообщества.',
+        remediationCodes: photoReady ? [] : ['VK_USER_CREDENTIAL_REQUIRED'] },
+      CAROUSEL: { state: photoReady ? 'CONFIRMED' : 'SETUP_REQUIRED',
+        requiredMethods: ['photos.getWallUploadServer', 'photos.saveWallPhoto', 'wall.post'],
+        reason: inspected.photoSetupError || 'Фото загружает USER, пост отправляет ключ сообщества.',
+        remediationCodes: photoReady ? [] : ['VK_USER_CREDENTIAL_REQUIRED'] }
     },
-    remediation: [{ code: 'VK_USER_CREDENTIAL_REQUIRED', title: 'Для загрузки фото нужен пользовательский ключ',
-      explanation: 'Подключите пользовательский ключ с доступом к выбранной стене и загрузке фото.',
-      requiredCredentialType: 'USER', requiredPermissions: ['photos', 'wall'], steps: ['Подключите пользовательский ключ VK и проверьте загрузку фото.'],
+    remediation: photoReady ? [] : [{ code: 'VK_USER_CREDENTIAL_REQUIRED', title: 'Для загрузки фото нужен пользовательский ключ',
+      explanation: inspected.photoSetupError || 'Добавьте пользовательский ключ загрузки фото к ключу сообщества.',
+      requiredCredentialType: 'USER', requiredPermissions: ['photos'], steps: ['В подключении сообщества заполните «Пользовательский ключ для загрузки фото» и проверьте оба ключа.'],
       primaryAction: { label: 'Подключить VK', kind: 'INTERNAL_ROUTE', target: '/socials' }, secondaryActions: [] }],
     adapterCapability: { TEXT: true, IMAGE: true, CAROUSEL: true, VIDEO: false, SHORT: false, STORY: false }
   });
@@ -379,6 +401,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           apiVersion: typeof supplied.apiVersion === 'string' && supplied.apiVersion.trim() ? supplied.apiVersion.trim() : '5.199',
           authKind: 'PENDING',
           destinationKind,
+          ...(destinationKind === 'COMMUNITY' && typeof supplied.uploadAccessToken === 'string' && supplied.uploadAccessToken.trim()
+            ? { uploadAccessToken: supplied.uploadAccessToken.trim() } : {}),
           ...(destinationKind === 'COMMUNITY' && typeof supplied.groupId === 'string' && supplied.groupId.trim()
             ? { groupId: supplied.groupId.trim() } : {})
         };
@@ -393,6 +417,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         credentials = normalizeStoredCredentials('vk', {
           textPublishReady,
           tokenGroupId: inspected.groupId,
+          ...vkCommunityPhotoCredentials(supplied, inspected),
           accessToken: supplied.accessToken,
           apiVersion: supplied.apiVersion,
           authKind: 'COMMUNITY',
@@ -438,8 +463,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       try {
         const inspected = await inspectVkToken(stored);
         if (!inspected.textPublishReady || !inspected.groupId) throw new Error('VK: не подтверждены сообщество ключа и право wall');
-        const refreshed = { ...stored, textPublishReady: true, tokenGroupId: inspected.groupId };
-        if (stored.textPublishReady !== true || stored.tokenGroupId !== inspected.groupId) {
+        const refreshed: Record<string, unknown> = { ...stored, textPublishReady: true, tokenGroupId: inspected.groupId, ...vkCommunityPhotoCredentials(stored, inspected) };
+        if (stored.textPublishReady !== true || stored.tokenGroupId !== inspected.groupId
+          || stored.photoPublishReady !== refreshed.photoPublishReady || stored.uploadUserId !== refreshed.uploadUserId) {
           replaceSocialAccountCredentials(params.id, encryptJson(refreshed));
           current.credentials_encrypted = (db.prepare('SELECT credentials_encrypted FROM social_accounts WHERE id=?').get(params.id) as { credentials_encrypted: string }).credentials_encrypted;
         }
@@ -515,6 +541,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         if (inspected.destinationMatchesToken !== true) throw new Error('VK: выбранное сообщество не совпадает с сообществом ключа');
         const verified = normalizeStoredCredentials('vk', {
           textPublishReady: inspected.textPublishReady === true, tokenGroupId: inspected.groupId,
+          ...vkCommunityPhotoCredentials(pending, inspected),
           accessToken: pending.accessToken, apiVersion: pending.apiVersion,
           authKind: 'COMMUNITY', destinationKind: 'COMMUNITY', groupId: inspected.groupId,
           destinationName: inspected.groupName || `club${inspected.groupId}`

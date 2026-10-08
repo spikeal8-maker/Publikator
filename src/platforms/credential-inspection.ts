@@ -9,7 +9,7 @@ import {
   type PublicationFormat,
   type RuntimePrerequisiteEvidence
 } from '../social-credential-capability.js';
-import { normalizeVkCommunityId, normalizeVkUserId, vkCall, vkDestinationKind } from './vk.js';
+import { checkVkPhotoUploadAccess, normalizeVkCommunityId, normalizeVkUserId, vkCall, vkDestinationKind } from './vk.js';
 import { PlatformError, requireString } from './types.js';
 
 export type InspectionCredentialValidity = 'CONFIRMED' | 'INVALID' | 'UNAVAILABLE' | 'UNKNOWN';
@@ -909,19 +909,29 @@ async function inspectVk(credentials: Record<string, unknown>): Promise<Credenti
     }
 
     const code = 'VK_USER_CREDENTIAL_REQUIRED';
-    remediationRows.push(remediation(
-      code,
-      'Для загрузки фото нужен пользовательский ключ',
-      'Ключ сообщества может публиковать текст при совпадении назначения и праве wall. Загрузка фото требует пользовательский ключ.',
-      { requiredCredentialType: 'USER' }
-    ));
-    methods.push(method(
-      'photos.getWallUploadServer',
-      'NOT_SUPPORTED_FOR_CREDENTIAL_TYPE',
-      'Current VK wall-photo preparation requires USER credential.',
-      'vk',
-      'USER_CREDENTIAL_REQUIRED'
-    ));
+    let photoReady = false;
+    let photoReason = 'Добавьте пользовательский ключ загрузки фото к ключу сообщества.';
+    if (destination.resolutionState === 'CONFIRMED' && declaredPermissions.includes('wall')
+      && typeof credentials.uploadAccessToken === 'string' && credentials.uploadAccessToken.trim()) {
+      try {
+        const checked = await checkVkPhotoUploadAccess({ ...credentials, groupId: destination.id, destinationKind: 'COMMUNITY' });
+        photoReady = true;
+        photoReason = `USER id${checked.userId} загрузит фото; GROUP отправит пост в своё сообщество.`;
+        methods.push(method('account.getAppPermissions', 'CONFIRMED', 'Ключ загрузки подтвердил тип USER.', 'vk', 'UPLOAD_USER_CONFIRMED'));
+        methods.push(method('users.get', 'CONFIRMED', `Владелец ключа загрузки: id${checked.userId}.`, 'vk', 'UPLOAD_IDENTITY_CONFIRMED'));
+        methods.push(method('photos.getWallUploadServer', 'CONFIRMED', 'Ключ загрузки получил URL выбранного сообщества; файл не отправлялся.', 'vk', 'UPLOAD_URL_CONFIRMED'));
+      } catch (error) {
+        photoReason = safeText(error instanceof Error ? error.message : error).split(credentials.uploadAccessToken).join('[REDACTED]');
+        const methodName = /VK ([a-z]+\.[A-Za-z]+)/.exec(error instanceof Error ? error.message : '')?.[1] || 'photos.getWallUploadServer';
+        methods.push({ ...vkMethodFromFailure(methodName, error), reason: photoReason });
+      }
+    }
+    if (!photoReady) {
+      remediationRows.push(remediation(code, 'Проверьте пользовательский ключ загрузки фото', photoReason, { requiredCredentialType: 'USER' }));
+      if (!methods.some(item => item.method === 'photos.getWallUploadServer')) methods.push(method(
+        'photos.getWallUploadServer', credentials.uploadAccessToken ? 'NOT_CHECKED' : 'NOT_SUPPORTED_FOR_CREDENTIAL_TYPE', photoReason, 'vk', 'USER_CREDENTIAL_REQUIRED'
+      ));
+    }
     methods.push(method(
       'wall.post',
       'NOT_CHECKED',
@@ -949,13 +959,13 @@ async function inspectVk(credentials: Record<string, unknown>): Promise<Credenti
           requiredMethods: ['groups.getTokenPermissions', 'groups.getById', 'wall.post'],
           reason: 'Текст требует права wall и совпадения назначения с сообществом ключа; публичная отправка не выполнялась.'
         }),
-        IMAGE: publication('SETUP_REQUIRED', {
+        IMAGE: publication(photoReady ? 'CONFIRMED' : 'SETUP_REQUIRED', {
           requiredMethods: ['photos.getWallUploadServer', 'photos.saveWallPhoto', 'wall.post'],
-          remediationCodes: [code]
+          reason: photoReason, remediationCodes: photoReady ? [] : [code]
         }),
-        CAROUSEL: publication('SETUP_REQUIRED', {
+        CAROUSEL: publication(photoReady ? 'CONFIRMED' : 'SETUP_REQUIRED', {
           requiredMethods: ['photos.getWallUploadServer', 'photos.saveWallPhoto', 'wall.post'],
-          remediationCodes: [code]
+          reason: photoReason, remediationCodes: photoReady ? [] : [code]
         })
       },
       runtimePrerequisiteEvidence: [],

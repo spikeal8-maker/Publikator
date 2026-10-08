@@ -217,6 +217,24 @@ export async function checkVkCommunityTextAccess(credentials: Record<string, unk
   }
 }
 
+export async function checkVkPhotoUploadAccess(credentials: Record<string, unknown>): Promise<{ userId: string }> {
+  const destination = resolveVkDestination(credentials);
+  const common = {
+    access_token: requireString(credentials, 'uploadAccessToken'),
+    v: typeof credentials.apiVersion === 'string' && credentials.apiVersion.trim() ? credentials.apiVersion.trim() : '5.199'
+  };
+  // users.get alone is not proof of USER credential eligibility.
+  const mask = await vkCall('account.getAppPermissions', common);
+  if (typeof mask !== 'number' || !Number.isSafeInteger(mask) || mask < 0) throw new Error('VK: ключ загрузки не подтверждён как пользовательский');
+  const users = await vkCall('users.get', { ...common, fields: 'screen_name' });
+  const userId = normalizeVkUserId(Array.isArray(users) ? users[0]?.id : undefined);
+  const server = await vkCall('photos.getWallUploadServer', {
+    ...common, ...(destination.kind === 'COMMUNITY' ? { group_id: destination.id } : {})
+  });
+  if (!server?.upload_url) throw new Error('VK: пользовательский ключ не получил URL загрузки фото');
+  return { userId };
+}
+
 function assertTextPublication(input: PublishInput): void {
   if (input.publicationKind && input.publicationKind !== 'FEED') throw new Error('VK: текстовый пост поддерживается только в ленте');
   if (input.media.length !== 0) throw new Error('VK: текстовый пост не должен содержать вложения');
@@ -328,7 +346,14 @@ export const vkPublisher: SocialPublisher = {
   validate(input) {
     requireString(input.credentials, 'accessToken');
     if (input.credentials.authKind === 'COMMUNITY') {
-      if (input.contentFormat !== 'TEXT_ONLY') throw new Error('VK: загрузка фото требует пользовательский ключ; ключ сообщества поддерживает текст');
+      if (input.contentFormat !== 'TEXT_ONLY') {
+        if (input.publicationKind && input.publicationKind !== 'FEED') throw new Error('VK: связка ключей поддерживает фото только в ленте');
+        if (!['IMAGE', 'CAROUSEL'].includes(input.contentFormat || 'IMAGE')) throw new Error('VK: связка ключей поддерживает текст, фото и карусель в ленте');
+        if (input.credentials.photoPublishReady !== true || !input.credentials.uploadUserId) {
+          throw new Error(`VK: загрузка фото требует пользовательский ключ. ${input.credentials.photoSetupError || 'Добавьте проверенный ключ загрузки в разделе «Соцсети».'}`);
+        }
+        requireString(input.credentials, 'uploadAccessToken');
+      }
       if (input.credentials.textPublishReady !== true) throw new Error('VK: включите ключ после проверки сообщества и права wall');
       const destination = resolveVkDestination(input.credentials);
       if (destination.kind !== 'COMMUNITY' || destination.id !== input.credentials.tokenGroupId) {
@@ -351,10 +376,18 @@ export const vkPublisher: SocialPublisher = {
       ? input.credentials.apiVersion.trim()
       : '5.199';
     const common = { access_token: accessToken, v: apiVersion };
-    if (input.credentials.authKind === 'COMMUNITY') await checkVkCommunityTextAccess(input.credentials);
+    let imageCommon = common;
+    if (input.credentials.authKind === 'COMMUNITY') {
+      await checkVkCommunityTextAccess(input.credentials);
+      if (input.contentFormat !== 'TEXT_ONLY') {
+        const checked = await checkVkPhotoUploadAccess(input.credentials);
+        if (checked.userId !== input.credentials.uploadUserId) throw new Error('VK: владелец ключа загрузки изменился; повторите проверку подключения');
+        imageCommon = { ...common, access_token: requireString(input.credentials, 'uploadAccessToken') };
+      }
+    }
     const attachments = input.contentFormat === 'TEXT_ONLY' ? [] : isVideoPublication(input)
       ? [await prepareVideoAttachment(input, common, destination)]
-      : await prepareImageAttachments(input, common, destination);
+      : await prepareImageAttachments(input, imageCommon, destination);
 
     const context = input.publicationKind === 'STORY' ? 'story_caption' : input.media.length ? 'media_caption' : 'text';
     const compilation = input.textCompilation ?? compileLiteralPlainText('vk', input.text, context);
