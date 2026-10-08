@@ -143,7 +143,7 @@ try {
     await page.locator('#new-post').click();
     let form = page.locator('#post-form');
     await form.locator('input[name="title"]').fill(title);
-    await form.locator('[contenteditable="true"]').first().fill('Тест полного пути Telegram и MAX');
+    await form.locator('[contenteditable="true"]').first().fill('Тест полного пути Telegram и MAX\nПеренос строки сохраняется');
     await form.locator('select[name="postFormat"]').selectOption(format);
     await form.locator('button[type="submit"]').click();
     await form.waitFor({ state: 'detached' });
@@ -169,6 +169,10 @@ try {
     assert.equal(targets.length, 2);
     assert.ok(targets.every(t => t.state === 'PUBLISHED' && t.external_id));
     assert.equal(writes(), before + 2);
+    const sentMax = JSON.parse(calls.filter(c => c.method === 'messages').at(-1).init.body);
+    assert.equal(sentMax.text, post.body, 'MAX payload must preserve the editor paragraphs in text and media posts');
+    assert.ok(sentMax.text.includes('\n\n'));
+    assert.equal(sentMax.text.includes('<br>'), false);
   }
   const media = db.prepare('SELECT * FROM media ORDER BY created_at LIMIT 1').get();
   assert.ok(media);
