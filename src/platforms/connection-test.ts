@@ -21,6 +21,8 @@ export type VkTokenInspection = {
   userId?: string;
   userScreenName?: string;
   methods?: VkMethodCheck[];
+  textPublishReady?: boolean;
+  destinationMatchesToken?: boolean;
 };
 
 export type ConnectionTestResult = {
@@ -187,19 +189,15 @@ export async function inspectVkToken(credentials: Record<string, unknown>): Prom
         vkMethodConfirmed('groups.getTokenPermissions', 'VK вернул permissions для ключа сообщества.')
       ];
       try {
-        const reference = typeof credentials.groupId === 'string' && credentials.groupId.trim()
-          ? vkCommunityReference(credentials)
-          : '';
         const response = await vkCall('groups.getById', {
           ...common,
-          ...(reference ? { group_id: reference } : {}),
           fields: 'screen_name'
         });
         group = vkGroupFromResponse(response);
         if (group?.id) {
           methods.push(vkMethodConfirmed(
             'groups.getById',
-            'VK вернул данные группы. Это подтверждает чтение объекта, но не владение группой и не право публикации.'
+            'VK вернул сообщество, к которому привязан ключ (запрос без group_id).'
           ));
         } else {
           methods.push({ method: 'groups.getById', state: 'DENIED', reason: 'VK не вернул группу.' });
@@ -212,9 +210,16 @@ export async function inspectVkToken(credentials: Record<string, unknown>): Prom
       const groupScreenName = typeof group?.screen_name === 'string' && group.screen_name.trim()
         ? group.screen_name.trim()
         : undefined;
+      let destinationMatchesToken = Boolean(groupId);
+      if (credentials.groupId !== undefined && String(credentials.groupId).trim()) {
+        const reference = vkCommunityReference(credentials);
+        destinationMatchesToken = reference === groupId || reference.toLowerCase() === groupScreenName?.toLowerCase();
+      }
       return {
         valid: true,
         authKind: 'COMMUNITY',
+        destinationMatchesToken,
+        textPublishReady: destinationMatchesToken && names.includes('wall'),
         identity: groupName || 'Ключ сообщества VK',
         permissions: names,
         methods,
@@ -328,11 +333,12 @@ export async function checkVkConnection(credentials: Record<string, unknown>): P
           ...(groupId ? { destinationId: groupId } : {}),
           ...(inspection.groupName ? { destinationName: inspection.groupName } : {}),
           ...(screenName ? { destinationScreenName: screenName } : {}),
-          destinationOwnershipConfirmed: false,
+          destinationOwnershipConfirmed: inspection.destinationMatchesToken === true,
+          textPublishReady: inspection.textPublishReady === true,
           wallPhotoReady: false,
           wallUploadReady: false,
           wallPostNotExecuted: true,
-          publishReady: false,
+          publishReady: inspection.textPublishReady === true,
           methods: [
             ...(inspection.methods || []),
             vkMethodNotChecked(

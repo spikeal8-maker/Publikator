@@ -116,7 +116,7 @@ try {
   assert.equal(groupActivate.statusCode, 200, groupActivate.body);
   assert.equal(groupActivate.json().authKind, 'COMMUNITY');
   row = db.prepare('SELECT * FROM social_accounts WHERE id=?').get(groupId);
-  assert.equal(row.enabled, 0);
+  assert.equal(row.enabled, 1);
   assert.equal(decryptJson(row.credentials_encrypted).authKind, 'COMMUNITY');
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM project_default_targets WHERE account_id=?').get(groupId).n, 0);
 

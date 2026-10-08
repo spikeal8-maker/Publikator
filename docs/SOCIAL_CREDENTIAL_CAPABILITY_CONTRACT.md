@@ -255,7 +255,7 @@ VK · ASA Lab
 Публикация
 ✗ IMAGE — этому типу ключа недоступен photos.getWallUploadServer
 ✗ CAROUSEL — требуется USER credential
-◇ TEXT — текущий TEXT_ONLY adapter Publikator не включён
+✓ TEXT — доступен при праве wall и совпадении сообщества ключа с назначением
 ◇ VIDEO — не реализовано/не принято в текущем adapter
 ◇ STORY — не реализовано/не принято в текущем adapter
 
@@ -451,19 +451,19 @@ Publikator MUST detect/represent the credential type when provider evidence allo
 
 ## 11.1 VK method/token matrix
 
-Current schema evidence:
+Current schema evidence, amended by controlled VK API 5.199 acceptance on 2026-10-08:
 
 | VK method | USER | GROUP | SERVICE | What it proves |
 | --- | --- | --- | --- | --- |
 | users.get | allowed | allowed | allowed | user data/identity read; NOT sufficient by itself to classify token type |
-| groups.getById | allowed | allowed | allowed | group object readability; NOT ownership/admin proof |
+| groups.getById | allowed | allowed | allowed | selected-object lookup proves readability only; GROUP request WITHOUT group_id returns the credential-bound community |
 | groups.getTokenPermissions | no | allowed | no | declared GROUP-token permissions |
 | account.getAppPermissions | allowed | no | no | USER application permission mask |
 | photos.getWallUploadServer | allowed | no | no | current wall-photo preparation availability |
 | photos.saveWallPhoto | allowed | no | no | current wall-photo save step |
 | photos.getUploadServer | allowed | no | no | album upload preparation; does not make GROUP token publish-capable |
 | photos.save | allowed | no | no | album photo save step |
-| wall.post | allowed | no | no | public wall publication method in current schema |
+| wall.post | allowed | TEXT observed with wall permission | no | public operation; never invoked during ordinary inspection |
 
 Therefore:
 
@@ -552,7 +552,7 @@ At minimum attempt:
 
 1. establish GROUP credential validity/type;
 2. groups.getTokenPermissions;
-3. groups.getById when destination is known;
+3. groups.getById WITHOUT group_id to identify the credential-bound community, then compare the selected numeric ID or screen name;
 4. show returned group permissions;
 5. do not probe USER-only methods as though failure meant INVALID.
 
@@ -569,6 +569,7 @@ Declared permissions:
 ✓ photos
 
 Current Publikator publication:
+✓ TEXT — FEED/TEXT_ONLY when wall permission and credential-bound destination match
 ✗ IMAGE — current required method photos.getWallUploadServer requires USER
 ✗ CAROUSEL — requires USER
 ◇ VIDEO — adapter status
@@ -1579,7 +1580,7 @@ Type-specific evidence:
 - GROUP: `groups.getTokenPermissions` success is GROUP evidence;
 - USER: `account.getAppPermissions` success is USER evidence;
 - `users.get` may provide user identity/read evidence but not USER classification by itself;
-- `groups.getById` proves destination readability only;
+- `groups.getById` with a selected group proves readability only; without group_id for a GROUP key it identifies the credential-bound community;
 - `photos.getWallUploadServer` is USER image-preparation evidence;
 - `wall.post` remains `NOT_CHECKED` during normal inspection.
 

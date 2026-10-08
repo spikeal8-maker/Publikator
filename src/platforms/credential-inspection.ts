@@ -873,12 +873,8 @@ async function inspectVk(credentials: Record<string, unknown>): Promise<Credenti
     let destination: CapabilityDestinationEvidence = unknownDestination();
     let group: any = null;
     try {
-      const reference = typeof credentials.groupId === 'string' && credentials.groupId.trim()
-        ? vkCommunityReference(credentials)
-        : '';
       const response = await vkCall('groups.getById', {
         ...common,
-        ...(reference ? { group_id: reference } : {}),
         fields: 'screen_name'
       });
       group = vkGroupFromResponse(response);
@@ -886,18 +882,21 @@ async function inspectVk(credentials: Record<string, unknown>): Promise<Credenti
       const groupId = normalizeVkCommunityId(group.id);
       identity = vkDisplayName(group, `club${groupId}`);
       ownerId = groupId;
+      const reference = credentials.groupId !== undefined && String(credentials.groupId).trim()
+        ? vkCommunityReference(credentials) : groupId;
+      const matchesToken = reference === groupId || reference.toLowerCase() === String(group.screen_name || '').toLowerCase();
       destination = {
-        resolutionState: 'CONFIRMED',
+        resolutionState: matchesToken ? 'CONFIRMED' : 'DENIED',
         kind: 'COMMUNITY',
-        id: groupId,
-        name: identity,
+        id: matchesToken ? groupId : reference,
+        name: matchesToken ? identity : reference,
         role: 'group credential',
-        ownershipConfirmed: false
+        ownershipConfirmed: matchesToken
       };
       methods.push(method(
         'groups.getById',
         'CONFIRMED',
-        'VK вернул group object. Это подтверждает readability, но не ownership/admin.',
+        'VK вернул сообщество самого ключа без group_id; назначение сравнивается с этим сообществом.',
         'vk',
         'GROUP_READABLE'
       ));
@@ -912,8 +911,8 @@ async function inspectVk(credentials: Record<string, unknown>): Promise<Credenti
     const code = 'VK_USER_CREDENTIAL_REQUIRED';
     remediationRows.push(remediation(
       code,
-      'Для публикации нужен USER credential',
-      'GROUP credential остаётся действительным для group-scoped evidence, но текущие wall publication methods требуют USER credential.',
+      'Для загрузки фото нужен пользовательский ключ',
+      'Ключ сообщества может публиковать текст при совпадении назначения и праве wall. Загрузка фото требует пользовательский ключ.',
       { requiredCredentialType: 'USER' }
     ));
     methods.push(method(
@@ -925,10 +924,10 @@ async function inspectVk(credentials: Record<string, unknown>): Promise<Credenti
     ));
     methods.push(method(
       'wall.post',
-      'NOT_SUPPORTED_FOR_CREDENTIAL_TYPE',
-      'Current VK wall.post credential eligibility requires USER credential; public call is not executed.',
+      'NOT_CHECKED',
+      'Текстовый wall.post поддерживается ключом сообщества; проверка ключа не создаёт публичный пост.',
       'vk',
-      'USER_CREDENTIAL_REQUIRED'
+      'PUBLIC_WRITE_NOT_EXECUTED'
     ));
 
     return {
@@ -945,7 +944,11 @@ async function inspectVk(credentials: Record<string, unknown>): Promise<Credenti
       destination,
       methods,
       publicationEvidence: {
-        TEXT: publication('SETUP_REQUIRED', { requiredMethods: ['wall.post'], remediationCodes: [code] }),
+        TEXT: publication(destination.resolutionState === 'UNAVAILABLE' ? 'UNAVAILABLE'
+          : destination.resolutionState === 'CONFIRMED' && declaredPermissions.includes('wall') ? 'CONFIRMED' : 'DENIED', {
+          requiredMethods: ['groups.getTokenPermissions', 'groups.getById', 'wall.post'],
+          reason: 'Текст требует права wall и совпадения назначения с сообществом ключа; публичная отправка не выполнялась.'
+        }),
         IMAGE: publication('SETUP_REQUIRED', {
           requiredMethods: ['photos.getWallUploadServer', 'photos.saveWallPhoto', 'wall.post'],
           remediationCodes: [code]

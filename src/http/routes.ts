@@ -15,7 +15,8 @@ import {
   retryFailedTarget,
   setTargetSelection
 } from '../publisher.js';
-import { checkVkConnection, inspectVkToken, testConnection } from '../platforms/connection-test.js';
+import { readCapabilityProfile, replaceSocialAccountCredentials, saveCapabilityProfile } from '../social-credential-capability.js';
+import { checkVkConnection, inspectVkToken, testConnection, type VkTokenInspection } from '../platforms/connection-test.js';
 import { resolveVkDestination, vkDestinationKind } from '../platforms/vk.js';
 import { normalizeIanaTimezone, resolveExactSchedule, resolveScheduleInput } from '../schedule-time.js';
 import { parseRichTextJson, plainTextToRichText, richTextToPlain, serializeRichText } from '../rich-text.js';
@@ -70,6 +71,7 @@ function vkDestinationMetadata(credentialsEncrypted: string): {
   destination_id?: string;
   credential_only?: boolean;
   verification_status?: 'PENDING';
+  text_publish_ready?: boolean;
 } {
   try {
     const credentials = decryptJson<Record<string, unknown>>(credentialsEncrypted);
@@ -80,10 +82,49 @@ function vkDestinationMetadata(credentialsEncrypted: string): {
     }
     const destination = resolveVkDestination(credentials);
     return { destination_kind: destination.kind, destination_id: destination.id,
-      ...(credentialOnly ? { credential_only: true } : {}) };
+      ...(credentialOnly ? { credential_only: true, text_publish_ready: credentials.textPublishReady === true } : {}) };
   } catch {
     return {};
   }
+}
+
+function persistVkCommunityProfile(accountId: string, inspected: VkTokenInspection): void {
+  const textReady = inspected.textPublishReady === true;
+  saveCapabilityProfile(accountId, {
+    inspectionCompleted: true,
+    providerType: 'GROUP',
+    credential: {
+      validity: 'CONFIRMED', identity: inspected.identity, ownerId: inspected.groupId || null,
+      expiresAt: null, declaredPermissions: inspected.permissions || [], permissionsSource: 'groups.getTokenPermissions'
+    },
+    destination: {
+      resolutionState: inspected.destinationMatchesToken ? 'CONFIRMED' : 'DENIED',
+      kind: 'COMMUNITY', id: inspected.groupId || null, name: inspected.groupName || null,
+      role: 'group credential', ownershipConfirmed: inspected.destinationMatchesToken === true
+    },
+    methods: [
+      ...(inspected.methods || []).map((item) => ({
+        ...item, evidenceSource: 'vk', machineCode: null,
+        state: item.state === 'NOT_IMPLEMENTED' ? 'NOT_IMPLEMENTED_IN_PUBLIKATOR' : item.state
+      })),
+      { method: 'wall.post', state: 'NOT_CHECKED', evidenceSource: 'vk', machineCode: 'PUBLIC_WRITE_NOT_EXECUTED',
+        reason: 'Проверка ключа не создаёт публичный пост.' },
+      { method: 'photos.getWallUploadServer', state: 'NOT_SUPPORTED_FOR_CREDENTIAL_TYPE', evidenceSource: 'vk',
+        machineCode: 'USER_CREDENTIAL_REQUIRED', reason: 'Загрузка фото требует пользовательский ключ.' }
+    ],
+    publicationEvidence: {
+      TEXT: { state: textReady ? 'CONFIRMED' : 'DENIED', requiredMethods: ['groups.getTokenPermissions', 'groups.getById', 'wall.post'],
+        reason: textReady ? 'Сообщество ключа совпадает с назначением; право wall подтверждено.'
+          : 'Текст требует совпадения сообщества и права wall.' },
+      IMAGE: { state: 'SETUP_REQUIRED', remediationCodes: ['VK_USER_CREDENTIAL_REQUIRED'] },
+      CAROUSEL: { state: 'SETUP_REQUIRED', remediationCodes: ['VK_USER_CREDENTIAL_REQUIRED'] }
+    },
+    remediation: [{ code: 'VK_USER_CREDENTIAL_REQUIRED', title: 'Для загрузки фото нужен пользовательский ключ',
+      explanation: 'Подключите пользовательский ключ с доступом к выбранной стене и загрузке фото.',
+      requiredCredentialType: 'USER', requiredPermissions: ['photos', 'wall'], steps: ['Подключите пользовательский ключ VK и проверьте загрузку фото.'],
+      primaryAction: { label: 'Подключить VK', kind: 'INTERNAL_ROUTE', target: '/socials' }, secondaryActions: [] }],
+    adapterCapability: { TEXT: true, IMAGE: true, CAROUSEL: true, VIDEO: false, SHORT: false, STORY: false }
+  });
 }
 
 function postView(row: any): any {
@@ -280,7 +321,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       const { credentials_encrypted, ...safeRow } = row;
       return {
         ...safeRow,
-        ...(row.platform === 'vk' ? vkDestinationMetadata(String(credentials_encrypted)) : {})
+        ...(row.platform === 'vk' ? vkDestinationMetadata(String(credentials_encrypted)) : {}),
+        capabilityProfile: readCapabilityProfile(row.id)
       };
     });
   });
@@ -315,6 +357,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (!name || !body.credentials || typeof body.credentials !== 'object' || Array.isArray(body.credentials)) return reply.code(400).send({ error: 'Нужны name и credentials' });
     let credentials: Record<string, unknown>;
     let credentialOnly = false;
+    let textPublishReady = false;
+    let communityInspection: VkTokenInspection | undefined;
     try {
       const supplied = body.credentials as Record<string, unknown>;
       if (platform === 'vk' && supplied.authKind === 'PENDING') {
@@ -334,7 +378,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         const inspected = await inspectVkToken(supplied);
         if (inspected.authKind !== 'COMMUNITY') throw new Error('VK: ключ не является ключом сообщества');
         if (!inspected.groupId) throw new Error('VK: укажите ID или ссылку сообщества и проверьте ключ ещё раз');
+        if (inspected.destinationMatchesToken !== true) throw new Error('VK: выбранное сообщество не совпадает с сообществом ключа');
+        textPublishReady = inspected.textPublishReady === true;
+        communityInspection = inspected;
         credentials = normalizeStoredCredentials('vk', {
+          textPublishReady,
+          tokenGroupId: inspected.groupId,
           accessToken: supplied.accessToken,
           apiVersion: supplied.apiVersion,
           authKind: 'COMMUNITY',
@@ -353,15 +402,16 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const now = nowIso();
     db.transaction(() => {
       db.prepare('INSERT INTO social_accounts (id,platform,name,credentials_encrypted,enabled,created_at,updated_at) VALUES (?,?,?,?,?,?,?)')
-        .run(accountId, platform, name, encryptJson(credentials), credentialOnly ? 0 : 1, now, now);
-      if (!credentialOnly) {
+        .run(accountId, platform, name, encryptJson(credentials), credentialOnly && !textPublishReady ? 0 : 1, now, now);
+      if (communityInspection) persistVkCommunityProfile(accountId, communityInspection);
+      if (!credentialOnly || textPublishReady) {
         db.prepare(`INSERT INTO project_default_targets (project_id,account_id,created_at)
           SELECT id,?,? FROM projects WHERE default_targets_explicit=0`)
           .run(accountId, now);
       }
     })();
-    return reply.code(201).send({ id: accountId, platform, name, enabled: credentialOnly ? 0 : 1,
-      ...(credentialOnly ? { credentialOnly: true } : {}) });
+    return reply.code(201).send({ id: accountId, platform, name, enabled: credentialOnly && !textPublishReady ? 0 : 1,
+      ...(credentialOnly ? { credentialOnly: true, textPublishReady, capabilityProfile: readCapabilityProfile(accountId) } : {}) });
   });
   app.patch('/api/accounts/:id', async (request, reply) => {
     const params = request.params as { id: string };
@@ -372,8 +422,22 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       ? decryptJson<Record<string, unknown>>(current.credentials_encrypted)
       : null;
     const credentialOnly = stored?.authKind === 'COMMUNITY' || stored?.authKind === 'PENDING';
-    if (credentialOnly && body.enabled !== undefined && Boolean(body.enabled)) {
-      return reply.code(409).send({ error: 'VK: ключ сообщества сохранён, но публикация им недоступна' });
+    if (stored?.authKind === 'PENDING' && body.enabled !== undefined && Boolean(body.enabled)) {
+      return reply.code(409).send({ error: 'VK: сначала проверьте сохранённый ключ' });
+    }
+    if (stored?.authKind === 'COMMUNITY' && body.enabled !== undefined && Boolean(body.enabled)) {
+      try {
+        const inspected = await inspectVkToken(stored);
+        if (!inspected.textPublishReady || !inspected.groupId) throw new Error('VK: не подтверждены сообщество ключа и право wall');
+        const refreshed = { ...stored, textPublishReady: true, tokenGroupId: inspected.groupId };
+        if (stored.textPublishReady !== true || stored.tokenGroupId !== inspected.groupId) {
+          replaceSocialAccountCredentials(params.id, encryptJson(refreshed));
+          current.credentials_encrypted = (db.prepare('SELECT credentials_encrypted FROM social_accounts WHERE id=?').get(params.id) as { credentials_encrypted: string }).credentials_encrypted;
+        }
+        persistVkCommunityProfile(params.id, inspected);
+      } catch (error) {
+        return reply.code(409).send({ error: error instanceof Error ? error.message : String(error) });
+      }
     }
     if (body.credentials !== undefined
       && (credentialOnly || (current.platform === 'vk' && ['COMMUNITY', 'PENDING'].includes((body.credentials as any)?.authKind)))) {
@@ -439,14 +503,21 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       const now = nowIso();
       if (inspected.authKind === 'COMMUNITY') {
         if (!inspected.groupId) return reply.code(400).send({ error: 'VK: ключ действителен, но сообщество не определено; укажите ID при новом подключении' });
+        if (inspected.destinationMatchesToken !== true) throw new Error('VK: выбранное сообщество не совпадает с сообществом ключа');
         const verified = normalizeStoredCredentials('vk', {
+          textPublishReady: inspected.textPublishReady === true, tokenGroupId: inspected.groupId,
           accessToken: pending.accessToken, apiVersion: pending.apiVersion,
           authKind: 'COMMUNITY', destinationKind: 'COMMUNITY', groupId: inspected.groupId,
           destinationName: inspected.groupName || `club${inspected.groupId}`
         });
-        db.prepare('UPDATE social_accounts SET credentials_encrypted=?,enabled=0,updated_at=? WHERE id=?')
-          .run(encryptJson(verified), now, params.id);
-        return { ok: true, authKind: 'COMMUNITY', credentialOnly: true, identity: inspected.identity };
+        db.transaction(() => {
+          replaceSocialAccountCredentials(params.id, encryptJson(verified));
+          persistVkCommunityProfile(params.id, inspected);
+          db.prepare('UPDATE social_accounts SET enabled=?,updated_at=? WHERE id=?')
+            .run(inspected.textPublishReady ? 1 : 0, now, params.id);
+        })();
+        return { ok: true, authKind: 'COMMUNITY', credentialOnly: true, textPublishReady: inspected.textPublishReady,
+          capabilityProfile: readCapabilityProfile(params.id), identity: inspected.identity };
       }
       const checked = await testConnection('vk', pending);
       const details = checked.details || {};
@@ -717,9 +788,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const post = db.prepare('SELECT * FROM posts WHERE id=?').get(params.id) as any;
     if (!post) return reply.code(404).send({ error: 'Пост не найден' });
     if (IMMUTABLE_POST_STATUSES.has(post.status)) return reply.code(409).send({ error: 'Пост уже начал публикацию; используйте повтор конкретной ошибочной площадки' });
-    const mediaCount = db.prepare('SELECT COUNT(*) AS count FROM media WHERE post_id=?').get(params.id) as { count: number };
-    if (mediaCount.count < 1) return reply.code(409).send({ error: 'Публикация без изображения запрещена' });
-    ensureTargets(params.id);
+     ensureTargets(params.id);
     const accountCount = db.prepare("SELECT COUNT(*) AS count FROM post_targets pt JOIN social_accounts a ON a.id=pt.account_id WHERE pt.post_id=? AND pt.enabled=1 AND a.enabled=1").get(params.id) as { count: number };
     if (accountCount.count < 1) return reply.code(409).send({ error: 'Не выбрана ни одна активная соцсеть' });
 
