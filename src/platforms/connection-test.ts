@@ -1,6 +1,6 @@
 import type { Platform } from '../db.js';
 import { PlatformError, requireString, responseJson } from './types.js';
-import { normalizeVkCommunityId, normalizeVkUserId, vkCall, vkDestinationKind } from './vk.js';
+import { checkVkPhotoUploadAccess, normalizeVkCommunityId, normalizeVkUserId, vkCall, vkDestinationKind } from './vk.js';
 
 export type VkMethodState = 'CONFIRMED' | 'DENIED' | 'UNAVAILABLE' | 'NOT_CHECKED' | 'NOT_IMPLEMENTED';
 
@@ -23,6 +23,9 @@ export type VkTokenInspection = {
   methods?: VkMethodCheck[];
   textPublishReady?: boolean;
   destinationMatchesToken?: boolean;
+  photoPublishReady?: boolean;
+  uploadUserId?: string;
+  photoSetupError?: string;
 };
 
 export type ConnectionTestResult = {
@@ -215,9 +218,28 @@ export async function inspectVkToken(credentials: Record<string, unknown>): Prom
         const reference = vkCommunityReference(credentials);
         destinationMatchesToken = reference === groupId || reference.toLowerCase() === groupScreenName?.toLowerCase();
       }
+      let photoPublishReady = false;
+      let uploadUserId: string | undefined;
+      let photoSetupError: string | undefined;
+      if (destinationMatchesToken && groupId && typeof credentials.uploadAccessToken === 'string' && credentials.uploadAccessToken.trim()) {
+        try {
+          const checked = await checkVkPhotoUploadAccess({ ...credentials, groupId, destinationKind: 'COMMUNITY' });
+          uploadUserId = checked.userId;
+          photoPublishReady = names.includes('wall');
+          methods.push(vkMethodConfirmed('account.getAppPermissions', 'Пользовательский ключ загрузки подтвердил тип USER.'));
+          methods.push(vkMethodConfirmed('users.get', `Владелец ключа загрузки: id${checked.userId}.`));
+          methods.push(vkMethodConfirmed('photos.getWallUploadServer', 'Пользовательский ключ загрузки получил URL для выбранного сообщества; фото не отправлялось.'));
+        } catch (error) {
+          photoSetupError = isVkIpBoundError(error) ? VK_IP_BOUND_MESSAGE : error instanceof Error ? error.message : String(error);
+          photoSetupError = photoSetupError.split(credentials.uploadAccessToken).join('[REDACTED]').slice(0,1000);
+          const methodName = /VK ([a-z]+\.[A-Za-z]+)/.exec(error instanceof Error ? error.message : '')?.[1] || 'photos.getWallUploadServer';
+          methods.push({ ...vkMethodFailure(methodName, error), reason: photoSetupError });
+        }
+      }
       return {
         valid: true,
         authKind: 'COMMUNITY',
+        photoPublishReady, uploadUserId, photoSetupError,
         destinationMatchesToken,
         textPublishReady: destinationMatchesToken && names.includes('wall'),
         identity: groupName || 'Ключ сообщества VK',
@@ -335,8 +357,10 @@ export async function checkVkConnection(credentials: Record<string, unknown>): P
           ...(screenName ? { destinationScreenName: screenName } : {}),
           destinationOwnershipConfirmed: inspection.destinationMatchesToken === true,
           textPublishReady: inspection.textPublishReady === true,
-          wallPhotoReady: false,
-          wallUploadReady: false,
+          wallPhotoReady: inspection.photoPublishReady === true,
+          wallUploadReady: inspection.photoPublishReady === true,
+          photoPublishReady: inspection.photoPublishReady === true,
+          photoSetupError: inspection.photoSetupError,
           wallPostNotExecuted: true,
           publishReady: inspection.textPublishReady === true,
           methods: [

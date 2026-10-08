@@ -51,6 +51,9 @@ jobs:
           set -euo pipefail
           find public -maxdepth 1 -type f -name '*.js' -print0 | sort -z | xargs -0 -n1 node --check
 
+      - name: VK-PHOTO-CREDENTIAL-ROLES-001 two-key browser and publication safety
+        run: node scripts/vk-photo-credential-roles-e2e.mjs
+
       - name: VK-GROUP-TEXT-001 community text publishing
         run: node scripts/vk-group-text-e2e.mjs
 

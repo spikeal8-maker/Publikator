@@ -12,6 +12,7 @@ export function socialCredentialFields(platform) {
     <label class="full">Ключ VK (ручной ввод)<input name="accessToken" type="password" autocomplete="off" required><span class="operator-field-help">Проверка покажет, действителен ли ключ и какого он типа. Ключ из «Работа с API → Ключи доступа» можно проверить и сохранить для текстовых постов в его сообщество при праве wall. Для публикации постов с фотографиями требуется пользовательский ключ.</span><span class="operator-field-help hidden" data-vk-community-auth-hint>Для сообщества пользователь должен иметь право публикации. Ключ сообщества не подходит для загрузки фотографий на стену.</span></label>
     <label class="full hidden" data-vk-community-field>Сообщество / ID<input name="groupId" placeholder="123456789, club123456789 или ссылка VK"><span class="operator-field-help">Для сохранения ключа поле можно оставить пустым. Для подключения публикации укажите сообщество.</span></label>
     <div class="full muted small" data-vk-personal-hint>Личная страница определяется по владельцу access token через официальный VK API.</div>
+    <label class="full hidden" data-vk-upload-field>Пользовательский ключ для загрузки фото (необязательно)<input name="uploadAccessToken" type="password" autocomplete="off"><span class="operator-field-help">Если основной ключ принадлежит сообществу, добавьте сюда пользовательский ключ с доступом к фото сообщества. Фото загружается этим ключом, пост отправляется основным. Без него ключ сообщества может публиковать текст.</span></label>
     <label>API version<input name="apiVersion" required value="5.199"></label>`;
   if (platform === 'max') return `
     <label class="full">Токен бота<input name="accessToken" type="password" autocomplete="off" required></label>
@@ -33,6 +34,7 @@ export function syncVkDestinationFields(form) {
     const kind = String(new FormData(form).get('destinationKind') || 'PERSONAL');
     const community = kind === 'COMMUNITY';
     groupField.classList.toggle('hidden', !community);
+    form.querySelector('[data-vk-upload-field]')?.classList.toggle('hidden', !community);
     groupInput.required = false;
     personalHint?.classList.toggle('hidden', community);
     communityAuthHint?.classList.toggle('hidden', !community);
@@ -63,7 +65,11 @@ export function socialCredentialsFromForm(platform, form) {
       apiVersion: String(data.get('apiVersion') || '').trim() || '5.199',
       destinationKind
     };
-    if (destinationKind === 'COMMUNITY') credentials.groupId = String(data.get('groupId') || '').trim();
+    if (destinationKind === 'COMMUNITY') {
+      credentials.groupId = String(data.get('groupId') || '').trim();
+      const uploadAccessToken = String(data.get('uploadAccessToken') || '').trim();
+      if (uploadAccessToken) credentials.uploadAccessToken = uploadAccessToken;
+    }
     return credentials;
   }
   if (platform === 'max') {
@@ -122,7 +128,8 @@ export function vkCommunityTokenNotice(inspection) {
   const permissions = Array.isArray(inspection.permissions) && inspection.permissions.length
     ? ` VK подтвердил права: ${inspection.permissions.join(', ')}.`
     : '';
-  return `Ключ VK действителен: это ключ сообщества.${permissions} Ключ можно сохранить; текст доступен при праве wall и совпадении сообщества. Для публикации постов с фото нужен пользовательский ключ VK. Это ограничение не означает, что введённый ключ неверный.`;
+  const photo = inspection.photoPublishReady ? ' Фото: пользовательский ключ загрузки проверен.' : inspection.photoSetupError ? ` Фото: ${inspection.photoSetupError}` : '';
+  return `Ключ VK действителен: это ключ сообщества.${permissions}${photo} Ключ можно сохранить; текст доступен при праве wall и совпадении сообщества. Для фото можно добавить отдельный пользовательский ключ загрузки. Это ограничение не означает, что введённый ключ неверный.`;
 }
 
 export function verifiedVkCommunityKeyFromInspection(form, inspection) {
@@ -139,6 +146,7 @@ export function verifiedVkCommunityKeyFromInspection(form, inspection) {
     accessToken: credentials.accessToken,
     apiVersion: credentials.apiVersion,
     authKind: 'COMMUNITY',
+    ...(credentials.uploadAccessToken ? { uploadAccessToken: credentials.uploadAccessToken } : {}),
     destinationKind: 'COMMUNITY',
     groupId,
     destinationName: String(inspection.groupName || `club${groupId}`)
