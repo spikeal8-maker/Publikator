@@ -463,7 +463,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       try {
         const inspected = await inspectVkToken(stored);
         if (!inspected.textPublishReady || !inspected.groupId) throw new Error('VK: не подтверждены сообщество ключа и право wall');
-        const refreshed = { ...stored, textPublishReady: true, tokenGroupId: inspected.groupId, ...vkCommunityPhotoCredentials(stored, inspected) };
+        const refreshed: Record<string, unknown> = { ...stored, textPublishReady: true, tokenGroupId: inspected.groupId, ...vkCommunityPhotoCredentials(stored, inspected) };
         if (stored.textPublishReady !== true || stored.tokenGroupId !== inspected.groupId
           || stored.photoPublishReady !== refreshed.photoPublishReady || stored.uploadUserId !== refreshed.uploadUserId) {
           replaceSocialAccountCredentials(params.id, encryptJson(refreshed));
