@@ -96,6 +96,19 @@ try {
   vkPublisher.validate(input);
   assert.throws(() => vkPublisher.validate({ ...input, contentFormat: 'IMAGE' }), /пользовательский ключ/);
   assert.throws(() => vkPublisher.validate({ ...input, credentials: { ...stored, groupId: '99999' } }), /не совпадает/);
+  const changedFormat = await textPost('READY format change');
+  const changed = await req('PATCH', '/api/posts/' + changedFormat.id, {
+    contentFormat: 'MEDIA', expectedContentVersion: changedFormat.content_version
+  });
+  assert.equal(changed.statusCode, 200, changed.body);
+  assert.equal(changed.json().post.status, 'DRAFT', 'format changes must invalidate READY');
+  assert.equal(changed.json().post.content_format, 'IMAGE');
+  assert.ok(changed.json().contentVersion > changedFormat.content_version);
+  const staleReady = await req('POST', '/api/posts/' + changedFormat.id + '/ready', {
+    expectedContentVersion: changedFormat.content_version
+  });
+  assert.equal(staleReady.statusCode, 409, staleReady.body);
+  assert.equal(calls.some(x => x.method === 'wall.post'), false);
   const successful = await textPost('Text succeeds');
   const published = await req('POST', '/api/posts/' + successful.id + '/publish-now');
   assert.equal(published.statusCode, 200, published.body);

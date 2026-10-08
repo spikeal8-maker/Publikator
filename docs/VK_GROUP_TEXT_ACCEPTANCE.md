@@ -20,4 +20,8 @@ GROUP saves persist encrypted secrets and a PARTIAL per-format profile. New GROU
 
 GitHub is the implementation and regression surface. The host is required only for real Windows Docker deployment and owner-authorized live VK acceptance; fixture CI cannot prove those API responses.
 
-Focused regression: scripts/vk-group-text-e2e.mjs, existing VK key storage/pending/capability/inspection regressions, then the single full Publikator CI / Acceptance. Live post through deployed product and UI result must be recorded before reporting deployed acceptance.
+The ordinary editor exposes «Только текст» and «С медиа». Format changes use the existing content revision primitive and invalidate READY. The media preview respects text-only posts; image preflight still requires a usable USER credential.
+
+The existing sharp dependency is updated from 0.35.4 to patched 0.35.5 with its matching native packages because the current mandatory npm audit found GHSA-wq5f-xc86-pv6w. The lock was resolved on the GitHub runner; the temporary resolution step was removed.
+
+Focused regressions: scripts/vk-group-text-browser-e2e.mjs (ordinary create/ready/publish and photo rejection), scripts/vk-group-text-e2e.mjs (safe binding, format revision, repeat/recovery), existing VK key storage/pending/capability/inspection regressions, then the single full Publikator CI / Acceptance. Live post through deployed product and UI result must be recorded before reporting deployed acceptance.
