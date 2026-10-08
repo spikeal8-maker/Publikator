@@ -348,9 +348,9 @@ export const vkPublisher: SocialPublisher = {
     if (input.credentials.authKind === 'COMMUNITY') {
       if (input.contentFormat !== 'TEXT_ONLY') {
         if (input.publicationKind && input.publicationKind !== 'FEED') throw new Error('VK: связка ключей поддерживает фото только в ленте');
-        if (!['IMAGE', 'CAROUSEL'].includes(input.contentFormat || '')) throw new Error('VK: связка ключей поддерживает текст, фото и карусель в ленте');
+        if (!['IMAGE', 'CAROUSEL'].includes(input.contentFormat || 'IMAGE')) throw new Error('VK: связка ключей поддерживает текст, фото и карусель в ленте');
         if (input.credentials.photoPublishReady !== true || !input.credentials.uploadUserId) {
-          throw new Error(`VK: для фото нужен проверенный пользовательский ключ загрузки. ${input.credentials.photoSetupError || 'Подключите его в разделе «Соцсети».'}`);
+          throw new Error(`VK: загрузка фото требует пользовательский ключ. ${input.credentials.photoSetupError || 'Добавьте проверенный ключ загрузки в разделе «Соцсети».'}`);
         }
         requireString(input.credentials, 'uploadAccessToken');
       }
