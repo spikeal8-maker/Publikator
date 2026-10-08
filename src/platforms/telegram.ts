@@ -227,6 +227,12 @@ function assertFeedVideo(input: PublishInput): MediaRow {
   return media;
 }
 
+function assertTextPublication(input: PublishInput): void {
+  if (input.publicationKind && input.publicationKind !== 'FEED') throw new Error('Telegram: текст без медиа поддерживается только в ленте');
+  if (input.media.length !== 0) throw new Error('Telegram: TEXT_ONLY не должен содержать медиа');
+  if (!telegramCompiledText(input).text.trim()) throw new Error('Telegram: текст публикации пуст');
+}
+
 function assertImagePublication(input: PublishInput): void {
   if (input.publicationKind && input.publicationKind !== 'FEED') {
     throw new Error(`Telegram: текущий image adapter поддерживает только FEED, получен ${input.publicationKind}/${input.contentFormat || 'IMAGE'}`);
@@ -385,7 +391,8 @@ export const telegramPublisher: SocialPublisher = {
       return;
     }
     requireString(input.credentials, 'chatId');
-    if (isVideoPublication(input)) assertFeedVideo(input);
+    if (input.contentFormat === 'TEXT_ONLY') assertTextPublication(input);
+    else if (isVideoPublication(input)) assertFeedVideo(input);
     else assertImagePublication(input);
     const textLength = characterCount(telegramCompiledText(input).text);
     if (textLength > MESSAGE_LIMIT) {
@@ -431,7 +438,9 @@ export const telegramPublisher: SocialPublisher = {
     const compiled = telegramCompiledText(input);
     const textLength = characterCount(compiled.text);
     const caption = textLength <= CAPTION_LIMIT ? compiled : { text: '', entities: [] };
-    const result = isVideoPublication(input)
+    const result = input.contentFormat === 'TEXT_ONLY'
+      ? await sendMessage(token, chatId, compiled)
+      : isVideoPublication(input)
       ? await publishVideo(token, chatId, assertFeedVideo(input), caption)
       : await publishImages(token, chatId, input.media, caption);
 
@@ -442,7 +451,7 @@ export const telegramPublisher: SocialPublisher = {
       });
     }
 
-    if (textLength > CAPTION_LIMIT) {
+    if (input.contentFormat !== 'TEXT_ONLY' && textLength > CAPTION_LIMIT) {
       try {
         const textResult = await sendMessage(token, chatId, compiled);
         if (!textResult?.message_id) {
@@ -458,6 +467,11 @@ export const telegramPublisher: SocialPublisher = {
         });
       }
     }
-    return { externalId: String(result.message_id), raw: result };
+    const username = result.chat?.username;
+    const channelId = String(result.chat?.id || '');
+    const externalUrl = typeof username === 'string' && /^[A-Za-z0-9_]+$/.test(username)
+      ? `https://t.me/${username}/${result.message_id}`
+      : channelId.startsWith('-100') ? `https://t.me/c/${channelId.slice(4)}/${result.message_id}` : null;
+    return { externalId: String(result.message_id), externalUrl, raw: result };
   }
 };

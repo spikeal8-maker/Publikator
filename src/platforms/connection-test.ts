@@ -1,3 +1,4 @@
+import { maxFetch } from './max-transport.js';
 import type { Platform } from '../db.js';
 import { PlatformError, requireString, responseJson } from './types.js';
 import { checkVkPhotoUploadAccess, normalizeVkCommunityId, normalizeVkUserId, vkCall, vkDestinationKind } from './vk.js';
@@ -68,11 +69,11 @@ async function maxTest(credentials: Record<string, unknown>): Promise<Connection
   const chatId = requireString(credentials, 'chatId');
   const headers = { Authorization: accessToken };
 
-  const meResponse = await fetch('https://platform-api2.max.ru/me', { headers, signal: AbortSignal.timeout(15000) });
+  const meResponse = await maxFetch('https://platform-api2.max.ru/me', { headers, signal: AbortSignal.timeout(15000) });
   const me = await responseJson(meResponse, 'MAX GET /me');
   if (!me?.user_id) throw new Error('MAX: API не вернул идентификатор бота');
 
-  const memberResponse = await fetch(`https://platform-api2.max.ru/chats/${encodeURIComponent(chatId)}/members/me`, { headers, signal: AbortSignal.timeout(15000) });
+  const memberResponse = await maxFetch(`https://platform-api2.max.ru/chats/${encodeURIComponent(chatId)}/members/me`, { headers, signal: AbortSignal.timeout(15000) });
   const member = await responseJson(memberResponse, 'MAX GET /chats/{chatId}/members/me');
   const permissions = Array.isArray(member?.permissions) ? member.permissions.map(String) : [];
   if (!member?.is_owner && (!member?.is_admin || !permissions.includes('write'))) {

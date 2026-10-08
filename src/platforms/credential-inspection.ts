@@ -1,3 +1,4 @@
+import { maxFetch } from './max-transport.js';
 import { config } from '../config.js';
 import type { Platform } from '../db.js';
 import {
@@ -109,7 +110,8 @@ function isUnavailablePlatformError(error: unknown): boolean {
 
 async function jsonProbe(url: string, init: RequestInit = {}): Promise<JsonProbe> {
   try {
-    const response = await fetch(url, { ...init, signal: init.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+    const fetchImpl = new URL(url).origin === 'https://platform-api2.max.ru' ? maxFetch : globalThis.fetch;
+    const response = await fetchImpl(url, { ...init, signal: init.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
     const text = await response.text();
     let body: any = {};
     try {

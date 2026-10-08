@@ -638,7 +638,7 @@ Example:
 
 ~~~text
 Ключ: ПОЛНОЦЕННЫЙ
-🟢 Полный доступ для текущих IMAGE/CAROUSEL возможностей
+🟢 Полный доступ для текущих TEXT/IMAGE/CAROUSEL возможностей
 
 Bot: @school_bot
 Channel: School
@@ -650,7 +650,7 @@ Channel: School
 ✓ can_post_stories
 
 Publikator:
-◇ TEXT — текущий TEXT_ONLY adapter не включён
+✓ TEXT
 ✓ IMAGE
 ✓ CAROUSEL
 ◇ STORY — provider right exists, but Publikator adapter not accepted
@@ -669,6 +669,9 @@ Remediation:
 ---
 
 # 13. MAX — exact user-facing contract
+
+TG-MAX-FEED-PUBLISH-001 implements FEED/TEXT_ONLY. IMAGE/CAROUSEL uses local JPEG upload via POST /uploads?type=image, verified iu.oneme.ru multipart data and an image token in POST /messages. Public hosting is not required for ordinary local publishing; explicit legacy external-URL adapter inputs remain validated. Refer to TELEGRAM_MAX_FEED_ACCEPTANCE.md. Inspection never uploads or posts media.
+
 
 Inspection:
 
@@ -697,7 +700,7 @@ Example:
 ✓ admin
 ✗ write
 
-TEXT: ◇ если TEXT_ONLY adapter не включён
+TEXT: ✗ BLOCKED — требуется write
 IMAGE: ✗ BLOCKED
 
 Чтобы публиковать:

@@ -1,3 +1,4 @@
+import { maxFetch } from './max-transport.js';
 import { openAsBlob } from 'node:fs';
 import fs from 'node:fs/promises';
 import { mediaAbsolutePath } from '../media.js';
@@ -8,6 +9,8 @@ import { compileLiteralPlainText } from '../platform-text.js';
 
 const MAX_TEXT_LENGTH = 4000;
 const MAX_ATTACHMENTS = 12;
+const MAX_IMAGE_BYTES = 50 * 1024 * 1024;
+const MAX_IMAGE_UPLOAD_TIMEOUT_MS = 120_000;
 const MAX_VIDEO_BYTES = 250 * 1024 * 1024;
 const MAX_REQUEST_TIMEOUT_MS = 30_000;
 const MAX_VIDEO_UPLOAD_HOST = 'omub.okcdn.ru';
@@ -100,7 +103,14 @@ function assertFeedVideo(input: PublishInput): MediaRow {
   return media;
 }
 
+function assertTextPublication(input: PublishInput): void {
+  if (input.publicationKind && input.publicationKind !== 'FEED') throw new Error('MAX: текст без медиа поддерживается только в ленте');
+  if (input.media.length !== 0) throw new Error('MAX: TEXT_ONLY не должен содержать медиа');
+  if (!input.text.trim()) throw new Error('MAX: текст публикации пуст');
+}
+
 function assertImagePublication(input: PublishInput): void {
+  if (input.publicationKind && input.publicationKind !== 'FEED') throw new Error('MAX: изображения поддерживаются только в ленте');
   if (input.contentFormat && !['IMAGE', 'CAROUSEL'].includes(input.contentFormat)) {
     throw new Error(`MAX: текущий adapter не поддерживает ${input.publicationKind || 'FEED'}/${input.contentFormat}`);
   }
@@ -109,12 +119,64 @@ function assertImagePublication(input: PublishInput): void {
   for (const media of input.media) {
     if (media.mime_type !== 'image/jpeg') throw new Error(`MAX: image publication требует image/jpeg, получен ${media.mime_type}`);
   }
-  if (input.publicMediaUrls.length !== input.media.length) {
+  // Explicit legacy URL inputs remain supported. Ordinary publishing uploads local files.
+  if (input.publicMediaUrls.length > 0 && input.publicMediaUrls.length !== input.media.length) {
     throw new Error('MAX: для каждого изображения должен существовать публичный media URL');
   }
   if (input.publicMediaUrls.some((url) => !validPublicHttpsUrl(url))) {
     throw new Error('MAX: каждый media URL должен быть корректным публичным HTTPS URL без credentials');
   }
+}
+
+async function prepareImagePayloads(accessToken: string, mediaRows: MediaRow[]): Promise<Array<{ type: string; payload: Record<string, string> }>> {
+  // Validate every local file before creating any remote upload.
+  const blobs: Blob[] = [];
+  for (const media of mediaRows) {
+    try {
+      const absolutePath = mediaAbsolutePath(media);
+      const stat = await fs.stat(absolutePath);
+      if (!stat.isFile() || stat.size <= 0 || stat.size > MAX_IMAGE_BYTES) throw new Error('изображение отсутствует, пусто или превышает 50 MB');
+      blobs.push(await openAsBlob(absolutePath, { type: 'image/jpeg' }));
+    } catch (error) {
+      throw new PlatformError(`MAX: локальное изображение недоступно до внешнего POST: ${error instanceof Error ? error.message : String(error)}`, {
+        retryable: false, outcomeUnknown: false
+      });
+    }
+  }
+  const attachments: Array<{ type: string; payload: Record<string, string> }> = [];
+  for (let index = 0; index < mediaRows.length; index += 1) {
+    try {
+      const reservationResponse = await maxFetch('https://platform-api2.max.ru/uploads?type=image', {
+        method: 'POST', headers: { Authorization: accessToken }, signal: AbortSignal.timeout(MAX_REQUEST_TIMEOUT_MS), redirect: 'error'
+      });
+      const reservation = await responseJson(reservationResponse, 'MAX image upload reservation');
+      const uploadUrl = typeof reservation?.url === 'string' ? reservation.url : '';
+      let allowed = false;
+      try {
+        const url = new URL(uploadUrl);
+        allowed = url.protocol === 'https:' && url.hostname === 'iu.oneme.ru' && !url.port
+          && url.pathname === '/uploadImage' && !url.username && !url.password;
+      } catch { /* No request to an unverified upload destination. */ }
+      if (!allowed) throw new PlatformError('MAX: image upload URL не соответствует разрешённому HTTPS host iu.oneme.ru', { retryable: false, outcomeUnknown: false });
+      const form = new FormData();
+      form.set('data', blobs[index]!, mediaRows[index]!.original_name.replace(/\.[^.]+$/, '') + '.jpg');
+      const uploadedResponse = await maxFetch(uploadUrl, {
+        method: 'POST', body: form, signal: AbortSignal.timeout(MAX_IMAGE_UPLOAD_TIMEOUT_MS), redirect: 'error'
+      });
+      const uploaded = await responseJson(uploadedResponse, 'MAX image upload');
+      if (uploaded?.error) throw new PlatformError('MAX: сервер отклонил загрузку изображения', { retryable: false, outcomeUnknown: false });
+      const photoTokens = uploaded?.photos && typeof uploaded.photos === 'object'
+        ? Object.values(uploaded.photos).map((photo: any) => photo?.token).filter((token: unknown): token is string => typeof token === 'string' && token.length > 0)
+        : [];
+      const token = photoTokens.length === 1 ? photoTokens[0]
+        : photoTokens.length === 0 && typeof uploaded?.token === 'string' ? uploaded.token : null;
+      if (!token) throw new PlatformError('MAX: загрузка изображения не вернула единственный attachment token', { retryable: false, outcomeUnknown: false });
+      attachments.push({ type: 'image', payload: { token } });
+    } catch (error) {
+      throw preparationError(error, 'MAX image upload — подготовительная фаза');
+    }
+  }
+  return attachments;
 }
 
 async function localVideoBlob(media: MediaRow): Promise<Blob> {
@@ -135,7 +197,7 @@ async function localVideoBlob(media: MediaRow): Promise<Blob> {
 
 async function reserveVideoUpload(accessToken: string): Promise<{ url: string; token: string | null }> {
   try {
-    const response = await fetch('https://platform-api2.max.ru/uploads?type=video', {
+    const response = await maxFetch('https://platform-api2.max.ru/uploads?type=video', {
       method: 'POST',
       headers: { Authorization: accessToken },
       signal: AbortSignal.timeout(MAX_REQUEST_TIMEOUT_MS)
@@ -177,7 +239,7 @@ async function uploadVideoFile(uploadUrl: string, media: MediaRow, blob: Blob): 
     const form = new FormData();
     const filename = media.original_name.toLowerCase().endsWith('.mp4') ? media.original_name : `${media.original_name}.mp4`;
     form.set('data', blob, filename);
-    const response = await fetch(uploadUrl, {
+    const response = await maxFetch(uploadUrl, {
       method: 'POST',
       body: form,
       signal: AbortSignal.timeout(MAX_REQUEST_TIMEOUT_MS)
@@ -237,7 +299,7 @@ async function postMessage(
   attachments: Array<{ type: string; payload: Record<string, string> }>
 ): Promise<any> {
   try {
-    const response = await fetch(`https://platform-api2.max.ru/messages?chat_id=${encodeURIComponent(chatId)}`, {
+    const response = await maxFetch(`https://platform-api2.max.ru/messages?chat_id=${encodeURIComponent(chatId)}`, {
       method: 'POST',
       headers: {
         Authorization: accessToken,
@@ -286,7 +348,8 @@ export const maxPublisher: SocialPublisher = {
   validate(input) {
     requireString(input.credentials, 'accessToken');
     requireString(input.credentials, 'chatId');
-    if (isVideoPublication(input)) assertFeedVideo(input);
+    if (input.contentFormat === 'TEXT_ONLY') assertTextPublication(input);
+    else if (isVideoPublication(input)) assertFeedVideo(input);
     else assertImagePublication(input);
     const textLength = characterCount(input.text);
     if (textLength > MAX_TEXT_LENGTH) {
@@ -297,9 +360,12 @@ export const maxPublisher: SocialPublisher = {
     this.validate(input);
     const accessToken = requireString(input.credentials, 'accessToken');
     const chatId = requireString(input.credentials, 'chatId');
-    const attachments = isVideoPublication(input)
+    const attachments = input.contentFormat === 'TEXT_ONLY' ? []
+      : isVideoPublication(input)
       ? [{ type: 'video', payload: { token: await prepareVideoToken(accessToken, assertFeedVideo(input)) } }]
-      : input.publicMediaUrls.map((url) => ({ type: 'image', payload: { url } }));
+      : input.publicMediaUrls.length
+        ? input.publicMediaUrls.map((url) => ({ type: 'image', payload: { url } }))
+        : await prepareImagePayloads(accessToken, input.media);
     const compiled = maxCompiledText(input);
     const body = await postMessage(accessToken, chatId, compiled.text, compiled.format, attachments);
 

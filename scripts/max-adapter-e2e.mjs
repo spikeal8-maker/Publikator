@@ -124,8 +124,8 @@ try {
   assert.equal(PLATFORM_CAPABILITIES.max.supportsStories, false);
   assert.equal(PLATFORM_CAPABILITIES.max.supportsShortVideo, false);
   assert.equal(PLATFORM_CAPABILITIES.max.verification.richMediaPendingLiveAcceptance, true);
-  assert.equal(platformRequiresPublicHttpsMedia('max', 'IMAGE'), true);
-  assert.equal(platformRequiresPublicHttpsMedia('max', 'CAROUSEL'), true);
+  assert.equal(platformRequiresPublicHttpsMedia('max', 'IMAGE'), false);
+  assert.equal(platformRequiresPublicHttpsMedia('max', 'CAROUSEL'), false);
   assert.equal(platformRequiresPublicHttpsMedia('max', 'VIDEO'), false);
   assert.equal(platformRequiresPublicHttpsMedia('instagram', 'VIDEO'), true);
 

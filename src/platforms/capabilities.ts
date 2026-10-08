@@ -75,7 +75,7 @@ export const PLATFORM_CAPABILITIES: Record<Platform, PlatformCapability> = {
     supportsFeed: true,
     supportsStories: false,
     supportsShortVideo: false,
-    supportsTextOnly: false,
+    supportsTextOnly: true,
     supportsImage: true,
     supportsVideo: false,
     supportsCarousel: true,
@@ -125,7 +125,7 @@ export const PLATFORM_CAPABILITIES: Record<Platform, PlatformCapability> = {
     supportsFeed: true,
     supportsStories: false,
     supportsShortVideo: false,
-    supportsTextOnly: false,
+    supportsTextOnly: true,
     supportsImage: true,
     supportsVideo: false,
     supportsCarousel: true,
@@ -141,8 +141,7 @@ export const PLATFORM_CAPABILITIES: Record<Platform, PlatformCapability> = {
       inlineCode: 'native', codeBlock: 'native', link: 'native', quote: 'native',
       bulletList: 'transform', orderedList: 'transform'
     },
-    requiresPublicHttpsMedia: true,
-    publicHttpsMediaFormats: ['IMAGE', 'CAROUSEL'],
+    requiresPublicHttpsMedia: false,
     platformOptionsSchema: {},
     verification: { officialDocsReviewedAt: VERIFIED_AT, richMediaPendingLiveAcceptance: true }
   },
