@@ -127,6 +127,15 @@ function persistVkCommunityProfile(accountId: string, inspected: VkTokenInspecti
   });
 }
 
+function editorContentFormat(body: Record<string, any>, current?: any): string {
+  if (body.contentFormat === undefined) return current?.content_format || 'IMAGE';
+  if (!['TEXT_ONLY', 'MEDIA'].includes(body.contentFormat)) throw new Error('Выберите формат «Только текст» или «С медиа»');
+  if (body.contentFormat === 'MEDIA') return current?.content_format === 'TEXT_ONLY' ? 'IMAGE' : current?.content_format || 'IMAGE';
+  if (current && current.publication_kind !== 'FEED') throw new Error('Текстовый формат доступен только для поста в ленте');
+  if (current && listMedia(current.id).length) throw new Error('Для текстового поста сначала удалите вложения или выберите «С медиа»');
+  return 'TEXT_ONLY';
+}
+
 function postView(row: any): any {
   const media = listMedia(row.id);
   const targetRows = db.prepare(`SELECT pt.id, pt.account_id, pt.enabled, pt.override_text, pt.state, pt.attempts,
@@ -692,7 +701,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       : body;
     try { schedule = scheduleMutation(mode, scheduleInput); }
     catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) }); }
+    let contentFormat: string;
+    try { contentFormat = editorContentFormat(body); }
+    catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) }); }
     const created = createDraftPost({
+      contentFormat: contentFormat as 'TEXT_ONLY' | 'IMAGE',
       projectId,
       title,
       body: content.body,
@@ -711,6 +724,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const current = db.prepare('SELECT * FROM posts WHERE id=?').get(params.id) as any;
     if (!current) return reply.code(404).send({ error: 'Пост не найден' });
     if (IMMUTABLE_POST_STATUSES.has(current.status)) return reply.code(409).send({ error: 'Нельзя редактировать частично или полностью опубликованный пост' });
+    let contentFormat: string;
+    try { contentFormat = editorContentFormat(body, current); }
+    catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) }); }
     const title = body.title === undefined ? current.title : String(body.title).trim();
     let content: { body: string; bodyRichJson: string };
     try { content = resolvedPostBody(body, current); }
@@ -727,8 +743,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     try {
       const version = expectedContentVersion(request, body);
       const committed = commitContentEdit(params.id, version, 'manual', () => {
-        db.prepare('UPDATE posts SET title=?,body=?,body_rich_json=?,schedule_mode=?,scheduled_at=?,scheduled_at_utc=?,schedule_timezone=?,updated_at=? WHERE id=?')
-          .run(title, content.body, content.bodyRichJson, mode, schedule.scheduledAt, schedule.scheduledAtUtc, schedule.scheduleTimezone, nowIso(), params.id);
+        db.prepare('UPDATE posts SET title=?,body=?,body_rich_json=?,schedule_mode=?,scheduled_at=?,scheduled_at_utc=?,schedule_timezone=?,content_format=?,updated_at=? WHERE id=?')
+          .run(title, content.body, content.bodyRichJson, mode, schedule.scheduledAt, schedule.scheduledAtUtc, schedule.scheduleTimezone, contentFormat, nowIso(), params.id);
       });
       return { ok: true, contentVersion: committed.contentVersion, post: postView(db.prepare('SELECT * FROM posts WHERE id=?').get(params.id)) };
     } catch (error) {

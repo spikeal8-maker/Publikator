@@ -10,7 +10,6 @@ Object.assign(process.env, {
 const { db, migrate } = await import('../dist/db.js');
 const { decryptJson, encryptJson } = await import('../dist/crypto.js');
 const { buildApp } = await import('../dist/app.js');
-const { setContentCompositionVersioned } = await import('../dist/rich-media.js');
 const { vkPublisher } = await import('../dist/platforms/vk.js');
 const { inspectSocialCredential } = await import('../dist/platforms/credential-inspection.js');
 const { readCapabilityProfile } = await import('../dist/social-credential-capability.js');
@@ -84,11 +83,11 @@ try {
 
   const projectId = db.prepare('SELECT id FROM projects ORDER BY created_at LIMIT 1').get().id;
   async function textPost(title) {
-    const created = await req('POST', '/api/posts', { projectId, title, body: 'Community text acceptance', scheduleMode: 'MANUAL' });
+    const created = await req('POST', '/api/posts', { projectId, title, body: 'Community text acceptance', scheduleMode: 'MANUAL', contentFormat: 'TEXT_ONLY' });
     assert.equal(created.statusCode, 201, created.body);
     const post = created.json();
-    const edit = setContentCompositionVersioned(post.id, post.content_version, 'FEED', 'TEXT_ONLY', []);
-    const ready = await req('POST', '/api/posts/' + post.id + '/ready', { expectedContentVersion: edit.contentVersion });
+    assert.equal(post.content_format, 'TEXT_ONLY');
+    const ready = await req('POST', '/api/posts/' + post.id + '/ready', { expectedContentVersion: post.content_version });
     assert.equal(ready.statusCode, 200, ready.body);
     return post;
   }

@@ -54,6 +54,9 @@ jobs:
       - name: VK-GROUP-TEXT-001 community text publishing
         run: node scripts/vk-group-text-e2e.mjs
 
+      - name: VK-GROUP-TEXT-001 ordinary operator browser journey
+        run: node scripts/vk-group-text-browser-e2e.mjs
+
       - name: KEY-02 VK validity and capability separation
         run: node scripts/key-02-vk-capability-e2e.mjs
 
