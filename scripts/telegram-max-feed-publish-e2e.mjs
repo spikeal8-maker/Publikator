@@ -11,6 +11,7 @@ Object.assign(process.env, { NODE_ENV: 'test', DATA_DIR: dataDir, ADMIN_PASSWORD
 const { db, migrate } = await import('../dist/db.js');
 const { buildApp } = await import('../dist/app.js');
 const { decryptJson } = await import('../dist/crypto.js');
+const { maxFetch } = await import('../dist/platforms/max-transport.js');
 const { maxPublisher } = await import('../dist/platforms/max.js');
 const { telegramPublisher } = await import('../dist/platforms/telegram.js');
 const { compilePlatformText } = await import('../dist/platform-text.js');
@@ -30,6 +31,7 @@ globalThis.fetch = async (input, init = {}) => {
   const method = url.pathname.split('/').pop();
   calls.push({ host: url.hostname, method, init });
   if (url.hostname === 'api.telegram.org') {
+    assert.equal(init.dispatcher, undefined, 'MAX CA must not affect Telegram transport');
     assert.ok(url.pathname.startsWith('/bot' + tgSecret + '/'));
     if (method === 'getMe') return Response.json({ ok: true, result: { id: 321, username: 'fixture_bot' } });
     if (method === 'getChat') return Response.json({ ok: true, result: { id: -100654, type: 'channel', title: 'Fixture Telegram', username: 'fixture_channel' } });
@@ -49,6 +51,8 @@ globalThis.fetch = async (input, init = {}) => {
     throw new Error('Unexpected Telegram method ' + method);
   }
   if (url.hostname === 'platform-api2.max.ru') {
+    assert.ok(init.dispatcher, 'MAX API must use its scoped verified TLS transport');
+    assert.equal(init.redirect, 'error');
     assert.equal(init.headers.Authorization, maxSecret);
     if (url.pathname === '/me') return Response.json({ user_id: 432, username: 'fixture_max_bot' });
     if (url.pathname.endsWith('/members/me')) return Response.json({ is_admin: true, permissions: ['write'] });
@@ -89,6 +93,11 @@ globalThis.fetch = async (input, init = {}) => {
 const writes = () => calls.filter(c => ['sendMessage', 'sendPhoto', 'messages'].includes(c.method)).length;
 let browser;
 try {
+  for (const unsafe of ['http://platform-api2.max.ru/me', 'https://evil.example/me', 'https://user:pass@platform-api2.max.ru/me', 'https://platform-api2.max.ru:8443/me']) {
+    const before = calls.length;
+    await assert.rejects(() => maxFetch(unsafe), /approved HTTPS host/);
+    assert.equal(calls.length, before, 'unsafe transport must fail before sending credentials');
+  }
   await app.ready();
   await app.listen({ host: '127.0.0.1', port: 18096 });
   browser = await chromium.launch({ channel: 'chrome', headless: true });

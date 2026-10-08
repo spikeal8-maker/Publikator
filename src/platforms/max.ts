@@ -1,3 +1,4 @@
+import { maxFetch } from './max-transport.js';
 import { openAsBlob } from 'node:fs';
 import fs from 'node:fs/promises';
 import { mediaAbsolutePath } from '../media.js';
@@ -145,7 +146,7 @@ async function prepareImagePayloads(accessToken: string, mediaRows: MediaRow[]):
   const attachments: Array<{ type: string; payload: Record<string, string> }> = [];
   for (let index = 0; index < mediaRows.length; index += 1) {
     try {
-      const reservationResponse = await fetch('https://platform-api2.max.ru/uploads?type=image', {
+      const reservationResponse = await maxFetch('https://platform-api2.max.ru/uploads?type=image', {
         method: 'POST', headers: { Authorization: accessToken }, signal: AbortSignal.timeout(MAX_REQUEST_TIMEOUT_MS), redirect: 'error'
       });
       const reservation = await responseJson(reservationResponse, 'MAX image upload reservation');
@@ -159,7 +160,7 @@ async function prepareImagePayloads(accessToken: string, mediaRows: MediaRow[]):
       if (!allowed) throw new PlatformError('MAX: image upload URL не соответствует разрешённому HTTPS host iu.oneme.ru', { retryable: false, outcomeUnknown: false });
       const form = new FormData();
       form.set('data', blobs[index]!, mediaRows[index]!.original_name.replace(/\.[^.]+$/, '') + '.jpg');
-      const uploadedResponse = await fetch(uploadUrl, {
+      const uploadedResponse = await maxFetch(uploadUrl, {
         method: 'POST', body: form, signal: AbortSignal.timeout(MAX_IMAGE_UPLOAD_TIMEOUT_MS), redirect: 'error'
       });
       const uploaded = await responseJson(uploadedResponse, 'MAX image upload');
@@ -196,7 +197,7 @@ async function localVideoBlob(media: MediaRow): Promise<Blob> {
 
 async function reserveVideoUpload(accessToken: string): Promise<{ url: string; token: string | null }> {
   try {
-    const response = await fetch('https://platform-api2.max.ru/uploads?type=video', {
+    const response = await maxFetch('https://platform-api2.max.ru/uploads?type=video', {
       method: 'POST',
       headers: { Authorization: accessToken },
       signal: AbortSignal.timeout(MAX_REQUEST_TIMEOUT_MS)
@@ -238,7 +239,7 @@ async function uploadVideoFile(uploadUrl: string, media: MediaRow, blob: Blob): 
     const form = new FormData();
     const filename = media.original_name.toLowerCase().endsWith('.mp4') ? media.original_name : `${media.original_name}.mp4`;
     form.set('data', blob, filename);
-    const response = await fetch(uploadUrl, {
+    const response = await maxFetch(uploadUrl, {
       method: 'POST',
       body: form,
       signal: AbortSignal.timeout(MAX_REQUEST_TIMEOUT_MS)
@@ -298,7 +299,7 @@ async function postMessage(
   attachments: Array<{ type: string; payload: Record<string, string> }>
 ): Promise<any> {
   try {
-    const response = await fetch(`https://platform-api2.max.ru/messages?chat_id=${encodeURIComponent(chatId)}`, {
+    const response = await maxFetch(`https://platform-api2.max.ru/messages?chat_id=${encodeURIComponent(chatId)}`, {
       method: 'POST',
       headers: {
         Authorization: accessToken,

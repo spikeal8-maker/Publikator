@@ -22,3 +22,21 @@ No schema change; inspection/save/READY do not post. Bot rights are checked serv
 Named single-CI regression exercises ordinary browser credential entry, encrypted save, text/image creation, READY and publication for both platforms with mocked provider responses. It also checks localhost image and carousel token flow, no public write during inspection/save/READY, secret non-leakage, rich text, unsafe host, missing files and preparation/public error boundaries. Existing adapter tests preserve explicit URL validation and rich-media gates. Full exact-head Acceptance required before merge.
 
 Host acceptance requires the owner's Windows Docker and real provider credentials; GitHub CI cannot reproduce those. Real posts must have observed provider identifiers and ordinary product PUBLISHED state. The n8n exports contain MAX credentials and Telegram channel IDs, but only a reference to Telegram server_bot_1bot credentials, not its bot token. Live Telegram acceptance remains pending that token. Keep publication success, automated tests and credential availability separate.
+
+## MAX TLS in Docker
+
+Live Windows/Docker diagnostics found `UNABLE_TO_GET_ISSUER_CERT_LOCALLY` for
+`platform-api2.max.ru/me` with the valid n8n bot. MAX's official July 2026 migration
+requires the Russian Trusted Root CA: https://dev.max.ru/docs-api/changelog-api.
+The public root is bundled in `src/platforms/max-transport.ts`, downloaded over
+verified HTTPS from https://gu-st.ru/content/Other/doc/russian_trusted_root_ca.cer;
+DER SHA-256 is D26D2D0231B7C39F92CC738512BA54103519E4405D68B5BD703E9788CA8ECF31,
+expiry 2032-02-27. A dedicated Undici dispatcher extends Node's standard CA list
+only for MAX API and the two approved MAX upload hosts. Certificate and hostname
+verification remain enabled; redirects are rejected. No OS trust changes,
+global dispatcher, `NODE_EXTRA_CA_CERTS`, or TLS bypass is used.
+Connection checking, capability inspection and publishing use this same transport.
+A verified-CA read-only probe from the actual Docker runtime returned HTTP 200
+and the expected bot identity; this is connection evidence, not a publication test.
+The acceptance journey asserts transport isolation and pre-request rejection of
+unapproved hosts, credentials in URLs, non-HTTPS and nonstandard ports.
