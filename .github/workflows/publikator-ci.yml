@@ -58,7 +58,7 @@ jobs:
         run: node scripts/telegram-max-feed-publish-e2e.mjs
 
       - name: SOCIAL-ERROR-VISIBILITY-001 secret-safe social connection diagnostics
-        run: node scripts/social-connection-observability-e2e.mjs
+        run: node scripts/social-connection-output-guard-e2e.mjs
 
 
       - name: VK-PHOTO-CREDENTIAL-ROLES-001 two-key browser and publication safety
