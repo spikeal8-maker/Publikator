@@ -340,6 +340,11 @@ function persistVerifiedCredentials(accountId: string, before: SocialAccountRow,
   if (updated.changes !== 1) throw new SocialCredentialVersionConflictError();
 }
 
+export function isVerifiedAccountPublishReady(accountId: string): boolean {
+  const row = accountRow(accountId);
+  return hasReadyImplementedFormat(row.platform, readCapabilityProfile(accountId));
+}
+
 function accountRow(accountId: string): SocialAccountRow {
   const row = db.prepare(`SELECT id,platform,name,credentials_encrypted,enabled,credential_version
     FROM social_accounts WHERE id=?`).get(accountId) as SocialAccountRow | undefined;
