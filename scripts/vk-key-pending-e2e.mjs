@@ -42,8 +42,9 @@ globalThis.fetch = async (input, init = {}) => {
   }
   if (token === 'valid-user-key') {
     if (method === 'groups.getTokenPermissions') return response({
-      error: { error_code: 5, error_msg: 'Group authorization failed' }
+      error: { error_code: 27, error_msg: 'This is a USER token, not GROUP token' }
     });
+    if (method === 'account.getAppPermissions') return response({ response: 8192 });
     if (method === 'users.get') return response({
       response: [{ id: 12345, first_name: 'Test', last_name: 'User' }]
     });
