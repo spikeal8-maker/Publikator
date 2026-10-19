@@ -168,11 +168,18 @@ function normalizeCredentials(platform: Platform, raw: unknown): Record<string, 
   }
 
   if (destinationKind === 'COMMUNITY') {
+    if (supplied.uploadAccessToken !== undefined && typeof supplied.uploadAccessToken !== 'string') {
+      requestError('VK: uploadAccessToken должен быть строкой');
+    }
+    const uploadAccessToken = typeof supplied.uploadAccessToken === 'string'
+      ? supplied.uploadAccessToken.trim()
+      : '';
     return {
       accessToken,
       apiVersion,
       destinationKind,
-      groupId: normalizeVkCommunityReference(supplied.groupId)
+      groupId: normalizeVkCommunityReference(supplied.groupId),
+      ...(uploadAccessToken ? { uploadAccessToken } : {})
     };
   }
 
