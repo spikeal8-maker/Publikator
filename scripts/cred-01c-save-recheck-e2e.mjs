@@ -13,7 +13,8 @@ process.env.EVENT_RETENTION_DAYS = '0';
 process.env.BACKUP_RETENTION_COUNT = '0';
 
 const { db, migrate } = await import('../dist/db.js');
-const { decryptJson } = await import('../dist/crypto.js');
+const { decryptJson, encryptJson } = await import('../dist/crypto.js');
+const { replaceSocialAccountCredentials, readCapabilityProfile } = await import('../dist/social-credential-capability.js');
 const {
   setSocialCredentialInspectorForTests
 } = await import('../dist/social-account-credentials.js');
@@ -22,6 +23,10 @@ migrate();
 
 const callCounts = new Map();
 const seenCredentials = [];
+let indicateRaceInspectionStarted = () => {};
+const raceInspectionStarted = new Promise((resolve) => { indicateRaceInspectionStarted = resolve; });
+let resumeRaceInspection = () => {};
+const raceInspectionHold = new Promise((resolve) => { resumeRaceInspection = resolve; });
 
 function nextMode(token) {
   const count = (callCounts.get(token) || 0) + 1;
@@ -176,7 +181,12 @@ setSocialCredentialInspectorForTests(async (platform, credentials) => {
   const snapshot = structuredClone(credentials);
   seenCredentials.push(snapshot);
   const token = String(credentials.botToken || '');
-  return inspection(nextMode(token), credentials);
+  const mode = nextMode(token);
+  if (token === 'race-secret' && callCounts.get(token) === 2) {
+    indicateRaceInspectionStarted();
+    await raceInspectionHold;
+  }
+  return inspection(mode, credentials);
 });
 
 const { buildApp } = await import('../dist/app.js');
@@ -350,6 +360,29 @@ try {
   assert.equal(gainRecheck.capabilityProfile.accessLevel, 'FULL');
   assert.equal(gainRecheck.account.enabled, false, 'recheck must preserve operator enabled state');
   assert.equal(defaultTargetCount(project.id, gain.account.id), 0, 'later recheck must not silently add project defaults');
+
+  // A pending recheck cannot certify credentials that changed during the provider request.
+  const race = await saveTelegram('race-secret', '108');
+  assert.equal(race.capabilityProfile.accessLevel, 'FULL');
+  const raceRecheckPromise = json(`/api/accounts/${race.account.id}/recheck`, {
+    method: 'POST'
+  }, 409);
+  await raceInspectionStarted;
+  let replacementVersion = 0;
+  try {
+    replacementVersion = replaceSocialAccountCredentials(
+      race.account.id,
+      encryptJson({ botToken: 'replacement-secret', chatId: '-100108' })
+    );
+  } finally {
+    resumeRaceInspection();
+  }
+  assert.equal(replacementVersion, 2);
+  const raceConflict = await raceRecheckPromise;
+  assert.match(raceConflict.error, /изменилось во время проверки/);
+  assert.equal(readCapabilityProfile(race.account.id).accessLevel, 'UNCHECKED');
+  assert.equal(JSON.stringify(raceConflict).includes('race-secret'), false);
+  assert.equal(JSON.stringify(raceConflict).includes('replacement-secret'), false);
 
   const serialized = JSON.stringify({
     full,
