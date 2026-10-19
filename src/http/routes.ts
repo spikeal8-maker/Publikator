@@ -21,6 +21,7 @@ import {
   normalizeSocialCredentialInput,
   recheckSocialAccount,
   saveAndCheckSocialAccount,
+  saveUncheckedVkAccount,
   SocialAccountNotFoundError,
   SocialCredentialVersionConflictError,
   SocialCredentialRequestError
@@ -431,71 +432,43 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
   });
   app.post('/api/accounts', async (request, reply) => {
-    const body = bodyObject(request.body);
-    const platform = String(body.platform || '') as Platform;
-    if (!PLATFORMS.has(platform)) return reply.code(400).send({ error: 'Неизвестная площадка' });
-    const name = String(body.name || '').trim();
-    if (!name || !body.credentials || typeof body.credentials !== 'object' || Array.isArray(body.credentials)) return reply.code(400).send({ error: 'Нужны name и credentials' });
-    let credentials: Record<string, unknown>;
-    let credentialOnly = false;
-    let textPublishReady = false;
-    let communityInspection: VkTokenInspection | undefined;
+    let body: Record<string, any>;
     try {
-      const supplied = body.credentials as Record<string, unknown>;
-      if (platform === 'vk' && supplied.authKind === 'PENDING') {
-        const accessToken = typeof supplied.accessToken === 'string' ? supplied.accessToken.trim() : '';
-        if (!accessToken) throw new Error('VK: введите ключ доступа');
-        const destinationKind = vkDestinationKind(supplied);
-        credentials = {
-          accessToken,
-          apiVersion: typeof supplied.apiVersion === 'string' && supplied.apiVersion.trim() ? supplied.apiVersion.trim() : '5.199',
-          authKind: 'PENDING',
-          destinationKind,
-          ...(destinationKind === 'COMMUNITY' && typeof supplied.uploadAccessToken === 'string' && supplied.uploadAccessToken.trim()
-            ? { uploadAccessToken: supplied.uploadAccessToken.trim() } : {}),
-          ...(destinationKind === 'COMMUNITY' && typeof supplied.groupId === 'string' && supplied.groupId.trim()
-            ? { groupId: supplied.groupId.trim() } : {})
-        };
-        credentialOnly = true;
-      } else if (platform === 'vk' && supplied.authKind === 'COMMUNITY') {
-        const inspected = await inspectVkToken(supplied);
-        if (inspected.authKind !== 'COMMUNITY') throw new Error('VK: ключ не является ключом сообщества');
-        if (!inspected.groupId) throw new Error('VK: укажите ID или ссылку сообщества и проверьте ключ ещё раз');
-        if (inspected.destinationMatchesToken !== true) throw new Error('VK: выбранное сообщество не совпадает с сообществом ключа');
-        textPublishReady = inspected.textPublishReady === true;
-        communityInspection = inspected;
-        credentials = normalizeStoredCredentials('vk', {
-          textPublishReady,
-          tokenGroupId: inspected.groupId,
-          ...vkCommunityPhotoCredentials(supplied, inspected),
-          accessToken: supplied.accessToken,
-          apiVersion: supplied.apiVersion,
-          authKind: 'COMMUNITY',
-          destinationKind: 'COMMUNITY',
-          groupId: inspected.groupId,
-          destinationName: inspected.groupName || name
+      body = bodyObject(request.body);
+      const platform = String(body.platform || '').toLowerCase();
+      // Only a deliberate VK save-as-unverified action can defer provider inspection.
+      // This does not grant any capabilities, even if the browser claims FULL.
+      const pending = platform === 'vk'
+        && body.credentials && !Array.isArray(body.credentials)
+        && typeof body.credentials === 'object' && body.credentials.authKind === 'PENDING';
+      const result = pending
+        ? saveUncheckedVkAccount({ name: body.name, credentials: body.credentials })
+        : await saveAndCheckSocialAccount({
+          platform: body.platform, name: body.name, credentials: body.credentials
         });
-        credentialOnly = true;
-      } else {
-        credentials = normalizeStoredCredentials(platform, supplied);
-      }
+      const profile = result.capabilityProfile;
+      const account = result.account;
+      return reply.code(201).send({
+        id: account.id,
+        platform: account.platform,
+        name: account.name,
+        enabled: account.enabled ? 1 : 0,
+        credentialVersion: account.credentialVersion,
+        capabilityProfile: profile,
+        ...(account.platform === 'vk' && profile.semantic?.credential
+          ? { credentialOnly: profile.providerType === 'GROUP' || pending,
+              textPublishReady: profile.semantic.publicationReadiness.TEXT.state === 'READY' }
+          : pending ? { credentialOnly: true, textPublishReady: false } : {})
+      });
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
-    }
-    const accountId = id('acc');
-    const now = nowIso();
-    db.transaction(() => {
-      db.prepare('INSERT INTO social_accounts (id,platform,name,credentials_encrypted,enabled,created_at,updated_at) VALUES (?,?,?,?,?,?,?)')
-        .run(accountId, platform, name, encryptJson(credentials), credentialOnly && !textPublishReady ? 0 : 1, now, now);
-      if (communityInspection) persistVkCommunityProfile(accountId, communityInspection);
-      if (!credentialOnly || textPublishReady) {
-        db.prepare(`INSERT INTO project_default_targets (project_id,account_id,created_at)
-          SELECT id,?,? FROM projects WHERE default_targets_explicit=0`)
-          .run(accountId, now);
+      if (error instanceof SocialCredentialRequestError) {
+        return reply.code(400).send({ error: error.message });
       }
-    })();
-    return reply.code(201).send({ id: accountId, platform, name, enabled: credentialOnly && !textPublishReady ? 0 : 1,
-      ...(credentialOnly ? { credentialOnly: true, textPublishReady, capabilityProfile: readCapabilityProfile(accountId) } : {}) });
+      if (error instanceof SocialCredentialVersionConflictError) {
+        return reply.code(409).send({ error: error.message });
+      }
+      throw error;
+    }
   });
   app.patch('/api/accounts/:id', async (request, reply) => {
     const params = request.params as { id: string };
