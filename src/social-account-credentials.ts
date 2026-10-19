@@ -273,6 +273,72 @@ function hasReadyImplementedFormat(
   ));
 }
 
+/**
+ * Runtime VK flags are a *server-derived projection* of CRED-01B inspection,
+ * never browser-provided evidence. Legacy VK publisher accepts these flags.
+ */
+function verifiedPublisherCredentials(
+  platform: Platform,
+  raw: Record<string, unknown>,
+  inspection: CredentialInspectionResult,
+  profile: BuiltCapabilityProfile
+): Record<string, unknown> {
+  if (platform !== 'vk') return raw;
+  const destination = inspection.destination;
+  const common = { ...raw };
+  if (inspection.credential.validity !== 'CONFIRMED'
+    || !destination || destination.resolutionState !== 'CONFIRMED' || !destination.id) {
+    return { ...common, authKind: 'PENDING' };
+  }
+  if (inspection.credential.providerType === 'GROUP' && destination.kind === 'COMMUNITY') {
+    const textReady = profile.semantic.publicationReadiness.TEXT.state === 'READY';
+    const photosReady = profile.semantic.publicationReadiness.IMAGE.state === 'READY'
+      && profile.semantic.publicationReadiness.CAROUSEL.state === 'READY'
+      && Boolean(inspection.verifiedVkUploadUserId) && Boolean(raw.uploadAccessToken);
+    return {
+      ...common,
+      destinationKind: 'COMMUNITY',
+      groupId: destination.id,
+      authKind: 'COMMUNITY',
+      tokenGroupId: destination.id,
+      textPublishReady: textReady,
+      photoPublishReady: photosReady,
+      uploadUserId: photosReady ? inspection.verifiedVkUploadUserId : null,
+      photoSetupError: photosReady ? null : (inspection.publicationEvidence.IMAGE?.reason || 'Подтвердите USER ключ загрузки фотографий')
+    };
+  }
+  if (inspection.credential.providerType === 'USER'
+    && (destination.kind === 'COMMUNITY' || destination.kind === 'PERSONAL')) {
+    return {
+      ...common,
+      authKind: 'USER',
+      destinationKind: destination.kind,
+      ...(destination.kind === 'COMMUNITY'
+        ? { groupId: destination.id }
+        : { userId: destination.id })
+    };
+  }
+  return { ...common, authKind: 'PENDING' };
+}
+
+function persistVerifiedCredentials(accountId: string, before: SocialAccountRow,
+  credentials: Record<string, unknown>, previousProfile: CapabilityProfileView): void {
+  const existing = decryptJson<Record<string, unknown>>(before.credentials_encrypted);
+  if (JSON.stringify(existing) === JSON.stringify(credentials)) return;
+  if (previousProfile.profileCurrent && previousProfile.accessLevel !== 'UNCHECKED') {
+    // Recheck discovered a semantically different published credential configuration:
+    // old READY/preflight must not continue with that fingerprint.
+    replaceSocialAccountCredentials(accountId, encryptJson(credentials));
+    return;
+  }
+  // The account was already UNCHECKED (initial save or explicit replacement).
+  // Complete the same logical mutation without a second credential_version bump.
+  const updated = db.prepare(`UPDATE social_accounts SET credentials_encrypted=?,updated_at=?
+    WHERE id=? AND credential_version=? AND credentials_encrypted=?`)
+    .run(encryptJson(credentials), nowIso(), accountId, before.credential_version, before.credentials_encrypted);
+  if (updated.changes !== 1) throw new SocialCredentialVersionConflictError();
+}
+
 function accountRow(accountId: string): SocialAccountRow {
   const row = db.prepare(`SELECT id,platform,name,credentials_encrypted,enabled,credential_version
     FROM social_accounts WHERE id=?`).get(accountId) as SocialAccountRow | undefined;
@@ -347,6 +413,9 @@ export async function saveAndCheckSocialAccount(input: {
   const inputForProfile = profileInput(platform, inspection);
   const built = buildCapabilityProfile(inputForProfile);
   const metadata = checkFailureMetadata(built, inspection);
+  persistVerifiedCredentials(accountId, inserted,
+    verifiedPublisherCredentials(platform, credentials, inspection, built),
+    readCapabilityProfile(accountId));
   const capabilityProfile = saveCapabilityProfile(accountId, {
     ...inputForProfile,
     lastCheckCode: metadata.code,
@@ -371,6 +440,12 @@ export async function recheckSocialAccount(accountId: string): Promise<SocialCre
   const inputForProfile = profileInput(before.platform, inspection);
   const built = buildCapabilityProfile(inputForProfile);
   const metadata = checkFailureMetadata(built, inspection);
+
+  // A transient provider failure never destroys previously confirmed semantics.
+  if (!(built.accessLevel === 'UNAVAILABLE' && successfulSemanticProfile(previousProfile))) {
+    persistVerifiedCredentials(accountId, before,
+      verifiedPublisherCredentials(before.platform, credentials, inspection, built), previousProfile);
+  }
 
   let capabilityProfile: CapabilityProfileView;
   if (built.accessLevel === 'UNAVAILABLE' && successfulSemanticProfile(previousProfile)) {
