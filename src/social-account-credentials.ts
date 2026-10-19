@@ -192,6 +192,10 @@ function normalizeCredentials(platform: Platform, raw: unknown): Record<string, 
   };
 }
 
+export function normalizeSocialCredentialInput(platform: Platform, raw: unknown): Record<string, unknown> {
+  return normalizeCredentials(platform, raw);
+}
+
 function normalizePlatform(value: unknown): Platform {
   const platform = typeof value === 'string' ? value.trim().toLowerCase() as Platform : '' as Platform;
   if (!PLATFORMS.has(platform)) requestError('Неизвестная площадка');
