@@ -306,6 +306,33 @@ const personalAccount = await api('POST', '/api/accounts', {
   }
 }, 201);
 
+// A well-formed but unverified replacement must be retained encrypted and DISABLED.
+const personalId = personalAccount.id;
+const firstVersion = db.prepare('SELECT credential_version FROM social_accounts WHERE id=?').get(personalId).credential_version;
+const validUnverifiedPatch = await api('PATCH', `/api/accounts/${personalId}`, {
+  credentials: {
+    accessToken: 'new-unverified-personal-token',
+    destinationKind: 'PERSONAL',
+    userId: '101',
+    authKind: 'USER',
+    photoPublishReady: true,
+    textPublishReady: true,
+    apiVersion: '5.199'
+  }
+});
+assert.equal(validUnverifiedPatch.ok, true);
+const safePatchRow = db.prepare('SELECT credential_version,enabled,credentials_encrypted FROM social_accounts WHERE id=?').get(personalId);
+assert.equal(safePatchRow.credential_version, firstVersion + 1);
+assert.equal(safePatchRow.enabled, 0);
+assert.equal(safePatchRow.credentials_encrypted.includes('new-unverified-personal-token'), false);
+const storedPatch = (await import('../dist/crypto.js')).decryptJson(safePatchRow.credentials_encrypted);
+assert.equal(storedPatch.accessToken, 'new-unverified-personal-token');
+assert.equal(storedPatch.authKind, undefined);
+assert.equal(storedPatch.photoPublishReady, undefined);
+assert.equal(storedPatch.textPublishReady, undefined);
+const staleProfile = (await import('../dist/social-credential-capability.js')).readCapabilityProfile(personalId);
+assert.equal(staleProfile.accessLevel, 'UNCHECKED');
+
 const personalBeforeInvalidPatch = db.prepare(
   'SELECT name,enabled,credentials_encrypted FROM social_accounts WHERE id=?'
 ).get(personalAccount.id);
