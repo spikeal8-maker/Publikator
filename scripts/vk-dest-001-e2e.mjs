@@ -134,6 +134,32 @@ const { setPublisherForTests } = await import('../dist/platforms/index.js');
 const { PlatformError } = await import('../dist/platforms/types.js');
 const { resolveVkDestination } = await import('../dist/platforms/vk.js');
 const { buildApp } = await import('../dist/app.js');
+const { setSocialCredentialInspectorForTests } = await import('../dist/social-account-credentials.js');
+// Destination-selection regression: server-owned evidence fixture; CRED-01B
+// provider method semantics are tested separately in cred-01b.
+setSocialCredentialInspectorForTests(async (platform, credentials) => {
+  assert.equal(platform, 'vk');
+  const personal = credentials.destinationKind === 'PERSONAL';
+  const destinationId = personal ? String(credentials.userId) :
+    String(credentials.groupId).replace(/^-/, '').replace(/^(?:club|public)/i, '');
+  return {
+    platform: 'vk',
+    credential: { validity: 'CONFIRMED', providerType: 'USER',
+      identity: 'Verified fixture user', ownerId: personal ? destinationId : '102',
+      expiresAt: null, declaredPermissions: ['photos'],
+      permissionsSource: 'account.getAppPermissions' },
+    destination: { resolutionState: 'CONFIRMED',
+      kind: personal ? 'PERSONAL' : 'COMMUNITY', id: destinationId,
+      name: 'Verified fixture destination', role: 'owner', ownershipConfirmed: personal },
+    methods: [{ method: 'photos.getWallUploadServer', state: 'CONFIRMED',
+      machineCode: 'UPLOAD_SERVER_CONFIRMED', reason: 'Fixture verified method', evidenceSource: 'vk' }],
+    publicationEvidence: {
+      TEXT: { state: 'UNKNOWN', reason: 'public wall.post not executed' },
+      IMAGE: { state: 'CONFIRMED' }, CAROUSEL: { state: 'CONFIRMED' }
+    }, runtimePrerequisiteEvidence: [], remediation: [], warnings: []
+  };
+});
+
 
 migrate();
 
@@ -608,6 +634,7 @@ console.log(JSON.stringify({
   operatorDestinationControls: true
 }, null, 2));
 
+setSocialCredentialInspectorForTests(null);
 await app.close();
 db.close();
 await fs.rm(dataDir, { recursive: true, force: true });
