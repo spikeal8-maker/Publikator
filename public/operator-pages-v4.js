@@ -46,16 +46,24 @@ function showSocialConnectionError(target, error, platform, operation) {
   // No server diagnostic ID means the exception may have come from local form
   // validation or transport code. Never copy an arbitrary exception string,
   // since a library can include the entered token or request URL in it.
+  const receivedHttpResponse = Number.isInteger(error?.httpStatus);
   const message = serverId
     ? (error instanceof Error ? error.message : String(error))
-    : 'Сервер не подтвердил проверку. Проверьте поля и сеть; при повторе укажите время и площадку.';
-  const code = typeof error?.diagnosticCode === 'string' ? error.diagnosticCode : 'CLIENT_OR_NETWORK_ERROR';
+    : receivedHttpResponse
+      ? 'Сервер ответил ошибкой, но не предоставил безопасную диагностику. Повторите проверку и сообщите время ошибки разработчику.'
+      : 'Сервер не ответил. Проверьте соединение с Publikator и повторите попытку.';
+  const code = serverId
+    ? (typeof error?.diagnosticCode === 'string' ? error.diagnosticCode : 'UNCLASSIFIED_SERVER_ERROR')
+    : receivedHttpResponse ? 'HTTP_ERROR_WITHOUT_DIAGNOSTIC_ID' : 'NO_HTTP_RESPONSE';
+  const missingIdText = receivedHttpResponse
+    ? 'не предоставлен сервером'
+    : 'не создан — HTTP-ответ не получен';
   const status = Number.isInteger(error?.httpStatus) ? `HTTP ${error.httpStatus}` : 'Нет HTTP-ответа';
   const at = new Date().toISOString();
   const report = [
     `Время: ${at}`, `Площадка: ${platform}`, `Операция: ${operation}`,
     `Статус: ${status}`, `Код: ${code}`,
-    `ID диагностики: ${serverId || 'не создан (запрос не дошёл до приложения)'}`,
+    `ID диагностики: ${serverId || missingIdText}`,
     `Сообщение: ${message}`
   ].join('\n');
   const hint = platform === 'vk'
@@ -65,7 +73,7 @@ function showSocialConnectionError(target, error, platform, operation) {
     <strong>Не удалось выполнить ${operatorEsc(operation)}.</strong>
     <div>${operatorEsc(message)}</div>
     <div class="small">Код: <strong>${operatorEsc(code)}</strong> · ${operatorEsc(status)}</div>
-    <div class="small">ID диагностики: <strong>${operatorEsc(serverId || 'отсутствует — запрос не дошёл до сервера')}</strong></div>
+    <div class="small">ID диагностики: <strong>${operatorEsc(serverId || missingIdText)}</strong></div>
     <div class="small muted">${operatorEsc(hint)}</div>
     <button class="secondary operator-copy-social-diagnostic" type="button">Копировать диагностику без ключей</button>
   </div>`;
