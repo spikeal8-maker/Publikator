@@ -64,6 +64,7 @@ function inspection(mode, credentials) {
       reason: 'Structured inspection evidence.'
     }],
     publicationEvidence: {
+      TEXT: { state: 'CONFIRMED', requiredMethods: ['sendMessage'] },
       IMAGE: { state: 'CONFIRMED', requiredMethods: ['sendPhoto'] },
       CAROUSEL: { state: 'CONFIRMED', requiredMethods: ['sendMediaGroup'] }
     },
@@ -74,6 +75,7 @@ function inspection(mode, credentials) {
 
   if (mode === 'PARTIAL') {
     base.publicationEvidence = {
+      TEXT: { state: 'CONFIRMED', requiredMethods: ['sendMessage'] },
       IMAGE: { state: 'CONFIRMED', requiredMethods: ['sendPhoto'] },
       CAROUSEL: { state: 'DENIED', requiredMethods: ['sendMediaGroup'] }
     };
@@ -89,6 +91,7 @@ function inspection(mode, credentials) {
       reason: 'Bot needs publication rights.'
     }];
     base.publicationEvidence = {
+      TEXT: { state: 'SETUP_REQUIRED', remediationCodes: ['TELEGRAM_CAN_POST_MESSAGES_REQUIRED'] },
       IMAGE: { state: 'SETUP_REQUIRED', remediationCodes: ['TELEGRAM_CAN_POST_MESSAGES_REQUIRED'] },
       CAROUSEL: { state: 'SETUP_REQUIRED', remediationCodes: ['TELEGRAM_CAN_POST_MESSAGES_REQUIRED'] }
     };
@@ -158,6 +161,7 @@ function inspection(mode, credentials) {
       reason: 'Provider temporarily unavailable.'
     }];
     base.publicationEvidence = {
+      TEXT: { state: 'UNAVAILABLE', remediationCodes: ['NETWORK_TIMEOUT'] },
       IMAGE: { state: 'UNAVAILABLE', remediationCodes: ['NETWORK_TIMEOUT'] },
       CAROUSEL: { state: 'UNAVAILABLE', remediationCodes: ['NETWORK_TIMEOUT'] }
     };
