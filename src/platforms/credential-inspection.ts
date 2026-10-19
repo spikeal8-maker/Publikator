@@ -34,6 +34,8 @@ export type CredentialInspectionResult = {
   runtimePrerequisiteEvidence: RuntimePrerequisiteEvidence[];
   remediation: CapabilityRemediation[];
   warnings: string[];
+  /** Verified by VK USER key probes; never accepted from an HTTP client. */
+  verifiedVkUploadUserId?: string | null;
 };
 
 type JsonProbe =
@@ -912,12 +914,14 @@ async function inspectVk(credentials: Record<string, unknown>): Promise<Credenti
 
     const code = 'VK_USER_CREDENTIAL_REQUIRED';
     let photoReady = false;
+    let verifiedVkUploadUserId: string | null = null;
     let photoReason = 'Добавьте пользовательский ключ загрузки фото к ключу сообщества.';
     if (destination.resolutionState === 'CONFIRMED' && declaredPermissions.includes('wall')
       && typeof credentials.uploadAccessToken === 'string' && credentials.uploadAccessToken.trim()) {
       try {
         const checked = await checkVkPhotoUploadAccess({ ...credentials, groupId: destination.id, destinationKind: 'COMMUNITY' });
         photoReady = true;
+        verifiedVkUploadUserId = checked.userId;
         photoReason = `USER id${checked.userId} загрузит фото; GROUP отправит пост в своё сообщество.`;
         methods.push(method('account.getAppPermissions', 'CONFIRMED', 'Ключ загрузки подтвердил тип USER.', 'vk', 'UPLOAD_USER_CONFIRMED'));
         methods.push(method('users.get', 'CONFIRMED', `Владелец ключа загрузки: id${checked.userId}.`, 'vk', 'UPLOAD_IDENTITY_CONFIRMED'));
@@ -972,7 +976,8 @@ async function inspectVk(credentials: Record<string, unknown>): Promise<Credenti
       },
       runtimePrerequisiteEvidence: [],
       remediation: remediationRows,
-      warnings
+      warnings,
+      verifiedVkUploadUserId
     };
   }
 
