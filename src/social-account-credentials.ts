@@ -326,9 +326,10 @@ function persistVerifiedCredentials(accountId: string, before: SocialAccountRow,
   credentials: Record<string, unknown>, previousProfile: CapabilityProfileView): void {
   const existing = decryptJson<Record<string, unknown>>(before.credentials_encrypted);
   if (JSON.stringify(existing) === JSON.stringify(credentials)) return;
-  if (previousProfile.profileCurrent && previousProfile.accessLevel !== 'UNCHECKED') {
-    // Recheck discovered a semantically different published credential configuration:
-    // old READY/preflight must not continue with that fingerprint.
+  if (existing.authKind === 'PENDING'
+    || (previousProfile.profileCurrent && previousProfile.accessLevel !== 'UNCHECKED')) {
+    // A separate activation/recheck that resolves PENDING is a new credential
+    // semantics version. Do not silently grant privileges to the prior version.
     replaceSocialAccountCredentials(accountId, encryptJson(credentials));
     return;
   }
