@@ -129,6 +129,34 @@ assert.ok(max.transport.text.includes('• item'));
 assert.ok(max.diagnostics.some((item)=>item.code==='RICH_BULLET_LIST_TRANSFORMED'&&item.severity==='info'));
 assert.equal(max.transport.text.includes('<user>'),false,'raw user HTML must be escaped');
 
+const maxLines={
+  type:'doc',content:[
+    {type:'paragraph',content:[{type:'text',text:'Первый',marks:[]},{type:'hard_break'},{type:'text',text:'Вторая строка',marks:[{type:'bold'}]}]},
+    {type:'paragraph',content:[{type:'text',text:'Следующий <br> абзац',marks:[]}]},
+    {type:'blockquote',content:[
+      {type:'paragraph',content:[{type:'text',text:'Цитата 1',marks:[]}]},
+      {type:'paragraph',content:[{type:'text',text:'Цитата 2',marks:[]}]}
+    ]},
+    {type:'bullet_list',content:[
+      {type:'list_item',content:[
+        {type:'paragraph',content:[{type:'text',text:'Пункт',marks:[]}]},
+        {type:'paragraph',content:[{type:'text',text:'Продолжение',marks:[]}]}
+      ]},
+      {type:'list_item',content:[{type:'paragraph',content:[{type:'text',text:'Другой',marks:[]}]}]}
+    ]},
+    {type:'ordered_list',content:[
+      {type:'list_item',content:[{type:'paragraph',content:[{type:'text',text:'Один',marks:[]}]}]},
+      {type:'list_item',content:[{type:'paragraph',content:[{type:'text',text:'Два',marks:[]}]}]}
+    ]}
+  ]
+};
+for(const context of ['text','media_caption']){
+  const lines=compilePlatformText('max',maxLines,context).transport.text;
+  assert.equal(lines,'Первый\n<strong>Вторая строка</strong>\n\nСледующий &lt;br&gt; абзац\n\n<blockquote>Цитата 1\n\nЦитата 2</blockquote>\n\n• Пункт\nПродолжение\n• Другой\n\n1. Один\n2. Два');
+  assert.equal(lines.includes('<br>'),false,'MAX silently removes unsupported br tags; send actual newlines');
+}
+
+
 for(const platform of ['vk','instagram']){
   const compiled=compilePlatformText(platform,richFixture,'media_caption');
   assert.equal(compiled.transport.kind,'plain');

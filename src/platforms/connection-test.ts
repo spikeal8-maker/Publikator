@@ -1,6 +1,7 @@
+import { maxFetch } from './max-transport.js';
 import type { Platform } from '../db.js';
 import { PlatformError, requireString, responseJson } from './types.js';
-import { normalizeVkCommunityId, normalizeVkUserId, vkCall, vkDestinationKind } from './vk.js';
+import { checkVkPhotoUploadAccess, normalizeVkCommunityId, normalizeVkUserId, vkCall, vkDestinationKind } from './vk.js';
 
 export type VkMethodState = 'CONFIRMED' | 'DENIED' | 'UNAVAILABLE' | 'NOT_CHECKED' | 'NOT_IMPLEMENTED';
 
@@ -21,6 +22,11 @@ export type VkTokenInspection = {
   userId?: string;
   userScreenName?: string;
   methods?: VkMethodCheck[];
+  textPublishReady?: boolean;
+  destinationMatchesToken?: boolean;
+  photoPublishReady?: boolean;
+  uploadUserId?: string;
+  photoSetupError?: string;
 };
 
 export type ConnectionTestResult = {
@@ -63,11 +69,11 @@ async function maxTest(credentials: Record<string, unknown>): Promise<Connection
   const chatId = requireString(credentials, 'chatId');
   const headers = { Authorization: accessToken };
 
-  const meResponse = await fetch('https://platform-api2.max.ru/me', { headers, signal: AbortSignal.timeout(15000) });
+  const meResponse = await maxFetch('https://platform-api2.max.ru/me', { headers, signal: AbortSignal.timeout(15000) });
   const me = await responseJson(meResponse, 'MAX GET /me');
   if (!me?.user_id) throw new Error('MAX: API не вернул идентификатор бота');
 
-  const memberResponse = await fetch(`https://platform-api2.max.ru/chats/${encodeURIComponent(chatId)}/members/me`, { headers, signal: AbortSignal.timeout(15000) });
+  const memberResponse = await maxFetch(`https://platform-api2.max.ru/chats/${encodeURIComponent(chatId)}/members/me`, { headers, signal: AbortSignal.timeout(15000) });
   const member = await responseJson(memberResponse, 'MAX GET /chats/{chatId}/members/me');
   const permissions = Array.isArray(member?.permissions) ? member.permissions.map(String) : [];
   if (!member?.is_owner && (!member?.is_admin || !permissions.includes('write'))) {
@@ -187,19 +193,15 @@ export async function inspectVkToken(credentials: Record<string, unknown>): Prom
         vkMethodConfirmed('groups.getTokenPermissions', 'VK вернул permissions для ключа сообщества.')
       ];
       try {
-        const reference = typeof credentials.groupId === 'string' && credentials.groupId.trim()
-          ? vkCommunityReference(credentials)
-          : '';
         const response = await vkCall('groups.getById', {
           ...common,
-          ...(reference ? { group_id: reference } : {}),
           fields: 'screen_name'
         });
         group = vkGroupFromResponse(response);
         if (group?.id) {
           methods.push(vkMethodConfirmed(
             'groups.getById',
-            'VK вернул данные группы. Это подтверждает чтение объекта, но не владение группой и не право публикации.'
+            'VK вернул сообщество, к которому привязан ключ (запрос без group_id).'
           ));
         } else {
           methods.push({ method: 'groups.getById', state: 'DENIED', reason: 'VK не вернул группу.' });
@@ -212,9 +214,35 @@ export async function inspectVkToken(credentials: Record<string, unknown>): Prom
       const groupScreenName = typeof group?.screen_name === 'string' && group.screen_name.trim()
         ? group.screen_name.trim()
         : undefined;
+      let destinationMatchesToken = Boolean(groupId);
+      if (credentials.groupId !== undefined && String(credentials.groupId).trim()) {
+        const reference = vkCommunityReference(credentials);
+        destinationMatchesToken = reference === groupId || reference.toLowerCase() === groupScreenName?.toLowerCase();
+      }
+      let photoPublishReady = false;
+      let uploadUserId: string | undefined;
+      let photoSetupError: string | undefined;
+      if (destinationMatchesToken && groupId && typeof credentials.uploadAccessToken === 'string' && credentials.uploadAccessToken.trim()) {
+        try {
+          const checked = await checkVkPhotoUploadAccess({ ...credentials, groupId, destinationKind: 'COMMUNITY' });
+          uploadUserId = checked.userId;
+          photoPublishReady = names.includes('wall');
+          methods.push(vkMethodConfirmed('account.getAppPermissions', 'Пользовательский ключ загрузки подтвердил тип USER.'));
+          methods.push(vkMethodConfirmed('users.get', `Владелец ключа загрузки: id${checked.userId}.`));
+          methods.push(vkMethodConfirmed('photos.getWallUploadServer', 'Пользовательский ключ загрузки получил URL для выбранного сообщества; фото не отправлялось.'));
+        } catch (error) {
+          photoSetupError = isVkIpBoundError(error) ? VK_IP_BOUND_MESSAGE : error instanceof Error ? error.message : String(error);
+          photoSetupError = photoSetupError.split(credentials.uploadAccessToken).join('[REDACTED]').slice(0,1000);
+          const methodName = /VK ([a-z]+\.[A-Za-z]+)/.exec(error instanceof Error ? error.message : '')?.[1] || 'photos.getWallUploadServer';
+          methods.push({ ...vkMethodFailure(methodName, error), reason: photoSetupError });
+        }
+      }
       return {
         valid: true,
         authKind: 'COMMUNITY',
+        photoPublishReady, uploadUserId, photoSetupError,
+        destinationMatchesToken,
+        textPublishReady: destinationMatchesToken && names.includes('wall'),
         identity: groupName || 'Ключ сообщества VK',
         permissions: names,
         methods,
@@ -328,11 +356,14 @@ export async function checkVkConnection(credentials: Record<string, unknown>): P
           ...(groupId ? { destinationId: groupId } : {}),
           ...(inspection.groupName ? { destinationName: inspection.groupName } : {}),
           ...(screenName ? { destinationScreenName: screenName } : {}),
-          destinationOwnershipConfirmed: false,
-          wallPhotoReady: false,
-          wallUploadReady: false,
+          destinationOwnershipConfirmed: inspection.destinationMatchesToken === true,
+          textPublishReady: inspection.textPublishReady === true,
+          wallPhotoReady: inspection.photoPublishReady === true,
+          wallUploadReady: inspection.photoPublishReady === true,
+          photoPublishReady: inspection.photoPublishReady === true,
+          photoSetupError: inspection.photoSetupError,
           wallPostNotExecuted: true,
-          publishReady: false,
+          publishReady: inspection.textPublishReady === true,
           methods: [
             ...(inspection.methods || []),
             vkMethodNotChecked(

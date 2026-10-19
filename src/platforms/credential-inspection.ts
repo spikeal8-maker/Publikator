@@ -1,3 +1,4 @@
+import { maxFetch } from './max-transport.js';
 import { config } from '../config.js';
 import type { Platform } from '../db.js';
 import {
@@ -9,7 +10,7 @@ import {
   type PublicationFormat,
   type RuntimePrerequisiteEvidence
 } from '../social-credential-capability.js';
-import { normalizeVkCommunityId, normalizeVkUserId, vkCall, vkDestinationKind } from './vk.js';
+import { checkVkPhotoUploadAccess, normalizeVkCommunityId, normalizeVkUserId, vkCall, vkDestinationKind } from './vk.js';
 import { PlatformError, requireString } from './types.js';
 
 export type InspectionCredentialValidity = 'CONFIRMED' | 'INVALID' | 'UNAVAILABLE' | 'UNKNOWN';
@@ -109,7 +110,8 @@ function isUnavailablePlatformError(error: unknown): boolean {
 
 async function jsonProbe(url: string, init: RequestInit = {}): Promise<JsonProbe> {
   try {
-    const response = await fetch(url, { ...init, signal: init.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+    const fetchImpl = new URL(url).origin === 'https://platform-api2.max.ru' ? maxFetch : globalThis.fetch;
+    const response = await fetchImpl(url, { ...init, signal: init.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
     const text = await response.text();
     let body: any = {};
     try {
@@ -873,12 +875,8 @@ async function inspectVk(credentials: Record<string, unknown>): Promise<Credenti
     let destination: CapabilityDestinationEvidence = unknownDestination();
     let group: any = null;
     try {
-      const reference = typeof credentials.groupId === 'string' && credentials.groupId.trim()
-        ? vkCommunityReference(credentials)
-        : '';
       const response = await vkCall('groups.getById', {
         ...common,
-        ...(reference ? { group_id: reference } : {}),
         fields: 'screen_name'
       });
       group = vkGroupFromResponse(response);
@@ -886,18 +884,21 @@ async function inspectVk(credentials: Record<string, unknown>): Promise<Credenti
       const groupId = normalizeVkCommunityId(group.id);
       identity = vkDisplayName(group, `club${groupId}`);
       ownerId = groupId;
+      const reference = credentials.groupId !== undefined && String(credentials.groupId).trim()
+        ? vkCommunityReference(credentials) : groupId;
+      const matchesToken = reference === groupId || reference.toLowerCase() === String(group.screen_name || '').toLowerCase();
       destination = {
-        resolutionState: 'CONFIRMED',
+        resolutionState: matchesToken ? 'CONFIRMED' : 'DENIED',
         kind: 'COMMUNITY',
-        id: groupId,
-        name: identity,
+        id: matchesToken ? groupId : reference,
+        name: matchesToken ? identity : reference,
         role: 'group credential',
-        ownershipConfirmed: false
+        ownershipConfirmed: matchesToken
       };
       methods.push(method(
         'groups.getById',
         'CONFIRMED',
-        'VK вернул group object. Это подтверждает readability, но не ownership/admin.',
+        'VK вернул сообщество самого ключа без group_id; назначение сравнивается с этим сообществом.',
         'vk',
         'GROUP_READABLE'
       ));
@@ -910,25 +911,35 @@ async function inspectVk(credentials: Record<string, unknown>): Promise<Credenti
     }
 
     const code = 'VK_USER_CREDENTIAL_REQUIRED';
-    remediationRows.push(remediation(
-      code,
-      'Для публикации нужен USER credential',
-      'GROUP credential остаётся действительным для group-scoped evidence, но текущие wall publication methods требуют USER credential.',
-      { requiredCredentialType: 'USER' }
-    ));
-    methods.push(method(
-      'photos.getWallUploadServer',
-      'NOT_SUPPORTED_FOR_CREDENTIAL_TYPE',
-      'Current VK wall-photo preparation requires USER credential.',
-      'vk',
-      'USER_CREDENTIAL_REQUIRED'
-    ));
+    let photoReady = false;
+    let photoReason = 'Добавьте пользовательский ключ загрузки фото к ключу сообщества.';
+    if (destination.resolutionState === 'CONFIRMED' && declaredPermissions.includes('wall')
+      && typeof credentials.uploadAccessToken === 'string' && credentials.uploadAccessToken.trim()) {
+      try {
+        const checked = await checkVkPhotoUploadAccess({ ...credentials, groupId: destination.id, destinationKind: 'COMMUNITY' });
+        photoReady = true;
+        photoReason = `USER id${checked.userId} загрузит фото; GROUP отправит пост в своё сообщество.`;
+        methods.push(method('account.getAppPermissions', 'CONFIRMED', 'Ключ загрузки подтвердил тип USER.', 'vk', 'UPLOAD_USER_CONFIRMED'));
+        methods.push(method('users.get', 'CONFIRMED', `Владелец ключа загрузки: id${checked.userId}.`, 'vk', 'UPLOAD_IDENTITY_CONFIRMED'));
+        methods.push(method('photos.getWallUploadServer', 'CONFIRMED', 'Ключ загрузки получил URL выбранного сообщества; файл не отправлялся.', 'vk', 'UPLOAD_URL_CONFIRMED'));
+      } catch (error) {
+        photoReason = safeText(error instanceof Error ? error.message : error).split(credentials.uploadAccessToken).join('[REDACTED]');
+        const methodName = /VK ([a-z]+\.[A-Za-z]+)/.exec(error instanceof Error ? error.message : '')?.[1] || 'photos.getWallUploadServer';
+        methods.push({ ...vkMethodFromFailure(methodName, error), reason: photoReason });
+      }
+    }
+    if (!photoReady) {
+      remediationRows.push(remediation(code, 'Проверьте пользовательский ключ загрузки фото', photoReason, { requiredCredentialType: 'USER' }));
+      if (!methods.some(item => item.method === 'photos.getWallUploadServer')) methods.push(method(
+        'photos.getWallUploadServer', credentials.uploadAccessToken ? 'NOT_CHECKED' : 'NOT_SUPPORTED_FOR_CREDENTIAL_TYPE', photoReason, 'vk', 'USER_CREDENTIAL_REQUIRED'
+      ));
+    }
     methods.push(method(
       'wall.post',
-      'NOT_SUPPORTED_FOR_CREDENTIAL_TYPE',
-      'Current VK wall.post credential eligibility requires USER credential; public call is not executed.',
+      'NOT_CHECKED',
+      'Текстовый wall.post поддерживается ключом сообщества; проверка ключа не создаёт публичный пост.',
       'vk',
-      'USER_CREDENTIAL_REQUIRED'
+      'PUBLIC_WRITE_NOT_EXECUTED'
     ));
 
     return {
@@ -945,14 +956,18 @@ async function inspectVk(credentials: Record<string, unknown>): Promise<Credenti
       destination,
       methods,
       publicationEvidence: {
-        TEXT: publication('SETUP_REQUIRED', { requiredMethods: ['wall.post'], remediationCodes: [code] }),
-        IMAGE: publication('SETUP_REQUIRED', {
-          requiredMethods: ['photos.getWallUploadServer', 'photos.saveWallPhoto', 'wall.post'],
-          remediationCodes: [code]
+        TEXT: publication(destination.resolutionState === 'UNAVAILABLE' ? 'UNAVAILABLE'
+          : destination.resolutionState === 'CONFIRMED' && declaredPermissions.includes('wall') ? 'CONFIRMED' : 'DENIED', {
+          requiredMethods: ['groups.getTokenPermissions', 'groups.getById', 'wall.post'],
+          reason: 'Текст требует права wall и совпадения назначения с сообществом ключа; публичная отправка не выполнялась.'
         }),
-        CAROUSEL: publication('SETUP_REQUIRED', {
+        IMAGE: publication(photoReady ? 'CONFIRMED' : 'SETUP_REQUIRED', {
           requiredMethods: ['photos.getWallUploadServer', 'photos.saveWallPhoto', 'wall.post'],
-          remediationCodes: [code]
+          reason: photoReason, remediationCodes: photoReady ? [] : [code]
+        }),
+        CAROUSEL: publication(photoReady ? 'CONFIRMED' : 'SETUP_REQUIRED', {
+          requiredMethods: ['photos.getWallUploadServer', 'photos.saveWallPhoto', 'wall.post'],
+          reason: photoReason, remediationCodes: photoReady ? [] : [code]
         })
       },
       runtimePrerequisiteEvidence: [],

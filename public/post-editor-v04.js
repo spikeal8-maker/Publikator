@@ -54,7 +54,7 @@ function mediaRatio(media) {
 
 function mediaPreviewHtml(post) {
   if (!post.media?.length) {
-    return '<div class="platform-preview-media empty">Изображение обязательно</div>';
+    return `<div class="platform-preview-media empty">${post.content_format === 'TEXT_ONLY' ? 'Только текст · без вложений' : 'Изображение обязательно'}</div>`;
   }
   const first = post.media[0];
   const rest = post.media.length - 1;
@@ -62,6 +62,7 @@ function mediaPreviewHtml(post) {
 }
 
 function platformWarning(target, post) {
+  if (post.content_format === 'TEXT_ONLY') return 'Текстовый пост без вложений. Доступность выбранной площадки проверяется перед отправкой.';
   const count = post.media?.length || 0;
   if (count < 1) return 'Добавьте хотя бы одно изображение — без него READY запрещён.';
   if (target.platform === 'telegram' && count > 10) return 'Telegram: в одной медиагруппе допускается не более 10 изображений.';
@@ -162,7 +163,7 @@ function renderPreviewMedia(card, post) {
   if (!preview) return;
   if (!post.media?.length) {
     preview.classList.add('empty');
-    preview.innerHTML = 'Изображение обязательно';
+    preview.textContent = post.content_format === 'TEXT_ONLY' ? 'Только текст · без вложений' : 'Изображение обязательно';
     return;
   }
   const first = post.media[0];
@@ -317,6 +318,11 @@ async function enhancePostEditor(form, postId) {
     }
   };
 
+  form.querySelector('select[name="postFormat"]')?.addEventListener('change', (event) => {
+    post.content_format = event.target.value === 'TEXT_ONLY' ? 'TEXT_ONLY'
+      : post.media?.length > 1 ? 'CAROUSEL' : 'IMAGE';
+    rerenderAll();
+  });
   baseTextarea?.addEventListener('input', rerenderAll);
   form.querySelectorAll('input[name="accountId"]').forEach((checkbox) => checkbox.addEventListener('change', rerenderAll));
   enhanceMediaOrdering(form, post, rerenderAll);

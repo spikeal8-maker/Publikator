@@ -147,7 +147,7 @@ function renderAuthoringMedia(form, post) {
 
 function previewMarkup(post) {
   const { items } = publicationMediaProjection(post);
-  if (!items.length) return '<div class="platform-preview-media empty">Медиа обязательно</div>';
+  if (!items.length) return `<div class="platform-preview-media empty">${post.content_format === 'TEXT_ONLY' ? 'Только текст · без вложений' : 'Медиа обязательно'}</div>`;
   const first = items[0];
   const rest = items.length - 1;
   if (first.isVideo) {
@@ -158,20 +158,25 @@ function previewMarkup(post) {
 }
 
 function syncPlatformPreviews(form, post) {
+  const format = form.querySelector('select[name="postFormat"]');
+  const isTextOnly = format ? format.value === 'TEXT_ONLY' : post.content_format === 'TEXT_ONLY';
+  const previewPost = { ...post, content_format: isTextOnly ? 'TEXT_ONLY' : 'IMAGE' };
   const { items } = publicationMediaProjection(post);
   const first = items[0];
   form.querySelectorAll('.platform-editor-card').forEach((card) => {
     const preview = card.querySelector('.platform-preview-media');
     if (preview) {
       const replacement = document.createElement('div');
-      replacement.innerHTML = previewMarkup(post);
+      replacement.innerHTML = previewMarkup(previewPost);
       const next = replacement.firstElementChild;
       if (next && preview.outerHTML !== next.outerHTML) preview.replaceWith(next);
     }
     const warning = card.querySelector('.platform-warning');
     if (!warning) return;
     if (!items.length) {
-      const message = 'Добавьте медиа — без него READY запрещён.';
+      const message = isTextOnly
+        ? 'Текстовый пост без вложений. Доступность выбранной площадки проверяется перед отправкой.'
+        : 'Добавьте медиа — без него READY запрещён.';
       if (warning.textContent !== message) warning.textContent = message;
       warning.classList.remove('hidden');
     } else if (first?.isVideo) {
@@ -197,7 +202,7 @@ function queueSync() {
 
     const toolbarMessage = [...document.querySelectorAll('.toolbar .muted')]
       .find((node) => node.textContent?.includes('Пост без изображения'));
-    if (toolbarMessage) toolbarMessage.textContent = 'Пост без медиа нельзя перевести в READY.';
+    if (toolbarMessage) toolbarMessage.textContent = 'Для формата «С медиа» добавьте вложения. Для текста выберите «Только текст».';
   });
 }
 
@@ -243,7 +248,7 @@ async function enhanceEditor(form, postId) {
     };
   }
 
-  const rerenderTriggers = form.querySelectorAll('textarea, input[name="accountId"]');
+  const rerenderTriggers = form.querySelectorAll('textarea, input[name="accountId"], select[name="postFormat"]');
   rerenderTriggers.forEach((node) => node.addEventListener('input', queueSync));
   rerenderTriggers.forEach((node) => node.addEventListener('change', queueSync));
   queueSync();

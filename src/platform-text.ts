@@ -379,13 +379,13 @@ function maxTextNode(node: RichTextTextNode, diagnostics: PlatformTextDiagnostic
 
 function maxInline(node: RichTextInlineNode, diagnostics: PlatformTextDiagnostic[]): string {
   if (node.type === 'text') return maxTextNode(node, diagnostics);
-  if (node.type === 'hard_break') return '<br>';
+  if (node.type === 'hard_break') return '\n';
   const content = node.content.map((child) => maxTextNode(child, diagnostics)).join('');
   return `<a href="${escapeHtmlAttr(node.attrs.href)}">${content}</a>`;
 }
 
 function maxListItem(node: Extract<RichTextBlockNode, { type: 'list_item' }>, diagnostics: PlatformTextDiagnostic[]): string {
-  return node.content.map((child) => maxBlock(child, diagnostics)).join('<br>');
+  return node.content.map((child) => maxBlock(child, diagnostics)).join('\n');
 }
 
 function maxBlock(node: RichTextBlockNode, diagnostics: PlatformTextDiagnostic[]): string {
@@ -395,7 +395,7 @@ function maxBlock(node: RichTextBlockNode, diagnostics: PlatformTextDiagnostic[]
     return `<pre>${escapeHtmlText(value)}</pre>`;
   }
   if (node.type === 'blockquote') {
-    return `<blockquote>${node.content.map((child) => maxBlock(child, diagnostics)).join('<br><br>')}</blockquote>`;
+    return `<blockquote>${node.content.map((child) => maxBlock(child, diagnostics)).join('\n\n')}</blockquote>`;
   }
   if (node.type === 'bullet_list' || node.type === 'ordered_list') {
     addDiagnostic(diagnostics, {
@@ -408,7 +408,7 @@ function maxBlock(node: RichTextBlockNode, diagnostics: PlatformTextDiagnostic[]
     });
     return node.content.map((item, index) =>
       `${node.type === 'bullet_list' ? '• ' : `${index + 1}. `}${maxListItem(item, diagnostics)}`
-    ).join('<br>');
+    ).join('\n');
   }
   if (node.type === 'list_item') return maxListItem(node, diagnostics);
   return '';
@@ -418,7 +418,7 @@ function compileMax(document: RichTextDocument, context: PlatformTextContext): P
   const canonical = normalizedDocument(document);
   const diagnostics: PlatformTextDiagnostic[] = [];
   const plainText = richTextToPlain(canonical);
-  const text = canonical.content.map((block) => maxBlock(block, diagnostics)).join('<br><br>');
+  const text = canonical.content.map((block) => maxBlock(block, diagnostics)).join('\n\n');
   return { platform: 'max', context, plainText, transport: { kind: 'max_html', text, format: 'html' }, diagnostics };
 }
 

@@ -21,9 +21,9 @@ function blocked(postId: string, reason: string, issues: GoogleSheetsAutoReadyRe
   return { postId, outcome: 'blocked', revisionId: null, reason, issues };
 }
 export function autoReadyGoogleSheetsPost(postId: string): GoogleSheetsAutoReadyResult {
-  const post = db.prepare(`SELECT id,status,editorial_stage,content_version,imported_content_version,source_type
+  const post = db.prepare(`SELECT id,status,editorial_stage,content_version,content_format,imported_content_version,source_type
     FROM posts WHERE id=?`).get(postId) as {
-      id: string; status: string; editorial_stage: string; content_version: number;
+      id: string; status: string; editorial_stage: string; content_version: number; content_format: string;
       imported_content_version: number | null; source_type: string | null;
     } | undefined;
   if (!post) return blocked(postId, 'Auto Ready blocked: post not found');
@@ -36,7 +36,7 @@ export function autoReadyGoogleSheetsPost(postId: string): GoogleSheetsAutoReady
   }
 
   const mediaCount = (db.prepare('SELECT COUNT(*) AS count FROM media WHERE post_id=?').get(postId) as { count: number }).count;
-  if (mediaCount < 1) return blocked(postId, 'Auto Ready blocked: publication has no media');
+  if (post.content_format !== 'TEXT_ONLY' && mediaCount < 1) return blocked(postId, 'Auto Ready blocked: publication has no media');
   const targetCount = (db.prepare(`SELECT COUNT(*) AS count FROM post_targets pt
     JOIN social_accounts a ON a.id=pt.account_id
     WHERE pt.post_id=? AND pt.enabled=1 AND a.enabled=1`).get(postId) as { count: number }).count;

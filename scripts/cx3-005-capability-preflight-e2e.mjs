@@ -91,7 +91,7 @@ const maxUrlIssues = capabilities.capabilityIssues('max', {
   postId: 'post_fake', title: 'x', text: 'ok', media: [{ ...fakeImage, width: 1000, height: 1000 }], credentials: {}, publicMediaUrls: [],
   publicationKind: 'FEED', contentFormat: 'IMAGE'
 });
-assert.ok(maxUrlIssues.some((issue) => issue.code === 'PUBLIC_MEDIA_URL_REQUIRED'));
+assert.equal(maxUrlIssues.some((issue) => issue.code === 'PUBLIC_MEDIA_URL_REQUIRED'), false, 'MAX local-image upload does not require public hosting');
 
 const supported = await createPost('Supported feed image');
 const supportedMedia = addMedia(supported.id, supported.content_version, 'image.jpg', 'image/jpeg', 1200, 1200);

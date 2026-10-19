@@ -134,7 +134,7 @@ try {
   assert.equal(communitySave.statusCode, 201, communitySave.body);
   const communityId = communitySave.json().id;
   let stored = db.prepare('SELECT * FROM social_accounts WHERE id=?').get(communityId);
-  assert.equal(stored.enabled, 0);
+  assert.equal(stored.enabled, 1);
   assert.equal(stored.credentials_encrypted.includes('community-key'), false);
   assert.equal(decryptJson(stored.credentials_encrypted).authKind, 'COMMUNITY');
 

@@ -72,13 +72,13 @@ try {
       destinationKind: 'COMMUNITY', groupId: 'https://vk.com/club67890'
     } } });
   assert.equal(created.statusCode, 201, created.body);
-  assert.equal(created.json().enabled, 0);
+  assert.equal(created.json().enabled, 1);
   assert.equal(created.json().credentialOnly, true);
   assert.equal(created.body.includes('valid-community-key'), false);
   const accountId = created.json().id;
 
   const row = db.prepare('SELECT * FROM social_accounts WHERE id=?').get(accountId);
-  assert.equal(row.enabled, 0);
+  assert.equal(row.enabled, 1);
   assert.equal(row.credentials_encrypted.includes('valid-community-key'), false);
   const stored = decryptJson(row.credentials_encrypted);
   assert.equal(stored.accessToken, 'valid-community-key');
@@ -86,7 +86,7 @@ try {
   assert.equal(stored.destinationKind, 'COMMUNITY');
   assert.equal(stored.groupId, '67890');
   assert.equal(stored.destinationName, 'Test Community');
-  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM project_default_targets WHERE account_id=?').get(accountId).n, 0);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM project_default_targets WHERE account_id=?').get(accountId).n, 2);
 
   const list = await app.inject({ method: 'GET', url: '/api/accounts', headers: { cookie } });
   assert.equal(list.statusCode, 200, list.body);
@@ -99,16 +99,16 @@ try {
 
   const enable = await app.inject({ method: 'PATCH', url: `/api/accounts/${accountId}`,
     headers: { cookie }, payload: { enabled: true } });
-  assert.equal(enable.statusCode, 409);
-  assert.equal(db.prepare('SELECT enabled FROM social_accounts WHERE id=?').get(accountId).enabled, 0);
+  assert.equal(enable.statusCode, 200, enable.body);
+  assert.equal(db.prepare('SELECT enabled FROM social_accounts WHERE id=?').get(accountId).enabled, 1);
   assert.throws(() => vkPublisher.validate({
     postId: 'post-1', title: 'Test', text: 'Test', media: [],
     credentials: stored, publicMediaUrls: []
-  }), /ключ сообщества.*публикация постов требует пользовательский ключ/);
+  }), /загрузка фото требует пользовательский ключ/i);
   assert.equal(calls.includes('wall.post'), false);
   console.log(JSON.stringify({ ok: true, checkpoint: 'VK-GROUP-KEY-STORE-001',
-    savedEncrypted: true, disabled: true, defaultTargetExcluded: true,
-    retest: true, enableBlocked: true, publicationBlocked: true }));
+    savedEncrypted: true, textEnabled: true, photoBlocked: true,
+    retest: true, enabledAfterServerRecheck: true, noPublicWriteDuringCheck: true }));
 } finally {
   globalThis.fetch = originalFetch;
   await app.close().catch(() => undefined);
