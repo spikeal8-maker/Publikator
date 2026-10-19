@@ -387,6 +387,26 @@ function successfulSemanticProfile(profile: CapabilityProfileView): boolean {
     && !['INVALID', 'UNAVAILABLE', 'UNCHECKED'].includes(profile.accessLevel);
 }
 
+/**
+ * Legacy "save for later" is allowed only as an explicitly disabled VK
+ * connection. User-supplied PENDING is an intent, never publication evidence.
+ */
+export function saveUncheckedVkAccount(input: {
+  name: unknown;
+  credentials: unknown;
+}): SocialCredentialResult {
+  const name = typeof input.name === 'string' ? input.name.trim() : '';
+  if (!name) requestError('Нужно непустое name');
+  const normalized = normalizeCredentials('vk', input.credentials);
+  const accountId = id('acc');
+  const now = nowIso();
+  db.prepare(`INSERT INTO social_accounts
+    (id,platform,name,credentials_encrypted,enabled,credential_version,created_at,updated_at)
+    VALUES (?,'vk',?,?,0,1,?,?)`).run(accountId, name,
+    encryptJson({ ...normalized, authKind: 'PENDING' }), now, now);
+  return { account: accountView(accountRow(accountId)), capabilityProfile: readCapabilityProfile(accountId) };
+}
+
 export async function saveAndCheckSocialAccount(input: {
   platform: unknown;
   name: unknown;
