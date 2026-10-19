@@ -48,6 +48,12 @@ globalThis.fetch = async (input, init = {}) => {
   calls.push(method);
   const body = new URLSearchParams(String(init.body || ''));
   assert.equal(body.get('access_token'), USER_TOKEN);
+  if (method === 'groups.getTokenPermissions') return new Response(JSON.stringify({
+    error: { error_code: 27, error_msg: 'This method is unavailable for USER token' }
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
+  if (method === 'account.getAppPermissions') return new Response(JSON.stringify({
+    response: 8192
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
   if (method === 'users.get') return new Response(JSON.stringify({
     response: [{ id: 123, first_name: 'Test', last_name: 'User', screen_name: 'testuser' }]
   }), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -94,7 +100,11 @@ try {
   });
   assert.equal(callback.statusCode, 302, callback.body);
   assert.match(String(callback.headers.location), /^\/socials\?vk_oauth_result=/);
-  assert.deepEqual(calls, ['token', 'users.get', 'groups.getById', 'photos.getWallUploadServer']);
+  assert.deepEqual(calls.slice(0, 4), ['token', 'users.get', 'groups.getById', 'photos.getWallUploadServer']);
+  assert.ok(calls.includes('groups.getTokenPermissions'));
+  assert.ok(calls.includes('account.getAppPermissions'));
+  assert.ok(calls.includes('photos.getWallUploadServer'));
+  assert.equal(calls.includes('wall.post'), false, 'inspection cannot publish');
   assert.equal(JSON.stringify(callback.headers).includes(USER_TOKEN), false);
   assert.equal(JSON.stringify(callback.headers).includes(CLIENT_SECRET), false);
 
@@ -121,17 +131,18 @@ try {
   assert.equal(list.statusCode, 200);
   assert.equal(list.body.includes(USER_TOKEN), false);
 
+  const noReplayBefore = calls.length;
   const replay = await app.inject({
     method: 'GET', url: `/api/vk/oauth/callback?state=${encodeURIComponent(state)}&code=test-code`
   });
   assert.equal(replay.statusCode, 400);
-  assert.equal(calls.length, 4);
+  assert.equal(calls.length, noReplayBefore, 'replayed state must not call VK');
 
   const deniedStart = await app.inject({ method: 'GET', url: startUrl, headers: { cookie } });
   const deniedState = new URL(deniedStart.json().authorizationUrl).searchParams.get('state');
   const denied = await app.inject({ method: 'GET', url: `/api/vk/oauth/callback?state=${deniedState}&error=access_denied` });
   assert.equal(denied.statusCode, 302);
-  assert.equal(calls.length, 4, 'denied authorization must not exchange a code');
+  assert.equal(calls.length, noReplayBefore, 'denied authorization must not exchange a code');
   assert.equal(db.prepare("SELECT COUNT(*) AS count FROM social_accounts WHERE platform='vk'").get().count, 1);
 
   // Re-authorizing an existing VK destination is a credential mutation.
