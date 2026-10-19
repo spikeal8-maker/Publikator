@@ -288,7 +288,7 @@ try {
 
   // The dialog can close; the saved account still offers a non-secret
   // diagnostic for the same encrypted key without resubmitting credentials.
-  await form.locator('#operator-close-connect').click();
+  await page.locator('#operator-close-connect').click();
   scenario = 'saved-echo-error';
   const row = page.locator('.operator-connection[data-account-id="' + savedId + '"]');
   await row.locator('.operator-test-account').click();
