@@ -537,7 +537,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       }
       let normalized: Record<string, unknown>;
       try {
-        normalized = normalizeSocialCredentialInput(current.platform as Platform, body.credentials);
+        normalized = normalizeSocialCredentialInput(current.platform as Platform, body.credentials,
+          { requireExplicitPersonalDestination: true });
       } catch (error) {
         return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
       }
