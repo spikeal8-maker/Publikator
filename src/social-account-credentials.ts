@@ -452,6 +452,64 @@ export async function saveAndCheckSocialAccount(input: {
   };
 }
 
+/**
+ * Explicit user action for previously saved VK keys. Recheck uses the stored
+ * secret and has no public POST; only a server-proven READY format may enable.
+ */
+export async function activatePendingVkAccount(accountId: string): Promise<SocialCredentialResult> {
+  const before = accountRow(accountId);
+  if (before.platform !== 'vk') requestError('Нужен сохранённый ключ VK');
+  const current = decryptJson<Record<string, unknown>>(before.credentials_encrypted);
+  if (current.authKind !== 'PENDING') requestError('Ключ уже проверен; воспользуйтесь повторной проверкой');
+  const checked = await recheckSocialAccount(accountId);
+  if (!hasReadyImplementedFormat('vk', checked.capabilityProfile)) {
+    requestError('VK: ключ сохранён, но права публикации не подтверждены. Откройте диагностику и исправьте ограничения.');
+  }
+  const observed = accountRow(accountId);
+  if (checked.account.credentialVersion !== observed.credential_version) {
+    throw new SocialCredentialVersionConflictError();
+  }
+  const credentials = decryptJson<Record<string, unknown>>(observed.credentials_encrypted);
+  if (credentials.authKind !== 'USER' && credentials.authKind !== 'COMMUNITY') {
+    requestError('VK: тип ключа не подтверждён сервером');
+  }
+  db.transaction(() => {
+    db.prepare('UPDATE social_accounts SET enabled=1,updated_at=? WHERE id=?')
+      .run(nowIso(), accountId);
+    // Explicit USER activation grants the operator's existing legacy default.
+    if (credentials.authKind === 'USER') {
+      db.prepare(`INSERT OR IGNORE INTO project_default_targets (project_id,account_id,created_at)
+        SELECT id,?,? FROM projects WHERE default_targets_explicit=0`)
+        .run(accountId, nowIso());
+    }
+  })();
+  return { account: accountView(accountRow(accountId)), capabilityProfile: readCapabilityProfile(accountId) };
+}
+
+/** OAuth renewal or operator-controlled replacement. Never retain prior READY. */
+export async function replaceAndCheckSocialAccount(input: {
+  accountId: string;
+  name: string;
+  credentials: Record<string, unknown>;
+  activateIfReady?: boolean;
+}): Promise<SocialCredentialResult> {
+  const before = accountRow(input.accountId);
+  const name = String(input.name ?? '').trim();
+  if (!name) requestError('Нужно непустое name');
+  const normalized = normalizeCredentials(before.platform, input.credentials);
+  db.transaction(() => {
+    replaceSocialAccountCredentials(input.accountId, encryptJson(normalized));
+    db.prepare('UPDATE social_accounts SET name=?,enabled=0,updated_at=? WHERE id=?')
+      .run(name, nowIso(), input.accountId);
+  })();
+  const checked = await recheckSocialAccount(input.accountId);
+  if (input.activateIfReady && hasReadyImplementedFormat(before.platform, checked.capabilityProfile)) {
+    db.prepare('UPDATE social_accounts SET enabled=1,updated_at=? WHERE id=?')
+      .run(nowIso(), input.accountId);
+  }
+  return { account: accountView(accountRow(input.accountId)), capabilityProfile: readCapabilityProfile(input.accountId) };
+}
+
 export async function recheckSocialAccount(accountId: string): Promise<SocialCredentialResult> {
   const before = accountRow(accountId);
   const previousProfile = readCapabilityProfile(accountId);
