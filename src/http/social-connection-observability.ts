@@ -129,6 +129,11 @@ function safeSuccessResponse(value: unknown, secrets: string[], depth = 0): unkn
 }
 
 function classifyFailure(message: string, status: number): string {
+  // A classified error from our own secure exception handler must retain
+  // its code when the onSend hook records it a second time.
+  const alreadyClassified = Object.entries(SAFE_REASONS)
+    .find(([, safeReason]) => safeReason === message);
+  if (alreadyClassified) return alreadyClassified[0];
   if (status === 429) return 'RATE_LIMITED';
   if (status === 409) return 'STATE_CONFLICT';
   if (/another ip address|other ip address|привязан к другому ip|привязк.*ip/i.test(message)) return 'IP_RESTRICTED';
