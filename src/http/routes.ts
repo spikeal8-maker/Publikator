@@ -21,6 +21,7 @@ import {
   recheckSocialAccount,
   saveAndCheckSocialAccount,
   SocialAccountNotFoundError,
+  SocialCredentialVersionConflictError,
   SocialCredentialRequestError
 } from '../social-account-credentials.js';
 import { resolveVkDestination, vkDestinationKind } from '../platforms/vk.js';
@@ -402,6 +403,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       });
       return reply.code(201).send(result);
     } catch (error) {
+      if (error instanceof SocialCredentialVersionConflictError) {
+        return reply.code(409).send({ error: error.message });
+      }
       if (error instanceof SocialCredentialRequestError) {
         return reply.code(400).send({ error: error.message });
       }
@@ -415,6 +419,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     } catch (error) {
       if (error instanceof SocialAccountNotFoundError) {
         return reply.code(404).send({ error: 'Аккаунт не найден' });
+      }
+      if (error instanceof SocialCredentialVersionConflictError) {
+        return reply.code(409).send({ error: error.message });
       }
       if (error instanceof SocialCredentialRequestError) {
         return reply.code(400).send({ error: error.message });
