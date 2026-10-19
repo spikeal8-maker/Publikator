@@ -26,9 +26,9 @@ for (const secret of fixtureSecrets) {
 if (run.status !== 0) {
   // Only the fixed fake-token-free subset may be printed to CI logs for debugging.
   const safeLog = fixtureSecrets.reduce((value, secret) => value.replaceAll(secret, '[REDACTED]'),
-    log.replace(/\\bvk1\\.[A-Za-z0-9_.-]{15,}/gi, '[REDACTED]'));
-  process.stderr.write('SOCIAL_FOCUSED_TEST_FAILED (redacted):\\n'
-    + safeLog.split('\\n').slice(-85).join('\\n').slice(-11500) + '\\n');
+    log.replace(/\bvk1\.[A-Za-z0-9_.-]{15,}/gi, '[REDACTED]'));
+  process.stderr.write('SOCIAL_FOCUSED_TEST_FAILED (redacted):\n'
+    + safeLog.split('\n').slice(-85).join('\n').slice(-11500) + '\n');
 }
 assert.equal(run.status, 0, 'Social connection integration process failed without echoing secrets');
 assert.match(log, /"checkpoint":"SOCIAL-ERROR-VISIBILITY-001"/);
