@@ -132,7 +132,13 @@ try {
   assert.equal(row.enabled, 1);
   assert.equal(decryptJson(row.credentials_encrypted).userId, '12345');
   assert.equal(row.credential_version, 2);
-  assert.equal(readCapabilityProfile(userId).accessLevel, 'UNCHECKED');
+  const activatedProfile = readCapabilityProfile(userId);
+  assert.equal(activatedProfile.profileCurrent, true);
+  assert.equal(activatedProfile.credentialVersion, 2);
+  assert.equal(activatedProfile.accessLevel, 'PARTIAL');
+  assert.equal(activatedProfile.semantic.publicationReadiness.IMAGE.state, 'READY');
+  assert.notEqual(activatedProfile.semantic.publicationReadiness.TEXT.state, 'READY',
+    'checking an upload token does not prove a public wall.post');
   assert.ok(db.prepare('SELECT COUNT(*) AS n FROM project_default_targets WHERE account_id=?').get(userId).n >= 1);
   assert.equal(calls.some((call) => call.method === 'wall.post'), false);
   console.log(JSON.stringify({ ok: true, checkpoint: 'VK-KEY-PENDING-001',
