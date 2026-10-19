@@ -370,6 +370,46 @@ try {
   assert.equal(gainRecheck.account.enabled, false, 'recheck must preserve operator enabled state');
   assert.equal(defaultTargetCount(project.id, gain.account.id), 0, 'later recheck must not silently add project defaults');
 
+  // A display-only mutation does not change the key identity or its trusted profile.
+  await json(`/api/accounts/${full.account.id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ name: 'Renamed credential' })
+  });
+  assert.equal(accountDb(full.account.id).credential_version, 1);
+  assert.equal(readCapabilityProfile(full.account.id).accessLevel, 'FULL');
+
+  // Legacy PATCH must never retain current-looking rights for replaced credentials.
+  await json(`/api/accounts/${full.account.id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      credentials: {
+        botToken: 'patched-secret',
+        chatId: '-100101',
+        authKind: 'FORGED',
+        publishReady: true,
+        permissions: ['everything']
+      }
+    })
+  });
+  const patched = accountDb(full.account.id);
+  assert.equal(patched.credential_version, 2);
+  assert.equal(patched.enabled, 0);
+  assert.deepEqual(decryptJson(patched.credentials_encrypted), {
+    botToken: 'patched-secret',
+    chatId: '-100101'
+  });
+  assert.equal(readCapabilityProfile(full.account.id).accessLevel, 'UNCHECKED');
+  await json(`/api/accounts/${full.account.id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ credentials: { botToken: 'bad-enable', chatId: '-100101' }, enabled: true })
+  }, 409);
+  assert.equal(accountDb(full.account.id).credential_version, 2);
+  const patchedRecheck = await json(`/api/accounts/${full.account.id}/recheck`, {
+    method: 'POST'
+  });
+  assert.equal(patchedRecheck.capabilityProfile.accessLevel, 'FULL');
+  assert.equal(patchedRecheck.account.enabled, false);
+
   // A pending recheck cannot certify credentials that changed during the provider request.
   const race = await saveTelegram('race-secret', '108');
   assert.equal(race.capabilityProfile.accessLevel, 'FULL');
