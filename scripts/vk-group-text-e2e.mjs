@@ -51,8 +51,13 @@ try {
   const credentials = { authKind: 'COMMUNITY', destinationKind: 'COMMUNITY', groupId: '67890', accessToken: 'group-secret' };
   const mismatch = await req('POST', '/api/accounts', { platform: 'vk', name: 'Wrong community',
     credentials: { ...credentials, groupId: '99999', textPublishReady: true, tokenGroupId: '99999' } });
-  assert.equal(mismatch.statusCode, 400, mismatch.body);
-  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM social_accounts').get().n, 0);
+  assert.equal(mismatch.statusCode, 201, mismatch.body);
+  const mismatchAccount = mismatch.json();
+  assert.equal(mismatchAccount.enabled, 0, 'destination mismatch must never enable publication');
+  assert.equal(mismatchAccount.capabilityProfile.semantic.publicationReadiness.TEXT.state, 'BLOCKED');
+  assert.equal(mismatchAccount.capabilityProfile.semantic.destination.resolutionState, 'DENIED');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM social_accounts WHERE id=?').get(mismatchAccount.id).n, 1);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM project_default_targets WHERE account_id=?').get(mismatchAccount.id).n, 0);
   const saved = await req('POST', '/api/accounts', { platform: 'vk', name: 'Bound text', credentials });
   assert.equal(saved.statusCode, 201, saved.body);
   assert.equal(saved.json().enabled, 1);
@@ -67,7 +72,7 @@ try {
   assert.equal(profile.semantic.methods.find(x => x.method === 'wall.post').state, 'NOT_CHECKED');
   const listed = await req('GET', '/api/accounts');
   assert.equal(listed.body.includes('group-secret'), false);
-  assert.equal(listed.json()[0].text_publish_ready, true);
+  assert.equal(listed.json().find(row => row.id === accountId).text_publish_ready, true);
   const inspected = await inspectSocialCredential('vk', credentials);
   assert.equal(inspected.publicationEvidence.TEXT.state, 'CONFIRMED');
   const foreign = await inspectSocialCredential('vk', { ...credentials, groupId: '99999' });
