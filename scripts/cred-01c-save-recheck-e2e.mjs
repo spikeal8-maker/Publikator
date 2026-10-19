@@ -180,12 +180,14 @@ setSocialCredentialInspectorForTests(async (platform, credentials) => {
   const snapshot = structuredClone(credentials);
   seenCredentials.push(snapshot);
   if (platform === 'vk') {
-    const base = inspection('PARTIAL', { chatId: String(credentials.groupId) });
+    const paired = Boolean(credentials.uploadAccessToken);
+    const base = inspection(paired ? 'FULL' : 'PARTIAL', { chatId: String(credentials.groupId) });
     return {
       ...base,
       platform: 'vk',
       credential: { ...base.credential, providerType: 'GROUP' },
-      destination: { ...base.destination, kind: 'COMMUNITY', id: String(credentials.groupId) }
+      destination: { ...base.destination, kind: 'COMMUNITY', id: String(credentials.groupId) },
+      verifiedVkUploadUserId: paired ? '42' : null
     };
   }
   assert.equal(platform, 'telegram');
@@ -459,13 +461,21 @@ try {
     apiVersion: '5.199',
     destinationKind: 'COMMUNITY',
     groupId: '234601853',
-    uploadAccessToken: 'vk-photo-user-secret'
+    uploadAccessToken: 'vk-photo-user-secret',
+    authKind: 'COMMUNITY',
+    tokenGroupId: '234601853',
+    textPublishReady: true,
+    photoPublishReady: true,
+    uploadUserId: '42',
+    photoSetupError: null
   });
   assert.equal(JSON.stringify(vk).includes('vk-group-secret'), false);
   assert.equal(JSON.stringify(vk).includes('vk-photo-user-secret'), false);
-  assert.equal(vkStored.textPublishReady, undefined);
-  assert.equal(vkStored.photoPublishReady, undefined);
-  assert.equal(vkStored.authKind, undefined);
+  assert.equal(vkStored.textPublishReady, true);
+  assert.equal(vkStored.photoPublishReady, true);
+  assert.equal(vkStored.authKind, 'COMMUNITY', 'only server inspection may classify GROUP');
+  assert.equal(vk.capabilityProfile.accessLevel, 'FULL');
+  assert.equal(vk.account.enabled, true);
 
   const serialized = JSON.stringify({
     full,
