@@ -52,6 +52,13 @@ export class SocialCredentialRequestError extends Error {
   }
 }
 
+export class SocialCredentialVersionConflictError extends Error {
+  constructor() {
+    super('Подключение изменилось во время проверки. Повторите проверку текущего ключа.');
+    this.name = 'SocialCredentialVersionConflictError';
+  }
+}
+
 export class SocialAccountNotFoundError extends Error {
   constructor(accountId: string) {
     super(`Social account not found: ${accountId}`);
@@ -253,6 +260,16 @@ function accountRow(accountId: string): SocialAccountRow {
   return row;
 }
 
+function requireSameCredentialVersion(accountId: string, expected: SocialAccountRow): void {
+  const current = accountRow(accountId);
+  if (
+    current.credential_version !== expected.credential_version
+    || current.credentials_encrypted !== expected.credentials_encrypted
+  ) {
+    throw new SocialCredentialVersionConflictError();
+  }
+}
+
 function accountView(row: SocialAccountRow): SocialAccountView {
   return {
     id: row.id,
@@ -304,7 +321,9 @@ export async function saveAndCheckSocialAccount(input: {
       .run(accountId, platform, name, encrypted, now, now);
   })();
 
+  const inserted = accountRow(accountId);
   const inspection = await credentialInspector(platform, credentials);
+  requireSameCredentialVersion(accountId, inserted);
   const inputForProfile = profileInput(platform, inspection);
   const built = buildCapabilityProfile(inputForProfile);
   const metadata = checkFailureMetadata(built, inspection);
@@ -328,6 +347,7 @@ export async function recheckSocialAccount(accountId: string): Promise<SocialCre
   const previousProfile = readCapabilityProfile(accountId);
   const credentials = decryptJson<Record<string, unknown>>(before.credentials_encrypted);
   const inspection = await credentialInspector(before.platform, credentials);
+  requireSameCredentialVersion(accountId, before);
   const inputForProfile = profileInput(before.platform, inspection);
   const built = buildCapabilityProfile(inputForProfile);
   const metadata = checkFailureMetadata(built, inspection);
