@@ -141,7 +141,7 @@ function classifyFailure(message: string, status: number): string {
   if (/certificate|cert_|self.signed|TLS|SSL|issuer/i.test(message)) return 'TLS_FAILURE';
   if (/ETIMEDOUT|Timeout|timed out|aborterror|aborted|превышено время/i.test(message)) return 'TIMEOUT';
   if (/ECONNREFUSED|ECONNRESET|EHOSTUNREACH|ENETUNREACH|socket hang up|TCP connect/i.test(message)) return 'TRANSPORT_UNAVAILABLE';
-  if (/fetch failed|network failure|network error|недоступен сервер/i.test(message)) return 'PROVIDER_UNAVAILABLE';
+  if (/fetch failed|network failure|network error|недоступен сервер|временно недоступн|temporarily unavailable|service unavailable/i.test(message)) return 'PROVIDER_UNAVAILABLE';
   if (/не заполнено|укажите|нужно|ожидается|неизвестная площадка|обязательн|invalid input/i.test(message)) return 'INVALID_INPUT';
   if (/не совпадает|chat not found|destination.*not found|сообщество не найдено|канал недоступен/i.test(message)) return 'DESTINATION_NOT_CONFIRMED';
   if (/permission|нет права|право wall|администратор|administrator|forbidden|not enough rights|недостаточно прав/i.test(message)) return 'PERMISSIONS_DENIED';
