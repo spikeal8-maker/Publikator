@@ -314,7 +314,8 @@ try {
 
   const visibleDiagnosticId = savedShown.match(/socialcheck_[0-9a-f-]+/)?.[0];
   assert.ok(visibleDiagnosticId);
-  await page.locator('[data-route="/journal"]').click();
+  await page.goto('http://127.0.0.1:18107/journal', { waitUntil: 'domcontentloaded' });
+  await page.locator('#app').waitFor({ state: 'visible' });
   await page.waitForFunction((diagnosticId) =>
     (document.querySelector('#view')?.textContent || '').includes(diagnosticId), visibleDiagnosticId);
   assert.ok((await page.locator('#view').innerText()).includes(visibleDiagnosticId),
