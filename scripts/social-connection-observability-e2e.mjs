@@ -259,6 +259,7 @@ try {
     assert.ok(data.operation && data.route && data.code);
     assert.ok(Number.isInteger(data.status));
     assert.ok(typeof data.diagnosticId === 'string');
+    assert.ok(row.message.includes(data.diagnosticId), 'journal must display safe diagnostic ID');
     assert.ok(typeof row.created_at === 'string');
     assert.equal(Object.hasOwn(data, 'credentials'), false);
     assert.equal(Object.hasOwn(data, 'providerPayload'), false);
@@ -310,6 +311,14 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   await savedAlert.scrollIntoViewIfNeeded();
   assert.equal(await savedAlert.isVisible(), true, 'saved-key error must be visible on mobile');
+
+  const visibleDiagnosticId = savedShown.match(/socialcheck_[0-9a-f-]+/)?.[0];
+  assert.ok(visibleDiagnosticId);
+  await page.locator('[data-route="/journal"]').click();
+  await page.waitForFunction((diagnosticId) =>
+    (document.querySelector('#view')?.textContent || '').includes(diagnosticId), visibleDiagnosticId);
+  assert.ok((await page.locator('#view').innerText()).includes(visibleDiagnosticId),
+    'the built-in Journal must show the saved-key diagnostic after the connection form closes');
   assert.equal(pageErrors.length, 0, JSON.stringify(pageErrors));
   assert.equal(publicWrites, 0, 'diagnostic check must never create a public post');
   assert.ok(safeCalls.every(host => ['api.telegram.org', 'api.vk.com', 'platform-api2.max.ru'].includes(host)));
@@ -329,6 +338,7 @@ try {
     browserDiagnosticCodeAndId: true,
     savedKeyBrowserAndClipboardSafe: true,
     mobileDiagnosticVisible: true,
+    journalLookupByDiagnosticId: true,
     publicWrites: 0,
     browserErrors: 0
   }));
