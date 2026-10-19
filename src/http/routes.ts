@@ -18,6 +18,7 @@ import {
 import { readCapabilityProfile, replaceSocialAccountCredentials, saveCapabilityProfile } from '../social-credential-capability.js';
 import { checkVkConnection, inspectVkToken, testConnection, type VkTokenInspection } from '../platforms/connection-test.js';
 import {
+  normalizeSocialCredentialInput,
   recheckSocialAccount,
   saveAndCheckSocialAccount,
   SocialAccountNotFoundError,
@@ -528,19 +529,27 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(409).send({ error: 'VK: для замены ключа сообщества создайте новое подключение' });
     }
     const name = body.name === undefined ? current.name : String(body.name).trim();
+    if (!name) return reply.code(400).send({ error: 'name не должен быть пустым' });
     const enabled = body.enabled === undefined ? current.enabled : body.enabled ? 1 : 0;
-    let credentials = current.credentials_encrypted;
     if (body.credentials !== undefined) {
-      if (!body.credentials || typeof body.credentials !== 'object' || Array.isArray(body.credentials)) {
-        return reply.code(400).send({ error: 'credentials должен быть объектом' });
+      if (body.enabled === true) {
+        return reply.code(409).send({ error: 'Сначала сохраните и проверьте новый ключ, затем включите подключение' });
       }
+      let normalized: Record<string, unknown>;
       try {
-        credentials = encryptJson(normalizeStoredCredentials(current.platform as Platform, body.credentials as Record<string, unknown>));
+        normalized = normalizeSocialCredentialInput(current.platform as Platform, body.credentials);
       } catch (error) {
         return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
       }
+      db.transaction(() => {
+        replaceSocialAccountCredentials(params.id, encryptJson(normalized));
+        db.prepare('UPDATE social_accounts SET name=?,enabled=0,updated_at=? WHERE id=?')
+          .run(name, nowIso(), params.id);
+      })();
+      return { ok: true };
     }
-    db.prepare('UPDATE social_accounts SET name=?,enabled=?,credentials_encrypted=?,updated_at=? WHERE id=?').run(name, enabled, credentials, nowIso(), params.id);
+    db.prepare('UPDATE social_accounts SET name=?,enabled=?,updated_at=? WHERE id=?')
+      .run(name, enabled, nowIso(), params.id);
     return { ok: true };
   });
   app.get('/api/accounts/:id/credentials-check', async (request, reply) => {
