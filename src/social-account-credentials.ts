@@ -192,8 +192,17 @@ function normalizeCredentials(platform: Platform, raw: unknown): Record<string, 
   };
 }
 
-export function normalizeSocialCredentialInput(platform: Platform, raw: unknown): Record<string, unknown> {
-  return normalizeCredentials(platform, raw);
+export function normalizeSocialCredentialInput(
+  platform: Platform,
+  raw: unknown,
+  options: { requireExplicitPersonalDestination?: boolean } = {}
+): Record<string, unknown> {
+  const normalized = normalizeCredentials(platform, raw);
+  if (platform === 'vk' && options.requireExplicitPersonalDestination
+    && normalized.destinationKind === 'PERSONAL' && !normalized.userId) {
+    requestError('VK: для замены подключения PERSONAL требуется userId выбранной страницы');
+  }
+  return normalized;
 }
 
 function normalizePlatform(value: unknown): Platform {
