@@ -5,6 +5,7 @@ import { encryptJson, decryptJson } from '../crypto.js';
 import { db, id, nowIso } from '../db.js';
 import { testConnection } from '../platforms/connection-test.js';
 import { resolveVkDestination, type VkDestinationKind } from '../platforms/vk.js';
+import { replaceSocialAccountCredentials } from '../social-credential-capability.js';
 
 const VK_OAUTH_AUTHORIZE_URL = 'https://oauth.vk.com/authorize';
 const VK_OAUTH_TOKEN_URL = 'https://oauth.vk.com/access_token';
@@ -104,8 +105,9 @@ function saveVerifiedConnection(connection: ConnectionRequest, credentials: Reco
         continue;
       }
       if (savedDestination.kind !== destination.kind || savedDestination.id !== destination.id) continue;
-      db.prepare('UPDATE social_accounts SET name=?,credentials_encrypted=?,enabled=1,updated_at=? WHERE id=?')
-        .run(connection.name, encryptJson(credentials), now, row.id);
+      replaceSocialAccountCredentials(row.id, encryptJson(credentials));
+      db.prepare('UPDATE social_accounts SET name=?,enabled=1,updated_at=? WHERE id=?')
+        .run(connection.name, now, row.id);
       return 'updated';
     }
     const accountId = id('acc');
