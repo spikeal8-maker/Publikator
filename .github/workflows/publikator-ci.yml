@@ -181,6 +181,9 @@ jobs:
       - name: CX3-006 platform previews v2
         run: node scripts/cx3-006-platform-previews-e2e.mjs
 
+      - name: CX3-PREVIEW-RACE-001 inspector event lifecycle after delayed load
+        run: node scripts/cx3-preview-open-race-e2e.mjs
+
       - name: CX3-007 dashboard API semantics
         run: node scripts/cx3-007-dashboard-api-e2e.mjs
 
