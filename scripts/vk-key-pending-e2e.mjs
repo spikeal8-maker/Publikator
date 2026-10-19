@@ -11,6 +11,7 @@ process.env.APP_MASTER_KEY = 'vk-pending-master-key-longer-than-thirty-two-chara
 
 const { db, migrate } = await import('../dist/db.js');
 const { decryptJson } = await import('../dist/crypto.js');
+const { readCapabilityProfile } = await import('../dist/social-credential-capability.js');
 const { buildApp } = await import('../dist/app.js');
 const { vkPublisher } = await import('../dist/platforms/vk.js');
 migrate();
@@ -118,6 +119,8 @@ try {
   row = db.prepare('SELECT * FROM social_accounts WHERE id=?').get(groupId);
   assert.equal(row.enabled, 1);
   assert.equal(decryptJson(row.credentials_encrypted).authKind, 'COMMUNITY');
+  assert.equal(row.credential_version, 2);
+  assert.equal(readCapabilityProfile(groupId).profileCurrent, true);
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM project_default_targets WHERE account_id=?').get(groupId).n, 0);
 
   const userId = await save('User', 'valid-user-key', 'PERSONAL');
@@ -127,6 +130,8 @@ try {
   row = db.prepare('SELECT * FROM social_accounts WHERE id=?').get(userId);
   assert.equal(row.enabled, 1);
   assert.equal(decryptJson(row.credentials_encrypted).userId, '12345');
+  assert.equal(row.credential_version, 2);
+  assert.equal(readCapabilityProfile(userId).accessLevel, 'UNCHECKED');
   assert.ok(db.prepare('SELECT COUNT(*) AS n FROM project_default_targets WHERE account_id=?').get(userId).n >= 1);
   assert.equal(calls.some((call) => call.method === 'wall.post'), false);
   console.log(JSON.stringify({ ok: true, checkpoint: 'VK-KEY-PENDING-001',
