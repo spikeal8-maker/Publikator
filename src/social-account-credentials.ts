@@ -300,6 +300,7 @@ function verifiedPublisherCredentials(
       ...common,
       destinationKind: 'COMMUNITY',
       groupId: destination.id,
+      destinationName: destination.name || null,
       authKind: 'COMMUNITY',
       tokenGroupId: destination.id,
       textPublishReady: textReady,
@@ -314,6 +315,7 @@ function verifiedPublisherCredentials(
       ...common,
       authKind: 'USER',
       destinationKind: destination.kind,
+      destinationName: destination.name || null,
       ...(destination.kind === 'COMMUNITY'
         ? { groupId: destination.id }
         : { userId: destination.id })
