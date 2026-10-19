@@ -202,7 +202,10 @@ export function registerSocialConnectionObservability(app: FastifyInstance): voi
       event({
         level: failed ? 'warning' : 'info',
         type: failed ? 'social_connection_attempt_failed' : 'social_connection_attempt_succeeded',
-        message: 'Соцсети: ' + tracked.operation + ' / ' + platform + ' / ' + code + ' / HTTP ' + status,
+        // The legacy Journal UI displays only the message, not data_json:
+        // include the non-secret ID so an engineer can find this attempt.
+        message: 'Соцсети: ' + tracked.operation + ' / ' + platform + ' / ' + code
+          + ' / HTTP ' + status + ' / ID ' + diagnosticId,
         data: { diagnosticId, platform, operation: tracked.operation, route: tracked.route, status, code }
       });
     } catch {
