@@ -1,0 +1,168 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { chromium } from 'playwright-core';
+
+const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'publikator-social-error-'));
+Object.assign(process.env, {
+  NODE_ENV: 'test',
+  DATA_DIR: dataDir,
+  ADMIN_PASSWORD: 'social-observability-test-password',
+  APP_MASTER_KEY: 'social-observability-test-encryption-key-over-32-chars',
+  PUBLIC_BASE_URL: 'http://127.0.0.1:18107'
+});
+
+const { db, migrate } = await import('../dist/db.js');
+const { buildApp } = await import('../dist/app.js');
+migrate();
+const app = await buildApp();
+
+const fakeToken = '123456:FAKE-OBSERVABILITY-TEST-TOKEN';
+const fakeMaxToken = 'FAKE-MAX-OBSERVABILITY-SECRET';
+const originalFetch = globalThis.fetch;
+let scenario = 'echo-error';
+let publicWrites = 0;
+const safeCalls = [];
+globalThis.fetch = async (input) => {
+  const url = new URL(String(input));
+  safeCalls.push(url.hostname);
+  if (/sendMessage|sendPhoto|wall\.post|\/messages$/.test(url.pathname)) {
+    publicWrites++;
+    throw new Error('No public provider POST permitted in diagnostic tests');
+  }
+  if (url.hostname !== 'api.telegram.org') throw new Error('Unexpected diagnostic provider host');
+  if (scenario === 'echo-error') {
+    throw new Error('network failure at https://api.telegram.org/bot' + fakeToken +
+      '/getMe?access_token=' + encodeURIComponent(fakeToken));
+  }
+  if (url.pathname.endsWith('/getMe')) {
+    return Response.json({ ok: true, result: { id: 101, username: 'fixture_diagnostic_bot' } });
+  }
+  if (url.pathname.endsWith('/getChat')) {
+    return Response.json({ ok: true, result: { id: -10042, type: 'channel', title: 'Diagnostic fixture' } });
+  }
+  if (url.pathname.endsWith('/getChatMember')) {
+    return Response.json({ ok: true, result: { status: 'administrator', can_post_messages: true } });
+  }
+  throw new Error('Unexpected diagnostic provider method');
+};
+
+let browser;
+try {
+  await app.ready();
+  const login = await app.inject({
+    method: 'POST',
+    url: '/api/auth/login',
+    payload: { password: process.env.ADMIN_PASSWORD }
+  });
+  assert.equal(login.statusCode, 200);
+  const cookie = String(login.headers['set-cookie']).split(';')[0];
+
+  // Missing local input must be distinguishable from a provider outage.
+  const malformed = await app.inject({
+    method: 'POST',
+    url: '/api/accounts/test',
+    headers: { cookie },
+    payload: { platform: 'telegram', credentials: { botToken: fakeToken, chatId: '' } }
+  });
+  assert.equal(malformed.statusCode, 400, malformed.body);
+  const malformedBody = malformed.json();
+  assert.equal(malformedBody.diagnosticCode, 'INVALID_INPUT', malformed.body);
+  assert.ok(typeof malformedBody.diagnosticId === 'string');
+  assert.equal(malformed.body.includes(fakeToken), false);
+
+  const failed = await app.inject({
+    method: 'POST',
+    url: '/api/accounts/test',
+    headers: { cookie },
+    payload: { platform: 'telegram', credentials: { botToken: fakeToken, chatId: '@fixture_channel' } }
+  });
+  assert.equal(failed.statusCode, 400, failed.body);
+  const failedBody = failed.json();
+  assert.equal(failedBody.diagnosticCode, 'PROVIDER_UNAVAILABLE', failed.body);
+  assert.ok(failedBody.diagnosticId.startsWith('socialcheck_'));
+  assert.equal(failed.body.includes(fakeToken), false);
+  assert.match(failedBody.error, /\[скрыто\]/);
+
+  // A failed save is also independently visible, without saving plaintext secrets.
+  const badSave = await app.inject({
+    method: 'POST',
+    url: '/api/accounts',
+    headers: { cookie },
+    payload: { platform: 'max', name: '', credentials: { accessToken: fakeMaxToken, chatId: '-100777' } }
+  });
+  assert.equal(badSave.statusCode, 400, badSave.body);
+  assert.ok(badSave.json().diagnosticId);
+  assert.equal(badSave.body.includes(fakeMaxToken), false);
+
+  scenario = 'success';
+  const successful = await app.inject({
+    method: 'POST',
+    url: '/api/accounts/test',
+    headers: { cookie },
+    payload: { platform: 'telegram', credentials: { botToken: fakeToken, chatId: '@fixture_channel' } }
+  });
+  assert.equal(successful.statusCode, 200, successful.body);
+  assert.equal(successful.json().identity, '@fixture_diagnostic_bot');
+
+  const rows = db.prepare(`SELECT event_type, message, data_json
+    FROM publication_events WHERE event_type LIKE 'social_connection_attempt_%'
+    ORDER BY created_at`).all();
+  assert.ok(rows.length >= 4, JSON.stringify(rows));
+  for (const row of rows) {
+    assert.equal(JSON.stringify(row).includes(fakeToken), false);
+    assert.equal(JSON.stringify(row).includes(fakeMaxToken), false);
+    const data = JSON.parse(row.data_json);
+    assert.ok(data.diagnosticId.startsWith('socialcheck_'));
+    assert.ok(['telegram', 'max'].includes(data.platform));
+    assert.ok(data.operation && data.route && data.code);
+    assert.equal(Object.hasOwn(data, 'credentials'), false);
+    assert.equal(Object.hasOwn(data, 'providerPayload'), false);
+  }
+  assert.ok(rows.some(row => JSON.parse(row.data_json).diagnosticId === failedBody.diagnosticId));
+  assert.ok(rows.some(row => row.event_type === 'social_connection_attempt_succeeded'));
+
+  scenario = 'echo-error';
+  await app.listen({ host: '127.0.0.1', port: 18107 });
+  browser = await chromium.launch({ channel: 'chrome', headless: true });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.goto('http://127.0.0.1:18107/socials');
+  await page.locator('#password').fill(process.env.ADMIN_PASSWORD);
+  await page.locator('#login-form button[type="submit"]').click();
+  await page.locator('.operator-add-platform[data-platform="telegram"]').click();
+  const form = page.locator('#operator-social-form');
+  await form.locator('input[name="name"]').fill('Diagnostic test');
+  await form.locator('input[name="botToken"]').fill(fakeToken);
+  await form.locator('input[name="chatId"]').fill('@fixture_channel');
+  await form.locator('#operator-test-connect').click();
+  const alert = form.locator('#operator-connect-result [role="alert"]');
+  await alert.waitFor();
+  const shown = await alert.textContent();
+  assert.match(shown, /PROVIDER_UNAVAILABLE/);
+  assert.match(shown, /socialcheck_/);
+  assert.match(shown, /Копировать диагностику без ключей/);
+  assert.equal(shown.includes(fakeToken), false, 'the DOM must not repeat credential in errors');
+  assert.equal(pageErrors.length, 0, JSON.stringify(pageErrors));
+  assert.equal(publicWrites, 0, 'diagnostic check must never create a public post');
+  assert.ok(safeCalls.every(host => host === 'api.telegram.org'));
+  console.log(JSON.stringify({
+    ok: true,
+    checkpoint: 'SOCIAL-ERROR-VISIBILITY-001',
+    classifiedMissingFields: true,
+    classifiedNetworkFailure: true,
+    providerEchoRedacted: true,
+    persistedNonSecretAudit: true,
+    browserDiagnosticCodeAndId: true,
+    publicWrites: 0,
+    browserErrors: 0
+  }));
+} finally {
+  await browser?.close();
+  globalThis.fetch = originalFetch;
+  await app.close();
+  db.close();
+  await fs.rm(dataDir, { recursive: true, force: true });
+}
