@@ -42,8 +42,13 @@ function operatorEsc(value = '') {
 // Displays a useful error without copying credentials into HTML, URLs or the journal.
 // The server stores only the diagnostic ID, classification and operation metadata.
 function showSocialConnectionError(target, error, platform, operation) {
-  const message = error instanceof Error ? error.message : String(error);
   const serverId = typeof error?.diagnosticId === 'string' ? error.diagnosticId : '';
+  // No server diagnostic ID means the exception may have come from local form
+  // validation or transport code. Never copy an arbitrary exception string,
+  // since a library can include the entered token or request URL in it.
+  const message = serverId
+    ? (error instanceof Error ? error.message : String(error))
+    : 'Сервер не подтвердил проверку. Проверьте поля и сеть; при повторе укажите время и площадку.';
   const code = typeof error?.diagnosticCode === 'string' ? error.diagnosticCode : 'CLIENT_OR_NETWORK_ERROR';
   const status = Number.isInteger(error?.httpStatus) ? `HTTP ${error.httpStatus}` : 'Нет HTTP-ответа';
   const at = new Date().toISOString();
