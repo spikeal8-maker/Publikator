@@ -443,10 +443,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       const pending = platform === 'vk'
         && body.credentials && !Array.isArray(body.credentials)
         && typeof body.credentials === 'object' && body.credentials.authKind === 'PENDING';
+      const credentials = !pending && platform === 'vk'
+        ? normalizeSocialCredentialInput('vk', body.credentials,
+          { requireExplicitPersonalDestination: true })
+        : body.credentials;
       const result = pending
-        ? saveUncheckedVkAccount({ name: body.name, credentials: body.credentials })
+        ? saveUncheckedVkAccount({ name: body.name, credentials })
         : await saveAndCheckSocialAccount({
-          platform: body.platform, name: body.name, credentials: body.credentials
+          platform: body.platform, name: body.name, credentials
         });
       const profile = result.capabilityProfile;
       const account = result.account;
