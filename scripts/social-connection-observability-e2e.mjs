@@ -130,7 +130,8 @@ try {
   assert.equal(failedBody.diagnosticCode, 'PROVIDER_UNAVAILABLE', failed.body);
   assert.ok(failedBody.diagnosticId.startsWith('socialcheck_'));
   assert.equal(failed.body.includes(fakeToken), false);
-  assert.match(failedBody.error, /\[скрыто\]/);
+  assert.match(failedBody.error, /API площадки временно недоступен/);
+  assert.deepEqual(Object.keys(failedBody).sort(), ['diagnosticCode','diagnosticId','error']);
 
   // A failed save is also independently visible, without saving plaintext secrets.
   const badSave = await app.inject({
@@ -143,6 +144,90 @@ try {
   assert.ok(badSave.json().diagnosticId);
   assert.equal(badSave.body.includes(fakeMaxToken), false);
 
+  // A previously saved token is absent from the request payload.
+  scenario = 'saved-echo-error';
+  const savedFailure = await app.inject({
+    method: 'POST', url: '/api/accounts/' + savedId + '/test', headers: { cookie }
+  });
+  assert.equal(savedFailure.statusCode, 400, savedFailure.body);
+  assert.equal(savedFailure.json().diagnosticCode, 'PROVIDER_UNAVAILABLE');
+  assert.ok(savedFailure.json().diagnosticId.startsWith('socialcheck_'));
+  assert.equal(savedFailure.body.includes(fakeSavedToken), false);
+  assert.deepEqual(Object.keys(savedFailure.json()).sort(), ['diagnosticCode','diagnosticId','error']);
+  assert.equal(db.prepare('SELECT enabled FROM social_accounts WHERE id=?').get(savedId).enabled, 0);
+
+  // A future recheck route must not spread nested provider/debug fields.
+  const recheck = await app.inject({
+    method: 'POST', url: '/api/accounts/' + savedId + '/recheck', headers: { cookie }
+  });
+  assert.equal(recheck.statusCode, 503, recheck.body);
+  assert.equal(recheck.json().diagnosticCode, 'TLS_FAILURE', recheck.body);
+  assert.equal(recheck.body.includes(fakeSavedToken), false);
+  assert.deepEqual(Object.keys(recheck.json()).sort(), ['diagnosticCode','diagnosticId','error']);
+
+  scenario = 'unhandled-echo';
+  const unexpected = await app.inject({
+    method: 'POST', url: '/api/accounts/' + savedId + '/recheck', headers: { cookie }
+  });
+  assert.equal(unexpected.statusCode, 500, unexpected.body);
+  assert.equal(unexpected.json().diagnosticCode, 'SERVER_ERROR');
+  assert.equal(unexpected.body.includes(fakeSavedToken), false);
+
+  scenario = 'vk-ip-echo';
+  const activated = await app.inject({
+    method: 'POST', url: '/api/accounts/' + vkId + '/activate', headers: { cookie }
+  });
+  assert.equal(activated.statusCode, 400, activated.body);
+  assert.equal(activated.json().diagnosticCode, 'IP_RESTRICTED', activated.body);
+  assert.equal(activated.body.includes(fakeVkToken), false);
+  assert.equal(db.prepare('SELECT enabled FROM social_accounts WHERE id=?').get(vkId).enabled, 0);
+
+  scenario = 'max-permission-echo';
+  const maxDenied = await app.inject({
+    method: 'POST', url: '/api/accounts/test', headers: { cookie },
+    payload: { platform: 'max', credentials: { accessToken: fakeMaxToken, chatId: '-100777' } }
+  });
+  assert.equal(maxDenied.statusCode, 400, maxDenied.body);
+  assert.equal(maxDenied.json().diagnosticCode, 'PERMISSIONS_DENIED', maxDenied.body);
+  assert.equal(maxDenied.body.includes(fakeMaxToken), false);
+
+  const classifications = [
+    ['dns-failure', 'DNS_UNAVAILABLE'],
+    ['tls-failure', 'TLS_FAILURE'],
+    ['timeout-failure', 'TIMEOUT'],
+    ['tcp-failure', 'TRANSPORT_UNAVAILABLE'],
+    ['permission-failure', 'PERMISSIONS_DENIED'],
+    ['rejected-failure', 'CREDENTIAL_REJECTED'],
+    ['destination-failure', 'DESTINATION_NOT_CONFIRMED']
+  ];
+  for (const [mode, expectedCode] of classifications) {
+    scenario = mode;
+    const response = await app.inject({
+      method: 'POST', url: '/api/accounts/test', headers: { cookie },
+      payload: { platform: 'telegram', credentials: { botToken: fakeToken, chatId: '@fixture_channel' } }
+    });
+    assert.equal(response.statusCode, 400, response.body);
+    assert.equal(response.json().diagnosticCode, expectedCode, response.body);
+    assert.equal(response.body.includes(fakeToken), false);
+  }
+
+  // An OAuth one-time result ticket is intentionally never included in access logs.
+  const oauth = await app.inject({
+    method: 'GET', url: '/api/vk/oauth/result?ticket=' + encodeURIComponent(fakeSavedToken),
+    headers: { cookie }
+  });
+  assert.equal(oauth.statusCode, 404, oauth.body);
+  assert.equal(oauth.body.includes(fakeSavedToken), false);
+
+  scenario = 'saved-success-echo';
+  const storedSuccess = await app.inject({
+    method: 'POST', url: '/api/accounts/' + savedId + '/test', headers: { cookie }
+  });
+  assert.equal(storedSuccess.statusCode, 200, storedSuccess.body);
+  assert.equal(storedSuccess.body.includes(fakeSavedToken), false,
+    'success response must redact stored token echoed by the provider');
+  assert.ok(storedSuccess.body.includes('[скрыто]'), storedSuccess.body);
+
   scenario = 'success';
   const successful = await app.inject({
     method: 'POST',
@@ -153,17 +238,22 @@ try {
   assert.equal(successful.statusCode, 200, successful.body);
   assert.equal(successful.json().identity, '@fixture_diagnostic_bot');
 
-  const rows = db.prepare(`SELECT event_type, message, data_json
+  const rows = db.prepare(`SELECT event_type, message, data_json, created_at
     FROM publication_events WHERE event_type LIKE 'social_connection_attempt_%'
     ORDER BY created_at`).all();
-  assert.ok(rows.length >= 4, JSON.stringify(rows));
+  assert.ok(rows.length >= 17, JSON.stringify(rows));
   for (const row of rows) {
     assert.equal(JSON.stringify(row).includes(fakeToken), false);
     assert.equal(JSON.stringify(row).includes(fakeMaxToken), false);
+    assert.equal(JSON.stringify(row).includes(fakeSavedToken), false);
+    assert.equal(JSON.stringify(row).includes(fakeVkToken), false);
     const data = JSON.parse(row.data_json);
     assert.ok(data.diagnosticId.startsWith('socialcheck_'));
     assert.ok(['telegram', 'max'].includes(data.platform));
     assert.ok(data.operation && data.route && data.code);
+    assert.ok(Number.isInteger(data.status));
+    assert.ok(typeof data.diagnosticId === 'string');
+    assert.ok(typeof row.created_at === 'string');
     assert.equal(Object.hasOwn(data, 'credentials'), false);
     assert.equal(Object.hasOwn(data, 'providerPayload'), false);
   }
@@ -194,13 +284,19 @@ try {
   assert.equal(shown.includes(fakeToken), false, 'the DOM must not repeat credential in errors');
   assert.equal(pageErrors.length, 0, JSON.stringify(pageErrors));
   assert.equal(publicWrites, 0, 'diagnostic check must never create a public post');
-  assert.ok(safeCalls.every(host => host === 'api.telegram.org'));
+  assert.ok(safeCalls.every(host => ['api.telegram.org', 'api.vk.com', 'platform-api2.max.ru'].includes(host)));
   console.log(JSON.stringify({
     ok: true,
     checkpoint: 'SOCIAL-ERROR-VISIBILITY-001',
     classifiedMissingFields: true,
     classifiedNetworkFailure: true,
     providerEchoRedacted: true,
+    savedCredentialEchoRedacted: true,
+    savedVkIpRestrictionClassified: true,
+    maxPermissionsClassified: true,
+    recheckUnexpectedExceptionSafe: true,
+    providerFailureMatrix: true,
+    successPayloadRedaction: true,
     persistedNonSecretAudit: true,
     browserDiagnosticCodeAndId: true,
     publicWrites: 0,
