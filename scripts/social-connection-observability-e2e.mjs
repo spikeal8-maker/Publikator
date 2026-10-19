@@ -35,7 +35,10 @@ globalThis.fetch = async (input) => {
     throw new Error('No public provider POST permitted in diagnostic tests');
   }
   if (url.hostname === 'api.vk.com' && scenario === 'vk-ip-echo') {
-    throw new Error('VK other ip address refused token ' + fakeVkToken);
+    return Response.json({ error: {
+      error_code: 5,
+      error_msg: 'User authorization failed from another ip address for token ' + fakeVkToken
+    } });
   }
   if (url.hostname === 'platform-api2.max.ru' && scenario === 'max-permission-echo') {
     throw new Error('MAX permission denied for token ' + fakeMaxToken);
