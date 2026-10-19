@@ -30,6 +30,7 @@ import { registerRevisionHistoryRoutes } from './http/revision-history.js';
 import { registerTemplateRoutes } from './http/templates.js';
 import { registerIntegrationApiRoutes } from './http/integration-api.js';
 import { registerVkOauthRoutes } from './http/vk-oauth.js';
+import { registerSocialConnectionObservability } from './http/social-connection-observability.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -44,6 +45,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(fastifyStatic, { root: config.mediaDir, prefix: '/public-media/', decorateReply: false, index: false });
   await registerMaintenanceGuard(app);
   await registerLegacyBackupBlocker(app);
+  registerSocialConnectionObservability(app);
   await registerRoutes(app);
   await registerVkOauthRoutes(app);
   await registerIntegrationApiRoutes(app);
