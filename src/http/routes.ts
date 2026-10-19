@@ -19,6 +19,7 @@ import { readCapabilityProfile, replaceSocialAccountCredentials, saveCapabilityP
 import { checkVkConnection, inspectVkToken, testConnection, type VkTokenInspection } from '../platforms/connection-test.js';
 import {
   activatePendingVkAccount,
+  isVerifiedAccountPublishReady,
   normalizeSocialCredentialInput,
   recheckSocialAccount,
   saveAndCheckSocialAccount,
@@ -483,19 +484,23 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (stored?.authKind === 'PENDING' && body.enabled !== undefined && Boolean(body.enabled)) {
       return reply.code(409).send({ error: 'VK: сначала проверьте сохранённый ключ' });
     }
-    if (stored?.authKind === 'COMMUNITY' && body.enabled !== undefined && Boolean(body.enabled)) {
-      try {
-        const inspected = await inspectVkToken(stored);
-        if (!inspected.textPublishReady || !inspected.groupId) throw new Error('VK: не подтверждены сообщество ключа и право wall');
-        const refreshed: Record<string, unknown> = { ...stored, textPublishReady: true, tokenGroupId: inspected.groupId, ...vkCommunityPhotoCredentials(stored, inspected) };
-        if (stored.textPublishReady !== true || stored.tokenGroupId !== inspected.groupId
-          || stored.photoPublishReady !== refreshed.photoPublishReady || stored.uploadUserId !== refreshed.uploadUserId) {
-          replaceSocialAccountCredentials(params.id, encryptJson(refreshed));
-          current.credentials_encrypted = (db.prepare('SELECT credentials_encrypted FROM social_accounts WHERE id=?').get(params.id) as { credentials_encrypted: string }).credentials_encrypted;
+    if (body.enabled === true && body.credentials === undefined) {
+      // An enabled flag is an operator switch, never evidence of platform rights.
+      // Even old COMMUNITY key integrations must use CRED-01B before activation.
+      if (stored?.authKind === 'COMMUNITY') {
+        try {
+          await recheckSocialAccount(params.id);
+        } catch (error) {
+          if (error instanceof SocialCredentialVersionConflictError) {
+            return reply.code(409).send({ error: error.message });
+          }
+          throw error;
         }
-        persistVkCommunityProfile(params.id, inspected);
-      } catch (error) {
-        return reply.code(409).send({ error: error instanceof Error ? error.message : String(error) });
+      }
+      if (!isVerifiedAccountPublishReady(params.id)) {
+        return reply.code(409).send({
+          error: 'Нет подтверждённого сервером формата публикации. Нажмите «Повторить проверку» и устраните ограничения.'
+        });
       }
     }
     if (body.credentials !== undefined
