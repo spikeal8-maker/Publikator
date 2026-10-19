@@ -200,7 +200,13 @@ export function registerSocialConnectionObservability(app: FastifyInstance): voi
       // objects, which can include arbitrary nested tokens and URLs.
       reply.removeHeader('content-length');
       reply.type('application/json');
-      return JSON.stringify({ error: SAFE_REASONS[code] || SAFE_REASONS.CHECK_REJECTED, diagnosticId, diagnosticCode: code });
+      const safeReason = SAFE_REASONS[code] || SAFE_REASONS.CHECK_REJECTED;
+      if (tracked.route === 'vk.oauth.result' && parsed?.ok === false) {
+        // OAuth's legacy 200 response contains { ok:false, message }; keep its
+        // result shape without propagating the untrusted provider message.
+        return JSON.stringify({ ok: false, message: safeReason, diagnosticId, diagnosticCode: code });
+      }
+      return JSON.stringify({ error: safeReason, diagnosticId, diagnosticCode: code });
     }
     if (!parsed) return payload;
     // Successful provider responses can also contain unsafe identity/debug fields.
