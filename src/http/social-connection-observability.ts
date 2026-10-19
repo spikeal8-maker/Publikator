@@ -145,7 +145,7 @@ function classifyFailure(message: string, status: number): string {
 }
 
 export function safeSocialFailureMessage(message: unknown, status = 400): string {
-  return SAFE_REASONS[classifyFailure(typeof message === 'string' ? message : '', status)] || SAFE_REASONS.CHECK_REJECTED;
+  return SAFE_REASONS[classifyFailure(typeof message === 'string' ? message : '', status)] || 'Проверка не подтверждена.';
 }
 
 export function registerSocialConnectionObservability(app: FastifyInstance): void {
@@ -154,10 +154,12 @@ export function registerSocialConnectionObservability(app: FastifyInstance): voi
     if (!tracked) return reply.send(error);
     // Unhandled provider exceptions can carry a decrypted saved secret in their stack.
     // Do not pass them to Fastify's default error logger.
-    const status = typeof error.statusCode === 'number' && error.statusCode >= 400
-      && error.statusCode < 600 ? error.statusCode : 500;
+    const safeError = error && typeof error === 'object'
+      ? error as { statusCode?: unknown; message?: unknown } : {};
+    const status = typeof safeError.statusCode === 'number' && safeError.statusCode >= 400
+      && safeError.statusCode < 600 ? safeError.statusCode : 500;
     return reply.code(status).send({
-      error: status >= 500 ? SAFE_REASONS.SERVER_ERROR : safeSocialFailureMessage(error.message, status)
+      error: status >= 500 ? SAFE_REASONS.SERVER_ERROR : safeSocialFailureMessage(safeError.message, status)
     });
   });
 
