@@ -282,6 +282,28 @@ try {
   assert.match(shown, /socialcheck_/);
   assert.match(shown, /Копировать диагностику без ключей/);
   assert.equal(shown.includes(fakeToken), false, 'the DOM must not repeat credential in errors');
+
+  // The dialog can close; the saved account still offers a non-secret
+  // diagnostic for the same encrypted key without resubmitting credentials.
+  await form.locator('#operator-close-connect').click();
+  scenario = 'saved-echo-error';
+  const row = page.locator('.operator-connection[data-account-id="' + savedId + '"]');
+  await row.locator('.operator-test-account').click();
+  const savedAlert = row.locator('.operator-account-result [role="alert"]');
+  await savedAlert.waitFor();
+  const savedShown = await savedAlert.textContent();
+  assert.match(savedShown, /PROVIDER_UNAVAILABLE/);
+  assert.match(savedShown, /socialcheck_/);
+  assert.equal(savedShown.includes(fakeSavedToken), false);
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await savedAlert.locator('.operator-copy-social-diagnostic').click();
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  assert.match(copied, /ID диагностики:/);
+  assert.equal(copied.includes(fakeSavedToken), false);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await savedAlert.scrollIntoViewIfNeeded();
+  assert.equal(await savedAlert.isVisible(), true, 'saved-key error must be visible on mobile');
   assert.equal(pageErrors.length, 0, JSON.stringify(pageErrors));
   assert.equal(publicWrites, 0, 'diagnostic check must never create a public post');
   assert.ok(safeCalls.every(host => ['api.telegram.org', 'api.vk.com', 'platform-api2.max.ru'].includes(host)));
@@ -299,6 +321,8 @@ try {
     successPayloadRedaction: true,
     persistedNonSecretAudit: true,
     browserDiagnosticCodeAndId: true,
+    savedKeyBrowserAndClipboardSafe: true,
+    mobileDiagnosticVisible: true,
     publicWrites: 0,
     browserErrors: 0
   }));
