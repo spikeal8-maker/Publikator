@@ -63,8 +63,13 @@ try {
       accessToken: 'invalid-community-key', authKind: 'COMMUNITY',
       destinationKind: 'COMMUNITY', groupId: '67890'
     } } });
-  assert.equal(invalid.statusCode, 400);
-  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM social_accounts").get().n, 0);
+  assert.equal(invalid.statusCode, 201, invalid.body);
+  const invalidAccount = invalid.json();
+  assert.equal(invalidAccount.enabled, 0, 'unconfirmed/invalid key must never enable publication');
+  assert.notEqual(invalidAccount.capabilityProfile.accessLevel, 'FULL');
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM social_accounts").get().n, 1);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM project_default_targets WHERE account_id=?')
+    .get(invalidAccount.id).n, 0, 'unready key cannot become a default target');
 
   const created = await app.inject({ method: 'POST', url: '/api/accounts', headers: { cookie },
     payload: { platform: 'vk', name: 'VK Group', credentials: {
@@ -90,7 +95,7 @@ try {
 
   const list = await app.inject({ method: 'GET', url: '/api/accounts', headers: { cookie } });
   assert.equal(list.statusCode, 200, list.body);
-  assert.equal(list.json()[0].credential_only, true);
+  assert.equal(list.json().find(item => item.id === accountId).credential_only, true);
   assert.equal(list.body.includes('valid-community-key'), false);
   const checked = await app.inject({ method: 'POST', url: `/api/accounts/${accountId}/test`, headers: { cookie } });
   assert.equal(checked.statusCode, 200, checked.body);
