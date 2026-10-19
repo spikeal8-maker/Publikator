@@ -252,7 +252,7 @@ try {
     assert.equal(JSON.stringify(row).includes(fakeVkToken), false);
     const data = JSON.parse(row.data_json);
     assert.ok(data.diagnosticId.startsWith('socialcheck_'));
-    assert.ok(['telegram', 'max'].includes(data.platform));
+    assert.ok(['telegram', 'max', 'vk'].includes(data.platform));
     assert.ok(data.operation && data.route && data.code);
     assert.ok(Number.isInteger(data.status));
     assert.ok(typeof data.diagnosticId === 'string');
