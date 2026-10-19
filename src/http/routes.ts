@@ -18,6 +18,7 @@ import {
 import { readCapabilityProfile, replaceSocialAccountCredentials, saveCapabilityProfile } from '../social-credential-capability.js';
 import { checkVkConnection, inspectVkToken, testConnection, type VkTokenInspection } from '../platforms/connection-test.js';
 import {
+  activatePendingVkAccount,
   normalizeSocialCredentialInput,
   recheckSocialAccount,
   saveAndCheckSocialAccount,
@@ -559,58 +560,32 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
   app.post('/api/accounts/:id/activate', async (request, reply) => {
     const params = request.params as { id: string };
-    const row = db.prepare('SELECT platform,credentials_encrypted FROM social_accounts WHERE id=?').get(params.id) as
-      { platform: Platform; credentials_encrypted: string } | undefined;
-    if (!row) return reply.code(404).send({ error: 'Аккаунт не найден' });
-    if (row.platform !== 'vk') return reply.code(400).send({ error: 'Нужен сохранённый ключ VK' });
     try {
-      const pending = decryptJson<Record<string, unknown>>(row.credentials_encrypted);
-      if (pending.authKind !== 'PENDING') return reply.code(409).send({ error: 'Ключ уже проверен' });
-      const inspected = await inspectVkToken(pending);
-      const now = nowIso();
-      if (inspected.authKind === 'COMMUNITY') {
-        if (!inspected.groupId) return reply.code(400).send({ error: 'VK: ключ действителен, но сообщество не определено; укажите ID при новом подключении' });
-        if (inspected.destinationMatchesToken !== true) throw new Error('VK: выбранное сообщество не совпадает с сообществом ключа');
-        const verified = normalizeStoredCredentials('vk', {
-          textPublishReady: inspected.textPublishReady === true, tokenGroupId: inspected.groupId,
-          ...vkCommunityPhotoCredentials(pending, inspected),
-          accessToken: pending.accessToken, apiVersion: pending.apiVersion,
-          authKind: 'COMMUNITY', destinationKind: 'COMMUNITY', groupId: inspected.groupId,
-          destinationName: inspected.groupName || `club${inspected.groupId}`
-        });
-        db.transaction(() => {
-          replaceSocialAccountCredentials(params.id, encryptJson(verified));
-          persistVkCommunityProfile(params.id, inspected);
-          db.prepare('UPDATE social_accounts SET enabled=?,updated_at=? WHERE id=?')
-            .run(inspected.textPublishReady ? 1 : 0, now, params.id);
-        })();
-        return { ok: true, authKind: 'COMMUNITY', credentialOnly: true, textPublishReady: inspected.textPublishReady,
-          capabilityProfile: readCapabilityProfile(params.id), identity: inspected.identity };
-      }
-      const checked = await testConnection('vk', pending);
-      const details = checked.details || {};
-      if (details.authKind !== 'USER' || !details.destinationId || details.wallPhotoReady !== true) {
-        throw new Error('VK: права на публикацию не подтверждены');
-      }
-      const destinationKind = vkDestinationKind(pending);
-      const verified = normalizeStoredCredentials('vk', {
-        accessToken: pending.accessToken, apiVersion: pending.apiVersion,
-        authKind: 'USER', destinationKind,
-        ...(destinationKind === 'PERSONAL'
-          ? { userId: String(details.destinationId) }
-          : { groupId: String(details.destinationId) }),
-        destinationName: String(details.destinationName || checked.identity)
-      });
-      db.transaction(() => {
-        replaceSocialAccountCredentials(params.id, encryptJson(verified));
-        db.prepare('UPDATE social_accounts SET enabled=1,updated_at=? WHERE id=?').run(now, params.id);
-        db.prepare(`INSERT OR IGNORE INTO project_default_targets (project_id,account_id,created_at)
-          SELECT id,?,? FROM projects WHERE default_targets_explicit=0`).run(params.id, now);
-      })();
-      return { ok: true, authKind: 'USER', credentialOnly: false,
-        identity: checked.identity, destination: checked.destination };
+      const checked = await activatePendingVkAccount(params.id);
+      const stored = db.prepare('SELECT credentials_encrypted FROM social_accounts WHERE id=?')
+        .get(params.id) as { credentials_encrypted: string };
+      const credentials = decryptJson<Record<string, unknown>>(stored.credentials_encrypted);
+      const profile = checked.capabilityProfile;
+      return {
+        ok: true,
+        authKind: credentials.authKind,
+        credentialOnly: credentials.authKind === 'COMMUNITY',
+        textPublishReady: profile.semantic?.publicationReadiness.TEXT.state === 'READY',
+        identity: profile.semantic?.credential.identity || null,
+        destination: profile.semantic?.destination?.name || null,
+        capabilityProfile: profile
+      };
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      if (error instanceof SocialAccountNotFoundError) {
+        return reply.code(404).send({ error: 'Аккаунт не найден' });
+      }
+      if (error instanceof SocialCredentialVersionConflictError) {
+        return reply.code(409).send({ error: error.message });
+      }
+      if (error instanceof SocialCredentialRequestError) {
+        return reply.code(400).send({ error: error.message });
+      }
+      throw error;
     }
   });
   app.post('/api/accounts/:id/vk-community/test', async (request, reply) => {
