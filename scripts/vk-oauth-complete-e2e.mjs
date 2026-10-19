@@ -22,6 +22,7 @@ process.env.VK_OAUTH_REDIRECT_URI = REDIRECT_URI;
 
 const { db, migrate } = await import('../dist/db.js');
 const { decryptJson } = await import('../dist/crypto.js');
+const { saveCapabilityProfile, readCapabilityProfile } = await import('../dist/social-credential-capability.js');
 const { buildApp } = await import('../dist/app.js');
 migrate();
 const app = await buildApp();
@@ -132,6 +133,43 @@ try {
   assert.equal(denied.statusCode, 302);
   assert.equal(calls.length, 4, 'denied authorization must not exchange a code');
   assert.equal(db.prepare("SELECT COUNT(*) AS count FROM social_accounts WHERE platform='vk'").get().count, 1);
+
+  // Re-authorizing an existing VK destination is a credential mutation.
+  saveCapabilityProfile(rows[0].id, {
+    inspectionCompleted: true,
+    providerType: 'USER',
+    credential: {
+      validity: 'CONFIRMED', identity: 'Test User', ownerId: '123',
+      declaredPermissions: ['wall', 'photos'], permissionsSource: 'test'
+    },
+    destination: {
+      resolutionState: 'CONFIRMED', kind: 'COMMUNITY', id: '234903751',
+      name: 'Test group', role: 'publisher', ownershipConfirmed: true
+    },
+    methods: [],
+    publicationEvidence: {
+      TEXT: { state: 'CONFIRMED' },
+      IMAGE: { state: 'CONFIRMED' },
+      CAROUSEL: { state: 'CONFIRMED' }
+    },
+    runtimePrerequisites: [],
+    remediation: [],
+    warnings: [],
+    adapterCapability: { TEXT: true, IMAGE: true, CAROUSEL: true, VIDEO: false, SHORT: false, STORY: false }
+  });
+  assert.equal(readCapabilityProfile(rows[0].id).accessLevel, 'FULL');
+  const again = await app.inject({ method: 'GET', url: startUrl, headers: { cookie } });
+  const againState = new URL(again.json().authorizationUrl).searchParams.get('state');
+  const updatedCallback = await app.inject({
+    method: 'GET', url: `/api/vk/oauth/callback?state=${encodeURIComponent(againState)}&code=test-code`
+  });
+  assert.equal(updatedCallback.statusCode, 302, updatedCallback.body);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM social_accounts WHERE platform='vk'").get().count, 1);
+  const updated = db.prepare('SELECT id,credential_version,enabled FROM social_accounts WHERE id=?').get(rows[0].id);
+  assert.equal(updated.credential_version, 2);
+  assert.equal(updated.enabled, 1);
+  assert.equal(readCapabilityProfile(rows[0].id).accessLevel, 'UNCHECKED');
+  assert.equal(calls.filter((item) => item === 'wall.post').length, 0);
 
   const source = await fs.readFile(new URL('../public/operator-pages-v4.js', import.meta.url), 'utf8');
   assert.match(source, /operator-vk-oauth/);
