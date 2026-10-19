@@ -13,13 +13,16 @@ Object.assign(process.env, {
   PUBLIC_BASE_URL: 'http://127.0.0.1:18107'
 });
 
-const { db, migrate } = await import('../dist/db.js');
+const { db, migrate, id, nowIso } = await import('../dist/db.js');
+const { encryptJson } = await import('../dist/crypto.js');
 const { buildApp } = await import('../dist/app.js');
 migrate();
 const app = await buildApp();
 
 const fakeToken = '123456:FAKE-OBSERVABILITY-TEST-TOKEN';
 const fakeMaxToken = 'FAKE-MAX-OBSERVABILITY-SECRET';
+const fakeSavedToken = '765432:FAKE-SAVED-TELEGRAM-CREDENTIAL';
+const fakeVkToken = 'vk1.a.FAKE_SAVED_VK_KEY_NO_REAL_CREDENTIAL';
 const originalFetch = globalThis.fetch;
 let scenario = 'echo-error';
 let publicWrites = 0;
@@ -31,22 +34,66 @@ globalThis.fetch = async (input) => {
     publicWrites++;
     throw new Error('No public provider POST permitted in diagnostic tests');
   }
-  if (url.hostname !== 'api.telegram.org') throw new Error('Unexpected diagnostic provider host');
-  if (scenario === 'echo-error') {
-    throw new Error('network failure at https://api.telegram.org/bot' + fakeToken +
-      '/getMe?access_token=' + encodeURIComponent(fakeToken));
+  if (url.hostname === 'api.vk.com' && scenario === 'vk-ip-echo') {
+    throw new Error('VK other ip address refused token ' + fakeVkToken);
   }
+  if (url.hostname === 'platform-api2.max.ru' && scenario === 'max-permission-echo') {
+    throw new Error('MAX permission denied for token ' + fakeMaxToken);
+  }
+  if (url.hostname !== 'api.telegram.org') throw new Error('Unexpected diagnostic provider host');
+  if (scenario === 'echo-error' || scenario === 'saved-echo-error') {
+    const secret = scenario === 'saved-echo-error' ? fakeSavedToken : fakeToken;
+    throw new Error('network failure at https://api.telegram.org/bot' + secret +
+      '/getMe?access_token=' + encodeURIComponent(secret));
+  }
+  const failures = {
+    'dns-failure': 'ENOTFOUND api.telegram.org',
+    'tls-failure': 'unable to get issuer certificate TLS',
+    'timeout-failure': 'ETIMEDOUT remote provider',
+    'tcp-failure': 'ECONNREFUSED api.telegram.org',
+    'permission-failure': 'permission denied for channel',
+    'rejected-failure': 'invalid token authorization',
+    'destination-failure': 'chat not found at destination'
+  };
+  if (Object.hasOwn(failures, scenario)) throw new Error(failures[scenario] + ' (' + fakeToken + ')');
   if (url.pathname.endsWith('/getMe')) {
-    return Response.json({ ok: true, result: { id: 101, username: 'fixture_diagnostic_bot' } });
+    return Response.json({ ok: true, result: {
+      id: 101, username: scenario === 'saved-success-echo' ? fakeSavedToken : 'fixture_diagnostic_bot'
+    } });
   }
   if (url.pathname.endsWith('/getChat')) {
-    return Response.json({ ok: true, result: { id: -10042, type: 'channel', title: 'Diagnostic fixture' } });
+    return Response.json({ ok: true, result: {
+      id: -10042, type: 'channel',
+      title: scenario === 'saved-success-echo' ? fakeSavedToken : 'Diagnostic fixture'
+    } });
   }
   if (url.pathname.endsWith('/getChatMember')) {
     return Response.json({ ok: true, result: { status: 'administrator', can_post_messages: true } });
   }
   throw new Error('Unexpected diagnostic provider method');
 };
+
+// Fixture accounts exercise errors where request.body contains NO secret.
+const savedId = id('acc');
+const vkId = id('acc');
+const insertedAt = nowIso();
+db.prepare("INSERT INTO social_accounts(id,platform,name,credentials_encrypted,enabled,created_at,updated_at) VALUES (?,'telegram','Saved diagnostic bot',?,0,?,?)")
+  .run(savedId, encryptJson({ botToken: fakeSavedToken, chatId: '@fixture_channel' }), insertedAt, insertedAt);
+db.prepare("INSERT INTO social_accounts(id,platform,name,credentials_encrypted,enabled,created_at,updated_at) VALUES (?,'vk','Saved VK pending',?,0,?,?)")
+  .run(vkId, encryptJson({ accessToken: fakeVkToken, authKind: 'PENDING',
+    destinationKind: 'COMMUNITY', groupId: '234601853', apiVersion: '5.199' }), insertedAt, insertedAt);
+
+// PR #153 has not landed. Simulate its route to verify the same hook contract.
+app.post('/api/accounts/:id/recheck', async (request, reply) => {
+  if (scenario === 'unhandled-echo') {
+    throw new Error('Unexpected provider exception contained saved token ' + fakeSavedToken);
+  }
+  return reply.code(503).send({
+    error: 'TLS certificate failure for ' + fakeSavedToken,
+    nested: { accessToken: fakeSavedToken, more: ['nested-secret=' + fakeSavedToken] },
+    url: 'https://service.example.test?access_token=' + fakeSavedToken
+  });
+});
 
 let browser;
 try {
