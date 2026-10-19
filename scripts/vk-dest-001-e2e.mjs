@@ -307,7 +307,13 @@ const personalAccount = await api('POST', '/api/accounts', {
 }, 201);
 
 // A well-formed but unverified replacement must be retained encrypted and DISABLED.
-const personalId = personalAccount.id;
+const personalId = id('acc');
+const originalCreatedAt = nowIso();
+db.prepare(`INSERT INTO social_accounts (id,platform,name,credentials_encrypted,enabled,created_at,updated_at)
+  VALUES (?,'vk','Unverified PATCH fixture',?,1,?,?)`)
+  .run(personalId, encryptJson({
+    accessToken: 'original-fixture-token', destinationKind: 'PERSONAL', userId: '101', apiVersion: '5.199'
+  }), originalCreatedAt, originalCreatedAt);
 const firstVersion = db.prepare('SELECT credential_version FROM social_accounts WHERE id=?').get(personalId).credential_version;
 const validUnverifiedPatch = await api('PATCH', `/api/accounts/${personalId}`, {
   credentials: {
