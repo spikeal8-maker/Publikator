@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { chromium } from 'playwright-core';
 
 const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'publikator-social-error-'));
@@ -99,6 +100,7 @@ app.post('/api/accounts/:id/recheck', async (request, reply) => {
 });
 
 let browser;
+let persistedDiagnosticId = '';
 try {
   await app.ready();
   const login = await app.inject({
@@ -155,6 +157,7 @@ try {
   assert.equal(savedFailure.statusCode, 400, savedFailure.body);
   assert.equal(savedFailure.json().diagnosticCode, 'PROVIDER_UNAVAILABLE');
   assert.ok(savedFailure.json().diagnosticId.startsWith('socialcheck_'));
+  persistedDiagnosticId = savedFailure.json().diagnosticId;
   assert.equal(savedFailure.body.includes(fakeSavedToken), false);
   assert.deepEqual(Object.keys(savedFailure.json()).sort(), ['diagnosticCode','diagnosticId','error']);
   assert.equal(db.prepare('SELECT enabled FROM social_accounts WHERE id=?').get(savedId).enabled, 0);
@@ -334,5 +337,34 @@ try {
   globalThis.fetch = originalFetch;
   await app.close();
   db.close();
+
+  if (persistedDiagnosticId) {
+    // A fresh Node process must read the saved diagnostic from SQLite after
+    // the original app/logger and DB connection are closed.
+    const script = [
+      "const assert=require('node:assert/strict')",
+      "const path=require('node:path')",
+      "const Database=require('better-sqlite3')",
+      "const d=new Database(path.join(process.env.DATA_DIR,'publikator.sqlite'),{readonly:true,fileMustExist:true})",
+      "const events=d.prepare(\"SELECT event_type,data_json FROM publication_events WHERE event_type LIKE 'social_connection_attempt_%'\").all()",
+      "const found=events.find(row=>JSON.parse(row.data_json).diagnosticId===process.env.SAVED_DIAGNOSTIC_ID)",
+      "assert.ok(found,'persisted diagnostic ID not recovered in fresh process')",
+      "assert.equal(JSON.parse(found.data_json).platform,'telegram')",
+      "assert.ok(events.length>=17)",
+      "const accounts=d.prepare(\"SELECT platform,enabled,credentials_encrypted FROM social_accounts\").all()",
+      "assert.equal(accounts.length,2)",
+      "assert.ok(accounts.every(row=>row.enabled===0 && row.credentials_encrypted.startsWith('v1:')))",
+      "d.close()",
+      "console.log(JSON.stringify({persisted:true,eventCount:events.length,encryptedAccounts:accounts.length}))"
+    ].join(';');
+    const reopened = spawnSync(process.execPath, ['-e', script], {
+      cwd: process.cwd(),
+      env: { ...process.env, DATA_DIR: dataDir, SAVED_DIAGNOSTIC_ID: persistedDiagnosticId },
+      encoding: 'utf8',
+      timeout: 20000
+    });
+    assert.equal(reopened.status, 0, 'diagnostic and encryption persistence failed after process restart');
+    assert.match(reopened.stdout, /"persisted":true/);
+  }
   await fs.rm(dataDir, { recursive: true, force: true });
 }
