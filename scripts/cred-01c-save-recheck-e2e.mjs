@@ -462,6 +462,7 @@ try {
     destinationKind: 'COMMUNITY',
     groupId: '234601853',
     uploadAccessToken: 'vk-photo-user-secret',
+    destinationName: 'CRED-01C test channel',
     authKind: 'COMMUNITY',
     tokenGroupId: '234601853',
     textPublishReady: true,
