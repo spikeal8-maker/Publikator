@@ -51,6 +51,21 @@ jobs:
           set -euo pipefail
           find public -maxdepth 1 -type f -name '*.js' -print0 | sort -z | xargs -0 -n1 node --check
 
+      - name: MAX real dispatcher compatibility and certificate verification
+        run: node scripts/max-transport-e2e.mjs
+
+      - name: TG-MAX-FEED-PUBLISH-001 text and local-image operator journey
+        run: node scripts/telegram-max-feed-publish-e2e.mjs
+
+      - name: VK-PHOTO-CREDENTIAL-ROLES-001 two-key browser and publication safety
+        run: node scripts/vk-photo-credential-roles-e2e.mjs
+
+      - name: VK-GROUP-TEXT-001 community text publishing
+        run: node scripts/vk-group-text-e2e.mjs
+
+      - name: VK-GROUP-TEXT-001 ordinary operator browser journey
+        run: node scripts/vk-group-text-browser-e2e.mjs
+
       - name: KEY-02 VK validity and capability separation
         run: node scripts/key-02-vk-capability-e2e.mjs
 
@@ -286,6 +301,9 @@ jobs:
 
       - name: CP2-007C Google Sheets trusted-source Auto Ready
         run: node scripts/cp2-007c-google-sheets-auto-ready-e2e.mjs
+
+      - name: CP2-007C TEXT_ONLY Google Sheets Auto Ready regression
+        run: node scripts/cp2-007c-text-only-auto-ready-e2e.mjs
 
       - name: CP2-007D Google Sheets scheduled publication chain
         run: node scripts/cp2-007d-google-sheets-scheduled-publish-e2e.mjs
