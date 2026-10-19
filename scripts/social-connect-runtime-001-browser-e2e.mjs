@@ -35,7 +35,11 @@ try {
     const communityKey = body.credentials.accessToken === 'vk-community-token';
     if (body.credentials.accessToken === 'vk-ip-token') {
       await route.fulfill({ status: 400, contentType: 'application/json',
-        body: JSON.stringify({ error: 'VK отклонил ключ: он привязан к другому IP-адресу.' }) });
+        body: JSON.stringify({
+          error: 'VK отклонил ключ: он привязан к другому IP-адресу.',
+          diagnosticCode: 'IP_RESTRICTED',
+          diagnosticId: 'socialcheck_fixture_vk_ip_01'
+        }) });
       return;
     }
     await route.fulfill({
@@ -55,7 +59,21 @@ try {
     testBodies.push(body);
     if (body.platform === 'vk' && body.credentials.accessToken === 'vk-no-owner-token') {
       await route.fulfill({ status: 400, contentType: 'application/json',
-        body: JSON.stringify({ error: 'VK: users.get не вернул владельца User access token' }) });
+        body: JSON.stringify({
+          error: 'Проверка не подтверждена. Проверьте ключ, назначение и права.',
+          diagnosticCode: 'CHECK_REJECTED',
+          diagnosticId: 'socialcheck_fixture_no_owner_01'
+        }) });
+      return;
+    }
+    // A legacy/uninstrumented HTTP error must not be confused with no response.
+    if (body.platform === 'vk' && body.credentials.accessToken === 'vk-undocumented-token') {
+      await route.fulfill({ status: 400, contentType: 'application/json',
+        body: JSON.stringify({ error: 'provider echoed vk-undocumented-token' }) });
+      return;
+    }
+    if (body.platform === 'vk' && body.credentials.accessToken === 'vk-network-error-token') {
+      await route.abort('failed');
       return;
     }
     let response;
@@ -310,9 +328,9 @@ try {
   }
 
   // VK errors must not block encrypted, disabled key storage.
-  for (const [token, errorText] of [
-    ['vk-no-owner-token', /users.get не вернул владельца/],
-    ['vk-ip-token', /другому IP-адресу/]
+  for (const [token, expectedCode, diagnosticId] of [
+    ['vk-no-owner-token', 'CHECK_REJECTED', 'socialcheck_fixture_no_owner_01'],
+    ['vk-ip-token', 'IP_RESTRICTED', 'socialcheck_fixture_vk_ip_01']
   ]) {
     const form = await openPlatform('vk');
     await form.locator('input[name="destinationKind"][value="COMMUNITY"]').check();
@@ -321,7 +339,11 @@ try {
     assert.equal(await form.locator('#operator-save-connect').isEnabled(), true);
     await form.locator('#operator-test-connect').click();
     await form.locator('#operator-connect-result .operator-result.error').waitFor();
-    assert.match(await form.locator('#operator-connect-result').textContent(), errorText);
+    const diagnostic = await form.locator('#operator-connect-result').textContent();
+    assert.ok(diagnostic.includes(expectedCode), diagnostic);
+    assert.ok(diagnostic.includes(diagnosticId), diagnostic);
+    assert.equal(diagnostic.includes(token), false, 'provider error must never echo its token');
+    assert.doesNotMatch(diagnostic, /users\.get не вернул владельца/);
     assert.equal(await form.locator('#operator-save-connect').isEnabled(), true);
     const saveRequest = page.waitForRequest((request) =>
       new URL(request.url()).pathname === '/api/accounts' && request.method() === 'POST'
@@ -332,6 +354,35 @@ try {
     assert.equal(saved.credentials.authKind, 'PENDING');
     assert.equal(saved.credentials.accessToken, token);
     assert.equal(saved.credentials.groupId, '234601853');
+  }
+
+  // HTTP 400 without the server's diagnostic envelope is not a TCP outage.
+  {
+    const form = await openPlatform('vk');
+    await form.locator('input[name="name"]').fill('Uninstrumented VK');
+    await form.locator('input[name="accessToken"]').fill('vk-undocumented-token');
+    await form.locator('#operator-test-connect').click();
+    await form.locator('#operator-connect-result [role="alert"]').waitFor();
+    const diagnostic = await form.locator('#operator-connect-result').textContent();
+    assert.match(diagnostic, /HTTP_ERROR_WITHOUT_DIAGNOSTIC_ID/);
+    assert.match(diagnostic, /HTTP 400/);
+    assert.match(diagnostic, /не предоставлен сервером/);
+    assert.equal(diagnostic.includes('provider echoed'), false);
+    assert.equal(diagnostic.includes('vk-undocumented-token'), false);
+    assert.doesNotMatch(diagnostic, /запрос не дошёл до сервера/);
+  }
+
+  // A genuine network rejection produces NO_HTTP_RESPONSE, not a made-up HTTP status.
+  {
+    const form = await openPlatform('vk');
+    await form.locator('input[name="name"]').fill('Network VK');
+    await form.locator('input[name="accessToken"]').fill('vk-network-error-token');
+    await form.locator('#operator-test-connect').click();
+    await form.locator('#operator-connect-result [role="alert"]').waitFor();
+    const diagnostic = await form.locator('#operator-connect-result').textContent();
+    assert.match(diagnostic, /NO_HTTP_RESPONSE/);
+    assert.match(diagnostic, /Нет HTTP-ответа/);
+    assert.equal(diagnostic.includes('vk-network-error-token'), false);
   }
 
   // Telegram remains canonical and does not use the VK destination contract.
