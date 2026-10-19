@@ -299,6 +299,9 @@ jobs:
       - name: CP2-007C Google Sheets trusted-source Auto Ready
         run: node scripts/cp2-007c-google-sheets-auto-ready-e2e.mjs
 
+      - name: CP2-007C TEXT_ONLY Google Sheets Auto Ready regression
+        run: node scripts/cp2-007c-text-only-auto-ready-e2e.mjs
+
       - name: CP2-007D Google Sheets scheduled publication chain
         run: node scripts/cp2-007d-google-sheets-scheduled-publish-e2e.mjs
 
