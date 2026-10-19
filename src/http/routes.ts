@@ -628,8 +628,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         destinationName: String(details.destinationName || checked.identity)
       });
       db.transaction(() => {
-        db.prepare('UPDATE social_accounts SET credentials_encrypted=?,enabled=1,updated_at=? WHERE id=?')
-          .run(encryptJson(verified), now, params.id);
+        replaceSocialAccountCredentials(params.id, encryptJson(verified));
+        db.prepare('UPDATE social_accounts SET enabled=1,updated_at=? WHERE id=?').run(now, params.id);
         db.prepare(`INSERT OR IGNORE INTO project_default_targets (project_id,account_id,created_at)
           SELECT id,?,? FROM projects WHERE default_targets_explicit=0`).run(params.id, now);
       })();
