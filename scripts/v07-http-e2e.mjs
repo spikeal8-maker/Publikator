@@ -13,7 +13,8 @@ process.env.EVENT_RETENTION_DAYS = '0';
 process.env.BACKUP_RETENTION_COUNT = '0';
 
 const sharp = (await import('sharp')).default;
-const { db, migrate } = await import('../dist/db.js');
+const { db, migrate, id, nowIso } = await import('../dist/db.js');
+const { encryptJson } = await import('../dist/crypto.js');
 const { PlatformError } = await import('../dist/platforms/types.js');
 const { setPublisherForTests } = await import('../dist/platforms/index.js');
 
@@ -87,15 +88,13 @@ try {
   }, 201);
   assert.equal(project.slug, 'http-e2e-project');
 
-  const account = await json('/api/accounts', {
-    method: 'POST',
-    body: JSON.stringify({
-      platform: 'telegram',
-      name: 'HTTP Mock Telegram',
-      credentials: { botToken: 'mock-token', chatId: '@mock-http' }
-    })
-  }, 201);
-  assert.equal(account.platform, 'telegram');
+  // Publisher HTTP regression seeds its own account; credential onboarding has separate coverage.
+  const account = { id: id('acc'), platform: 'telegram' };
+  const accountTime = nowIso();
+  db.prepare(`INSERT INTO social_accounts(id,platform,name,credentials_encrypted,enabled,created_at,updated_at)
+    VALUES (?,?,'HTTP Mock Telegram',?,1,?,?)`)
+    .run(account.id, account.platform,
+      encryptJson({ botToken: 'mock-token', chatId: '@mock-http' }), accountTime, accountTime);
 
   const post = await json('/api/posts', {
     method: 'POST',
