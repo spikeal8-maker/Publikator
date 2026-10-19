@@ -168,7 +168,8 @@ try {
     warnings: [],
     adapterCapability: { TEXT: true, IMAGE: true, CAROUSEL: true, VIDEO: false, SHORT: false, STORY: false }
   });
-  assert.equal(readCapabilityProfile(rows[0].id).accessLevel, 'FULL');
+  const beforeRenewalProfile = readCapabilityProfile(rows[0].id);
+  assert.equal(beforeRenewalProfile.accessLevel, 'FULL');
   const again = await app.inject({ method: 'GET', url: startUrl, headers: { cookie } });
   const againState = new URL(again.json().authorizationUrl).searchParams.get('state');
   const updatedCallback = await app.inject({
@@ -178,8 +179,16 @@ try {
   assert.equal(db.prepare("SELECT COUNT(*) AS count FROM social_accounts WHERE platform='vk'").get().count, 1);
   const updated = db.prepare('SELECT id,credential_version,enabled FROM social_accounts WHERE id=?').get(rows[0].id);
   assert.equal(updated.credential_version, 2);
-  assert.equal(updated.enabled, 1);
-  assert.equal(readCapabilityProfile(rows[0].id).accessLevel, 'UNCHECKED');
+  assert.equal(updated.enabled, 1, 'server-confirmed IMAGE may stay enabled');
+  const afterRenewalProfile = readCapabilityProfile(rows[0].id);
+  assert.equal(afterRenewalProfile.credentialVersion, 2);
+  assert.equal(afterRenewalProfile.profileCurrent, true);
+  assert.equal(afterRenewalProfile.accessLevel, 'PARTIAL',
+    'renewal must not pretend public wall.post was proven during inspection');
+  assert.equal(afterRenewalProfile.semantic.publicationReadiness.IMAGE.state, 'READY');
+  assert.notEqual(afterRenewalProfile.semantic.publicationReadiness.TEXT.state, 'READY');
+  assert.notEqual(afterRenewalProfile.profileFingerprint, beforeRenewalProfile.profileFingerprint,
+    'new credential_version invalidates prior FULL fingerprint');
   assert.equal(calls.filter((item) => item === 'wall.post').length, 0);
 
   const source = await fs.readFile(new URL('../public/operator-pages-v4.js', import.meta.url), 'utf8');
