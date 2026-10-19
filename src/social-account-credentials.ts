@@ -10,6 +10,7 @@ import {
   buildCapabilityProfile,
   readCapabilityProfile,
   recordCapabilityCheckUnavailable,
+  replaceSocialAccountCredentials,
   saveCapabilityProfile,
   type BuiltCapabilityProfile,
   type CapabilityBuildInput,
