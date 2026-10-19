@@ -170,7 +170,14 @@ export function registerSocialConnectionObservability(app: FastifyInstance): voi
 
   app.addHook('onSend', async (request, reply, payload) => {
     const tracked = operationFor(request.method, socialLogPath(request.url));
-    if (!tracked || reply.statusCode === 401) return payload;
+    if (!tracked) return payload;
+    if (reply.statusCode === 401) {
+      // Do not fill the journal with unauthenticated probes, but also never
+      // let an accidental credential echo escape through a 401 response.
+      reply.removeHeader('content-length');
+      reply.type('application/json');
+      return JSON.stringify({ error: 'Требуется вход' });
+    }
 
     const status = reply.statusCode;
     let parsed: Record<string, unknown> | null = null;
