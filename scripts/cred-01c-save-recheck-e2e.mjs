@@ -177,9 +177,18 @@ function inspection(mode, credentials) {
 }
 
 setSocialCredentialInspectorForTests(async (platform, credentials) => {
-  assert.equal(platform, 'telegram');
   const snapshot = structuredClone(credentials);
   seenCredentials.push(snapshot);
+  if (platform === 'vk') {
+    const base = inspection('PARTIAL', { chatId: String(credentials.groupId) });
+    return {
+      ...base,
+      platform: 'vk',
+      credential: { ...base.credential, providerType: 'GROUP' },
+      destination: { ...base.destination, kind: 'COMMUNITY', id: String(credentials.groupId) }
+    };
+  }
+  assert.equal(platform, 'telegram');
   const token = String(credentials.botToken || '');
   const mode = nextMode(token);
   if (token === 'race-secret' && callCounts.get(token) === 2) {
@@ -383,6 +392,40 @@ try {
   assert.equal(readCapabilityProfile(race.account.id).accessLevel, 'UNCHECKED');
   assert.equal(JSON.stringify(raceConflict).includes('race-secret'), false);
   assert.equal(JSON.stringify(raceConflict).includes('replacement-secret'), false);
+
+  // VK group photo uploads need the independent USER credential preserved for server inspection.
+  const vk = await json('/api/accounts/save-and-check', {
+    method: 'POST',
+    body: JSON.stringify({
+      platform: 'vk',
+      name: 'VK COMMUNITY paired photo test',
+      credentials: {
+        accessToken: 'vk-group-secret',
+        uploadAccessToken: 'vk-photo-user-secret',
+        apiVersion: '5.199',
+        destinationKind: 'COMMUNITY',
+        groupId: '234601853',
+        authKind: 'USER',
+        textPublishReady: true,
+        photoPublishReady: true,
+        permissions: ['all'],
+        accessLevel: 'FULL'
+      }
+    })
+  }, 201);
+  const vkStored = decryptJson(accountDb(vk.account.id).credentials_encrypted);
+  assert.deepEqual(vkStored, {
+    accessToken: 'vk-group-secret',
+    apiVersion: '5.199',
+    destinationKind: 'COMMUNITY',
+    groupId: '234601853',
+    uploadAccessToken: 'vk-photo-user-secret'
+  });
+  assert.equal(JSON.stringify(vk).includes('vk-group-secret'), false);
+  assert.equal(JSON.stringify(vk).includes('vk-photo-user-secret'), false);
+  assert.equal(vkStored.textPublishReady, undefined);
+  assert.equal(vkStored.photoPublishReady, undefined);
+  assert.equal(vkStored.authKind, undefined);
 
   const serialized = JSON.stringify({
     full,
