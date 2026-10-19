@@ -5,6 +5,7 @@ import { encryptJson, decryptJson } from '../crypto.js';
 import { db, id, nowIso } from '../db.js';
 import { testConnection } from '../platforms/connection-test.js';
 import { resolveVkDestination, type VkDestinationKind } from '../platforms/vk.js';
+import { safeSocialFailureMessage } from './social-connection-observability.js';
 
 const VK_OAUTH_AUTHORIZE_URL = 'https://oauth.vk.com/authorize';
 const VK_OAUTH_TOKEN_URL = 'https://oauth.vk.com/access_token';
@@ -190,16 +191,14 @@ export async function registerVkOauthRoutes(app: FastifyInstance): Promise<void>
       };
       const action = saveVerifiedConnection(pending.connection, credentials);
       return finish(reply, true, action === 'updated'
-        ? `VK: подключение обновлено · ${checked.destination}`
-        : `VK: подключение сохранено · ${checked.destination}`);
+        ? 'VK: подключение обновлено. Назначение можно проверить в разделе «Соцсети».'
+        : 'VK: подключение сохранено. Назначение можно проверить в разделе «Соцсети».');
     } catch (error) {
+      // OAuth provider errors may echo the code, application secret, user token,
+      // or arbitrary nested credentials. The result ticket must carry only
+      // a classified fixed string, never any portion of the provider payload.
       const message = error instanceof Error ? error.message : String(error);
-      // Never expose a code, app secret or access token in callback URLs or result text.
-      const safe = message
-        .replaceAll(code, '[redacted]')
-        .replaceAll(process.env.VK_OAUTH_CLIENT_SECRET || '\u0000', '[redacted]')
-        .replaceAll(issuedToken || '\u0000', '[redacted]');
-      return finish(reply, false, safe.slice(0, 400));
+      return finish(reply, false, safeSocialFailureMessage(message, 400));
     }
   });
 
