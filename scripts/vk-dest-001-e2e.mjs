@@ -134,6 +134,32 @@ const { setPublisherForTests } = await import('../dist/platforms/index.js');
 const { PlatformError } = await import('../dist/platforms/types.js');
 const { resolveVkDestination } = await import('../dist/platforms/vk.js');
 const { buildApp } = await import('../dist/app.js');
+const { setSocialCredentialInspectorForTests } = await import('../dist/social-account-credentials.js');
+// Destination-selection regression: server-owned evidence fixture; CRED-01B
+// provider method semantics are tested separately in cred-01b.
+setSocialCredentialInspectorForTests(async (platform, credentials) => {
+  assert.equal(platform, 'vk');
+  const personal = credentials.destinationKind === 'PERSONAL';
+  const destinationId = personal ? String(credentials.userId) :
+    String(credentials.groupId).replace(/^-/, '').replace(/^(?:club|public)/i, '');
+  return {
+    platform: 'vk',
+    credential: { validity: 'CONFIRMED', providerType: 'USER',
+      identity: 'Verified fixture user', ownerId: personal ? destinationId : '102',
+      expiresAt: null, declaredPermissions: ['photos'],
+      permissionsSource: 'account.getAppPermissions' },
+    destination: { resolutionState: 'CONFIRMED',
+      kind: personal ? 'PERSONAL' : 'COMMUNITY', id: destinationId,
+      name: 'Verified fixture destination', role: 'owner', ownershipConfirmed: personal },
+    methods: [{ method: 'photos.getWallUploadServer', state: 'CONFIRMED',
+      machineCode: 'UPLOAD_SERVER_CONFIRMED', reason: 'Fixture verified method', evidenceSource: 'vk' }],
+    publicationEvidence: {
+      TEXT: { state: 'UNKNOWN', reason: 'public wall.post not executed' },
+      IMAGE: { state: 'CONFIRMED' }, CAROUSEL: { state: 'CONFIRMED' }
+    }, runtimePrerequisiteEvidence: [], remediation: [], warnings: []
+  };
+});
+
 
 migrate();
 
@@ -305,6 +331,39 @@ const personalAccount = await api('POST', '/api/accounts', {
     apiVersion: '5.199'
   }
 }, 201);
+
+// A well-formed but unverified replacement must be retained encrypted and DISABLED.
+const personalId = id('acc');
+const originalCreatedAt = nowIso();
+db.prepare(`INSERT INTO social_accounts (id,platform,name,credentials_encrypted,enabled,created_at,updated_at)
+  VALUES (?,'vk','Unverified PATCH fixture',?,1,?,?)`)
+  .run(personalId, encryptJson({
+    accessToken: 'original-fixture-token', destinationKind: 'PERSONAL', userId: '101', apiVersion: '5.199'
+  }), originalCreatedAt, originalCreatedAt);
+const firstVersion = db.prepare('SELECT credential_version FROM social_accounts WHERE id=?').get(personalId).credential_version;
+const validUnverifiedPatch = await api('PATCH', `/api/accounts/${personalId}`, {
+  credentials: {
+    accessToken: 'new-unverified-personal-token',
+    destinationKind: 'PERSONAL',
+    userId: '101',
+    authKind: 'USER',
+    photoPublishReady: true,
+    textPublishReady: true,
+    apiVersion: '5.199'
+  }
+});
+assert.equal(validUnverifiedPatch.ok, true);
+const safePatchRow = db.prepare('SELECT credential_version,enabled,credentials_encrypted FROM social_accounts WHERE id=?').get(personalId);
+assert.equal(safePatchRow.credential_version, firstVersion + 1);
+assert.equal(safePatchRow.enabled, 0);
+assert.equal(safePatchRow.credentials_encrypted.includes('new-unverified-personal-token'), false);
+const storedPatch = (await import('../dist/crypto.js')).decryptJson(safePatchRow.credentials_encrypted);
+assert.equal(storedPatch.accessToken, 'new-unverified-personal-token');
+assert.equal(storedPatch.authKind, undefined);
+assert.equal(storedPatch.photoPublishReady, undefined);
+assert.equal(storedPatch.textPublishReady, undefined);
+const staleProfile = (await import('../dist/social-credential-capability.js')).readCapabilityProfile(personalId);
+assert.equal(staleProfile.accessLevel, 'UNCHECKED');
 
 const personalBeforeInvalidPatch = db.prepare(
   'SELECT name,enabled,credentials_encrypted FROM social_accounts WHERE id=?'
@@ -575,6 +634,7 @@ console.log(JSON.stringify({
   operatorDestinationControls: true
 }, null, 2));
 
+setSocialCredentialInspectorForTests(null);
 await app.close();
 db.close();
 await fs.rm(dataDir, { recursive: true, force: true });

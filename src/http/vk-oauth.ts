@@ -1,10 +1,11 @@
 import { randomBytes } from 'node:crypto';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { getVkOauthAuthorizationConfig } from '../config.js';
-import { encryptJson, decryptJson } from '../crypto.js';
-import { db, id, nowIso } from '../db.js';
+import { decryptJson } from '../crypto.js';
+import { db } from '../db.js';
 import { testConnection } from '../platforms/connection-test.js';
 import { resolveVkDestination, type VkDestinationKind } from '../platforms/vk.js';
+import { replaceAndCheckSocialAccount, saveAndCheckSocialAccount } from '../social-account-credentials.js';
 import { safeSocialFailureMessage } from './social-connection-observability.js';
 
 const VK_OAUTH_AUTHORIZE_URL = 'https://oauth.vk.com/authorize';
@@ -89,33 +90,28 @@ async function exchangeCode(code: string, clientId: string, clientSecret: string
   };
 }
 
-function saveVerifiedConnection(connection: ConnectionRequest, credentials: Record<string, unknown>): 'created' | 'updated' {
+async function saveVerifiedConnection(connection: ConnectionRequest, credentials: Record<string, unknown>):
+  Promise<{ action: 'created' | 'updated'; publishReady: boolean }> {
   const destination = resolveVkDestination(credentials);
-  const now = nowIso();
-  return db.transaction(() => {
-    const existing = db.prepare("SELECT id,credentials_encrypted FROM social_accounts WHERE platform='vk'").all() as
-      Array<{ id: string; credentials_encrypted: string }>;
-    for (const row of existing) {
-      let savedDestination;
-      try {
-        const stored = decryptJson<Record<string, unknown>>(row.credentials_encrypted);
-        savedDestination = resolveVkDestination(stored);
-      } catch {
-        // A malformed legacy record cannot block a new verified connection.
-        continue;
-      }
-      if (savedDestination.kind !== destination.kind || savedDestination.id !== destination.id) continue;
-      db.prepare('UPDATE social_accounts SET name=?,credentials_encrypted=?,enabled=1,updated_at=? WHERE id=?')
-        .run(connection.name, encryptJson(credentials), now, row.id);
-      return 'updated';
+  const existing = db.prepare("SELECT id,credentials_encrypted FROM social_accounts WHERE platform='vk'").all() as
+    Array<{ id: string; credentials_encrypted: string }>;
+  for (const row of existing) {
+    let savedDestination;
+    try {
+      savedDestination = resolveVkDestination(decryptJson<Record<string, unknown>>(row.credentials_encrypted));
+    } catch {
+      continue;
     }
-    const accountId = id('acc');
-    db.prepare('INSERT INTO social_accounts (id,platform,name,credentials_encrypted,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)')
-      .run(accountId, 'vk', connection.name, encryptJson(credentials), now, now);
-    db.prepare(`INSERT INTO project_default_targets (project_id,account_id,created_at)
-      SELECT id,?,? FROM projects WHERE default_targets_explicit=0`).run(accountId, now);
-    return 'created';
-  })();
+    if (savedDestination.kind !== destination.kind || savedDestination.id !== destination.id) continue;
+    const checked = await replaceAndCheckSocialAccount({
+      accountId: row.id, name: connection.name, credentials, activateIfReady: true
+    });
+    return { action: 'updated', publishReady: checked.account.enabled };
+  }
+  const checked = await saveAndCheckSocialAccount({
+    platform: 'vk', name: connection.name, credentials
+  });
+  return { action: 'created', publishReady: checked.account.enabled };
 }
 
 export async function registerVkOauthRoutes(app: FastifyInstance): Promise<void> {
@@ -158,12 +154,10 @@ export async function registerVkOauthRoutes(app: FastifyInstance): Promise<void>
     const code = typeof query.code === 'string' ? query.code : '';
     if (!code || code.length > 2000) return finish(reply, false, 'VK: не получен код авторизации.');
 
-    let issuedToken = '';
     try {
       const oauthConfig = getVkOauthAuthorizationConfig();
       if (!oauthConfig) throw new Error('VK OAuth не настроен');
       const token = await exchangeCode(code, oauthConfig.clientId, oauthConfig.clientSecret, oauthConfig.redirectUri);
-      issuedToken = token.accessToken;
       const candidate: Record<string, unknown> = {
         accessToken: token.accessToken,
         apiVersion: '5.199',
@@ -189,14 +183,14 @@ export async function registerVkOauthRoutes(app: FastifyInstance): Promise<void>
         destinationName: String(details.destinationName || ''),
         ...(token.expiresIn ? { expiresAt: new Date(Date.now() + token.expiresIn * 1000).toISOString() } : {})
       };
-      const action = saveVerifiedConnection(pending.connection, credentials);
-      return finish(reply, true, action === 'updated'
-        ? 'VK: подключение обновлено. Назначение можно проверить в разделе «Соцсети».'
-        : 'VK: подключение сохранено. Назначение можно проверить в разделе «Соцсети».');
+      const saved = await saveVerifiedConnection(pending.connection, credentials);
+      const verb = saved.action === 'updated' ? 'обновлено' : 'сохранено';
+      return finish(reply, true, saved.publishReady
+        ? `VK: подключение ${verb}. Назначение можно проверить в разделе «Соцсети».`
+        : `VK: подключение ${verb}, но публикация отключена до подтверждения прав. Проверьте доступ в разделе «Соцсети».`);
     } catch (error) {
-      // OAuth provider errors may echo the code, application secret, user token,
-      // or arbitrary nested credentials. The result ticket must carry only
-      // a classified fixed string, never any portion of the provider payload.
+      // OAuth provider errors can include an access token, application secret or code.
+      // A fixed classified message is the only content stored in the result ticket.
       const message = error instanceof Error ? error.message : String(error);
       return finish(reply, false, safeSocialFailureMessage(message, 400));
     }
