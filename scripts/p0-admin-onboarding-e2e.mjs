@@ -44,6 +44,11 @@ try {
   assert.equal(evilOrigin.statusCode,403);
   const invalid=await send('POST','/api/auth/setup',{...firstUser,grant:'a'.repeat(43)}, {origin});
   assert.equal(invalid.statusCode,403);
+  const rejectedBeforeHash = await send('POST','/api/auth/setup',{
+    grant:'z'.repeat(43),username:'!!not a username!!',
+    password:'short',confirmPassword:'unrelated'
+  }, {origin});
+  assert.equal(rejectedBeforeHash.statusCode,403,'unauthorized setup must be rejected before password hashing');
 
   // Concurrent first-user claims cannot create multiple owners or reuse grant.
   const claimed=await Promise.all([
