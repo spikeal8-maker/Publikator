@@ -15,7 +15,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "live:video:accept": "node dist/cli/live-video-acceptance.js",
     "live:instagram-short:accept": "node dist/cli/live-instagram-short-acceptance.js",
-    "test:browser": "node scripts/browser-operator-acceptance-e2e.mjs"
+    "test:browser": "node scripts/browser-operator-acceptance-e2e.mjs",
+    "predev": "node scripts/generate-favicons.mjs",
+    "prebuild": "node scripts/generate-favicons.mjs",
+    "icons:build": "node scripts/generate-favicons.mjs"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.0",
