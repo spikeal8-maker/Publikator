@@ -60,6 +60,18 @@ jobs:
       - name: Schema v14 administrator backup and restore
         run: node scripts/backup-v14-admin-auth-e2e.mjs
 
+      - name: P0 one-screen cross-platform composer Chrome
+        run: node scripts/p0-one-screen-composer-e2e.mjs
+
+      - name: Preserve quick composer desktop and mobile screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: publikator-one-screen-composer-screenshots
+          path: test-results/p0-composer-*.png
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: P0 administrator setup, sessions and recovery
         run: node scripts/p0-admin-onboarding-e2e.mjs
 
