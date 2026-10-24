@@ -16,7 +16,7 @@ export function socialCredentialFields(platform) {
     <label>API version<input name="apiVersion" required value="5.199"></label>`;
   if (platform === 'max') return `
     <label class="full">Токен бота<input name="accessToken" type="password" autocomplete="off" required></label>
-    <label class="full">Куда публиковать<input name="chatId" required placeholder="ID чата / канала"></label>`;
+    <label class="full">Куда публиковать<input name="chatId" required placeholder="Числовой chat_id из события MAX"><span class="operator-field-help">Нужен точный числовой chat_id из обновления бота MAX, не ссылка приглашения. Бот должен быть администратором с правом write.</span></label>`;
   return `
     <label class="full">Access token<input name="accessToken" type="password" autocomplete="off" required></label>
     <label>Instagram User ID<input name="igUserId" required placeholder="Professional account ID"></label>
