@@ -197,6 +197,66 @@ try {
     return form;
   }
 
+  // OAuth button must report missing server configuration beside the clicked
+  // button, even though the ordinary connection result is below all fields.
+  {
+    let oauthStartCalls = 0;
+    const startPattern = '**/api/vk/oauth/start?**';
+    await page.route(startPattern, async (route) => {
+      oauthStartCalls += 1;
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          error: 'VK OAuth не настроен: задайте VK_OAUTH_CLIENT_ID, VK_OAUTH_CLIENT_SECRET и VK_OAUTH_REDIRECT_URI'
+        })
+      });
+    });
+    const form = await openPlatform('vk');
+    await form.locator('input[name="name"]').fill('VK via OAuth');
+    await form.locator('#operator-vk-oauth').click();
+    const feedback = form.locator('#operator-vk-oauth-feedback[role="alert"]');
+    await feedback.waitFor({ state: 'visible' });
+    const message = await feedback.textContent();
+    assert.match(message, /VK OAuth не настроен/);
+    assert.match(message, /VK_OAUTH_CLIENT_ID/);
+    assert.match(message, /VK_OAUTH_CLIENT_SECRET/);
+    assert.match(message, /VK_OAUTH_REDIRECT_URI/);
+    assert.equal(oauthStartCalls, 1);
+    assert.equal(await form.locator('#operator-vk-oauth').isEnabled(), true);
+    await page.unroute(startPattern);
+  }
+
+  // With configured OAuth, the button navigates to VK's authorization
+  // origin. The external page is intercepted; no real VK login occurs.
+  {
+    const startPattern = '**/api/vk/oauth/start?**';
+    const authPattern = 'https://oauth.vk.com/authorize**';
+    const authorizeUrl = 'https://oauth.vk.com/authorize?client_id=12345678&response_type=code&state=fixture-state';
+    await page.route(startPattern, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ authorizationUrl: authorizeUrl })
+      });
+    });
+    await page.route(authPattern, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/html',
+        body: '<html><body><h1 id="vk-mocked-login">VK OAuth navigation</h1></body></html>'
+      });
+    });
+    const form = await openPlatform('vk');
+    await form.locator('input[name="name"]').fill('VK OAuth configured');
+    await form.locator('#operator-vk-oauth').click();
+    await page.waitForURL(authPattern);
+    assert.equal(await page.locator('#vk-mocked-login').textContent(), 'VK OAuth navigation');
+    assert.equal(new URL(page.url()).origin, 'https://oauth.vk.com');
+    await page.unroute(startPattern);
+    await page.unroute(authPattern);
+  }
+
   // VK PERSONAL.
   {
     const form = await openPlatform('vk');
