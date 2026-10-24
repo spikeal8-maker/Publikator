@@ -72,7 +72,6 @@ export async function openQuickComposer() {
   overlay.addEventListener('click', (event) => { if (event.target === overlay) dispose(); });
   const onKeyDown = (event) => { if (event.key === 'Escape' && !state?.busy && openDialog === overlay) dispose(); };
   document.addEventListener('keydown', onKeyDown);
-  const originalDispose = dispose;
   // A newly opened overlay owns its one keydown listener.
   const removeListenerWhenClosed = new MutationObserver(() => {
     if (overlay.isConnected) return;
@@ -117,14 +116,14 @@ export async function openQuickComposer() {
           (projectOptions || '<option value="">Мои публикации — будет создан автоматически</option>') +
           '</select></label><label>Дата и время, если нужно запланировать<input id="qc-datetime" type="datetime-local"></label></div></details>' +
         '</section>' +
-        '<aside class="qc-right"><div class="qc-target-head"><div><h3>Куда опубликовать</h3><p>Выберите любое количество ваших подключений</p></div>' +
+        '<section class="qc-right"><div class="qc-target-head"><div><h3>Куда опубликовать</h3><p>Выберите любое количество ваших подключений</p></div>' +
         '<span class="qc-counter" id="qc-counter">0 выбрано</span></div>' +
         (available.length ? '<div class="qc-target-actions"><button type="button" id="qc-select-all">Выбрать все</button>' +
           '<button type="button" id="qc-select-none">Снять выбор</button></div><div class="qc-accounts">' + grouped + '</div>'
           : '<div class="qc-empty">Нет активных подключений. Черновик можно сохранить и без них.' +
             '<a href="/socials" id="qc-connect">Перейти к подключению соцсетей</a></div>') +
         '<div class="qc-preview"><h4>Предпросмотр текста</h4><p id="qc-preview-text">Текст появится здесь</p>' +
-          '<div id="qc-preview-targets" class="qc-muted">Площадки пока не выбраны</div></div></aside></div>' +
+          '<div id="qc-preview-targets" class="qc-muted">Площадки пока не выбраны</div></div></section></div>' +
       '<footer class="qc-footer"><div id="qc-status" role="status" aria-live="polite">Добавьте текст и выберите площадки. Необязательные настройки скрыты.</div>' +
       '<div class="qc-buttons"><button type="button" id="qc-save" class="qc-subtle">Сохранить черновик</button>' +
       '<button type="button" id="qc-schedule" class="qc-subtle">Запланировать</button>' +
