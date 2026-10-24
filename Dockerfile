@@ -8,6 +8,8 @@ COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY tsconfig.json ./
 COPY src ./src
+COPY public ./public
+COPY scripts/generate-favicons.mjs ./scripts/generate-favicons.mjs
 RUN npm run build && npm prune --omit=dev --no-audit --no-fund
 
 FROM ${NODE_IMAGE} AS runtime
@@ -22,7 +24,7 @@ COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/package-lock.json ./package-lock.json
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
-COPY public ./public
+COPY --from=build /app/public ./public
 RUN mkdir -p /app/data/media /app/data/backups /app/data/.media-tmp && chown -R node:node /app
 USER node
 EXPOSE 8080
