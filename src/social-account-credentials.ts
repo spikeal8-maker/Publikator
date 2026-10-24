@@ -246,6 +246,18 @@ function checkFailureMetadata(
   built: BuiltCapabilityProfile,
   inspection: CredentialInspectionResult
 ): { code: string | null; message: string | null } {
+  // VK error 5 alone is ambiguous. Restriction by another IP is a diagnostic
+  // classification only when the structured failed method also confirms it;
+  // never mark the credential INVALID or grant publication rights from text.
+  if (inspection.platform === 'vk' && inspection.methods.some((item) =>
+    item.machineCode === 'VK_5'
+    && /\b(?:another|other) ip address\b|привязан к другому ip/i.test(item.reason)
+  )) {
+    return {
+      code: 'IP_RESTRICTED',
+      message: 'VK: ключ привязан к другому IP-адресу. Он сохранён, но публикация не подтверждена.'
+    };
+  }
   if (built.accessLevel === 'UNAVAILABLE') {
     const unavailable = inspection.methods.find((item) => item.state === 'UNAVAILABLE');
     return {
@@ -504,6 +516,9 @@ export async function activatePendingVkAccount(accountId: string): Promise<Socia
   if (current.authKind !== 'PENDING') requestError('Ключ уже проверен; воспользуйтесь повторной проверкой');
   const checked = await recheckSocialAccount(accountId);
   if (!hasReadyImplementedFormat('vk', checked.capabilityProfile)) {
+    if (checked.capabilityProfile.lastCheckCode === 'IP_RESTRICTED') {
+      requestError('VK: ключ привязан к другому IP-адресу. Ключ сохранён, публикация отключена. Проверьте разрешённый IP в настройках ключа VK.');
+    }
     requestError('VK: ключ сохранён, но права публикации не подтверждены. Откройте диагностику и исправьте ограничения.');
   }
   const observed = accountRow(accountId);
