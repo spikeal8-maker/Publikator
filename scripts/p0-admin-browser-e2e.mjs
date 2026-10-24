@@ -26,6 +26,9 @@ try{
  page.on('pageerror',e=>errors.push(String(e)));
  await page.goto('http://127.0.0.1:18898/#admin-setup='+grant);
  await page.locator('#setup-form:not(.hidden)').waitFor();
+ assert.equal(await page.locator('#login .auth-mark').count(),1,'one onboarding logo element');
+ assert.equal(await page.evaluate(()=>getComputedStyle(document.querySelector('#login'),'::before').display),'none',
+   'legacy center-card pseudo-logo must not duplicate the product logo');
  assert.match(await page.locator('#auth-heading').textContent(),/Добро пожаловать/);
  assert.equal(new URL(page.url()).hash,'','setup grant must not persist in browser address bar');
  await fs.mkdir('test-results',{recursive:true});
@@ -65,6 +68,8 @@ try{
  m.on('pageerror',e=>errors.push(String(e)));
  await m.goto('http://127.0.0.1:18898/');
  await m.locator('#login-form:not(.hidden)').waitFor();
+ assert.equal(await m.locator('#login .auth-mark').count(),1);
+ assert.equal(await m.evaluate(()=>getComputedStyle(document.querySelector('#login'),'::before').display),'none');
  assert.equal(await m.locator('#username').isVisible(),true);
  assert.equal(await m.locator('#password').isVisible(),true);
  assert.equal(await m.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth),true,'no mobile horizontal overflow');
