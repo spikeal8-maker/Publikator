@@ -77,13 +77,13 @@ On a clean install they:
 2. verify the Docker Engine is actually available;
 3. verify Linux-containers mode;
 4. verify Git and read the exact 40-character commit SHA;
-5. generate random `ADMIN_PASSWORD` and `APP_MASTER_KEY`;
+5. generate persistent random `APP_MASTER_KEY` for encryption, without an application login password;
 6. create `.env`;
 7. use a Docker named volume for persistent data;
 8. build the image with that exact Git SHA;
 9. start the container;
 10. wait until Docker reports `healthy`;
-11. print the local URL and build SHA.
+11. print the local URL, build SHA, and a one-time first-run setup link valid for ten minutes. Open it and create the administrator's login and password in the browser.
 
 On Windows, a clean install also checks whether TCP port `8080` is already in use before generating `.env`. If it is occupied, the script stops and tells you to choose another `PUBLIKATOR_PORT`.
 
@@ -184,3 +184,10 @@ Do not replace `APP_MASTER_KEY` during an update.
 The application-level canonical backup is the `.tgz` bundle produced by Publikator (SQLite + media + manifest). Docker volume persistence is not a substitute for backups.
 
 Before moving to another machine, create a full backup and preserve the original `APP_MASTER_KEY`. Restore the bundle on the new installation through the Publikator restore flow.
+
+
+## First-run administrator setup and existing installations (schema 14)
+
+A new local installation opens the normal administrator registration screen. The Windows/Linux installer prints a one-use 10-minute setup URL with the capability in its **fragment** (not the HTTP request path). Copy/open that link only on the administrator's trusted machine. The registration form asks for login, password and confirmation; after creation it logs in automatically. A generic public URL cannot create an administrator, even through a Docker bridge or trusted reverse proxy. If the link expires, an operator with Docker management permissions runs `docker compose exec -T publikator node dist/cli/admin-setup.js` to issue another. Do not copy setup URLs to issues or logs shared with others.
+
+For an existing installation with `ADMIN_PASSWORD`, log in with the prior password as before and choose **Учётная запись → Создать учётную запись администратора**. Create the new login/password without changing `APP_MASTER_KEY` or resetting the database. Once saved, the old environment password no longer authenticates. To recover a lost password, an administrator with direct Docker access runs `docker compose exec -T publikator node dist/cli/admin-setup.js --recover` and opens the one-time recovery URL. Recovery invalidates all previous sessions. Back up before updating and restore the old binary **together with** its schema-13 backup when rolling back: schema-14 databases are intentionally rejected by older versions.

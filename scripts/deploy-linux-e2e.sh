@@ -34,7 +34,7 @@ MASTER_KEY="$(grep '^APP_MASTER_KEY=' .env | tail -n1 | cut -d= -f2-)"
 [ "$ENV_SHA" = "$EXPECTED_SHA" ]
 [ "$ADMIN_PASSWORD" != 'change-this-password' ]
 [ "$MASTER_KEY" != 'change-this-to-a-long-random-secret-at-least-32-characters' ]
-[ "${#ADMIN_PASSWORD}" -ge 12 ]
+[ -z "$ADMIN_PASSWORD" ]
 [ "${#MASTER_KEY}" -ge 32 ]
 
 HEALTH="$(curl -fsS http://127.0.0.1:8080/api/health)"
@@ -42,5 +42,9 @@ jq -e --arg sha "$EXPECTED_SHA" --argjson schemaVersion "$CURRENT_SCHEMA_VERSION
 
 MOUNT="$(docker inspect publikator --format '{{range .Mounts}}{{if eq .Destination "/app/data"}}{{.Type}}:{{.Name}}{{end}}{{end}}')"
 [[ "$MOUNT" == volume:* ]]
+SETUP_MODE="$(curl -fsS http://127.0.0.1:8080/api/auth/state)"
+jq -e '.mode == "setup" and .authenticated == false' <<<"$SETUP_MODE" >/dev/null
+GRANT_COUNT="$(docker exec publikator node -e "const fs=require('fs');const Database=require('better-sqlite3');const db=new Database('/app/data/publikator.sqlite');console.log(db.prepare('select count(*) as n from admin_setup_grants').get().n);db.close()")"
+[ "$GRANT_COUNT" = 1 ]
 
 echo "Linux deploy launcher PASS: $MOUNT / $EXPECTED_SHA"

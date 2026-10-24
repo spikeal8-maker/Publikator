@@ -17,8 +17,9 @@ command -v git >/dev/null || { echo 'Git is required to embed the exact release 
 BUILD_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
 [[ "$BUILD_SHA" =~ ^[a-f0-9]{40}$ ]] || { echo 'Current folder is not a valid Git checkout with a 40-character commit SHA.'; exit 1; }
 
+NEW_INSTALL=0
 if [ ! -f .env ]; then
-  ADMIN_SECRET="$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
+  NEW_INSTALL=1
   MASTER_SECRET="$(od -An -N48 -tx1 /dev/urandom | tr -d ' \n')"
   cat > .env <<EOF
 PUBLIC_BASE_URL=${PUBLIC_URL}
@@ -26,7 +27,7 @@ PUBLIKATOR_BIND=127.0.0.1
 PUBLIKATOR_PORT=8080
 PUBLIKATOR_DATA_SOURCE=publikator-data
 TRUST_PROXY=
-ADMIN_PASSWORD=${ADMIN_SECRET}
+ADMIN_PASSWORD=
 APP_MASTER_KEY=${MASTER_SECRET}
 SESSION_TTL_HOURS=24
 SCHEDULER_INTERVAL_MS=15000
@@ -37,7 +38,7 @@ BUILD_SHA=${BUILD_SHA}
 RELEASE_TARGET_VERSION=1.0.0
 EOF
   chmod 600 .env || true
-  echo 'Created .env with random ADMIN_PASSWORD and APP_MASTER_KEY.'
+  echo 'Created .env with persistent encryption key; administrator account will be created in the browser.'
 else
   echo 'Using existing .env; secrets and deployment settings are preserved.'
   if grep -q '^BUILD_SHA=' .env; then
@@ -69,4 +70,8 @@ PORT="${PORT:-8080}"
 echo 'Publikator is healthy.'
 echo "Local UI: http://127.0.0.1:${PORT}"
 echo "Build SHA: ${BUILD_SHA}"
-echo 'Credentials are stored only in .env. Keep APP_MASTER_KEY safe.'
+if [ "$NEW_INSTALL" -eq 1 ]; then
+  echo 'Administrator account setup:'
+  docker compose --env-file .env exec -T publikator node dist/cli/admin-setup.js
+fi
+echo 'Keep APP_MASTER_KEY safe; Publikator login uses the administrator account.'

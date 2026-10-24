@@ -23,7 +23,7 @@ const {
 
 migrate();
 try {
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 13);
+  assert.ok(Number(db.pragma('user_version', { simple: true })) >= 13);
 
   const accountId = id('acc');
   const now = nowIso();
@@ -224,7 +224,7 @@ try {
 
   console.log(JSON.stringify({
     ok: true,
-    schemaVersion: 13,
+    schemaVersion: Number(db.pragma('user_version', { simple: true })),
     classifier: true,
     readinessBuilder: true,
     canonicalWrite: true,

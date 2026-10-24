@@ -42,11 +42,16 @@ export function verifySessionToken(token: string | undefined): boolean {
   if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return false;
   const payload = `${expiresRaw}.${nonce}`;
   const expected = crypto.createHmac('sha256', key).update(payload).digest();
+  // Reject padded and noncanonical base64url spellings: legacy logout revokes
+  // the literal token hash, so an equivalent signature must not be replayable.
+  if (!/^[A-Za-z0-9_-]{43}$/.test(signature)) return false;
   const actual = Buffer.from(signature, 'base64url');
-  return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+  return actual.toString('base64url') === signature
+    && expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
 }
 
 export function securePasswordEqual(input: string): boolean {
+  if (!config.adminPassword) return false;
   const left = crypto.createHash('sha256').update(input).digest();
   const right = crypto.createHash('sha256').update(config.adminPassword).digest();
   return crypto.timingSafeEqual(left, right);

@@ -11,7 +11,21 @@ let projects = [];
 async function api(url, options = {}) {
   const response = await fetch(url, { credentials: 'same-origin', ...options, headers: { ...(options.body == null || options.body instanceof FormData ? {} : {'content-type':'application/json'}), ...(options.headers || {}) } });
   const body = response.status === 204 ? null : await response.json().catch(() => ({}));
-  if (response.status === 401) { showLogin(); throw new Error('Требуется вход'); }
+  if (response.status === 401) {
+    // Rebuild the correct form when an authenticated session expires. Simply
+    // unhiding the login panel can leave both forms hidden or show a spent grant.
+    if (!['/api/auth/login', '/api/auth/setup', '/api/auth/recover'].includes(url.split('?')[0])) {
+      try {
+        const state = await refreshAuthState();
+        if (!state.authenticated) renderAuthScreen(state);
+      } catch {
+        renderAuthScreen({ mode: 'login' });
+        document.querySelector('#login-error').textContent =
+          'Не удалось проверить сессию. Проверьте соединение и попробуйте войти снова.';
+      }
+    }
+    throw new Error(body?.error || 'Требуется вход');
+  }
   if (!response.ok) throw new Error(body?.error || `HTTP ${response.status}`);
   return body;
 }
@@ -21,28 +35,185 @@ function platformLabel(value){return ({telegram:'Telegram',vk:'VK',max:'MAX',ins
 function editorVersion(form){const value=Number(form.dataset.contentVersion);if(!Number.isInteger(value)||value<1)throw new Error('Версия поста не загружена');return value;}
 function setEditorVersion(form,value){form.dataset.contentVersion=String(value);}
 async function scheduleApi(url,method,payload){try{return await api(url,{method,body:JSON.stringify(payload)});}catch(err){const m=String(err.message||'').match(/Local time is ambiguous; choose one offset: (.+)$/);if(!m)throw err;const choices=m[1].split(',').map(x=>x.trim()).filter(Boolean);const chosen=window.prompt(`Это местное время встречается дважды из-за перехода часов. Выберите UTC offset: ${choices.join(' или ')}`,choices[0]||'');if(!chosen||!choices.includes(chosen))throw new Error('Для неоднозначного времени нужно выбрать один из предложенных UTC offset');return await api(url,{method,body:JSON.stringify({...payload,ambiguousOffset:chosen})});}}
-function showLogin() { login.classList.remove('hidden'); app.classList.add('hidden'); }
-function showApp() { login.classList.add('hidden'); app.classList.remove('hidden'); }
+let setupGrant = null;
+let setupAction = null;
+// Installer links use a fragment: no setup capability is sent in HTTP URLs,
+// navigation history, request logs, or third-party referrers.
+{
+  const match = window.location.hash.match(/^#admin-(setup|recover)=([A-Za-z0-9_-]{43})$/);
+  if (match) {
+    setupAction = match[1];
+    setupGrant = match[2];
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+  }
+}
+
+function showLogin() {
+  login.classList.remove('hidden');
+  app.classList.add('hidden');
+}
+function showApp() {
+  login.classList.add('hidden');
+  app.classList.remove('hidden');
+}
 function modal(html) { const el=document.createElement('div'); el.className='modal'; el.innerHTML=`<div class="modal-card">${html}</div>`; el.addEventListener('click',e=>{if(e.target===el)el.remove()}); document.body.append(el); return el; }
 
+function renderAuthScreen(state) {
+  showLogin();
+  const initial = state.mode === 'setup';
+  const recover = setupAction === 'recover' && state.mode === 'login' && Boolean(setupGrant);
+  const setup = initial && setupAction === 'setup' && Boolean(setupGrant);
+  const allowForm = setup || recover;
+  const loginForm = document.querySelector('#login-form');
+  const setupForm = document.querySelector('#setup-form');
+  const usernameRow = document.querySelector('#login-username-row');
+  const username = document.querySelector('#username');
+  const heading = document.querySelector('#auth-heading');
+  const subtitle = document.querySelector('#auth-subtitle');
+  const help = document.querySelector('#setup-help');
+  loginForm.classList.toggle('hidden', initial || allowForm);
+  setupForm.classList.toggle('hidden', !allowForm);
+  help.classList.toggle('hidden', !initial || allowForm);
+  document.querySelector('#login-error').textContent = '';
+  usernameRow.classList.toggle('hidden', state.mode === 'legacy');
+  username.required = state.mode !== 'legacy';
+  if (recover) {
+    heading.textContent = 'Восстановление доступа';
+    subtitle.textContent = 'Создайте новые данные администратора.';
+    document.querySelector('#setup-submit').textContent = 'Сохранить новые данные';
+  } else if (setup) {
+    heading.textContent = 'Добро пожаловать в Publikator';
+    subtitle.textContent = 'Создайте учётную запись администратора.';
+    document.querySelector('#setup-submit').textContent = 'Создать аккаунт';
+  } else if (initial) {
+    heading.textContent = 'Добро пожаловать в Publikator';
+    subtitle.textContent = 'Создайте учётную запись администратора.';
+    help.textContent = 'Для безопасного первого запуска откройте ссылку, выданную установщиком Publikator на вашем компьютере.';
+  } else if (state.mode === 'legacy') {
+    heading.textContent = 'Вход в Publikator';
+    subtitle.textContent = 'Существующая установка: подтвердите прежний пароль администратора один раз, затем создайте личный логин.';
+  } else {
+    heading.textContent = 'Вход в Publikator';
+    subtitle.textContent = 'Введите логин и пароль, чтобы продолжить работу.';
+  }
+  if (!allowForm && setupAction) {
+    setupAction = null;
+    setupGrant = null;
+  }
+}
+
+async function refreshAuthState() {
+  const response = await fetch('/api/auth/state', { credentials: 'same-origin', cache: 'no-store' });
+  if (!response.ok) throw new Error('Не удалось проверить авторизацию.');
+  return response.json();
+}
+
+async function enterDashboard() {
+  showApp();
+  await loadProjects();
+  const auth = await refreshAuthState();
+  document.querySelector('#legacy-migration-note').classList.toggle('hidden', auth.mode !== 'legacy');
+}
+
 async function bootstrap() {
-  try { await api('/api/dashboard'); showApp(); await loadProjects(); } catch { showLogin(); }
+  try {
+    const state = await refreshAuthState();
+    if (!state.authenticated || setupGrant) { renderAuthScreen(state); return; }
+    await enterDashboard();
+  } catch {
+    showLogin();
+    document.querySelector('#auth-heading').textContent = 'Вход в Publikator';
+    document.querySelector('#login-error').textContent = 'Не удалось подключиться к приложению. Проверьте, что сервер запущен.';
+  }
 }
 async function loadProjects(){ projects=await api('/api/projects'); }
 
 document.querySelector('#login-form').addEventListener('submit', async e => {
   e.preventDefault();
-  document.querySelector('#login-error').textContent='';
-  try { await api('/api/auth/login',{method:'POST',body:JSON.stringify({password:document.querySelector('#password').value})}); showApp(); await loadProjects(); }
-  catch(err){ document.querySelector('#login-error').textContent=err.message; }
+  document.querySelector('#login-error').textContent = '';
+  try {
+    const state = await refreshAuthState();
+    const payload = { password: document.querySelector('#password').value };
+    if (state.mode !== 'legacy') payload.username = document.querySelector('#username').value;
+    await api('/api/auth/login', { method:'POST', body:JSON.stringify(payload) });
+    document.querySelector('#password').value = '';
+    await enterDashboard();
+  } catch(err) { document.querySelector('#login-error').textContent = err.message; }
 });
-document.querySelector('#logout').addEventListener('click', async()=>{ await api('/api/auth/logout',{method:'POST'}).catch(()=>{}); showLogin(); });
+document.querySelector('#setup-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const error = document.querySelector('#login-error');
+  error.textContent = '';
+  const form = e.currentTarget;
+  const button = form.querySelector('button[type="submit"]');
+  button.disabled = true;
+  try {
+    const payload = {
+      grant: setupGrant,
+      username: document.querySelector('#setup-username').value,
+      password: document.querySelector('#setup-password').value,
+      confirmPassword: document.querySelector('#setup-confirm').value
+    };
+    await api(setupAction === 'recover' ? '/api/auth/recover' : '/api/auth/setup',
+      { method: 'POST', body: JSON.stringify(payload) });
+    form.reset();
+    setupAction = null;
+    setupGrant = null;
+    await enterDashboard();
+  } catch (err) { error.textContent = err.message; }
+  finally { button.disabled = false; }
+});
+document.querySelector('#logout').addEventListener('click', async() => {
+  await api('/api/auth/logout', { method: 'POST' }).catch(() => {});
+  const state = await refreshAuthState();
+  renderAuthScreen(state);
+});
+document.querySelector('#legacy-migration-note').addEventListener('click', async () => {
+  document.querySelector('#account-nav').click();
+});
+async function accountSettings() {
+  const state = await api('/api/auth/state');
+  const migrating = state.mode === 'legacy';
+  view.innerHTML = `<section class="card auth-settings">
+    <h2>${migrating ? 'Создать учётную запись администратора' : 'Безопасность аккаунта'}</h2>
+    <p class="muted">${migrating
+      ? 'Ваши проекты, публикации и подключения сохранятся. После переноса старый административный пароль больше не будет действовать.'
+      : 'Вы вошли как ' + esc(state.username || 'администратор') + '. При смене пароля все прежние сессии завершаются.'}</p>
+    <form id="account-auth-form">
+      ${migrating ? '<label>Новый логин<input name="username" autocomplete="username" minlength="3" maxlength="48" required></label>'
+        : '<label>Текущий пароль<input name="currentPassword" type="password" autocomplete="current-password" required></label>'}
+      <label>Новый пароль<input name="password" type="password" autocomplete="new-password" minlength="12" maxlength="256" required></label>
+      <label>Повтор нового пароля<input name="confirmPassword" type="password" autocomplete="new-password" minlength="12" maxlength="256" required></label>
+      <div><button class="primary" type="submit">${migrating ? 'Создать аккаунт' : 'Сменить пароль'}</button></div>
+      <div id="account-auth-result" role="status" aria-live="polite"></div>
+    </form>
+  </section>`;
+  const form = view.querySelector('#account-auth-form');
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    const data = new FormData(form);
+    const result = form.querySelector('#account-auth-result');
+    result.className = '';
+    result.textContent = '';
+    const payload = migrating
+      ? { username: data.get('username'), password: data.get('password'), confirmPassword: data.get('confirmPassword') }
+      : { currentPassword: data.get('currentPassword'), newPassword: data.get('password'), confirmPassword: data.get('confirmPassword') };
+    try {
+      await api(migrating ? '/api/auth/migrate' : '/api/auth/password',
+        { method:'POST', body: JSON.stringify(payload) });
+      if (migrating) { await enterDashboard(); await accountSettings(); }
+      else { form.reset(); result.className = 'auth-success'; result.textContent = 'Пароль изменён. Прежние сессии завершены.'; }
+      document.querySelector('#legacy-migration-note').classList.add('hidden');
+    } catch (err) { result.className = 'error'; result.textContent = err.message; }
+  });
+}
+
 document.querySelectorAll('.nav[data-view]').forEach(btn=>btn.addEventListener('click',async()=>{ document.querySelectorAll('.nav').forEach(x=>x.classList.remove('active')); btn.classList.add('active'); await render(btn.dataset.view); }));
 
 async function render(name){
-  const names={dashboard:'Обзор',posts:'Контент',projects:'Проекты',accounts:'Соцсети',schedules:'Расписание',events:'Журнал',backups:'Резервные копии'}; title.textContent=names[name]||name;
+  const names={dashboard:'Обзор',posts:'Контент',projects:'Проекты',accounts:'Соцсети',schedules:'Расписание',events:'Журнал',backups:'Резервные копии',account:'Учётная запись'}; title.textContent=names[name]||name;
   view.innerHTML='<div class="muted">Загрузка…</div>';
-  try { if(name==='dashboard') await dashboard(); if(name==='posts') await posts(); if(name==='projects') await projectsPage(); if(name==='accounts') await accounts(); if(name==='schedules') await schedules(); if(name==='events') await events(); if(name==='backups') await backups(); }
+  try { if(name==='dashboard') await dashboard(); if(name==='posts') await posts(); if(name==='projects') await projectsPage(); if(name==='accounts') await accounts(); if(name==='schedules') await schedules(); if(name==='events') await events(); if(name==='backups') await backups(); if(name==='account') await accountSettings(); }
   catch(err){ view.innerHTML=`<div class="card error">${esc(err.message)}</div>`; }
 }
 async function dashboard(){
