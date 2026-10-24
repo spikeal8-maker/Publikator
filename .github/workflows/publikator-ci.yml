@@ -81,6 +81,9 @@ jobs:
       - name: TG-MAX-FEED-PUBLISH-001 text and local-image operator journey
         run: node scripts/telegram-max-feed-publish-e2e.mjs
 
+      - name: SOCIAL-ERROR-VISIBILITY-001 secret-safe social connection diagnostics
+        run: node scripts/social-connection-output-guard-e2e.mjs
+
       - name: VK-PHOTO-CREDENTIAL-ROLES-001 two-key browser and publication safety
         run: node scripts/vk-photo-credential-roles-e2e.mjs
 
@@ -154,6 +157,12 @@ jobs:
       - name: CRED-01B structured credential inspection
         run: node scripts/cred-01b-structured-inspection-e2e.mjs
 
+      - name: CRED-01C canonical save and recheck
+        run: node scripts/cred-01c-save-recheck-e2e.mjs
+
+      - name: CRED-01C exhaustive runtime credential mutation inventory
+        run: node scripts/cred-01c-mutation-inventory-e2e.mjs
+
       - name: M0-005 time rendition sequence semantics
         run: node scripts/m005-e2e.mjs
 
@@ -204,6 +213,9 @@ jobs:
 
       - name: CX3-006 platform previews v2
         run: node scripts/cx3-006-platform-previews-e2e.mjs
+
+      - name: CX3-PREVIEW-RACE-001 inspector event lifecycle after delayed load
+        run: node scripts/cx3-preview-open-race-e2e.mjs
 
       - name: CX3-007 dashboard API semantics
         run: node scripts/cx3-007-dashboard-api-e2e.mjs

@@ -10,7 +10,9 @@ process.env.ADMIN_PASSWORD='ew4-005a1-ci-password';
 process.env.APP_MASTER_KEY='ew4-005a1-master-key-that-is-longer-than-thirty-two-characters';
 process.env.PUBLIC_BASE_URL='https://publisher.example.test';
 
-const {db,migrate}=await import('../dist/db.js');
+const {db,migrate,id,nowIso}=await import('../dist/db.js');
+const {encryptJson}=await import('../dist/crypto.js');
+const {saveCapabilityProfile}=await import('../dist/social-credential-capability.js');
 const {buildApp}=await import('../dist/app.js');
 const {listPlatformCapabilities}=await import('../dist/platforms/capabilities.js');
 migrate();
@@ -33,6 +35,34 @@ async function api(method,url,payload,expected=200){
   return response;
 }
 
+// This test covers project-default inheritance, not real credential onboarding.
+// Use isolated DB fixtures with explicit server-side capability evidence.
+function fixtureAccount(platform,name) {
+  const accountId=id('acc'), at=nowIso();
+  db.transaction(()=>{
+    db.prepare(`INSERT INTO social_accounts
+      (id,platform,name,credentials_encrypted,enabled,created_at,updated_at)
+      VALUES (?,?,?,?,1,?,?)`).run(accountId,platform,name,
+      encryptJson({ testCredential: 'isolated-only', destinationKind: 'PERSONAL' }),at,at);
+    db.prepare(`INSERT INTO project_default_targets(project_id,account_id,created_at)
+      SELECT id,?,? FROM projects WHERE default_targets_explicit=0`).run(accountId,at);
+  })();
+  const format=platform==='instagram'?'IMAGE':'TEXT';
+  saveCapabilityProfile(accountId,{
+    inspectionCompleted:true,
+    providerType:platform==='vk'?'USER':'BOT',
+    credential:{validity:'CONFIRMED',identity:'Local fixture',ownerId:accountId,
+      declaredPermissions:['write'],permissionsSource:'isolated-fixture'},
+    destination:{resolutionState:'CONFIRMED',kind:'TEST',id:accountId,
+      name:'Isolated fixture',role:'publisher',ownershipConfirmed:true},
+    methods:[],
+    publicationEvidence:{[format]:{state:'CONFIRMED'}},
+    adapterCapability:{[format]:true},
+    runtimePrerequisites:[],remediation:[],warnings:[]
+  });
+  return {id:accountId};
+}
+
 const sortedIds=(values)=>[...values].sort();
 const enabledTargetIds=(post)=>sortedIds(post.targets.filter((target)=>Boolean(target.enabled)).map((target)=>target.account_id));
 
@@ -45,24 +75,13 @@ try{
   assert.equal(mainProject.default_targets_explicit,0);
   assert.deepEqual(mainProject.defaultTargetAccountIds,[]);
 
-  const telegram=(await api('POST','/api/accounts',{
-    platform:'telegram',name:'A3 Telegram',credentials:{token:'telegram'}
-  },201)).json();
+  const telegram=fixtureAccount('telegram','A3 Telegram');
   projects=(await api('GET','/api/projects')).json();
   let main=projects.find((project)=>project.id===mainProject.id);
   assert.equal(main.default_targets_explicit,0);
   assert.deepEqual(main.defaultTargetAccountIds,[telegram.id]);
 
-  const vk=(await api('POST','/api/accounts',{
-    platform:'vk',
-    name:'A3 VK',
-    credentials:{
-      accessToken:'ew4-005a1-vk-token',
-      destinationKind:'COMMUNITY',
-      groupId:'12345',
-      apiVersion:'5.199'
-    }
-  },201)).json();
+  const vk=fixtureAccount('vk','A3 VK');
   projects=(await api('GET','/api/projects')).json();
   main=projects.find((project)=>project.id===mainProject.id);
   assert.deepEqual(sortedIds(main.defaultTargetAccountIds),sortedIds([telegram.id,vk.id]));
@@ -89,9 +108,7 @@ try{
   assert.equal(explicitEmpty.default_targets_explicit,1);
   assert.deepEqual(explicitEmpty.defaultTargetAccountIds,[]);
 
-  const max=(await api('POST','/api/accounts',{
-    platform:'max',name:'A3 MAX',credentials:{token:'max'}
-  },201)).json();
+  const max=fixtureAccount('max','A3 MAX');
   main=(await api('GET','/api/projects')).json().find((project)=>project.id===mainProject.id);
   assert.equal(main.default_targets_explicit,1);
   assert.deepEqual(main.defaultTargetAccountIds,[]);
@@ -109,9 +126,7 @@ try{
   assert.equal(explicitSubset.default_targets_explicit,1);
   assert.deepEqual(explicitSubset.defaultTargetAccountIds,[telegram.id]);
 
-  const instagram=(await api('POST','/api/accounts',{
-    platform:'instagram',name:'A3 Instagram',credentials:{token:'instagram'}
-  },201)).json();
+  const instagram=fixtureAccount('instagram','A3 Instagram');
   assert.ok(instagram.id);
   main=(await api('GET','/api/projects')).json().find((project)=>project.id===mainProject.id);
   assert.deepEqual(main.defaultTargetAccountIds,[telegram.id]);

@@ -76,6 +76,13 @@ globalThis.fetch = async (input, init = {}) => {
   assert.equal(body.get('access_token'), 'user-token');
   assert.equal(body.get('v'), '5.199');
 
+  if (method === 'groups.getTokenPermissions') return Response.json({
+    error: { error_code: 27, error_msg: 'Not supported by USER token' }
+  });
+  if (method === 'account.getAppPermissions') return mode === 'fail'
+    ? Response.json({ error: { error_code: 5, error_msg: 'User authorization failed' } })
+    : Response.json({ response: 8192 });
+
   if (mode === 'fail' && method === 'users.get') {
     return new Response(JSON.stringify({
       error: { error_code: 5, error_msg: 'User authorization failed' }
@@ -109,16 +116,20 @@ globalThis.fetch = async (input, init = {}) => {
 };
 
 try {
-  // Failure: testConnection fails, so no COMMUNITY account may be created.
+  // Provider-unconfirmed yet structurally valid destination remains saved but disabled.
   const beforeFailure = accountCount();
   const failed = await app.inject({
     method: 'POST',
     url: `/api/accounts/${sourceId}/vk-community`,
     headers: { cookie },
-    payload: { name: 'IIBUSI', groupId: '-234903751' }
+    payload: { name: 'Unavailable COMMUNITY', groupId: '-999888777' }
   });
-  assert.equal(failed.statusCode, 400, failed.body);
-  assert.equal(accountCount(), beforeFailure, 'failed connection test must not create an account');
+  assert.equal(failed.statusCode, 201, failed.body);
+  assert.equal(failed.json().enabled, 0);
+  assert.equal(accountCount(), beforeFailure + 1, 'unverified key is retained encrypted for recheck');
+  assert.notEqual(failed.json().capabilityProfile.accessLevel, 'FULL');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM project_default_targets WHERE account_id=?')
+    .get(failed.json().id).n, 0);
 
   // Success: retest the saved USER token, normalize the group, then persist one COMMUNITY account.
   mode = 'pass';
@@ -141,9 +152,9 @@ try {
   const rows = db.prepare(
     "SELECT id,name,credentials_encrypted FROM social_accounts WHERE platform='vk' ORDER BY created_at,id"
   ).all();
-  assert.equal(rows.length, 2);
+  assert.equal(rows.length, 3);
 
-  const communityRow = rows.find((row) => row.id !== sourceId);
+  const communityRow = rows.find((row) => row.id === response.id);
   assert.ok(communityRow, 'COMMUNITY account must be created');
   assert.equal(communityRow.name, 'IIBUSI');
 
@@ -153,7 +164,8 @@ try {
   assert.equal(saved.authKind, 'USER');
   assert.equal(saved.destinationKind, 'COMMUNITY');
   assert.equal(saved.groupId, '234903751');
-  assert.equal(saved.destinationName, 'IIBUSI');
+  assert.equal(response.destinationName, 'IIBUSI');
+  assert.equal(saved.tokenGroupId, undefined, 'USER credential uses direct upload, not paired GROUP transport');
   assert.equal('userId' in saved, false);
 
   const sourceAfter = db.prepare(
@@ -184,7 +196,7 @@ try {
     authKind: 'USER',
     userIdRemoved: true,
     duplicateProtection: true,
-    failedTestCreatesNothing: true,
+    unavailableSavedDisabled: true,
     wallPostCalls: 0
   }, null, 2));
 } finally {

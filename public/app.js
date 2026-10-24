@@ -390,22 +390,42 @@ function accountEditor(){
     form.querySelector('[name="name"]').required=platform.value!=='vk';
     m.querySelector('#save-vk-key').classList.toggle('hidden',platform.value!=='vk');
     const oauth=fields.querySelector('#operator-vk-oauth');
-    if(oauth) oauth.onclick=async()=>{
-      const error=m.querySelector('#account-error');
-      error.textContent='';
-      try{
-        const data=new FormData(form);
-        const name=String(data.get('name')||'').trim();
-        const destinationKind=String(data.get('destinationKind')||'PERSONAL');
-        const groupId=String(data.get('groupId')||'').trim();
-        if(!name) throw new Error('Укажите название подключения.');
-        if(destinationKind==='COMMUNITY'&&!groupId) throw new Error('Укажите ID или ссылку сообщества.');
-        const params=new URLSearchParams({name,destinationKind});
-        if(destinationKind==='COMMUNITY') params.set('groupId',groupId);
-        const started=await api(`/api/vk/oauth/start?${params}`);
-        window.location.assign(started.authorizationUrl);
-      }catch(err){error.textContent=err instanceof Error?err.message:String(err);}
-    };
+    if(oauth){
+      const feedback=document.createElement('div');
+      feedback.className='operator-result hidden';
+      feedback.setAttribute('role','status');
+      feedback.setAttribute('aria-live','polite');
+      feedback.id='vk-oauth-modal-feedback';
+      oauth.insertAdjacentElement('afterend',feedback);
+      oauth.onclick=async()=>{
+        oauth.disabled=true;
+        feedback.className='operator-result';
+        feedback.setAttribute('role','status');
+        feedback.textContent='Открываю авторизацию VK…';
+        try{
+          const data=new FormData(form);
+          const name=String(data.get('name')||'').trim();
+          const destinationKind=String(data.get('destinationKind')||'PERSONAL');
+          const groupId=String(data.get('groupId')||'').trim();
+          if(!name) throw new Error('Укажите название подключения.');
+          if(destinationKind==='COMMUNITY'&&!groupId) throw new Error('Укажите ID или ссылку сообщества.');
+          const params=new URLSearchParams({name,destinationKind});
+          if(destinationKind==='COMMUNITY') params.set('groupId',groupId);
+          const started=await api(`/api/vk/oauth/start?${params}`);
+          const url=typeof started?.authorizationUrl==='string'?new URL(started.authorizationUrl):null;
+          if(!url||url.origin!=='https://oauth.vk.com'||url.pathname!=='/authorize') throw new Error('VK: сервер не предоставил правильную ссылку авторизации.');
+          window.location.assign(url.href);
+        }catch(err){
+          const message=err instanceof Error?err.message:'';
+          const safe=/^(VK OAuth не настроен:|VK OAuth настроен некорректно$|Укажите название подключения\.$|Укажите ID или ссылку сообщества\.$|VK: сервер не предоставил)/.test(message)
+            ?message:'Не удалось открыть авторизацию VK. Проверьте настройки VK OAuth и доступность сервера.';
+          feedback.className='operator-result error';
+          feedback.setAttribute('role','alert');
+          feedback.textContent=safe;
+          feedback.scrollIntoView({block:'nearest'});
+        }finally{oauth.disabled=false;}
+      };
+    }
   };renderFields();platform.onchange=renderFields;m.querySelector('#close-modal').onclick=()=>m.remove();
   const test=async()=>{
     const credentials=socialCredentialsFromForm(platform.value,form);

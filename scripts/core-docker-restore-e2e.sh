@@ -59,11 +59,15 @@ OLD_POST_ID="$(curl -fsS -b "$COOKIE_FILE" \
   --data-binary "$(jq -nc --arg projectId "$PROJECT_ID" '{projectId:$projectId,title:"Before account",body:"Must not auto-target future accounts",scheduleMode:"MANUAL"}')" \
   "http://127.0.0.1:${PORT}/api/posts" | jq -er '.id')"
 
+# Reproduce a real disconnected installation: a syntactically valid VK key can
+# be saved without contacting VK, but MUST remain disabled until verified.
 ACCOUNT_ID="$(curl -fsS -b "$COOKIE_FILE" \
   -H 'content-type: application/json' \
-  --data-binary "$(jq -nc '{platform:"telegram",name:"CI target",credentials:{botToken:"test-value",chatId:"@test-channel"}}')" \
+  --data-binary "$(jq -nc '{platform:"vk",name:"CI pending VK",credentials:{accessToken:"fixture-pending-key",destinationKind:"COMMUNITY",groupId:"12345",authKind:"PENDING"}}')" \
   "http://127.0.0.1:${PORT}/api/accounts" | jq -er '.id')"
 test -n "$ACCOUNT_ID"
+curl -fsS -b "$COOKIE_FILE" "http://127.0.0.1:${PORT}/api/accounts" | \
+  jq -e --arg id "$ACCOUNT_ID" 'any(.[]; .id == $id and .enabled == 0 and .capabilityProfile.accessLevel == "UNCHECKED")' >/dev/null
 
 curl -fsS -b "$COOKIE_FILE" "http://127.0.0.1:${PORT}/api/posts/${OLD_POST_ID}" | \
   jq -e '(.targets | length) == 0' >/dev/null
@@ -72,14 +76,16 @@ POST_ID="$(curl -fsS -b "$COOKIE_FILE" \
   -H 'content-type: application/json' \
   --data-binary "$(jq -nc --arg projectId "$PROJECT_ID" '{projectId:$projectId,title:"CI post",body:"Smoke test body",scheduleMode:"MANUAL"}')" \
   "http://127.0.0.1:${PORT}/api/posts" | jq -er '.id')"
-TARGET_ID="$(curl -fsS -b "$COOKIE_FILE" "http://127.0.0.1:${PORT}/api/posts/${POST_ID}" | jq -er '.targets[] | select(.platform == "telegram") | .id')"
+# Unverified keys must NOT silently become default post targets.
+curl -fsS -b "$COOKIE_FILE" "http://127.0.0.1:${PORT}/api/posts/${POST_ID}" | \
+  jq -e '(.targets | length) == 0' >/dev/null
 
 POST_VERSION="$(post_version "$POST_ID")"
 curl -fsS -b "$COOKIE_FILE" -X PATCH \
   -H 'content-type: application/json' -H "x-content-version: $POST_VERSION" \
-  -d '{"text":"Telegram CI override"}' \
-  "http://127.0.0.1:${PORT}/api/posts/${POST_ID}/targets/${TARGET_ID}/text" | \
-  jq -e '.ok == true and .target.overrideText == "Telegram CI override"' >/dev/null
+  -d '{"body":"Edited draft before backup"}' \
+  "http://127.0.0.1:${PORT}/api/posts/${POST_ID}" | \
+  jq -e '.ok == true and .post.body == "Edited draft before backup"' >/dev/null
 
 node --input-type=module <<'NODE'
 import sharp from 'sharp';
@@ -102,8 +108,13 @@ curl -fsS -b "$COOKIE_FILE" -X PUT -H 'content-type: application/json' -H "x-con
   "http://127.0.0.1:${PORT}/api/posts/${POST_ID}/media-order" | \
   jq -e --arg first "$MEDIA_2" '.ok == true and .media[0].id == $first' >/dev/null
 
+# Negative READY acceptance: a disconnected account cannot authorize a post.
 POST_VERSION="$(post_version "$POST_ID")"
-curl -fsS -b "$COOKIE_FILE" -X POST -H 'content-type: application/json' -H "x-content-version: $POST_VERSION" -d '{}' "http://127.0.0.1:${PORT}/api/posts/${POST_ID}/ready" | jq -e '.ok == true' >/dev/null
+READY_STATUS="$(curl -sS -o /tmp/publikator-ready-denied.json -w '%{http_code}' -b "$COOKIE_FILE" -X POST \
+  -H 'content-type: application/json' -H "x-content-version: $POST_VERSION" -d '{}' \
+  "http://127.0.0.1:${PORT}/api/posts/${POST_ID}/ready")"
+test "$READY_STATUS" = "409"
+jq -e '.error == "Не выбрана ни одна активная соцсеть"' /tmp/publikator-ready-denied.json >/dev/null
 
 BUNDLE_NAME="$(curl -fsS -b "$COOKIE_FILE" -H 'content-type: application/json' -d '{"label":"acceptance"}' \
   "http://127.0.0.1:${PORT}/api/backup-bundles" | jq -er 'select(.sizeBytes > 0) | .name')"
@@ -168,7 +179,11 @@ EXTRA_MEDIA_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:
 test "$EXTRA_MEDIA_STATUS" = "404"
 
 curl -fsS -b "$COOKIE_FILE" "http://127.0.0.1:${PORT}/api/posts/${POST_ID}" | \
-  jq -e --arg first "$MEDIA_2" '.status == "READY" and .content_version >= 1 and (.ready_revision_id != null) and (.media | length) == 2 and .media[0].id == $first and any(.targets[]; .platform == "telegram" and .enabled == 1 and .override_text == "Telegram CI override")' >/dev/null
+  jq -e --arg first "$MEDIA_2" '.status == "DRAFT" and .body == "Edited draft before backup" and .content_version >= 1 and .ready_revision_id == null and (.targets | length) == 0 and (.media | length) == 2 and .media[0].id == $first' >/dev/null
+
+# The disabled credential and server-owned UNCHECKED verdict must survive restore.
+curl -fsS -b "$COOKIE_FILE" "http://127.0.0.1:${PORT}/api/accounts" | \
+  jq -e --arg id "$ACCOUNT_ID" 'any(.[]; .id == $id and .enabled == 0 and .capabilityProfile.accessLevel == "UNCHECKED")' >/dev/null
 curl -fsS -b "$COOKIE_FILE" "http://127.0.0.1:${PORT}/api/backup-bundles" | jq -e 'any(.[]; .name | contains("pre-restore"))' >/dev/null
 
 jq -nc --argjson schemaVersion "$CURRENT_SCHEMA_VERSION" '{ok:true,productionDocker:true,fullBackupRestore:true,schemaVersion:$schemaVersion}'

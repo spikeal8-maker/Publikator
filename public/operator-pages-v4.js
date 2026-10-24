@@ -25,12 +25,67 @@ async function operatorApi(url, options = {}) {
     window.location.reload();
     throw new Error('Требуется вход');
   }
-  if (!response.ok) throw new Error(payload?.error || `HTTP ${response.status}`);
+  if (!response.ok) {
+    const error = new Error(payload?.error || `HTTP ${response.status}`);
+    error.diagnosticId = typeof payload?.diagnosticId === 'string' ? payload.diagnosticId : null;
+    error.diagnosticCode = typeof payload?.diagnosticCode === 'string' ? payload.diagnosticCode : null;
+    error.httpStatus = response.status;
+    throw error;
+  }
   return payload;
 }
 
 function operatorEsc(value = '') {
   return String(value).replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]);
+}
+
+// Displays a useful error without copying credentials into HTML, URLs or the journal.
+// The server stores only the diagnostic ID, classification and operation metadata.
+function showSocialConnectionError(target, error, platform, operation) {
+  const serverId = typeof error?.diagnosticId === 'string' ? error.diagnosticId : '';
+  // No server diagnostic ID means the exception may have come from local form
+  // validation or transport code. Never copy an arbitrary exception string,
+  // since a library can include the entered token or request URL in it.
+  const receivedHttpResponse = Number.isInteger(error?.httpStatus);
+  const message = serverId
+    ? (error instanceof Error ? error.message : String(error))
+    : receivedHttpResponse
+      ? 'Сервер ответил ошибкой, но не предоставил безопасную диагностику. Повторите проверку и сообщите время ошибки разработчику.'
+      : 'Сервер не ответил. Проверьте соединение с Publikator и повторите попытку.';
+  const code = serverId
+    ? (typeof error?.diagnosticCode === 'string' ? error.diagnosticCode : 'UNCLASSIFIED_SERVER_ERROR')
+    : receivedHttpResponse ? 'HTTP_ERROR_WITHOUT_DIAGNOSTIC_ID' : 'NO_HTTP_RESPONSE';
+  const missingIdText = receivedHttpResponse
+    ? 'не предоставлен сервером'
+    : 'не создан — HTTP-ответ не получен';
+  const status = Number.isInteger(error?.httpStatus) ? `HTTP ${error.httpStatus}` : 'Нет HTTP-ответа';
+  const at = new Date().toISOString();
+  const report = [
+    `Время: ${at}`, `Площадка: ${platform}`, `Операция: ${operation}`,
+    `Статус: ${status}`, `Код: ${code}`,
+    `ID диагностики: ${serverId || missingIdText}`,
+    `Сообщение: ${message}`
+  ].join('\n');
+  const hint = platform === 'vk'
+    ? 'Если проверка не прошла, ключ VK можно сохранить выключенным. Это не разрешает публикацию.'
+    : 'В установленной версии сохранение требует успешной проверки. Ошибка серверного запроса фиксируется в журнале событий.';
+  target.innerHTML = `<div class="operator-result error" role="alert">
+    <strong>Не удалось выполнить ${operatorEsc(operation)}.</strong>
+    <div>${operatorEsc(message)}</div>
+    <div class="small">Код: <strong>${operatorEsc(code)}</strong> · ${operatorEsc(status)}</div>
+    <div class="small">ID диагностики: <strong>${operatorEsc(serverId || missingIdText)}</strong></div>
+    <div class="small muted">${operatorEsc(hint)}</div>
+    <button class="secondary operator-copy-social-diagnostic" type="button">Копировать диагностику без ключей</button>
+  </div>`;
+  const copy = target.querySelector('.operator-copy-social-diagnostic');
+  copy?.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(report);
+      copy.textContent = 'Диагностика скопирована';
+    } catch {
+      copy.textContent = 'Копирование недоступно — используйте ID диагностики';
+    }
+  });
 }
 
 const OPERATOR_PLATFORM = {
@@ -128,23 +183,52 @@ function renderSocialConnectForm(platform) {
     input.addEventListener('change', invalidate);
   });
   invalidate();
-  host.querySelector('#operator-vk-oauth')?.addEventListener('click', async () => {
-    result.innerHTML = '<div class="operator-result">Открываю авторизацию VK…</div>';
-    try {
-      const data = new FormData(form);
-      const name = String(data.get('name') || '').trim();
-      const destinationKind = String(data.get('destinationKind') || 'PERSONAL');
-      const groupId = String(data.get('groupId') || '').trim();
-      if (!name) throw new Error('Укажите название подключения.');
-      if (destinationKind === 'COMMUNITY' && !groupId) throw new Error('Укажите ID или ссылку сообщества.');
-      const params = new URLSearchParams({ name, destinationKind });
-      if (destinationKind === 'COMMUNITY') params.set('groupId', groupId);
-      const started = await operatorApi(`/api/vk/oauth/start?${params}`);
-      window.location.assign(started.authorizationUrl);
-    } catch (error) {
-      result.innerHTML = `<div class="operator-result error">${operatorEsc(error instanceof Error ? error.message : String(error))}</div>`;
-    }
-  });
+  const oauthButton = host.querySelector('#operator-vk-oauth');
+  if (oauthButton) {
+    // The form result lives below the credential fields. OAuth feedback must
+    // appear next to the pressed button or the action looks unresponsive.
+    const oauthFeedback = document.createElement('div');
+    oauthFeedback.id = 'operator-vk-oauth-feedback';
+    oauthFeedback.className = 'operator-result hidden';
+    oauthFeedback.setAttribute('role', 'status');
+    oauthFeedback.setAttribute('aria-live', 'polite');
+    oauthButton.insertAdjacentElement('afterend', oauthFeedback);
+    oauthButton.addEventListener('click', async () => {
+      oauthButton.disabled = true;
+      oauthFeedback.className = 'operator-result';
+      oauthFeedback.setAttribute('role', 'status');
+      oauthFeedback.textContent = 'Открываю авторизацию VK…';
+      try {
+        const data = new FormData(form);
+        const name = String(data.get('name') || '').trim();
+        const destinationKind = String(data.get('destinationKind') || 'PERSONAL');
+        const groupId = String(data.get('groupId') || '').trim();
+        if (!name) throw new Error('Укажите название подключения.');
+        if (destinationKind === 'COMMUNITY' && !groupId) throw new Error('Укажите ID или ссылку сообщества.');
+        const params = new URLSearchParams({ name, destinationKind });
+        if (destinationKind === 'COMMUNITY') params.set('groupId', groupId);
+        const started = await operatorApi(`/api/vk/oauth/start?${params}`);
+        const url = typeof started?.authorizationUrl === 'string' ? new URL(started.authorizationUrl) : null;
+        if (!url || url.origin !== 'https://oauth.vk.com' || url.pathname !== '/authorize') {
+          throw new Error('VK: сервер не предоставил правильную ссылку авторизации.');
+        }
+        window.location.assign(url.href);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '';
+        // Accept only known application-owned OAuth errors, never echo an
+        // arbitrary network/provider exception or a credential-like string.
+        const safe = /^(VK OAuth не настроен:|VK OAuth настроен некорректно$|Укажите название подключения\.$|Укажите ID или ссылку сообщества\.$|VK: сервер не предоставил)/.test(message)
+          ? message : 'Не удалось открыть авторизацию VK. Проверьте настройки VK OAuth и доступность сервера.';
+        oauthFeedback.className = 'operator-result error';
+        oauthFeedback.setAttribute('role', 'alert');
+        oauthFeedback.textContent = safe;
+        result.innerHTML = `<div class="operator-result error">${operatorEsc(safe)}</div>`;
+        oauthFeedback.scrollIntoView({ block: 'nearest' });
+      } finally {
+        oauthButton.disabled = false;
+      }
+    });
+  }
   host.querySelector('#operator-close-connect').onclick = () => { host.innerHTML = ''; };
   host.querySelector('#operator-test-connect').onclick = async () => {
     result.innerHTML = '<div class="operator-result">Проверяю токен и назначение через API…</div>';
@@ -204,7 +288,7 @@ function renderSocialConnectForm(platform) {
         save.disabled = !form.querySelector('input[name="accessToken"]').value.trim();
         save.textContent = 'Сохранить ключ VK';
       }
-      result.innerHTML = `<div class="operator-result error">${operatorEsc(error instanceof Error ? error.message : String(error))}<br>Ключ можно сохранить и проверить позже.</div>`;
+      showSocialConnectionError(result, error, platform, 'проверку подключения');
     }
   };
   form.onsubmit = async (event) => {
@@ -251,7 +335,7 @@ function renderSocialConnectForm(platform) {
         save.disabled = !form.querySelector('input[name="accessToken"]').value.trim();
         save.textContent = 'Сохранить ключ VK';
       }
-      result.innerHTML = `<div class="operator-result error">${operatorEsc(error instanceof Error ? error.message : String(error))}<br>Ключ можно сохранить выключенным.</div>`;
+      showSocialConnectionError(result, error, platform, 'сохранение подключения');
     }
   };
   host.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -272,7 +356,7 @@ async function renderSocialsPage() {
           const credentialOnly = account.platform === 'vk' && account.credential_only === true;
           const pendingKey = account.platform === 'vk' && account.verification_status === 'PENDING';
           const canAddVkCommunity = account.platform === 'vk' && !pendingKey && !credentialOnly && account.destination_kind === 'PERSONAL';
-          return `<div class="operator-connection" data-account-id="${operatorEsc(account.id)}"><span class="operator-platform-badge">${operatorEsc(account.platform)}</span><div class="operator-connection-main"><strong>${operatorEsc(account.name)}</strong><span>${pendingKey ? 'Ключ сохранён · проверка не завершена · публикация выключена' : credentialOnly ? `Ключ сообщества · текст: ${account.enabled && account.text_publish_ready ? 'включён' : 'выключен'} · фото: ${account.photo_publish_ready ? 'доступны' : account.photo_key_present ? 'проверка ключа загрузки не пройдена' : 'добавьте пользовательский ключ загрузки'}` : account.enabled ? 'Включено · назначение можно подтвердить кнопкой «Проверить»' : 'Отключено · назначение можно подтвердить кнопкой «Проверить»'}</span>${credentialOnly && account.capabilityProfile?.profileCurrent ? `<div class="small">Доступ: ${account.capabilityProfile.accessLevel === 'FULL' ? 'полный' : account.capabilityProfile.accessLevel === 'PARTIAL' ? 'частичный' : 'ограниченный'} · текст: ${account.capabilityProfile.semantic?.publicationReadiness?.TEXT?.state === 'READY' ? 'доступен' : 'не подтверждён'} · фото и карусель: ${account.capabilityProfile.semantic?.publicationReadiness?.IMAGE?.state === 'READY' ? 'доступны' : 'нужен рабочий ключ загрузки'}</div>${account.photo_setup_error ? `<div class="small error">${operatorEsc(account.photo_setup_error)}</div>` : ''}` : ''}<div class="operator-account-result"></div></div><div class="operator-connection-actions"><button class="secondary operator-test-account" type="button">Проверить</button>${canAddVkCommunity ? '<button class="secondary operator-add-vk-community" type="button">Добавить сообщество</button>' : ''}${pendingKey ? '<button class="secondary operator-activate-account" type="button">Завершить проверку</button>' : ''}${pendingKey ? '' : `<button class="secondary operator-toggle-account" type="button" data-enabled="${account.enabled ? '1' : '0'}">${account.enabled ? 'Отключить' : 'Включить'}</button>`}</div></div>`;
+          return `<div class="operator-connection" data-account-id="${operatorEsc(account.id)}" data-platform="${operatorEsc(account.platform)}"><span class="operator-platform-badge">${operatorEsc(account.platform)}</span><div class="operator-connection-main"><strong>${operatorEsc(account.name)}</strong><span>${pendingKey ? 'Ключ сохранён · проверка не завершена · публикация выключена' : credentialOnly ? `Ключ сообщества · текст: ${account.enabled && account.text_publish_ready ? 'включён' : 'выключен'} · фото: ${account.photo_publish_ready ? 'доступны' : account.photo_key_present ? 'проверка ключа загрузки не пройдена' : 'добавьте пользовательский ключ загрузки'}` : account.enabled ? 'Включено · назначение можно подтвердить кнопкой «Проверить»' : 'Отключено · назначение можно подтвердить кнопкой «Проверить»'}</span>${credentialOnly && account.capabilityProfile?.profileCurrent ? `<div class="small">Доступ: ${account.capabilityProfile.accessLevel === 'FULL' ? 'полный' : account.capabilityProfile.accessLevel === 'PARTIAL' ? 'частичный' : 'ограниченный'} · текст: ${account.capabilityProfile.semantic?.publicationReadiness?.TEXT?.state === 'READY' ? 'доступен' : 'не подтверждён'} · фото и карусель: ${account.capabilityProfile.semantic?.publicationReadiness?.IMAGE?.state === 'READY' ? 'доступны' : 'нужен рабочий ключ загрузки'}</div>${account.photo_setup_error ? `<div class="small error">${operatorEsc(account.photo_setup_error)}</div>` : ''}` : ''}<div class="operator-account-result"></div></div><div class="operator-connection-actions"><button class="secondary operator-test-account" type="button">Проверить</button>${canAddVkCommunity ? '<button class="secondary operator-add-vk-community" type="button">Добавить сообщество</button>' : ''}${pendingKey ? '<button class="secondary operator-activate-account" type="button">Завершить проверку</button>' : ''}${pendingKey ? '' : `<button class="secondary operator-toggle-account" type="button" data-enabled="${account.enabled ? '1' : '0'}">${account.enabled ? 'Отключить' : 'Включить'}</button>`}</div></div>`;
         }).join('') : '<div class="operator-empty">Пока нет ни одного подключения. Выберите площадку выше.</div>'}</div>
       </section>
     </div>`;
@@ -298,7 +382,7 @@ async function renderSocialsPage() {
           ? vkCapabilityCard(checked)
           : `<div class="operator-result ok">${operatorEsc(checked.identity)} → <strong>${operatorEsc(checked.destination)}</strong></div>`;
       } catch (error) {
-        out.innerHTML = `<div class="operator-result error">${operatorEsc(error instanceof Error ? error.message : String(error))}</div>`;
+        showSocialConnectionError(out, error, row.dataset.platform || 'unknown', 'проверку сохранённого подключения');
       }
     }));
     operatorView.querySelectorAll('.operator-activate-account').forEach((button) => button.addEventListener('click', async () => {

@@ -11,7 +11,8 @@ process.env.ADMIN_PASSWORD='ew4-006-password';
 process.env.APP_MASTER_KEY='ew4-006-master-key-value-longer-than-thirty-two-characters';
 process.env.PUBLIC_BASE_URL='https://publisher.example.test';
 
-const {db,migrate}=await import('../dist/db.js');
+const {db,migrate,id,nowIso}=await import('../dist/db.js');
+const {encryptJson}=await import('../dist/crypto.js');
 const {buildApp}=await import('../dist/app.js');
 const {markReadyRevision}=await import('../dist/content-versioning.js');
 migrate();
@@ -29,20 +30,19 @@ async function api(method,url,payload,expected=200){
   return response.statusCode===204?null:response.json();
 }
 const enabledTargetIds=(post)=>post.targets.filter((target)=>Boolean(target.enabled)).map((target)=>target.account_id).sort();
+// Templates rely on pre-existing accounts; they do not exercise credential onboarding.
+function fixtureAccount(platform,name){
+  const accountId=id('acc'),at=nowIso();
+  db.prepare(`INSERT INTO social_accounts(id,platform,name,credentials_encrypted,enabled,created_at,updated_at)
+    VALUES (?,?,?,?,1,?,?)`).run(accountId,platform,name,encryptJson({testCredential:'isolated-fixture'}),at,at);
+  return {id:accountId};
+}
+
 try{
   const project=(await api('GET','/api/projects'))[0];
-  const telegram=await api('POST','/api/accounts',{platform:'telegram',name:'Template TG',credentials:{token:'tg'}},201);
-  const vk=await api('POST','/api/accounts',{
-    platform:'vk',
-    name:'Template VK',
-    credentials:{
-      accessToken:'ew4-006-vk-token',
-      destinationKind:'COMMUNITY',
-      groupId:'12345',
-      apiVersion:'5.199'
-    }
-  },201);
-  const max=await api('POST','/api/accounts',{platform:'max',name:'Template MAX',credentials:{token:'max'}},201);
+  const telegram=fixtureAccount('telegram','Template TG');
+  const vk=fixtureAccount('vk','Template VK');
+  const max=fixtureAccount('max','Template MAX');
 
   await api('PATCH',`/api/projects/${project.id}`,{
     defaultTimezone:'Europe/Moscow',
@@ -257,7 +257,7 @@ try{
   assert.deepEqual((await api('GET',`/api/posts/${readySource.id}`)).bodyRich,reusableRichV1);
   assert.deepEqual((await api('GET',`/api/posts/${postBSource.id}`)).bodyRich,reusableRichV2);
 
-  const temporary=await api('POST','/api/accounts',{platform:'instagram',name:'Temporary target',credentials:{token:'temp'}},201);
+  const temporary=fixtureAccount('instagram','Temporary target');
   const unavailable=await api('POST','/api/templates',{
     key:'unavailable-target-template',
     name:'Unavailable target template',
