@@ -227,36 +227,6 @@ try {
     await page.unroute(startPattern);
   }
 
-  // With configured OAuth, the button navigates to VK's authorization
-  // origin. The external page is intercepted; no real VK login occurs.
-  {
-    const startPattern = '**/api/vk/oauth/start?**';
-    const authPattern = 'https://oauth.vk.com/authorize**';
-    const authorizeUrl = 'https://oauth.vk.com/authorize?client_id=12345678&response_type=code&state=fixture-state';
-    await page.route(startPattern, async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ authorizationUrl: authorizeUrl })
-      });
-    });
-    await page.route(authPattern, async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'text/html',
-        body: '<html><body><h1 id="vk-mocked-login">VK OAuth navigation</h1></body></html>'
-      });
-    });
-    const form = await openPlatform('vk');
-    await form.locator('input[name="name"]').fill('VK OAuth configured');
-    await form.locator('#operator-vk-oauth').click();
-    await page.waitForURL(authPattern);
-    assert.equal(await page.locator('#vk-mocked-login').textContent(), 'VK OAuth navigation');
-    assert.equal(new URL(page.url()).origin, 'https://oauth.vk.com');
-    await page.unroute(startPattern);
-    await page.unroute(authPattern);
-  }
-
   // VK PERSONAL.
   {
     const form = await openPlatform('vk');
@@ -491,6 +461,36 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   assert.equal(saveBodies.length, 7, 'all mocked account-create handlers must complete');
+  // With configured OAuth, the button navigates to VK's authorization
+  // origin. The external page is intercepted; no real VK login occurs.
+  {
+    const startPattern = '**/api/vk/oauth/start?**';
+    const authPattern = 'https://oauth.vk.com/authorize**';
+    const authorizeUrl = 'https://oauth.vk.com/authorize?client_id=12345678&response_type=code&state=fixture-state';
+    await page.route(startPattern, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ authorizationUrl: authorizeUrl })
+      });
+    });
+    await page.route(authPattern, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/html',
+        body: '<html><body><h1 id="vk-mocked-login">VK OAuth navigation</h1></body></html>'
+      });
+    });
+    const form = await openPlatform('vk');
+    await form.locator('input[name="name"]').fill('VK OAuth configured');
+    await form.locator('#operator-vk-oauth').click();
+    await page.waitForURL(authPattern);
+    assert.equal(await page.locator('#vk-mocked-login').textContent(), 'VK OAuth navigation');
+    assert.equal(new URL(page.url()).origin, 'https://oauth.vk.com');
+    await page.unroute(startPattern);
+    await page.unroute(authPattern);
+  }
+
   assert.deepEqual(pageErrors, [], `browser page errors:\n${pageErrors.join('\n')}`);
   await context.close();
 
