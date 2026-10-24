@@ -15,7 +15,7 @@ const { DATABASE_SCHEMA_VERSION } = await import('../dist/schema.js');
 
 migrate();
 try {
-  assert.equal(DATABASE_SCHEMA_VERSION, 13);
+  assert.ok(DATABASE_SCHEMA_VERSION >= 13);
   const project = db.prepare('SELECT id FROM projects ORDER BY created_at LIMIT 1').get();
   const accountId = id('acc');
   const now = nowIso();
@@ -37,7 +37,7 @@ try {
 
   migrate();
 
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 13);
+  assert.equal(Number(db.pragma('user_version', { simple: true })), DATABASE_SCHEMA_VERSION);
   const accountColumns = db.prepare('PRAGMA table_info(social_accounts)').all().map((row) => row.name);
   assert.ok(accountColumns.includes('credential_version'));
   const profileColumns = db.prepare('PRAGMA table_info(social_account_capability_profiles)').all().map((row) => row.name);
@@ -55,12 +55,12 @@ try {
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM social_account_capability_profiles').get().count, 0);
 
   migrate();
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 13);
+  assert.equal(Number(db.pragma('user_version', { simple: true })), DATABASE_SCHEMA_VERSION);
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM social_account_capability_profiles').get().count, 0);
 
-  db.pragma('user_version = 14');
-  assert.throws(() => migrate(), /новее поддерживаемой 13/);
-  db.pragma('user_version = 13');
+  db.pragma(`user_version = ${DATABASE_SCHEMA_VERSION+1}`);
+  assert.throws(() => migrate(), /новее поддерживаемой 14/);
+  db.pragma(`user_version = ${DATABASE_SCHEMA_VERSION}`);
 
   console.log(JSON.stringify({
     ok: true,
