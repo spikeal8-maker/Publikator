@@ -122,28 +122,36 @@ function mount(host, postId) {
   return () => { disposed = true; host.innerHTML = ''; };
 }
 
-let pendingPostId = null;
 let activeCleanup = null;
+let activeInspector = null;
 
-document.addEventListener('click', (event) => {
-  const target = event.target instanceof Element ? event.target.closest('.open-post') : null;
-  if (!target?.dataset.id) return;
-  pendingPostId = target.dataset.id;
-  setTimeout(() => { if (pendingPostId === target.dataset.id) pendingPostId = null; }, 1500);
-}, true);
+function releaseActivePreview() {
+  activeCleanup?.();
+  activeCleanup = null;
+  activeInspector = null;
+}
 
-const observer = new MutationObserver(() => {
-  const inspector = document.querySelector('.editorial-inspector');
-  if (!inspector || !pendingPostId || inspector.querySelector('.platform-preview-section')) return;
+document.addEventListener('publikator:editorial-inspector-opened', (event) => {
+  const { postId, inspector } = event.detail || {};
+  if (typeof postId !== 'string' || !postId || !(inspector instanceof Element) || !inspector.isConnected) return;
+  if (!inspector.classList.contains('editorial-inspector')) return;
+  const previous = inspector.querySelector('.platform-preview-section');
+  if (previous) return;
+
+  const insertion = inspector.querySelector('.inspector-targets')?.closest('.inspector-section')
+    || inspector.querySelector('.inspector-actions');
+  if (!insertion) return;
+  releaseActivePreview();
   const section = document.createElement('section');
   section.className = 'card inspector-section platform-preview-section';
   section.innerHTML = '<h3>Предпросмотр площадок</h3><div class="platform-preview-host"></div>';
-  const targets = inspector.querySelector('.inspector-targets')?.closest('.inspector-section');
-  if (targets) targets.before(section); else inspector.querySelector('.inspector-actions')?.before(section);
-  activeCleanup?.();
-  activeCleanup = mount(section.querySelector('.platform-preview-host'), pendingPostId);
-  pendingPostId = null;
+  insertion.before(section);
+  activeInspector = inspector;
+  activeCleanup = mount(section.querySelector('.platform-preview-host'), postId);
 });
-observer.observe(document.body, { childList: true, subtree: true });
+
+document.addEventListener('publikator:editorial-inspector-closed', (event) => {
+  if (event.detail?.inspector === activeInspector) releaseActivePreview();
+});
 
 window.PublikatorPlatformPreviews = { mount };
