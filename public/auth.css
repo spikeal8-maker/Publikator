@@ -1,0 +1,20 @@
+/* P0 admin onboarding: separate, focused product-facing UI. */
+#login.auth-screen { width: min(444px, calc(100% - 32px)); margin: clamp(42px, 10vh, 120px) auto 32px; padding: clamp(24px, 5vw, 36px); border: 1px solid #e2e8f0; border-radius: 22px; background: #fff; box-shadow: 0 24px 65px rgba(19,34,58,.11); }
+#login .auth-mark { width: 46px; height: 46px; border-radius: 13px; display: grid; place-items: center; margin-bottom: 24px; color: white; font-weight: 850; font-size: 23px; background: linear-gradient(135deg,#1d4ed8,#0f172a); letter-spacing: -.04em; }
+#login h1 { font-size: clamp(24px,4.5vw,30px); line-height: 1.14; letter-spacing: -.045em; margin: 0 0 9px; color: #111827; }
+#login #auth-subtitle { color: #64748b; line-height: 1.55; margin: 0 0 26px; font-size: 14px; }
+#login form { display: grid; gap: 15px; }
+#login form label { display: grid; gap: 7px; font-size: 13px; font-weight: 650; color: #334155; }
+#login input { min-height: 44px; border-radius: 10px; border: 1px solid #cbd5e1; background: #fff; padding: 10px 13px; font-size: 15px; }
+#login input:focus-visible { border-color:#2563eb; outline: 3px solid #bfdbfe; outline-offset: 1px; }
+#login form button { min-height: 46px; font-size: 14px; font-weight: 750; margin-top: 7px; border-radius: 10px; background: #1d4ed8; }
+#login form button:hover { background: #1e40af; }
+#login .error { margin: 16px 0 0; font-size: 13px; line-height: 1.4; }
+#login #setup-help { margin-top: 18px; padding: 14px; background: #f1f5f9; border-radius: 10px; color: #475569; font-size: 13px; line-height: 1.55; }
+#login #auth-bottom { margin-top: 24px; font-size: 12px; color: #94a3b8; text-align: center; }
+.auth-settings { max-width: 560px; }
+.auth-settings form { display: grid; gap: 14px; }
+.auth-settings label { display:grid;gap:7px;font-size:13px;font-weight:600; }
+.auth-settings .auth-success { color:#166534; font-size: 14px; }
+#legacy-migration-note { display:inline-flex; align-items:center; border:1px solid #bfdbfe; background:#eff6ff; color:#1d4ed8; font-size:12px; padding:9px 12px; border-radius:9px; cursor:pointer; }
+@media (max-width: 520px) { #login.auth-screen { margin: 26px auto; } #login .auth-mark { margin-bottom: 20px; } #login input { font-size: 16px; } }
