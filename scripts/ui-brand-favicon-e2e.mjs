@@ -19,7 +19,10 @@ const expected = [
   ['favicon-512.png', 'image/png'],
   ['site.webmanifest', 'application/manifest+json']
 ];
-for (const [file] of expected) assert(html.includes(`/${file}?v=pk-1`), `${file} missing or unversioned in page head`);
+// The two Android raster sizes are referenced from the manifest, not the HTML head.
+for (const [file] of expected.filter(([name]) => !/^favicon-(192|512)\.png$/.test(name))) {
+  assert(html.includes(`/${file}?v=pk-1`), `${file} missing or unversioned in page head`);
+}
 assert(html.includes('name="theme-color"'), 'browser theme color not configured');
 const source = await fs.readFile(path.join(publicDir, 'favicon.svg'), 'utf8');
 assert.match(source, /^<svg\s/);
