@@ -93,9 +93,13 @@ assert.ok(instagram.issues.some((issue) => issue.code === 'UNSUPPORTED_COMPOSITI
 assert.ok(instagram.issues.some((issue) => issue.code === 'VERTICAL_SAFE_ZONE_ASPECT' && issue.severity === 'warning'));
 
 const source = await fs.readFile(new URL('../public/platform-previews-v3.js', import.meta.url), 'utf8');
-for (const marker of ['platform-preview-grid', 'safe-top', 'captionPlacement', '.open-post', 'pixel-perfect']) {
+for (const marker of ['platform-preview-grid', 'safe-top', 'captionPlacement', 'publikator:editorial-inspector-opened', 'pixel-perfect']) {
   assert.ok(source.includes(marker), `frontend preview marker missing: ${marker}`);
 }
+assert.ok(!source.includes('setTimeout(() => { if (pendingPostId'), '1500ms post-click timer must be removed');
+const inspectorSource = await fs.readFile(new URL('../public/editorial-v4.js', import.meta.url), 'utf8');
+assert.ok(inspectorSource.includes('publikator:editorial-inspector-opened'), 'inspector must dispatch mount event');
+assert.ok(inspectorSource.includes('publikator:editorial-inspector-closed'), 'inspector must dispatch cleanup event');
 const index = await fs.readFile(new URL('../public/index.html', import.meta.url), 'utf8');
 assert.ok(index.includes('/platform-previews-v3.css'));
 assert.ok(index.includes('/platform-previews-v3.js'));

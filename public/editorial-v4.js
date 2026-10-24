@@ -198,7 +198,14 @@ async function openContentInspector(postId) {
   const richHost=overlay.querySelector('[data-inspector-rich-text]');
   if(richHost)renderRichText(richHost,post.bodyRich);
   const mediaCleanup = window.PublikatorMediaViewer?.mount?.(overlay.querySelector('.inspector-media-host'), post) || (() => {});
-  const close = () => { mediaCleanup(); overlay.remove(); };
+  const inspectorElement = overlay.querySelector('.editorial-inspector');
+  const close = () => {
+    document.dispatchEvent(new CustomEvent('publikator:editorial-inspector-closed', {
+      detail: { postId: post.id, inspector: inspectorElement }
+    }));
+    mediaCleanup();
+    overlay.remove();
+  };
   overlay.addEventListener('click', (event) => { if (event.target === overlay) close(); });
   overlay.querySelector('.inspector-close')?.addEventListener('click', close);
   overlay.querySelector('.inspector-edit')?.addEventListener('click', () => {
@@ -242,6 +249,11 @@ async function openContentInspector(postId) {
       mutate('permanent', 'DELETE', { confirm: true });
     }
   });
+  // Emitted only once the matching post's inspector is actually in the DOM.
+  // Consumers do not need to guess how long the API request will take.
+  document.dispatchEvent(new CustomEvent('publikator:editorial-inspector-opened', {
+    detail: { postId: post.id, inspector: inspectorElement }
+  }));
 }
 
 window.PublikatorEditorial = {
