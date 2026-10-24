@@ -70,7 +70,7 @@ try {
   }
   assert.match(await page.locator('#qc-counter').textContent(), /3 выбрано/);
   await page.locator('#qc-save').click();
-  await page.locator('#qc-status').getByText('Черновик сохранён', { exact: false }).waitFor({ timeout: 30000 });
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
 
   const post = db.prepare('SELECT id,title,body,status,content_format FROM posts LIMIT 1').get();
   assert.ok(post?.id, 'post created');
@@ -91,7 +91,7 @@ try {
   await page.locator('#qc-text').fill('Обычный текст без фотографий.');
   assert.equal(await page.locator('.qc-image').count(), 0);
   await page.locator('#qc-save').click();
-  await page.locator('#qc-status').getByText('Черновик сохранён', { exact: false }).waitFor({ timeout: 30000 });
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
   const textOnly = db.prepare('SELECT * FROM posts ORDER BY created_at DESC').all().find(x => x.id !== post.id);
   assert.equal(textOnly?.content_format, 'TEXT_ONLY');
   assert.equal(db.prepare('SELECT COUNT(*) n FROM media WHERE post_id=?').get(textOnly.id).n, 0);
@@ -124,6 +124,7 @@ try {
   await mp.locator('#password').fill('composer-e2e-legacy-password-2026');
   await mp.locator('#login-form button[type="submit"]').click();
   await mp.locator('#app:not(.hidden)').waitFor();
+  await mp.locator('.ui-mobile-menu').click();
   await mp.locator('#quick-compose-nav').click();
   await mp.locator('#qc-text').waitFor();
   assert.equal(await mp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
