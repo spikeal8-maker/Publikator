@@ -539,6 +539,29 @@ async function inspectMax(credentials: Record<string, unknown>): Promise<Credent
     };
   }
 
+  // HTTP 400 identifies a failed MAX request, not an invalid credential.
+  // Only documented authentication failures (401/403) invalidate identity.
+  if (meProbe.status === 400) {
+    methods.push(method('max.GET /me', 'DENIED',
+      'MAX GET /me вернул HTTP 400. Причина запроса не подтверждена; токен нельзя объявлять недействительным.',
+      'max', 'HTTP_400'));
+    return {
+      platform: 'max',
+      credential: {
+        validity: 'UNKNOWN', providerType: 'BOT', identity: null, ownerId: null,
+        expiresAt: null, declaredPermissions: [], permissionsSource: null
+      },
+      destination: unknownDestination(),
+      methods,
+      publicationEvidence: {},
+      runtimePrerequisiteEvidence: [],
+      remediation: [remediation('MAX_IDENTITY_REQUEST_REJECTED',
+        'MAX отклонил проверку бота',
+        'Проверка GET /me вернула HTTP 400. Проверьте формат подключения и повторите запрос; HTTP 400 не доказывает, что ключ недействителен.')],
+      warnings: []
+    };
+  }
+
   const me = meProbe.body;
   if (!me?.user_id) {
     methods.push(method('max.GET /me', 'DENIED', 'MAX did not confirm bot identity.', 'max', 'MAX_IDENTITY_NOT_CONFIRMED'));
@@ -560,6 +583,40 @@ async function inspectMax(credentials: Record<string, unknown>): Promise<Credent
   const ownerId = String(me.user_id);
   const identity = me.username ? `@${safeText(me.username, 256)}` : safeText(me.first_name || ownerId, 256);
   methods.push(method('max.GET /me', 'CONFIRMED', 'MAX подтвердил token и identity.', 'max', 'BOT_IDENTITY_CONFIRMED'));
+
+  // MAX path chatId is a signed int64 from a bot update, not a public
+  // invitation link, channel username, or guessed numeric slug.
+  const numericChatId = /^-?\d{1,19}$/.test(chatId);
+  const inRange = numericChatId
+    && BigInt(chatId) !== 0n
+    && BigInt(chatId) >= -(1n << 63n)
+    && BigInt(chatId) <= (1n << 63n) - 1n;
+  if (!inRange) {
+    const code = 'MAX_CHAT_ID_FROM_UPDATES_REQUIRED';
+    methods.push(method('max.GET /chats/{chatId}/members/me', 'NOT_CHECKED',
+      'Запрос не отправлялся: нужен числовой chat_id, полученный из события бота MAX.',
+      'local', 'MAX_CHAT_ID_FORMAT_INVALID'));
+    remediationRows.push(remediation(code, 'Неверный формат chat_id',
+      'Укажите подписанный числовой chat_id из события bot_added или другого обновления MAX. Ссылку-приглашение нельзя использовать как ID.',
+      { steps: ['Получите chat_id из обновления бота MAX.', 'Проверьте, что бот добавлен в канал с ролью администратора и правом write.'] }));
+    return {
+      platform: 'max',
+      credential: {
+        validity: 'CONFIRMED', providerType: 'BOT', identity, ownerId,
+        expiresAt: null, declaredPermissions: [], permissionsSource: null
+      },
+      destination: unknownDestination(),
+      methods,
+      publicationEvidence: {
+        TEXT: publication('SETUP_REQUIRED', { remediationCodes: [code] }),
+        IMAGE: publication('SETUP_REQUIRED', { remediationCodes: [code] }),
+        CAROUSEL: publication('SETUP_REQUIRED', { remediationCodes: [code] })
+      },
+      runtimePrerequisiteEvidence: [],
+      remediation: remediationRows,
+      warnings: []
+    };
+  }
 
   const memberProbe = await jsonProbe(
     `https://platform-api2.max.ru/chats/${encodeURIComponent(chatId)}/members/me`,
@@ -608,6 +665,36 @@ async function inspectMax(credentials: Record<string, unknown>): Promise<Credent
         TEXT: publication('SETUP_REQUIRED', { remediationCodes: [code], reason }),
         IMAGE: publication('SETUP_REQUIRED', { remediationCodes: [code], reason }),
         CAROUSEL: publication('SETUP_REQUIRED', { remediationCodes: [code], reason })
+      },
+      runtimePrerequisiteEvidence: [],
+      remediation: remediationRows,
+      warnings: []
+    };
+  }
+
+  if (memberProbe.status === 400) {
+    const code = 'MAX_CHAT_ID_FROM_UPDATES_REQUIRED';
+    methods.push(method('max.GET /chats/{chatId}/members/me', 'DENIED',
+      'MAX GET /chats/{chatId}/members/me вернул HTTP 400. Проверьте действительный chat_id из событий бота, членство и права.',
+      'max', 'HTTP_400'));
+    remediationRows.push(remediation(code, 'MAX отклонил chat_id или запрос членства',
+      'Токен бота подтверждён методом GET /me. Убедитесь, что chat_id получен из обновления MAX, бот состоит в канале и имеет право write.',
+      { steps: ['Получите точный chat_id из обновления бота.', 'Проверьте назначение роли администратора и разрешение write.'] }));
+    return {
+      platform: 'max',
+      credential: {
+        validity: 'CONFIRMED', providerType: 'BOT', identity, ownerId,
+        expiresAt: null, declaredPermissions: [], permissionsSource: null
+      },
+      destination: {
+        resolutionState: 'DENIED', kind: 'CHAT', id: chatId, name: chatId,
+        role: null, ownershipConfirmed: null
+      },
+      methods,
+      publicationEvidence: {
+        TEXT: publication('SETUP_REQUIRED', { remediationCodes: [code] }),
+        IMAGE: publication('SETUP_REQUIRED', { remediationCodes: [code] }),
+        CAROUSEL: publication('SETUP_REQUIRED', { remediationCodes: [code] })
       },
       runtimePrerequisiteEvidence: [],
       remediation: remediationRows,
