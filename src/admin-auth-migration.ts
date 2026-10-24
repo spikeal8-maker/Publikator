@@ -27,5 +27,11 @@ export function migrateAdminAuth(db: Database.Database): void {
       token_hash TEXT NOT NULL CHECK(length(token_hash)=64),
       expires_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS admin_legacy_session_revocations (
+      token_hash TEXT PRIMARY KEY CHECK(length(token_hash)=64),
+      expires_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_admin_legacy_session_revocation_expiry
+      ON admin_legacy_session_revocations(expires_at);
   `);
 }

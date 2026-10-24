@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { config } from './config.js';
 import { db, nowIso } from './db.js';
+import { verifySessionToken } from './crypto.js';
 
 type Admin = {
   id: string;
@@ -95,6 +96,21 @@ export function revokeSession(token: string | undefined): void {
   if (token?.startsWith(sessionPrefix)) {
     db.prepare('DELETE FROM admin_sessions WHERE token_hash=?').run(digest(token));
   }
+}
+
+/** HMAC-signed legacy cookies must be denylisted until expiry when logging out. */
+export function isLegacySessionRevoked(token: string): boolean {
+  return Boolean(db.prepare('SELECT 1 FROM admin_legacy_session_revocations WHERE token_hash=?')
+    .get(digest(token)));
+}
+
+export function revokeLegacySession(token: string | undefined): void {
+  if (!token || !verifySessionToken(token)) return;
+  const expiresAt = Number(token.split('.')[0]);
+  if (!Number.isSafeInteger(expiresAt) || expiresAt <= Date.now()) return;
+  db.prepare('DELETE FROM admin_legacy_session_revocations WHERE expires_at<=?').run(Date.now());
+  db.prepare('INSERT OR IGNORE INTO admin_legacy_session_revocations(token_hash,expires_at) VALUES (?,?)')
+    .run(digest(token), expiresAt);
 }
 
 export function loginAdmin(username: unknown, password: unknown): string | null {

@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { config } from '../config.js';
 import { createSessionToken, decryptJson, encryptJson, securePasswordEqual, verifySessionToken } from '../crypto.js';
 import { db, event, id, nowIso, type Platform } from '../db.js';
-import { adminMode, sessionAdmin, revokeSession, loginAdmin,
+import { adminMode, sessionAdmin, revokeSession, revokeLegacySession, isLegacySessionRevoked, loginAdmin,
   createOrRecoverAdmin, migrateLegacyAdmin, changeAdminPassword, AdminAuthError } from '../admin-auth.js';
 import { deleteMediaVersioned, listMedia, saveImageVersioned } from '../media.js';
 import { commitContentEdit, markReadyRevision, snapshotContentRevision } from '../content-versioning.js';
@@ -247,7 +247,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   }
 
   function legacyAuthorized(token: string | undefined): boolean {
-    return adminMode() === 'legacy' && verifySessionToken(token);
+    return adminMode() === 'legacy' && typeof token === 'string' && verifySessionToken(token)
+      && !isLegacySessionRevoked(token);
   }
 
   function authError(reply: FastifyReply, error: unknown) {
@@ -323,7 +324,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post('/api/auth/logout', async (request, reply) => {
-    revokeSession(request.cookies.publikator_session);
+    const token = request.cookies.publikator_session;
+    if (legacyAuthorized(token)) revokeLegacySession(token);
+    else revokeSession(token);
     reply.clearCookie('publikator_session', { path: '/' });
     return { ok: true };
   });

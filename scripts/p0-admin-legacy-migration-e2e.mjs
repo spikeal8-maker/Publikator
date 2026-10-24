@@ -27,7 +27,7 @@ const before={
   posts:db.prepare('SELECT * FROM posts').all(),
   targets:db.prepare('SELECT * FROM post_targets').all()
 };
-const app=await buildApp();
+let app=await buildApp();
 try{
  const state=(await app.inject({method:'GET',url:'/api/auth/state'})).json();
  assert.equal(state.mode,'legacy');
@@ -35,11 +35,27 @@ try{
  assert.equal(old.statusCode,200,old.body);
  const oldCookie=String(old.headers['set-cookie']).split(';')[0];
  assert.equal((await app.inject({method:'GET',url:'/api/dashboard',headers:{cookie:oldCookie}})).statusCode,200);
- const changed=await app.inject({method:'POST',url:'/api/auth/migrate',headers:{cookie:oldCookie},
+ const second=await app.inject({method:'POST',url:'/api/auth/login',payload:{password:process.env.ADMIN_PASSWORD}});
+ assert.equal(second.statusCode,200,second.body);
+ const secondCookie=String(second.headers['set-cookie']).split(';')[0];
+ const loggedOut=await app.inject({method:'POST',url:'/api/auth/logout',headers:{cookie:oldCookie}});
+ assert.equal(loggedOut.statusCode,200,loggedOut.body);
+ assert.equal((await app.inject({method:'GET',url:'/api/dashboard',headers:{cookie:oldCookie}})).statusCode,401,
+   'legacy logout must reject a replayed cookie');
+ assert.equal((await app.inject({method:'GET',url:'/api/dashboard',headers:{cookie:secondCookie}})).statusCode,200,
+   'another legacy operator session must remain usable');
+ assert.equal(db.prepare('SELECT COUNT(*) AS n FROM admin_legacy_session_revocations').get().n,1);
+ await app.close();
+ app=await buildApp();
+ assert.equal((await app.inject({method:'GET',url:'/api/dashboard',headers:{cookie:oldCookie}})).statusCode,401,
+   'revocation must survive an application restart');
+ assert.equal((await app.inject({method:'GET',url:'/api/dashboard',headers:{cookie:secondCookie}})).statusCode,200);
+ const changed=await app.inject({method:'POST',url:'/api/auth/migrate',headers:{cookie:secondCookie},
    payload:{username:'admin_new',password:'proper-new-password-2026',confirmPassword:'proper-new-password-2026'}});
  assert.equal(changed.statusCode,200,changed.body);
  const cookie=String(changed.headers['set-cookie']).split(';')[0];
  assert.equal((await app.inject({method:'GET',url:'/api/dashboard',headers:{cookie:oldCookie}})).statusCode,401);
+ assert.equal((await app.inject({method:'GET',url:'/api/dashboard',headers:{cookie:secondCookie}})).statusCode,401);
  assert.equal((await app.inject({method:'POST',url:'/api/auth/login',payload:{password:process.env.ADMIN_PASSWORD}})).statusCode,401);
  assert.equal((await app.inject({method:'POST',url:'/api/auth/login',payload:{username:'admin_new',password:process.env.ADMIN_PASSWORD}})).statusCode,401);
  assert.equal((await app.inject({method:'POST',url:'/api/auth/login',payload:{username:'admin_new',password:'proper-new-password-2026'}})).statusCode,200);
@@ -48,7 +64,7 @@ try{
  assert.deepEqual(db.prepare('SELECT * FROM posts').all(),before.posts);
  assert.deepEqual(db.prepare('SELECT * FROM post_targets').all(),before.targets);
  assert.deepEqual(decryptJson(encrypted),{botToken:'test-telegram-credential',chatId:'@Alikin_SA'});
- console.log(JSON.stringify({ok:true,legacyLoginWorks:true,migrated:true,oldPasswordBlocked:true,readyPreserved:true}));
+ console.log(JSON.stringify({ok:true,legacyLoginWorks:true,migrated:true,oldPasswordBlocked:true,legacyLogoutRevokesPersistently:true,readyPreserved:true}));
 }finally{
  await app.close();
  db.close();

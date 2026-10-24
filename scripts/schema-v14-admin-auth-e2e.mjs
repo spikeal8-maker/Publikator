@@ -34,11 +34,11 @@ try {
     posts: db.prepare('SELECT * FROM posts').all(),
     targets: db.prepare('SELECT * FROM post_targets').all()
   };
-  db.exec('DROP TABLE admin_sessions; DROP TABLE admin_setup_grants; DROP TABLE admin_users;');
+  db.exec('DROP TABLE admin_sessions; DROP TABLE admin_setup_grants; DROP TABLE admin_users; DROP TABLE admin_legacy_session_revocations;');
   db.pragma('user_version = 13');
   migrate();
   assert.equal(Number(db.pragma('user_version', { simple:true })), 14);
-  for (const table of ['admin_users','admin_sessions','admin_setup_grants']) {
+  for (const table of ['admin_users','admin_sessions','admin_setup_grants','admin_legacy_session_revocations']) {
     assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table), table);
     assert.equal(db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n, 0);
   }
