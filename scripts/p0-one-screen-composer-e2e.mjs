@@ -52,7 +52,7 @@ try {
     'all connected accounts must be available before any save');
   assert.equal(await page.locator('input[name="title"]:visible').count(), 0,
     'internal title must not be a mandatory user input');
-  assert.equal(await page.locator('#qc-advanced:not([open])').count(), 1,
+  assert.equal(await page.locator('.qc-advanced:not([open])').count(), 1,
     'project and scheduling are secondary');
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM posts').get().n, 0,
     'opening the composer never creates a draft');
