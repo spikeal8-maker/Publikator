@@ -13,13 +13,14 @@ process.env.PUBLIC_BASE_URL = 'https://publisher.example.test';
 
 const { db, migrate, id, nowIso } = await import('../dist/db.js');
 const { config } = await import('../dist/config.js');
+const { DATABASE_SCHEMA_VERSION } = await import('../dist/schema.js');
 const { encryptJson, decryptJson } = await import('../dist/crypto.js');
 const { saveCapabilityProfile } = await import('../dist/social-credential-capability.js');
 const { createBackupBundle, resolveBackupBundle, stageRestoreBundle } = await import('../dist/backups.js');
 const { applyPendingRestore } = await import('../dist/restore-bootstrap.js');
 
 migrate();
-assert.equal(Number(db.pragma('user_version', { simple: true })), 13);
+assert.equal(Number(db.pragma('user_version', { simple: true })), DATABASE_SCHEMA_VERSION);
 
 const accountId = id('acc');
 const now = nowIso();
@@ -77,7 +78,7 @@ db.prepare('UPDATE social_accounts SET credentials_encrypted=?,credential_versio
   .run(encryptJson({ botToken: 'mutated-secret', chatId: 'mutated' }), accountId);
 
 const staged = await stageRestoreBundle(bundlePath);
-assert.equal(staged.manifest.schemaVersion, 13);
+assert.equal(staged.manifest.schemaVersion, DATABASE_SCHEMA_VERSION);
 db.close();
 
 const applied = await applyPendingRestore();
@@ -85,7 +86,7 @@ assert.equal(applied.applied, true);
 
 const restored = new Database(config.dbPath, { readonly: true, fileMustExist: true });
 try {
-  assert.equal(Number(restored.pragma('user_version', { simple: true })), 13);
+  assert.equal(Number(restored.pragma('user_version', { simple: true })), DATABASE_SCHEMA_VERSION);
   const account = restored.prepare('SELECT * FROM social_accounts WHERE id=?').get(accountId);
   const capability = restored.prepare('SELECT * FROM social_account_capability_profiles WHERE account_id=?').get(accountId);
   assert.deepEqual(account, beforeAccount);
@@ -96,7 +97,7 @@ try {
 
   console.log(JSON.stringify({
     ok: true,
-    schemaVersion: 13,
+    schemaVersion: DATABASE_SCHEMA_VERSION,
     capabilityProfileRestored: true,
     encryptedCredentialsDecryptable: true,
     secretAbsentFromSafeProfile: true,
