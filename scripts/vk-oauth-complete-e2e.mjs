@@ -22,6 +22,7 @@ process.env.VK_OAUTH_REDIRECT_URI = REDIRECT_URI;
 
 const { db, migrate } = await import('../dist/db.js');
 const { decryptJson } = await import('../dist/crypto.js');
+const { saveCapabilityProfile, readCapabilityProfile } = await import('../dist/social-credential-capability.js');
 const { buildApp } = await import('../dist/app.js');
 migrate();
 const app = await buildApp();
@@ -47,6 +48,12 @@ globalThis.fetch = async (input, init = {}) => {
   calls.push(method);
   const body = new URLSearchParams(String(init.body || ''));
   assert.equal(body.get('access_token'), USER_TOKEN);
+  if (method === 'groups.getTokenPermissions') return new Response(JSON.stringify({
+    error: { error_code: 27, error_msg: 'This method is unavailable for USER token' }
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
+  if (method === 'account.getAppPermissions') return new Response(JSON.stringify({
+    response: 8192
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
   if (method === 'users.get') return new Response(JSON.stringify({
     response: [{ id: 123, first_name: 'Test', last_name: 'User', screen_name: 'testuser' }]
   }), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -93,7 +100,11 @@ try {
   });
   assert.equal(callback.statusCode, 302, callback.body);
   assert.match(String(callback.headers.location), /^\/socials\?vk_oauth_result=/);
-  assert.deepEqual(calls, ['token', 'users.get', 'groups.getById', 'photos.getWallUploadServer']);
+  assert.deepEqual(calls.slice(0, 4), ['token', 'users.get', 'groups.getById', 'photos.getWallUploadServer']);
+  assert.ok(calls.includes('groups.getTokenPermissions'));
+  assert.ok(calls.includes('account.getAppPermissions'));
+  assert.ok(calls.includes('photos.getWallUploadServer'));
+  assert.equal(calls.includes('wall.post'), false, 'inspection cannot publish');
   assert.equal(JSON.stringify(callback.headers).includes(USER_TOKEN), false);
   assert.equal(JSON.stringify(callback.headers).includes(CLIENT_SECRET), false);
 
@@ -120,18 +131,65 @@ try {
   assert.equal(list.statusCode, 200);
   assert.equal(list.body.includes(USER_TOKEN), false);
 
+  const noReplayBefore = calls.length;
   const replay = await app.inject({
     method: 'GET', url: `/api/vk/oauth/callback?state=${encodeURIComponent(state)}&code=test-code`
   });
   assert.equal(replay.statusCode, 400);
-  assert.equal(calls.length, 4);
+  assert.equal(calls.length, noReplayBefore, 'replayed state must not call VK');
 
   const deniedStart = await app.inject({ method: 'GET', url: startUrl, headers: { cookie } });
   const deniedState = new URL(deniedStart.json().authorizationUrl).searchParams.get('state');
   const denied = await app.inject({ method: 'GET', url: `/api/vk/oauth/callback?state=${deniedState}&error=access_denied` });
   assert.equal(denied.statusCode, 302);
-  assert.equal(calls.length, 4, 'denied authorization must not exchange a code');
+  assert.equal(calls.length, noReplayBefore, 'denied authorization must not exchange a code');
   assert.equal(db.prepare("SELECT COUNT(*) AS count FROM social_accounts WHERE platform='vk'").get().count, 1);
+
+  // Re-authorizing an existing VK destination is a credential mutation.
+  saveCapabilityProfile(rows[0].id, {
+    inspectionCompleted: true,
+    providerType: 'USER',
+    credential: {
+      validity: 'CONFIRMED', identity: 'Test User', ownerId: '123',
+      declaredPermissions: ['wall', 'photos'], permissionsSource: 'test'
+    },
+    destination: {
+      resolutionState: 'CONFIRMED', kind: 'COMMUNITY', id: '234903751',
+      name: 'Test group', role: 'publisher', ownershipConfirmed: true
+    },
+    methods: [],
+    publicationEvidence: {
+      TEXT: { state: 'CONFIRMED' },
+      IMAGE: { state: 'CONFIRMED' },
+      CAROUSEL: { state: 'CONFIRMED' }
+    },
+    runtimePrerequisites: [],
+    remediation: [],
+    warnings: [],
+    adapterCapability: { TEXT: true, IMAGE: true, CAROUSEL: true, VIDEO: false, SHORT: false, STORY: false }
+  });
+  const beforeRenewalProfile = readCapabilityProfile(rows[0].id);
+  assert.equal(beforeRenewalProfile.accessLevel, 'FULL');
+  const again = await app.inject({ method: 'GET', url: startUrl, headers: { cookie } });
+  const againState = new URL(again.json().authorizationUrl).searchParams.get('state');
+  const updatedCallback = await app.inject({
+    method: 'GET', url: `/api/vk/oauth/callback?state=${encodeURIComponent(againState)}&code=test-code`
+  });
+  assert.equal(updatedCallback.statusCode, 302, updatedCallback.body);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM social_accounts WHERE platform='vk'").get().count, 1);
+  const updated = db.prepare('SELECT id,credential_version,enabled FROM social_accounts WHERE id=?').get(rows[0].id);
+  assert.equal(updated.credential_version, 2);
+  assert.equal(updated.enabled, 1, 'server-confirmed IMAGE may stay enabled');
+  const afterRenewalProfile = readCapabilityProfile(rows[0].id);
+  assert.equal(afterRenewalProfile.credentialVersion, 2);
+  assert.equal(afterRenewalProfile.profileCurrent, true);
+  assert.equal(afterRenewalProfile.accessLevel, 'PARTIAL',
+    'renewal must not pretend public wall.post was proven during inspection');
+  assert.equal(afterRenewalProfile.semantic.publicationReadiness.IMAGE.state, 'READY');
+  assert.notEqual(afterRenewalProfile.semantic.publicationReadiness.TEXT.state, 'READY');
+  assert.notEqual(afterRenewalProfile.profileFingerprint, beforeRenewalProfile.profileFingerprint,
+    'new credential_version invalidates prior FULL fingerprint');
+  assert.equal(calls.filter((item) => item === 'wall.post').length, 0);
 
   const source = await fs.readFile(new URL('../public/operator-pages-v4.js', import.meta.url), 'utf8');
   assert.match(source, /operator-vk-oauth/);

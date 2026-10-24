@@ -171,6 +171,63 @@ function assertNoPublicWrites(calls) {
   assertNoPublicWrites(calls);
 }
 
+// MAX regression: HTTP 400 from GET /me is not evidence that a token expired.
+{
+  const steps = [{
+    host: 'platform-api2.max.ru', path: '/me', status: 400,
+    response: { code: 'validation.failed', message: 'Bad request' }
+  }];
+  const calls = mockFetch(steps);
+  const result = await inspectSocialCredential('max', {
+    accessToken: 'max-test-token-not-sent-to-output',
+    chatId: '-100500'
+  });
+  assert.equal(result.credential.validity, 'UNKNOWN');
+  assert.equal(result.methods.find((item) => item.method === 'max.GET /me')?.machineCode, 'HTTP_400');
+  assert.ok(result.remediation.some((item) => item.code === 'MAX_IDENTITY_REQUEST_REJECTED'));
+  assert.equal(calls.length, 1);
+  assertNoPublicWrites(calls);
+}
+
+// MAX regression: membership HTTP 400 preserves GET /me identity and points to chat_id.
+{
+  const steps = [
+    { host: 'platform-api2.max.ru', path: '/me', response: { user_id: 99, username: 'max_bot' } },
+    { host: 'platform-api2.max.ru', path: '/chats/-100500/members/me', status: 400,
+      response: { code: 'validation.failed', message: 'Wrong chat id' } }
+  ];
+  const calls = mockFetch(steps);
+  const result = await inspectSocialCredential('max', {
+    accessToken: 'max-test-token',
+    chatId: '-100500'
+  });
+  assert.equal(result.credential.validity, 'CONFIRMED');
+  assert.equal(result.destination?.resolutionState, 'DENIED');
+  assert.equal(result.publicationEvidence.TEXT?.state, 'SETUP_REQUIRED');
+  assert.equal(result.methods.find((item) =>
+    item.method === 'max.GET /chats/{chatId}/members/me')?.machineCode, 'HTTP_400');
+  assert.ok(result.remediation.some((item) => item.code === 'MAX_CHAT_ID_FROM_UPDATES_REQUIRED'));
+  assert.equal(calls.length, 2);
+  assertNoPublicWrites(calls);
+}
+
+// MAX regression: invitation URLs and non-int64 IDs do not reach the membership endpoint.
+for (const chatId of ['https://max.ru/join/example', '@school', '9223372036854775808', '0']) {
+  const steps = [{ host: 'platform-api2.max.ru', path: '/me',
+    response: { user_id: 99, username: 'max_bot' } }];
+  const calls = mockFetch(steps);
+  const result = await inspectSocialCredential('max', {
+    accessToken: 'max-test-token',
+    chatId
+  });
+  assert.equal(result.credential.validity, 'CONFIRMED');
+  assert.equal(result.publicationEvidence.IMAGE?.state, 'SETUP_REQUIRED');
+  assert.equal(result.methods.find((item) =>
+    item.method === 'max.GET /chats/{chatId}/members/me')?.machineCode, 'MAX_CHAT_ID_FORMAT_INVALID');
+  assert.equal(calls.length, 1);
+  assertNoPublicWrites(calls);
+}
+
 // 6. VK GROUP classification uses groups.getTokenPermissions and never probes public write.
 {
   const steps = [
