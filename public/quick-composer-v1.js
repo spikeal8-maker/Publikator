@@ -24,7 +24,9 @@ async function request(url, options = {}) {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     const message = typeof data?.error === 'string' ? data.error : 'Сервер ответил HTTP ' + response.status;
-    throw new Error(message);
+    const error = new Error(message);
+    error.httpStatus = response.status;
+    throw error;
   }
   return data;
 }
@@ -109,7 +111,7 @@ export async function openQuickComposer() {
           '<textarea id="qc-text" rows="8" placeholder="Напишите то, что увидят подписчики. Заголовок не нужен." autofocus></textarea>' +
           '<div class="qc-photo-head"><strong>Фотографии</strong><span class="qc-muted">Можно добавить сразу, до сохранения</span></div>' +
           '<label class="qc-drop" id="qc-drop"><input id="qc-files" type="file" accept="image/*" multiple>' +
-          '<span class="qc-drop-icon">＋</span><strong>Добавить фото</strong><small>Выберите несколько изображений или перетащите сюда</small></label>' +
+          '<span class="qc-drop-icon" aria-hidden="true">+</span><strong>Добавить фото</strong><small>Выберите несколько изображений или перетащите сюда</small></label>' +
           '<div id="qc-images" class="qc-images" aria-live="polite"></div>' +
           '<details class="qc-advanced"><summary>Дополнительно: проект и расписание</summary>' +
           '<div class="qc-options"><label>Проект (для организации материалов)<select id="qc-project">' +
@@ -144,6 +146,7 @@ export async function openQuickComposer() {
       root.querySelector('#qc-preview-text').textContent = text.value.trim() || 'Текст появится здесь';
       const labels = checkedAccounts().map(accountLabel);
       root.querySelector('#qc-counter').textContent = labels.length + ' выбрано';
+      if (status.classList.contains('is-error') && !state.busy) setStatus('Проверьте текст и получателей перед сохранением.');
       root.querySelector('#qc-preview-targets').textContent = labels.length
         ? 'Получатели: ' + labels.join(', ') : 'Площадки пока не выбраны';
     }
@@ -281,7 +284,7 @@ export async function openQuickComposer() {
         try {
           created = await request('/api/posts', { method: 'POST', body: JSON.stringify(payload) });
         } catch (error) {
-          state.uncertainPublish = true;
+          state.uncertainPublish = !Number.isInteger(error?.httpStatus);
           throw new Error('Не удалось подтвердить создание черновика. Проверьте список публикаций, чтобы избежать дубля. ' + readableError(error));
         }
         state.savedId = created.id;
