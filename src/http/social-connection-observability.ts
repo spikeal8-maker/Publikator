@@ -15,6 +15,8 @@ const SAFE_REASONS: Record<string, string> = {
   INVALID_INPUT: 'Не заполнены или некорректны поля подключения. Проверьте ключ и назначение.',
   CREDENTIAL_REJECTED: 'Площадка отклонила ключ: ключ недействителен или срок его действия истёк. Проверьте разрешения.',
   IP_RESTRICTED: 'VK отклонил ключ: он привязан к другому IP-адресу. Проверьте разрешённый IP для этого ключа.',
+  MAX_ME_BAD_REQUEST: 'MAX: GET /me отклонён (HTTP 400). Причина ошибки запроса не установлена; это не доказывает, что токен недействителен.',
+  MAX_CHAT_MEMBER_BAD_REQUEST: 'MAX: GET /chats/{chatId}/members/me отклонён (HTTP 400). Проверьте chat_id из обновления бота, его членство, роль администратора и право write.',
   PERMISSIONS_DENIED: 'Не подтверждено право публикации. Проверьте роль бота или владельца ключа.',
   DESTINATION_NOT_CONFIRMED: 'Назначение не подтверждено. Проверьте ID канала или сообщества и права доступа.',
   DNS_UNAVAILABLE: 'Не удалось разрешить адрес API площадки (DNS). Проверьте доступность DNS.',
@@ -136,6 +138,10 @@ function classifyFailure(message: string, status: number): string {
   if (alreadyClassified) return alreadyClassified[0];
   if (status === 429) return 'RATE_LIMITED';
   if (status === 409) return 'STATE_CONFLICT';
+  // Only the exact MAX operation is retained. Ignore provider JSON bodies:
+  // they can contain tokens, identifiers, and other untrusted text.
+  if (/MAX GET \/me:\s*HTTP 400\b/i.test(message)) return 'MAX_ME_BAD_REQUEST';
+  if (/MAX GET \/chats\/\{chatId\}\/members\/me:\s*HTTP 400\b/i.test(message)) return 'MAX_CHAT_MEMBER_BAD_REQUEST';
   if (/another ip address|other ip address|привязан к другому ip|привязк.*ip/i.test(message)) return 'IP_RESTRICTED';
   if (/EAI_AGAIN|ENOTFOUND|DNS|name resolution|lookup failed|разрешени.*имен/i.test(message)) return 'DNS_UNAVAILABLE';
   if (/certificate|cert_|self.signed|TLS|SSL|issuer/i.test(message)) return 'TLS_FAILURE';
@@ -160,11 +166,18 @@ export function registerSocialConnectionObservability(app: FastifyInstance): voi
     // Unhandled provider exceptions can carry a decrypted saved secret in their stack.
     // Do not pass them to Fastify's default error logger.
     const safeError = error && typeof error === 'object'
-      ? error as { statusCode?: unknown; message?: unknown } : {};
-    const status = typeof safeError.statusCode === 'number' && safeError.statusCode >= 400
-      && safeError.statusCode < 600 ? safeError.statusCode : 500;
+      ? error as { statusCode?: unknown; status?: unknown; message?: unknown } : {};
+    // PlatformError carries HTTP status as .status; Fastify errors normally
+    // use .statusCode. Preserve the provider HTTP status without reflecting
+    // the exception body or stack into API responses or application logs.
+    const rawStatus = typeof safeError.statusCode === 'number'
+      ? safeError.statusCode : safeError.status;
+    const status = typeof rawStatus === 'number' && Number.isInteger(rawStatus)
+      && rawStatus >= 400 && rawStatus < 600 ? rawStatus : 500;
+    const code = classifyFailure(typeof safeError.message === 'string' ? safeError.message : '', status);
     return reply.code(status).send({
-      error: status >= 500 ? SAFE_REASONS.SERVER_ERROR : safeSocialFailureMessage(safeError.message, status)
+      error: status >= 500 && code === 'SERVER_ERROR'
+        ? SAFE_REASONS.SERVER_ERROR : SAFE_REASONS[code] || SAFE_REASONS.CHECK_REJECTED
     });
   });
 
