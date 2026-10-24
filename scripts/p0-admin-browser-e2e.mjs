@@ -43,9 +43,11 @@ try{
  await page.screenshot({path:'test-results/p0-auth-dashboard-desktop.png',fullPage:true});
 
  // Reproduce session expiry after reloading an already authenticated dashboard.
+ const dashboardLoaded = page.waitForResponse(response =>
+   new URL(response.url()).pathname === '/api/editorial-dashboard' && response.status() === 200);
  await page.reload();
+ await dashboardLoaded;
  await page.locator('#app:not(.hidden)').waitFor();
- await page.locator('#view .card').first().waitFor();
  db.prepare('DELETE FROM admin_sessions').run();
  await page.locator('button[data-view="projects"]').click();
  await page.locator('#login-form:not(.hidden)').waitFor();
