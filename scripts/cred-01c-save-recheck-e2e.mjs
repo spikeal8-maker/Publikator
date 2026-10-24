@@ -180,6 +180,23 @@ setSocialCredentialInspectorForTests(async (platform, credentials) => {
   const snapshot = structuredClone(credentials);
   seenCredentials.push(snapshot);
   if (platform === 'vk') {
+    if (credentials.accessToken === 'vk-ip-bound-token') {
+      const limited = inspection('UNAVAILABLE', { chatId: String(credentials.userId || '20401871') });
+      return {
+        ...limited,
+        platform: 'vk',
+        credential: { ...limited.credential, validity: 'UNKNOWN', providerType: 'UNKNOWN' },
+        destination: { ...limited.destination, kind: 'PERSONAL' },
+        methods: [{
+          method: 'users.get',
+          state: 'DENIED',
+          evidenceSource: 'vk',
+          machineCode: 'VK_5',
+          reason: 'User authorization failed from another ip address for token vk-ip-bound-token'
+        }],
+        publicationEvidence: {}
+      };
+    }
     const paired = Boolean(credentials.uploadAccessToken);
     const base = inspection(paired ? 'FULL' : 'PARTIAL', { chatId: String(credentials.groupId) });
     return {
@@ -454,6 +471,31 @@ try {
   assert.equal(readCapabilityProfile(race.account.id).accessLevel, 'UNCHECKED');
   assert.equal(JSON.stringify(raceConflict).includes('race-secret'), false);
   assert.equal(JSON.stringify(raceConflict).includes('replacement-secret'), false);
+
+  // VK IP-restricted USER credentials remain encrypted and disabled. The
+  // canonical recheck exposes a safe structured restriction, not INVALID.
+  const pendingVk = await json('/api/accounts', {
+    method: 'POST',
+    body: JSON.stringify({
+      platform: 'vk',
+      name: 'VK IP-restricted test connection',
+      credentials: {
+        accessToken: 'vk-ip-bound-token',
+        apiVersion: '5.199',
+        destinationKind: 'PERSONAL',
+        userId: '20401871',
+        authKind: 'PENDING'
+      }
+    })
+  }, 201);
+  const restricted = await json('/api/accounts/' + pendingVk.id + '/activate', { method: 'POST' }, 400);
+  assert.match(restricted.error, /привязан к другому IP/i);
+  assert.equal(JSON.stringify(restricted).includes('vk-ip-bound-token'), false);
+  const restrictedProfile = readCapabilityProfile(pendingVk.id);
+  assert.equal(restrictedProfile.lastCheckCode, 'IP_RESTRICTED');
+  assert.equal(restrictedProfile.accessLevel, 'UNAVAILABLE');
+  assert.equal(accountDb(pendingVk.id).enabled, 0);
+  assert.equal(JSON.stringify(restrictedProfile).includes('vk-ip-bound-token'), false);
 
   // VK group photo uploads need the independent USER credential preserved for server inspection.
   const vk = await json('/api/accounts/save-and-check', {
