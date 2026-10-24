@@ -44,6 +44,18 @@ globalThis.fetch = async (input) => {
   if (url.hostname === 'platform-api2.max.ru' && scenario === 'max-permission-echo') {
     throw new Error('MAX permission denied for token ' + fakeMaxToken);
   }
+  if (url.hostname === 'platform-api2.max.ru' && scenario === 'max-me-400') {
+    return Response.json({ code: 'invalid.request',
+      message: 'provider content may echo ' + fakeMaxToken }, { status: 400 });
+  }
+  if (url.hostname === 'platform-api2.max.ru' && scenario === 'max-member-400') {
+    if (url.pathname === '/me') return Response.json({ user_id: 987654, username: 'fixture_max_bot' });
+    if (url.pathname === '/chats/-100777/members/me') {
+      return Response.json({ code: 'invalid.chat_id',
+        message: 'provider response with token ' + fakeMaxToken }, { status: 400 });
+    }
+    throw new Error('Unexpected MAX endpoint in membership scenario');
+  }
   if (url.hostname !== 'api.telegram.org') throw new Error('Unexpected diagnostic provider host');
   if (scenario === 'echo-error' || scenario === 'saved-echo-error') {
     const secret = scenario === 'saved-echo-error' ? fakeSavedToken : fakeToken;
@@ -196,6 +208,25 @@ try {
   assert.equal(maxDenied.statusCode, 400, maxDenied.body);
   assert.equal(maxDenied.json().diagnosticCode, 'PERMISSIONS_DENIED', maxDenied.body);
   assert.equal(maxDenied.body.includes(fakeMaxToken), false);
+
+  // Provider HTTP 400 must identify the MAX endpoint, retain HTTP status,
+  // preserve token validity as UNKNOWN (not INVALID), and journal only codes.
+  for (const [mode, expectedCode] of [
+    ['max-me-400', 'MAX_ME_BAD_REQUEST'],
+    ['max-member-400', 'MAX_CHAT_MEMBER_BAD_REQUEST']
+  ]) {
+    scenario = mode;
+    const response = await app.inject({
+      method: 'POST', url: '/api/accounts/test', headers: { cookie },
+      payload: { platform: 'max', credentials: { accessToken: fakeMaxToken, chatId: '-100777' } }
+    });
+    assert.equal(response.statusCode, 400, response.body);
+    assert.equal(response.json().diagnosticCode, expectedCode, response.body);
+    assert.ok(response.json().diagnosticId.startsWith('socialcheck_'));
+    assert.equal(response.body.includes(fakeMaxToken), false);
+    assert.equal(response.body.includes('provider content'), false);
+    assert.equal(response.body.includes('provider response'), false);
+  }
 
   const classifications = [
     ['dns-failure', 'DNS_UNAVAILABLE'],
