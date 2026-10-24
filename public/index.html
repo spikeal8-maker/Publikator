@@ -22,16 +22,39 @@
   <link rel="stylesheet" href="/google-sheets-v1.css">
   <link rel="stylesheet" href="/ui-v5.css">
   <link rel="stylesheet" href="/rich-text-editor-v1.css">
+  <link rel="stylesheet" href="/auth.css">
 </head>
 <body>
-  <div id="login" class="center-card hidden">
-    <h1>Publikator</h1>
-    <p>Единая система публикации</p>
-    <form id="login-form">
-      <input id="password" type="password" autocomplete="current-password" placeholder="Пароль администратора" required>
+  <div id="login" class="center-card auth-screen hidden">
+    <div class="auth-mark" aria-hidden="true">P</div>
+    <h1 id="auth-heading">Вход в Publikator</h1>
+    <p id="auth-subtitle">Введите логин и пароль, чтобы продолжить работу.</p>
+
+    <form id="login-form" class="hidden" autocomplete="on">
+      <label id="login-username-row">Логин
+        <input id="username" name="username" autocomplete="username" minlength="3" maxlength="48" required>
+      </label>
+      <label>Пароль
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+      </label>
       <button type="submit">Войти</button>
     </form>
-    <div id="login-error" class="error"></div>
+
+    <form id="setup-form" class="hidden" autocomplete="on">
+      <label>Логин администратора
+        <input id="setup-username" name="username" autocomplete="username" minlength="3" maxlength="48" required>
+      </label>
+      <label>Пароль
+        <input id="setup-password" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="256" required>
+      </label>
+      <label>Повтор пароля
+        <input id="setup-confirm" name="confirmPassword" type="password" autocomplete="new-password" minlength="12" maxlength="256" required>
+      </label>
+      <button type="submit" id="setup-submit">Создать аккаунт</button>
+    </form>
+    <div id="setup-help" class="hidden" role="status"></div>
+    <div id="login-error" class="error" role="alert" aria-live="polite"></div>
+    <div id="auth-bottom">Publikator · управление публикациями</div>
   </div>
 
   <div id="app" class="hidden shell">
@@ -51,10 +74,11 @@
       <button class="nav nav-system" data-view="events" data-route="/journal">Журнал</button>
       <button class="nav nav-system" data-view="backups" data-route="/backups">Резервные копии</button>
       <button id="diagnostics-nav" class="nav nav-system" data-route="/diagnostics">Диагностика</button>
+      <button id="account-nav" class="nav nav-system" data-view="account">Учётная запись</button>
       <button id="logout" class="nav bottom">Выйти</button>
     </aside>
     <main>
-      <header><h1 id="page-title">Обзор</h1><div id="status-line"></div></header>
+      <header><h1 id="page-title">Обзор</h1><button id="legacy-migration-note" class="hidden" type="button">Создать личный логин</button><div id="status-line"></div></header>
       <section id="view"></section>
     </main>
   </div>
