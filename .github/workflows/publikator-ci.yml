@@ -124,6 +124,9 @@ jobs:
       - name: Schema v13 social credential capability migration
         run: node scripts/schema-v13-social-credential-capability-e2e.mjs
 
+      - name: Schema v14 administrator migration
+        run: node scripts/schema-v14-admin-auth-e2e.mjs
+
       - name: CRED-01A capability profile domain
         run: node scripts/cred-01a-capability-profile-e2e.mjs
 
@@ -198,6 +201,12 @@ jobs:
 
       - name: Browser origin and trusted-proxy security
         run: node scripts/browser-security-e2e.mjs
+
+      - name: P0 administrator setup, sessions and recovery
+        run: node scripts/p0-admin-onboarding-e2e.mjs
+
+      - name: P0 legacy administrator migration
+        run: node scripts/p0-admin-legacy-migration-e2e.mjs
 
       - name: Scheduler reliability
         run: node scripts/runtime-reliability-e2e.mjs
@@ -317,6 +326,9 @@ jobs:
       - name: CX3-014 unified operator UI
         run: node scripts/cx3-014-unified-operator-ui-e2e.mjs
 
+      - name: P0 Chrome desktop and mobile administrator flow
+        run: node scripts/p0-admin-browser-e2e.mjs
+
       - name: Schema v4 content versioning backup and restore
         run: node scripts/backup-v4-content-versioning-e2e.mjs
 
@@ -346,6 +358,9 @@ jobs:
 
       - name: Schema v13 social credential capability backup and restore
         run: node scripts/backup-v13-social-credential-capability-e2e.mjs
+
+      - name: Schema v14 administrator backup and restore
+        run: node scripts/backup-v14-admin-auth-e2e.mjs
 
       - name: Canonical backup API
         env:
