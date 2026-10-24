@@ -51,6 +51,30 @@ jobs:
           set -euo pipefail
           find public -maxdepth 1 -type f -name '*.js' -print0 | sort -z | xargs -0 -n1 node --check
 
+      - name: Schema v14 administrator migration
+        run: node scripts/schema-v14-admin-auth-e2e.mjs
+
+      - name: Schema v14 administrator backup and restore
+        run: node scripts/backup-v14-admin-auth-e2e.mjs
+
+      - name: P0 administrator setup, sessions and recovery
+        run: node scripts/p0-admin-onboarding-e2e.mjs
+
+      - name: P0 legacy administrator migration
+        run: node scripts/p0-admin-legacy-migration-e2e.mjs
+
+      - name: P0 Chrome desktop and mobile administrator flow
+        run: node scripts/p0-admin-browser-e2e.mjs
+
+      - name: Preserve actual P0 Chrome UI screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: publikator-auth-chrome-screenshots
+          path: test-results/p0-auth-*.png
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: MAX real dispatcher compatibility and certificate verification
         run: node scripts/max-transport-e2e.mjs
 
@@ -123,9 +147,6 @@ jobs:
 
       - name: Schema v13 social credential capability migration
         run: node scripts/schema-v13-social-credential-capability-e2e.mjs
-
-      - name: Schema v14 administrator migration
-        run: node scripts/schema-v14-admin-auth-e2e.mjs
 
       - name: CRED-01A capability profile domain
         run: node scripts/cred-01a-capability-profile-e2e.mjs
@@ -201,12 +222,6 @@ jobs:
 
       - name: Browser origin and trusted-proxy security
         run: node scripts/browser-security-e2e.mjs
-
-      - name: P0 administrator setup, sessions and recovery
-        run: node scripts/p0-admin-onboarding-e2e.mjs
-
-      - name: P0 legacy administrator migration
-        run: node scripts/p0-admin-legacy-migration-e2e.mjs
 
       - name: Scheduler reliability
         run: node scripts/runtime-reliability-e2e.mjs
@@ -326,9 +341,6 @@ jobs:
       - name: CX3-014 unified operator UI
         run: node scripts/cx3-014-unified-operator-ui-e2e.mjs
 
-      - name: P0 Chrome desktop and mobile administrator flow
-        run: node scripts/p0-admin-browser-e2e.mjs
-
       - name: Schema v4 content versioning backup and restore
         run: node scripts/backup-v4-content-versioning-e2e.mjs
 
@@ -358,9 +370,6 @@ jobs:
 
       - name: Schema v13 social credential capability backup and restore
         run: node scripts/backup-v13-social-credential-capability-e2e.mjs
-
-      - name: Schema v14 administrator backup and restore
-        run: node scripts/backup-v14-admin-auth-e2e.mjs
 
       - name: Canonical backup API
         env:
