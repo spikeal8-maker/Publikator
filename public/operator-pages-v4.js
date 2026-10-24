@@ -183,23 +183,52 @@ function renderSocialConnectForm(platform) {
     input.addEventListener('change', invalidate);
   });
   invalidate();
-  host.querySelector('#operator-vk-oauth')?.addEventListener('click', async () => {
-    result.innerHTML = '<div class="operator-result">Открываю авторизацию VK…</div>';
-    try {
-      const data = new FormData(form);
-      const name = String(data.get('name') || '').trim();
-      const destinationKind = String(data.get('destinationKind') || 'PERSONAL');
-      const groupId = String(data.get('groupId') || '').trim();
-      if (!name) throw new Error('Укажите название подключения.');
-      if (destinationKind === 'COMMUNITY' && !groupId) throw new Error('Укажите ID или ссылку сообщества.');
-      const params = new URLSearchParams({ name, destinationKind });
-      if (destinationKind === 'COMMUNITY') params.set('groupId', groupId);
-      const started = await operatorApi(`/api/vk/oauth/start?${params}`);
-      window.location.assign(started.authorizationUrl);
-    } catch (error) {
-      result.innerHTML = `<div class="operator-result error">${operatorEsc(error instanceof Error ? error.message : String(error))}</div>`;
-    }
-  });
+  const oauthButton = host.querySelector('#operator-vk-oauth');
+  if (oauthButton) {
+    // The form result lives below the credential fields. OAuth feedback must
+    // appear next to the pressed button or the action looks unresponsive.
+    const oauthFeedback = document.createElement('div');
+    oauthFeedback.id = 'operator-vk-oauth-feedback';
+    oauthFeedback.className = 'operator-result hidden';
+    oauthFeedback.setAttribute('role', 'status');
+    oauthFeedback.setAttribute('aria-live', 'polite');
+    oauthButton.insertAdjacentElement('afterend', oauthFeedback);
+    oauthButton.addEventListener('click', async () => {
+      oauthButton.disabled = true;
+      oauthFeedback.className = 'operator-result';
+      oauthFeedback.setAttribute('role', 'status');
+      oauthFeedback.textContent = 'Открываю авторизацию VK…';
+      try {
+        const data = new FormData(form);
+        const name = String(data.get('name') || '').trim();
+        const destinationKind = String(data.get('destinationKind') || 'PERSONAL');
+        const groupId = String(data.get('groupId') || '').trim();
+        if (!name) throw new Error('Укажите название подключения.');
+        if (destinationKind === 'COMMUNITY' && !groupId) throw new Error('Укажите ID или ссылку сообщества.');
+        const params = new URLSearchParams({ name, destinationKind });
+        if (destinationKind === 'COMMUNITY') params.set('groupId', groupId);
+        const started = await operatorApi(`/api/vk/oauth/start?${params}`);
+        const url = typeof started?.authorizationUrl === 'string' ? new URL(started.authorizationUrl) : null;
+        if (!url || url.origin !== 'https://oauth.vk.com' || url.pathname !== '/authorize') {
+          throw new Error('VK: сервер не предоставил правильную ссылку авторизации.');
+        }
+        window.location.assign(url.href);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '';
+        // Accept only known application-owned OAuth errors, never echo an
+        // arbitrary network/provider exception or a credential-like string.
+        const safe = /^(VK OAuth не настроен:|VK OAuth настроен некорректно$|Укажите название подключения\.$|Укажите ID или ссылку сообщества\.$|VK: сервер не предоставил)/.test(message)
+          ? message : 'Не удалось открыть авторизацию VK. Проверьте настройки VK OAuth и доступность сервера.';
+        oauthFeedback.className = 'operator-result error';
+        oauthFeedback.setAttribute('role', 'alert');
+        oauthFeedback.textContent = safe;
+        result.innerHTML = `<div class="operator-result error">${operatorEsc(safe)}</div>`;
+        oauthFeedback.scrollIntoView({ block: 'nearest' });
+      } finally {
+        oauthButton.disabled = false;
+      }
+    });
+  }
   host.querySelector('#operator-close-connect').onclick = () => { host.innerHTML = ''; };
   host.querySelector('#operator-test-connect').onclick = async () => {
     result.innerHTML = '<div class="operator-result">Проверяю токен и назначение через API…</div>';
