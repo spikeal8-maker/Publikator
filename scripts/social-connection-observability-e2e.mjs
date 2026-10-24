@@ -19,6 +19,10 @@ const { encryptJson } = await import('../dist/crypto.js');
 const { buildApp } = await import('../dist/app.js');
 migrate();
 const app = await buildApp();
+const canonicalRecheckPresent = app.hasRoute({ method: 'POST', url: '/api/accounts/:id/recheck' });
+const credentialTestHooks = canonicalRecheckPresent
+  ? await import('../dist/social-account-credentials.js')
+  : null;
 
 const fakeToken = '123456:FAKE-OBSERVABILITY-TEST-TOKEN';
 const fakeMaxToken = 'FAKE-MAX-OBSERVABILITY-SECRET';
@@ -99,17 +103,21 @@ db.prepare("INSERT INTO social_accounts(id,platform,name,credentials_encrypted,e
   .run(vkId, encryptJson({ accessToken: fakeVkToken, authKind: 'PENDING',
     destinationKind: 'COMMUNITY', groupId: '234601853', apiVersion: '5.199' }), insertedAt, insertedAt);
 
-// PR #153 has not landed. Simulate its route to verify the same hook contract.
-app.post('/api/accounts/:id/recheck', async (request, reply) => {
-  if (scenario === 'unhandled-echo') {
-    throw new Error('Unexpected provider exception contained saved token ' + fakeSavedToken);
-  }
-  return reply.code(503).send({
-    error: 'TLS certificate failure for ' + fakeSavedToken,
-    nested: { accessToken: fakeSavedToken, more: ['nested-secret=' + fakeSavedToken] },
-    url: 'https://service.example.test?access_token=' + fakeSavedToken
+// The canonical recheck route is introduced by CRED-01C. On older main,
+// retain the fixture route; after integration test the real route using the
+// inspector seam so both implementations exercise the same redaction hook.
+if (!canonicalRecheckPresent) {
+  app.post('/api/accounts/:id/recheck', async (request, reply) => {
+    if (scenario === 'unhandled-echo') {
+      throw new Error('Unexpected provider exception contained saved token ' + fakeSavedToken);
+    }
+    return reply.code(503).send({
+      error: 'TLS certificate failure for ' + fakeSavedToken,
+      nested: { accessToken: fakeSavedToken, more: ['nested-secret=' + fakeSavedToken] },
+      url: 'https://service.example.test?access_token=' + fakeSavedToken
+    });
   });
-});
+}
 
 let browser;
 let persistedDiagnosticId = '';
@@ -174,7 +182,17 @@ try {
   assert.deepEqual(Object.keys(savedFailure.json()).sort(), ['diagnosticCode','diagnosticId','error']);
   assert.equal(db.prepare('SELECT enabled FROM social_accounts WHERE id=?').get(savedId).enabled, 0);
 
-  // A future recheck route must not spread nested provider/debug fields.
+  // The implemented recheck route must not spread provider/debug fields.
+  if (canonicalRecheckPresent) {
+    credentialTestHooks.setSocialCredentialInspectorForTests(async () => {
+      if (scenario === 'unhandled-echo') {
+        throw new Error('Unexpected provider exception contained saved token ' + fakeSavedToken);
+      }
+      const error = new Error('TLS certificate failure for ' + fakeSavedToken);
+      error.status = 503;
+      throw error;
+    });
+  }
   const recheck = await app.inject({
     method: 'POST', url: '/api/accounts/' + savedId + '/recheck', headers: { cookie }
   });
@@ -190,6 +208,7 @@ try {
   assert.equal(unexpected.statusCode, 500, unexpected.body);
   assert.equal(unexpected.json().diagnosticCode, 'SERVER_ERROR');
   assert.equal(unexpected.body.includes(fakeSavedToken), false);
+  if (canonicalRecheckPresent) credentialTestHooks.setSocialCredentialInspectorForTests(null);
 
   scenario = 'vk-ip-echo';
   const activated = await app.inject({
@@ -376,6 +395,7 @@ try {
   }));
 } finally {
   await browser?.close();
+  if (canonicalRecheckPresent) credentialTestHooks.setSocialCredentialInspectorForTests(null);
   globalThis.fetch = originalFetch;
   await app.close();
   db.close();
