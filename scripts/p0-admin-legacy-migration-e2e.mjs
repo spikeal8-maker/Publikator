@@ -11,7 +11,7 @@ process.env.APP_MASTER_KEY='legacy-test-encryption-key-with-over-thirty-two-char
 process.env.PUBLIC_BASE_URL='http://127.0.0.1:18099';
 const {db,migrate,id,nowIso}=await import('../dist/db.js');
 const {buildApp}=await import('../dist/app.js');
-const {encryptJson,decryptJson}=await import('../dist/crypto.js');
+const {encryptJson,decryptJson,verifySessionToken}=await import('../dist/crypto.js');
 migrate();
 const project=db.prepare('SELECT id FROM projects LIMIT 1').get().id;
 const account=id('acc'), post=id('post'), stamp=nowIso();
@@ -34,6 +34,17 @@ try{
  const old=await app.inject({method:'POST',url:'/api/auth/login',payload:{password:process.env.ADMIN_PASSWORD}});
  assert.equal(old.statusCode,200,old.body);
  const oldCookie=String(old.headers['set-cookie']).split(';')[0];
+ const oldToken=oldCookie.slice(oldCookie.indexOf('=')+1);
+ assert.equal(verifySessionToken(oldToken),true);
+ const segments=oldToken.split('.');
+ const alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+ const lastIndex=alphabet.indexOf(segments[2].slice(-1));
+ assert.equal(lastIndex%4,0,'canonical SHA256 signature ends with a multiple-of-four sextet');
+ const noncanonicalSignature=segments[2].slice(0,-1)+alphabet[lastIndex+1];
+ const noncanonicalToken=segments[0]+'.'+segments[1]+'.'+noncanonicalSignature;
+ assert.ok(Buffer.from(noncanonicalSignature,'base64url').equals(Buffer.from(segments[2],'base64url')));
+ assert.equal(verifySessionToken(oldToken+'='),false,'padded signature must be denied');
+ assert.equal(verifySessionToken(noncanonicalToken),false,'noncanonical signature bits must be denied');
  assert.equal((await app.inject({method:'GET',url:'/api/dashboard',headers:{cookie:oldCookie}})).statusCode,200);
  const second=await app.inject({method:'POST',url:'/api/auth/login',payload:{password:process.env.ADMIN_PASSWORD}});
  assert.equal(second.statusCode,200,second.body);
@@ -42,6 +53,9 @@ try{
  assert.equal(loggedOut.statusCode,200,loggedOut.body);
  assert.equal((await app.inject({method:'GET',url:'/api/dashboard',headers:{cookie:oldCookie}})).statusCode,401,
    'legacy logout must reject a replayed cookie');
+ assert.equal((await app.inject({method:'GET',url:'/api/dashboard',headers:{cookie:oldCookie+'='}})).statusCode,401);
+ assert.equal((await app.inject({method:'GET',url:'/api/dashboard',
+   headers:{cookie:'publikator_session='+noncanonicalToken}})).statusCode,401);
  assert.equal((await app.inject({method:'GET',url:'/api/dashboard',headers:{cookie:secondCookie}})).statusCode,200,
    'another legacy operator session must remain usable');
  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM admin_legacy_session_revocations').get().n,1);
@@ -64,7 +78,7 @@ try{
  assert.deepEqual(db.prepare('SELECT * FROM posts').all(),before.posts);
  assert.deepEqual(db.prepare('SELECT * FROM post_targets').all(),before.targets);
  assert.deepEqual(decryptJson(encrypted),{botToken:'test-telegram-credential',chatId:'@Alikin_SA'});
- console.log(JSON.stringify({ok:true,legacyLoginWorks:true,migrated:true,oldPasswordBlocked:true,legacyLogoutRevokesPersistently:true,readyPreserved:true}));
+ console.log(JSON.stringify({ok:true,legacyLoginWorks:true,migrated:true,oldPasswordBlocked:true,legacyLogoutRevokesPersistently:true,canonicalLegacyTokensOnly:true,readyPreserved:true}));
 }finally{
  await app.close();
  db.close();

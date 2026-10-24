@@ -12,7 +12,18 @@ async function api(url, options = {}) {
   const response = await fetch(url, { credentials: 'same-origin', ...options, headers: { ...(options.body == null || options.body instanceof FormData ? {} : {'content-type':'application/json'}), ...(options.headers || {}) } });
   const body = response.status === 204 ? null : await response.json().catch(() => ({}));
   if (response.status === 401) {
-    if (!url.startsWith('/api/auth/')) showLogin();
+    // Rebuild the correct form when an authenticated session expires. Simply
+    // unhiding the login panel can leave both forms hidden or show a spent grant.
+    if (!['/api/auth/login', '/api/auth/setup', '/api/auth/recover'].includes(url.split('?')[0])) {
+      try {
+        const state = await refreshAuthState();
+        if (!state.authenticated) renderAuthScreen(state);
+      } catch {
+        renderAuthScreen({ mode: 'login' });
+        document.querySelector('#login-error').textContent =
+          'Не удалось проверить сессию. Проверьте соединение и попробуйте войти снова.';
+      }
+    }
     throw new Error(body?.error || 'Требуется вход');
   }
   if (!response.ok) throw new Error(body?.error || `HTTP ${response.status}`);

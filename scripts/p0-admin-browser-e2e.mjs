@@ -42,6 +42,20 @@ try{
  assert.equal(await page.locator('#login').isVisible(),false);
  await page.screenshot({path:'test-results/p0-auth-dashboard-desktop.png',fullPage:true});
 
+ // Reproduce session expiry after reloading an already authenticated dashboard.
+ await page.reload();
+ await page.locator('#app:not(.hidden)').waitFor();
+ await page.locator('#view .card').first().waitFor();
+ db.prepare('DELETE FROM admin_sessions').run();
+ await page.locator('button[data-view="projects"]').click();
+ await page.locator('#login-form:not(.hidden)').waitFor();
+ assert.equal(await page.locator('#username').isVisible(),true);
+ assert.equal(await page.locator('#setup-form').isVisible(),false,'spent setup must not reappear');
+ await page.locator('#username').fill('school_owner');
+ await page.locator('#password').fill('long-password-browser-2026');
+ await page.locator('#login-form button[type="submit"]').click();
+ await page.locator('#app:not(.hidden)').waitFor();
+
  await page.locator('#account-nav').click();
  await page.locator('#account-auth-form').waitFor();
  await page.locator('#account-auth-form input[name="currentPassword"]').fill('long-password-browser-2026');
@@ -79,7 +93,7 @@ try{
  await m.locator('#login-form button[type="submit"]').click();
  await m.locator('#app:not(.hidden)').waitFor();
  assert.deepEqual(errors,[]);
- console.log(JSON.stringify({ok:true,chromeDesktop:true,chromeMobile:true,firstRun:true,passwordChange:true,invalidPassword:true,logout:true,login:true,screenshots:'test-results/p0-auth-*'}));
+ console.log(JSON.stringify({ok:true,chromeDesktop:true,chromeMobile:true,firstRun:true,passwordChange:true,invalidPassword:true,expiredSessionLoginRestored:true,logout:true,login:true,screenshots:'test-results/p0-auth-*'}));
  await mobile.close();
  await desktop.close();
 } finally {
