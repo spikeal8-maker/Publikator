@@ -324,6 +324,39 @@ function verifiedPublisherCredentials(
   return { ...common, authKind: 'PENDING' };
 }
 
+/**
+ * External APIs may echo the submitted token as an unlabelled substring of an
+ * error, warning, or identity field. CapabilityProfile is persisted and also
+ * returned by the ordinary GET /api/accounts endpoint, so HTTP redaction is
+ * insufficient: remove known submitted secret values before profile creation.
+ */
+function redactInspectionSecrets(
+  inspection: CredentialInspectionResult,
+  credentials: Record<string, unknown>
+): CredentialInspectionResult {
+  const secrets = [...new Set(
+    ['botToken', 'accessToken', 'uploadAccessToken', 'refreshToken', 'clientSecret', 'apiKey']
+      .map((key) => credentials[key])
+      .filter((value): value is string => typeof value === 'string' && value.length > 0)
+  )];
+  const fragments = [...new Set(secrets.flatMap((secret) => {
+    try { return [secret, encodeURIComponent(secret)]; }
+    catch { return [secret]; }
+  }))].sort((left, right) => right.length - left.length);
+  if (fragments.length === 0) return inspection;
+  const redact = (value: unknown): unknown => {
+    if (typeof value === 'string') {
+      return fragments.reduce((safe, fragment) => safe.replaceAll(fragment, '[REDACTED]'), value);
+    }
+    if (Array.isArray(value)) return value.map(redact);
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redact(item)]));
+    }
+    return value;
+  };
+  return redact(inspection) as CredentialInspectionResult;
+}
+
 function persistVerifiedCredentials(accountId: string, before: SocialAccountRow,
   credentials: Record<string, unknown>, previousProfile: CapabilityProfileView): void {
   const existing = decryptJson<Record<string, unknown>>(before.credentials_encrypted);
@@ -437,7 +470,7 @@ export async function saveAndCheckSocialAccount(input: {
   })();
 
   const inserted = accountRow(accountId);
-  const inspection = await credentialInspector(platform, credentials);
+  const inspection = redactInspectionSecrets(await credentialInspector(platform, credentials), credentials);
   requireSameCredentialVersion(accountId, inserted);
   const inputForProfile = profileInput(platform, inspection);
   const built = buildCapabilityProfile(inputForProfile);
@@ -522,7 +555,7 @@ export async function recheckSocialAccount(accountId: string): Promise<SocialCre
   const before = accountRow(accountId);
   const previousProfile = readCapabilityProfile(accountId);
   const credentials = decryptJson<Record<string, unknown>>(before.credentials_encrypted);
-  const inspection = await credentialInspector(before.platform, credentials);
+  const inspection = redactInspectionSecrets(await credentialInspector(before.platform, credentials), credentials);
   requireSameCredentialVersion(accountId, before);
   const inputForProfile = profileInput(before.platform, inspection);
   const built = buildCapabilityProfile(inputForProfile);
