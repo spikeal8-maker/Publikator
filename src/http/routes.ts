@@ -329,8 +329,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.addHook('preHandler', async (request, reply) => {
-    if (!request.url.startsWith('/api/') || request.url.split('?')[0] === '/api/health'
-      || request.url.split('?')[0] === '/api/vk/oauth/callback'
+    const publicRoutes = new Set([
+      '/api/health', '/api/auth/state', '/api/auth/login', '/api/auth/setup',
+      '/api/auth/recover', '/api/auth/migrate', '/api/auth/logout', '/api/vk/oauth/callback'
+    ]);
+    if (!request.url.startsWith('/api/') || publicRoutes.has(request.url.split('?')[0]!)
       || request.url.startsWith('/api/integration/v1/')) return;
     const cookie = request.cookies.publikator_session;
     if (!sessionAdmin(cookie) && !legacyAuthorized(cookie)) {
