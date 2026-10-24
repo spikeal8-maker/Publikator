@@ -11,7 +11,10 @@ let projects = [];
 async function api(url, options = {}) {
   const response = await fetch(url, { credentials: 'same-origin', ...options, headers: { ...(options.body == null || options.body instanceof FormData ? {} : {'content-type':'application/json'}), ...(options.headers || {}) } });
   const body = response.status === 204 ? null : await response.json().catch(() => ({}));
-  if (response.status === 401) { showLogin(); throw new Error('Требуется вход'); }
+  if (response.status === 401) {
+    if (!url.startsWith('/api/auth/')) showLogin();
+    throw new Error(body?.error || 'Требуется вход');
+  }
   if (!response.ok) throw new Error(body?.error || `HTTP ${response.status}`);
   return body;
 }
