@@ -69,6 +69,8 @@ try {
     await page.locator('input[name="qc-account"][value="' + account.id + '"]').check();
   }
   assert.match(await page.locator('#qc-counter').textContent(), /3 выбрано/);
+  await fs.mkdir('test-results', { recursive: true });
+  await page.screenshot({ path: 'test-results/p0-composer-desktop.png', fullPage: false });
   await page.locator('#qc-save').click();
   await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
 
@@ -109,8 +111,6 @@ try {
   assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n,2,
     'cancelled confirmation must never create a post or contact provider');
 
-  await fs.mkdir('test-results', { recursive: true });
-  await page.screenshot({ path: 'test-results/p0-composer-desktop.png', fullPage: true });
   assert.deepEqual(errors, []);
   await desktop.close();
 
@@ -130,14 +130,18 @@ try {
   assert.equal(await mp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
     'mobile must not overflow horizontally');
   assert.equal(await mp.locator('input[name="qc-account"]').count(),11);
-  await mp.screenshot({ path: 'test-results/p0-composer-mobile.png', fullPage: true });
+  await mp.locator('#qc-text').fill('Новая публикация для всех подключений.');
+  await mp.locator('#qc-files').setInputFiles([{ name: 'mobile.png', mimeType: 'image/png', buffer: image1 }]);
+  await mp.screenshot({ path: 'test-results/p0-composer-mobile.png', fullPage: false });
+  await mp.locator('.qc-right').scrollIntoViewIfNeeded();
+  await mp.screenshot({ path: 'test-results/p0-composer-mobile-targets.png', fullPage: false });
   assert.deepEqual(errors, []);
   await mobile.close();
   console.log(JSON.stringify({
     ok: true, oneScreen: true, preSaveImages: true, mediaCount: 2,
     multiAccount: 3, samePlatformAccounts: 2, noRequiredTitle: true,
     textOnly: true, cancelledSend: true, noPublicPost: true, mobile: true,
-    screenshots: ['test-results/p0-composer-desktop.png', 'test-results/p0-composer-mobile.png']
+    screenshots: ['test-results/p0-composer-desktop.png', 'test-results/p0-composer-mobile.png', 'test-results/p0-composer-mobile-targets.png']
   }));
 } finally {
   if (browser) await browser.close();
