@@ -1,0 +1,200 @@
+/* Primary one-screen publishing workflow. Scoped to avoid changing legacy editors. */
+.qc-open { overflow: hidden; }
+#quick-compose-nav {
+  display: block;
+  width: calc(100% - 8px);
+  margin: 2px 4px 12px;
+  padding: 12px 14px;
+  background: #4772ff;
+  border: 1px solid rgba(255,255,255,.18);
+  border-radius: 12px;
+  color: #fff;
+  font-weight: 800;
+  font-size: 14px;
+  text-align: center;
+  cursor: pointer;
+}
+#quick-compose-nav:hover { background: #325fe5; }
+.qc-overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  z-index: 200;
+  background: rgba(11,20,37,.65);
+  backdrop-filter: blur(6px);
+  padding: 18px;
+}
+.qc-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(1160px,100%);
+  max-height: min(870px,calc(100dvh - 36px));
+  min-height: min(650px,calc(100dvh - 36px));
+  background: #fff;
+  border: 1px solid #e1e6ed;
+  border-radius: 18px;
+  box-shadow: 0 32px 110px rgba(0,0,0,.25);
+  color: #1c2736;
+  overflow: hidden;
+}
+.qc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 21px 28px 18px;
+  border-bottom: 1px solid #e5eaf1;
+}
+.qc-eyebrow {
+  color: #596c8a;
+  letter-spacing: .11em;
+  font-weight: 800;
+  font-size: 10px;
+  margin: 0 0 5px;
+}
+.qc-head h2 { margin: 0; font-size: 25px; letter-spacing: -.04em; color: #111a29; }
+.qc-icon-button {
+  width: 36px; min-width: 36px; height: 36px;
+  border-radius: 10px; font-size: 26px; line-height: 1;
+  display: grid; place-items: center; background: #f0f3f8; color: #334155;
+  cursor: pointer; padding: 0;
+}
+.qc-icon-button:hover { background: #e7ebf3; }
+.qc-main {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0,1.2fr) minmax(310px,.85fr);
+}
+.qc-editor {
+  min-width: 0;
+  overflow-y: auto;
+  padding: 26px 28px 36px;
+}
+.qc-label { display: block; font-size: 15px; font-weight: 800; margin: 0 0 10px; }
+#qc-text {
+  display: block; width: 100%; min-height: 226px; resize: vertical;
+  padding: 17px; font: 15px/1.58 inherit;
+  color: #142033; border: 1px solid #d2dae7; border-radius: 13px;
+  background: #fff; outline-offset: 2px;
+}
+#qc-text:focus { border-color: #5478ff; outline: 2px solid #edf2ff; }
+.qc-muted { font-size: 12px; color: #657186; }
+.qc-photo-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 12px; margin: 23px 0 11px; }
+.qc-photo-head strong { font-size: 15px; }
+.qc-drop {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  cursor: pointer; text-align: center;
+  border: 1.5px dashed #9eb0d9;
+  background: #f7f9ff;
+  border-radius: 13px; padding: 22px 14px; gap: 4px;
+  min-height: 128px;
+}
+.qc-drop.is-dragging { background: #e7efff; border-color: #315ee8; }
+.qc-drop input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.qc-drop:focus-within { outline: 3px solid #abc7ff; }
+.qc-drop-icon { font-size: 24px; line-height: 24px; color: #315ee8; }
+.qc-drop strong { font-size: 14px; color: #1b409c; }
+.qc-drop small { font-size: 11px; color: #657186; }
+.qc-images { display: flex; gap: 12px; flex-wrap: wrap; margin: 12px 0; }
+.qc-image {
+  display: flex; flex-direction: column; width: 133px; min-width: 0; overflow: hidden;
+  border: 1px solid #dbe2ec; border-radius: 10px; background: #fff;
+}
+.qc-image img { display: block; width: 100%; height: 100px; object-fit: cover; }
+.qc-image span {
+  display: block; padding: 6px 8px 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; font-size: 11px; color: #4b5a70;
+}
+.qc-image-controls { display: flex; gap: 2px; padding: 5px; }
+.qc-image-controls button {
+  color: #3151a0; font-size: 11px; padding: 5px; cursor: pointer; background: #f0f3fc;
+  border-radius: 6px;
+}
+.qc-image-controls button:disabled { opacity: .45; cursor: default; }
+.qc-advanced { margin-top: 24px; border-top: 1px solid #e6eaf1; padding-top: 18px; }
+.qc-advanced summary { color: #556984; font-size: 13px; cursor: pointer; font-weight: 650; }
+.qc-options { margin-top: 15px; display: grid; gap: 13px; }
+.qc-options label { display: grid; gap: 6px; font-size: 12px; font-weight: 700; color: #45546c; }
+.qc-options select, .qc-options input {
+  padding: 11px 12px; border: 1px solid #d4dce8; border-radius: 9px;
+  background: #fff; color: #263346; width: 100%;
+}
+.qc-right {
+  min-width: 0;
+  display: flex; flex-direction: column;
+  padding: 25px 23px;
+  background: #f7f9fc;
+  border-left: 1px solid #e5eaf1;
+  overflow-y: auto;
+}
+.qc-target-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.qc-target-head h3 { font-size: 16px; margin: 0 0 5px; color: #172338; }
+.qc-target-head p { font-size: 12px; color: #63738a; margin: 0; }
+.qc-counter { padding: 5px 9px; background: #e7eeff; border-radius: 30px; color: #2549ae; white-space: nowrap; font-size: 11px; font-weight: 750; }
+.qc-target-actions { display: flex; gap: 12px; margin: 17px 0 11px; }
+.qc-target-actions button { color: #2d54ba; font-size: 12px; text-decoration: underline; cursor: pointer; }
+.qc-accounts {
+  max-height: 280px; min-height: 100px; overflow-y: auto;
+  border: 1px solid #dde5f0; border-radius: 11px; padding: 5px 12px;
+  background: #fff;
+}
+.qc-account-group { padding: 9px 0 6px; }
+.qc-account-group + .qc-account-group { border-top: 1px solid #eef1f6; }
+.qc-account-group h4 { font-size: 12px; margin: 0 0 7px; color: #384860; }
+.qc-account-group h4 span { color: #97a2b0; font-weight: 500; }
+.qc-account { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; padding: 9px 4px; cursor: pointer; font-size: 12px; }
+.qc-account + .qc-account { border-top: 1px solid #f2f4f7; }
+.qc-account input { width: 17px; height: 17px; flex: 0 0 auto; accent-color: #315ee8; }
+.qc-account span { flex: 1; overflow-wrap: anywhere; }
+.qc-account small { width: 100%; margin-left: 26px; color: #9a6470; }
+.qc-account.is-disabled { opacity: .62; cursor: default; }
+.qc-empty {
+  display: grid; gap: 12px; border: 1px dashed #bec9db; background: #fff;
+  border-radius: 11px; padding: 22px; margin-top: 15px; color: #576981;
+}
+.qc-empty a { color: #315ee8; font-weight: 700; }
+.qc-preview { border-top: 1px solid #dee6f0; margin-top: 20px; padding-top: 18px; }
+.qc-preview h4 { font-size: 12px; margin: 0 0 8px; }
+#qc-preview-text {
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  color: #43546d; font-size: 12px; max-height: 105px; overflow: auto; margin: 0 0 9px;
+}
+#qc-preview-targets { overflow-wrap: anywhere; }
+.qc-footer {
+  display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px;
+  padding: 16px 27px; border-top: 1px solid #e4eaf2; background: #fff;
+}
+#qc-status { flex: 1 1 220px; font-size: 12px; color: #566884; }
+#qc-status.is-error, .qc-loading.is-error { color: #b42318; }
+.qc-buttons { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
+.qc-buttons button { padding: 11px 13px; border-radius: 9px; font-size: 12px; font-weight: 750; cursor: pointer; }
+.qc-buttons button:disabled { opacity: .55; cursor: wait; }
+.qc-subtle { background: #f0f3f9; border: 1px solid #dbe2ed; color: #354862; }
+.qc-primary { background: #315ee8; color: #fff; border: 1px solid #315ee8; }
+.qc-primary:hover { background: #284fc8; }
+.qc-loading { padding: 40px; }
+@media (max-width: 810px) {
+  .qc-overlay { padding: 0; }
+  .qc-dialog {
+    width: 100%; max-height: 100dvh; height: 100dvh; min-height: 0;
+    border-radius: 0; border: none;
+  }
+  .qc-head { padding: 14px 16px; }
+  .qc-head h2 { font-size: 20px; }
+  .qc-main { display: block; overflow-y: auto; }
+  .qc-editor { overflow: visible; padding: 18px 16px; }
+  .qc-right { overflow: visible; border-left: none; border-top: 1px solid #e5eaf1; padding: 20px 16px; }
+  #qc-text { min-height: 170px; }
+  .qc-accounts { max-height: 260px; }
+  .qc-footer { padding: 12px 16px; flex-shrink: 0; }
+  .qc-buttons { width: 100%; display: grid; grid-template-columns: 1fr 1fr; }
+  #qc-send { grid-column: 1 / -1; grid-row: 1; min-height: 46px; }
+}
+@media (max-width: 390px) {
+  .qc-head h2 { font-size: 18px; }
+  .qc-photo-head { gap: 5px; }
+  .qc-images { gap: 7px; }
+  .qc-image { width: calc(50% - 4px); }
+}
