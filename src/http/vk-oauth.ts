@@ -6,6 +6,7 @@ import { db } from '../db.js';
 import { testConnection } from '../platforms/connection-test.js';
 import { resolveVkDestination, type VkDestinationKind } from '../platforms/vk.js';
 import { replaceAndCheckSocialAccount, saveAndCheckSocialAccount } from '../social-account-credentials.js';
+import { safeSocialFailureMessage } from './social-connection-observability.js';
 
 const VK_OAUTH_AUTHORIZE_URL = 'https://oauth.vk.com/authorize';
 const VK_OAUTH_TOKEN_URL = 'https://oauth.vk.com/access_token';
@@ -153,12 +154,10 @@ export async function registerVkOauthRoutes(app: FastifyInstance): Promise<void>
     const code = typeof query.code === 'string' ? query.code : '';
     if (!code || code.length > 2000) return finish(reply, false, 'VK: не получен код авторизации.');
 
-    let issuedToken = '';
     try {
       const oauthConfig = getVkOauthAuthorizationConfig();
       if (!oauthConfig) throw new Error('VK OAuth не настроен');
       const token = await exchangeCode(code, oauthConfig.clientId, oauthConfig.clientSecret, oauthConfig.redirectUri);
-      issuedToken = token.accessToken;
       const candidate: Record<string, unknown> = {
         accessToken: token.accessToken,
         apiVersion: '5.199',
@@ -187,16 +186,13 @@ export async function registerVkOauthRoutes(app: FastifyInstance): Promise<void>
       const saved = await saveVerifiedConnection(pending.connection, credentials);
       const verb = saved.action === 'updated' ? 'обновлено' : 'сохранено';
       return finish(reply, true, saved.publishReady
-        ? `VK: подключение ${verb} · ${checked.destination}`
-        : `VK: подключение ${verb}, но публикация отключена до подтверждения прав · ${checked.destination}`);
+        ? `VK: подключение ${verb}. Назначение можно проверить в разделе «Соцсети».`
+        : `VK: подключение ${verb}, но публикация отключена до подтверждения прав. Проверьте доступ в разделе «Соцсети».`);
     } catch (error) {
+      // OAuth provider errors can include an access token, application secret or code.
+      // A fixed classified message is the only content stored in the result ticket.
       const message = error instanceof Error ? error.message : String(error);
-      // Never expose a code, app secret or access token in callback URLs or result text.
-      const safe = message
-        .replaceAll(code, '[redacted]')
-        .replaceAll(process.env.VK_OAUTH_CLIENT_SECRET || '\u0000', '[redacted]')
-        .replaceAll(issuedToken || '\u0000', '[redacted]');
-      return finish(reply, false, safe.slice(0, 400));
+      return finish(reply, false, safeSocialFailureMessage(message, 400));
     }
   });
 
