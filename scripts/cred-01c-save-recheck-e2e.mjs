@@ -197,7 +197,12 @@ setSocialCredentialInspectorForTests(async (platform, credentials) => {
     indicateRaceInspectionStarted();
     await raceInspectionHold;
   }
-  return inspection(mode, credentials);
+  const inspected = inspection(mode, credentials);
+  if (token === 'echoed-secret-987654321:Abc') {
+    inspected.methods[0].reason = 'Provider echoed bare credential ' + token;
+    inspected.warnings = ['Provider echoed encoded credential ' + encodeURIComponent(token)];
+  }
+  return inspected;
 });
 
 const { buildApp } = await import('../dist/app.js');
@@ -328,6 +333,21 @@ try {
   assert.equal(invalid.account.enabled, false);
   assert.equal(defaultTargetCount(project.id, invalid.account.id), 0);
   assert.ok(accountDb(invalid.account.id));
+
+  // Provider diagnostics can contain a raw or URL-encoded token with no
+  // token= prefix. Never persist or return this provider-controlled echo.
+  const echoedSecret = 'echoed-secret-987654321:Abc';
+  const echoed = await saveTelegram(echoedSecret, '109');
+  assert.equal(JSON.stringify(echoed).includes(echoedSecret), false);
+  assert.equal(JSON.stringify(echoed).includes(encodeURIComponent(echoedSecret)), false);
+  assert.ok(JSON.stringify(echoed.capabilityProfile.semantic).includes('[REDACTED]'));
+  const profileStored = db.prepare('SELECT profile_json FROM social_account_capability_profiles WHERE account_id=?')
+    .get(echoed.account.id).profile_json;
+  assert.equal(profileStored.includes(echoedSecret), false);
+  assert.equal(profileStored.includes(encodeURIComponent(echoedSecret)), false);
+  const afterReload = await json('/api/accounts');
+  assert.equal(JSON.stringify(afterReload).includes(echoedSecret), false);
+  assert.equal(JSON.stringify(afterReload).includes(encodeURIComponent(echoedSecret)), false);
 
   const unavailable = await saveTelegram('unavailable-secret', '105');
   assert.equal(unavailable.capabilityProfile.accessLevel, 'UNAVAILABLE');
