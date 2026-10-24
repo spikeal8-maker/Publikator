@@ -52,6 +52,8 @@ Schema 11 `project-defaults` and schema 12 `templates` are accepted in `main`. S
 
 Schema 13 `social-credential-capability-profile` is owned only by CRED-01A. Evidence: `scripts/schema-v13-social-credential-capability-e2e.mjs`, `scripts/backup-v13-social-credential-capability-e2e.mjs`, and `scripts/cred-01a-capability-profile-e2e.mjs`. Its exact columns, legacy migration semantics and no-network migration rule are normative in `SOCIAL_CREDENTIAL_CAPABILITY_CONTRACT.md` sections 22–24.
 
+Schema 14 `admin-local-accounts` is an additive P0 owner-auth migration (#167) with installer-issued, single-use bootstrap grants; it preserves existing projects, posts, credentials and release data. Its dedicated regressions are `scripts/schema-v14-admin-auth-e2e.mjs` and `scripts/backup-v14-admin-auth-e2e.mjs`.
+
 Every schema `N` after the V1 baseline MUST add all of the following in the same checkpoint PR:
 1. explicit migration code from `N-1` to `N`;
 2. dedicated `scripts/schema-vN-*-e2e.mjs` regression built from a realistic `N-1` fixture;
