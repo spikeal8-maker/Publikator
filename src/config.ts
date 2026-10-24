@@ -111,7 +111,8 @@ function trustedProxyList(name: string): false | string[] {
 
 const dataDir = process.env.DATA_DIR?.trim() || path.resolve('data');
 const publicBaseUrl = process.env.PUBLIC_BASE_URL?.trim().replace(/\/$/, '') || '';
-const adminPassword = deploymentSecret('ADMIN_PASSWORD', 12);
+// Legacy installations retain ADMIN_PASSWORD until a one-time in-app migration.
+const adminPassword = process.env.ADMIN_PASSWORD?.trim() ? deploymentSecret('ADMIN_PASSWORD', 12) : '';
 const masterKey = deploymentSecret('APP_MASTER_KEY', 32);
 const maxImageBytes = positiveInteger('MAX_IMAGE_BYTES', 50 * 1024 * 1024);
 const maxVideoBytes = positiveInteger('MAX_VIDEO_BYTES', 512 * 1024 * 1024);
