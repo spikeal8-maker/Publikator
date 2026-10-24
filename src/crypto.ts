@@ -47,6 +47,7 @@ export function verifySessionToken(token: string | undefined): boolean {
 }
 
 export function securePasswordEqual(input: string): boolean {
+  if (!config.adminPassword) return false;
   const left = crypto.createHash('sha256').update(input).digest();
   const right = crypto.createHash('sha256').update(config.adminPassword).digest();
   return crypto.timingSafeEqual(left, right);
