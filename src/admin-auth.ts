@@ -123,14 +123,22 @@ export function createAdminSetupGrant(mode: SetupMode): string {
 }
 
 export function createOrRecoverAdmin(mode: SetupMode, grantToken: unknown, username: unknown, password: unknown, confirmation: unknown): string {
-  const name = normalizedUsername(username);
-  const pass = validPassword(password, name.display);
-  if (pass !== confirmation) throw new AdminAuthError('Пароли не совпадают.');
+  // Reject unauthorized internet traffic before the expensive scrypt password KDF.
+  // Recheck atomically below because a grant might be redeemed during hashing.
   if (typeof grantToken !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(grantToken)) {
     throw new AdminAuthError('Ссылка настройки недействительна. Откройте новую ссылку из установщика.', 403);
   }
-  const credential = storedPassword(pass);
   const tokenHash = digest(grantToken);
+  const precheck = db.prepare('SELECT mode,token_hash,expires_at FROM admin_setup_grants WHERE id=1')
+    .get() as { mode: SetupMode; token_hash: string; expires_at: number } | undefined;
+  if (!precheck || precheck.mode !== mode || precheck.expires_at <= Date.now()
+    || !crypto.timingSafeEqual(Buffer.from(precheck.token_hash, 'hex'), Buffer.from(tokenHash, 'hex'))) {
+    throw new AdminAuthError('Ссылка настройки истекла или уже использована.', 403);
+  }
+  const name = normalizedUsername(username);
+  const pass = validPassword(password, name.display);
+  if (pass !== confirmation) throw new AdminAuthError('Пароли не совпадают.');
+  const credential = storedPassword(pass);
   return db.transaction(() => {
     const grant = db.prepare('SELECT mode,token_hash,expires_at FROM admin_setup_grants WHERE id=1')
       .get() as { mode: SetupMode; token_hash: string; expires_at: number } | undefined;
