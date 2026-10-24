@@ -59,13 +59,13 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) { throw 'Git is requir
 $buildSha = (git rev-parse HEAD).Trim()
 if ($buildSha -notmatch '^[a-f0-9]{40}$') { throw 'Current folder is not a valid Git checkout with a 40-character commit SHA.' }
 
-if (-not (Test-Path '.env')) {
+$newInstall = -not (Test-Path '.env')
+if ($newInstall) {
   $listener = Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue
   if ($listener) {
     throw 'TCP port 8080 is already in use. Create .env from .env.example and choose another PUBLIKATOR_PORT before the first launch.'
   }
 
-  $admin = ([guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N'))
   $master = ([guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N'))
   @(
     "PUBLIC_BASE_URL=$PublicBaseUrl",
@@ -73,7 +73,7 @@ if (-not (Test-Path '.env')) {
     'PUBLIKATOR_PORT=8080',
     'PUBLIKATOR_DATA_SOURCE=publikator-data',
     'TRUST_PROXY=',
-    "ADMIN_PASSWORD=$admin",
+    'ADMIN_PASSWORD=',
     "APP_MASTER_KEY=$master",
     'SESSION_TTL_HOURS=24',
     'SCHEDULER_INTERVAL_MS=15000',
@@ -83,7 +83,7 @@ if (-not (Test-Path '.env')) {
     "BUILD_SHA=$buildSha",
     'RELEASE_TARGET_VERSION=1.0.0'
   ) | Set-Content -Encoding ascii '.env'
-  Write-Host 'Created .env with random ADMIN_PASSWORD and APP_MASTER_KEY.'
+  Write-Host 'Created .env with persistent encryption key; administrator account will be created in the browser.'
 } else {
   Write-Host 'Using existing .env; secrets and deployment settings are preserved.'
   $lines = @(Get-Content '.env')
@@ -121,4 +121,9 @@ if ($portLine) { $port = ($portLine -split '=', 2)[1].Trim() }
 Write-Host 'Publikator is healthy.'
 Write-Host "Local UI: http://127.0.0.1:$port"
 Write-Host "Build SHA: $buildSha"
-Write-Host 'Credentials are stored only in .env. Keep APP_MASTER_KEY safe.'
+if ($newInstall) {
+  Write-Host 'Administrator account setup:'
+  & docker compose --env-file .env exec -T publikator node dist/cli/admin-setup.js | Out-Host
+  if ($LASTEXITCODE -ne 0) { throw 'Could not authorize first-run account setup.' }
+}
+Write-Host 'Keep APP_MASTER_KEY safe; Publikator login uses the administrator account.'
