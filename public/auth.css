@@ -18,3 +18,6 @@
 .auth-settings .auth-success { color:#166534; font-size: 14px; }
 #legacy-migration-note { display:inline-flex; align-items:center; border:1px solid #bfdbfe; background:#eff6ff; color:#1d4ed8; font-size:12px; padding:9px 12px; border-radius:9px; cursor:pointer; }
 @media (max-width: 520px) { #login.auth-screen { margin: 26px auto; } #login .auth-mark { margin-bottom: 20px; } #login input { font-size: 16px; } }
+
+/* The unified UI already draws the legacy pseudo-brand; onboarding owns its explicit mark. */
+#login.auth-screen::before { content: none; display: none; }
