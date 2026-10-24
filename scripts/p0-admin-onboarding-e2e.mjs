@@ -102,7 +102,7 @@ try {
   assert.equal((await send('GET','/api/dashboard',undefined,{cookie:cookie(recovered)})).statusCode,200);
   assert.equal((await send('POST','/api/auth/login',{username:'publikator_admin',password:'second-new-password-2026'},{origin})).statusCode,401);
   assert.equal((await send('POST','/api/auth/login',{username:'owner_restored',password:'recovered-password-2026'},{origin})).statusCode,200);
-  assert.equal(sessionAdmin(cookie(recovered))?.username,'owner_restored');
+  assert.equal(sessionAdmin(cookie(recovered).split('=')[1])?.username,'owner_restored');
   console.log(JSON.stringify({ok:true,setupProtected:true,oneOwner:true,hash:'scrypt',sessionSurvivesRestart:true,passwordRotation:true,logoutRevokes:true,recoveryRequiresInstaller:true}));
 } finally {
   await app.close();
