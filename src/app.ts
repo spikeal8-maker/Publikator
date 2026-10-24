@@ -30,10 +30,21 @@ import { registerRevisionHistoryRoutes } from './http/revision-history.js';
 import { registerTemplateRoutes } from './http/templates.js';
 import { registerIntegrationApiRoutes } from './http/integration-api.js';
 import { registerVkOauthRoutes } from './http/vk-oauth.js';
+import { registerSocialConnectionObservability, socialLogPath } from './http/social-connection-observability.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
-    logger: true,
+    logger: {
+      serializers: {
+        req: (request: { method?: string; url?: string; headers?: { host?: string }; socket?: { remoteAddress?: string; remotePort?: number } }) => ({
+          method: request.method,
+          url: socialLogPath(request.url || '/'),
+          host: request.headers?.host,
+          remoteAddress: request.socket?.remoteAddress,
+          remotePort: request.socket?.remotePort
+        })
+      }
+    },
     bodyLimit: 2 * 1024 * 1024,
     trustProxy: config.trustProxy
   });
@@ -44,6 +55,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(fastifyStatic, { root: config.mediaDir, prefix: '/public-media/', decorateReply: false, index: false });
   await registerMaintenanceGuard(app);
   await registerLegacyBackupBlocker(app);
+  registerSocialConnectionObservability(app);
   await registerRoutes(app);
   await registerVkOauthRoutes(app);
   await registerIntegrationApiRoutes(app);
