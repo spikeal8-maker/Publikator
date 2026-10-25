@@ -443,12 +443,29 @@ export async function openQuickComposer() {
       if (!state.savedId) {
         // If the create response is lost, do not repeat blindly: the server may
         // have committed the draft. The operator can inspect /content safely.
+        // Session marker must be durable before the network operation starts.
+        // A reload while POST is still pending may leave a committed server draft.
+        if (!recovery?.saveUncertain()) {
+          throw new Error('Временное хранилище браузера недоступно. Отправка остановлена для защиты от дублирования.');
+        }
         let created;
         try {
           created = await request('/api/posts', { method: 'POST', body: JSON.stringify(payload) });
         } catch (error) {
-          state.uncertainPublish = !Number.isInteger(error?.httpStatus) || error.httpStatus >= 500;
-          if (state.uncertainPublish) recovery?.saveUncertain();
+          const rejected = Number.isInteger(error?.httpStatus) &&
+            error.httpStatus >= 400 && error.httpStatus < 500 && ![408, 429].includes(error.httpStatus);
+          state.uncertainPublish = !rejected;
+          if (rejected) {
+            recovery.saveLocalDraft({
+              body: operation.body, projectId: operation.projectId,
+              scheduledAtLocal: operation.scheduledAtLocal,
+              scheduleTimezone: operation.scheduleTimezone,
+              ambiguousOffset: operation.ambiguousOffset,
+              accountIds: operation.accountIds, photoCount: operation.images.length
+            });
+          } else {
+            recovery.saveUncertain();
+          }
           throw new Error('Не удалось подтвердить создание черновика. Проверьте список публикаций, чтобы избежать дубля. ' + readableError(error));
         }
         state.savedId = created.id;
