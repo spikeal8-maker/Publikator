@@ -192,6 +192,33 @@
 .qc-primary { background: #315ee8; color: #fff; border: 1px solid #315ee8; }
 .qc-primary:hover { background: #284fc8; }
 .qc-loading { padding: 40px; }
+.qc-drop.is-disabled { opacity: .55; cursor: not-allowed; }
+.qc-video-section { margin-top: 16px; }
+.qc-video-drop { min-height: 98px; padding: 15px 12px; }
+.qc-video-drop .qc-drop-icon { font-size: 22px; line-height: 22px; }
+.qc-video-preview { min-width: 0; margin-top: 12px; }
+.qc-video-card {
+  display: grid; grid-template-columns: minmax(140px, 40%) minmax(0,1fr);
+  gap: 13px; padding: 12px; border: 1px solid #dbe2ec;
+  border-radius: 12px; background: #f8fafc;
+}
+.qc-video-card video {
+  display: block; width: 100%; max-height: 180px; border-radius: 8px; background: #111827;
+}
+.qc-video-meta { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; }
+.qc-video-meta strong { font-size: 13px; overflow-wrap: anywhere; }
+.qc-video-meta span { font-size: 12px; color: #566884; }
+.qc-video-meta button {
+  min-height: 36px; padding: 7px 11px; border: 1px solid #b8c8e2;
+  border-radius: 8px; background: #fff; color: #304e8f;
+  font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.qc-video-meta button:disabled { opacity: .5; cursor: not-allowed; }
+@media (max-width: 530px) {
+  .qc-video-card { grid-template-columns: minmax(0,1fr); }
+  .qc-video-card video { max-height: 220px; }
+}
+
 @media (max-width: 810px) {
   .qc-overlay { padding: 0; }
   .qc-dialog {
