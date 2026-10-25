@@ -17,6 +17,9 @@ const { db, migrate, id, nowIso } = await import('../dist/db.js');
 const { encryptJson } = await import('../dist/crypto.js');
 const { buildApp } = await import('../dist/app.js');
 migrate();
+const composerScript = await fs.readFile(new URL('../public/quick-composer-v1.js', import.meta.url), 'utf8');
+assert.equal(composerScript.split("root.addEventListener('paste'").length - 1, 1,
+  'the composer must install exactly one clipboard paste handler per open dialog');
 
 const accounts = [];
 for (let i = 0; i < 11; i += 1) {
@@ -734,6 +737,74 @@ try {
   await page.locator('#qc-skip-recovered-video').click();
   assert.equal(await page.locator('#qc-missing-video').isVisible(), false,
     'operator can explicitly waive a missing MP4, not implicitly lose it');
+  await closeComposer();
+
+  // C2a: browser clipboard image paste must use the normal versioned media
+  // queue before AND after the first Save, without creating another post.
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').fill('Фотографии вставлены из буфера обмена');
+  const textPastePrevented = await page.evaluate(() => {
+    const clipboard = new DataTransfer();
+    clipboard.setData('text/plain', 'Обычный текст');
+    const event = new ClipboardEvent('paste', {
+      bubbles: true, cancelable: true, clipboardData: clipboard
+    });
+    document.querySelector('#qc-text').dispatchEvent(event);
+    return event.defaultPrevented;
+  });
+  assert.equal(textPastePrevented, false,
+    'text-only clipboard paste remains native; do not hijack normal text editing');
+  async function pasteImage(buffer, filename) {
+    return page.evaluate(({ bytes, name }) => {
+      const clipboard = new DataTransfer();
+      clipboard.items.add(new File([new Uint8Array(bytes)], name, { type: 'image/png' }));
+      const event = new ClipboardEvent('paste', {
+        bubbles: true, cancelable: true, clipboardData: clipboard
+      });
+      document.querySelector('#qc-text').dispatchEvent(event);
+      return event.defaultPrevented;
+    }, { bytes: Array.from(buffer), name: filename });
+  }
+  assert.equal(await pasteImage(image1, 'clipboard-one.png'), true,
+    'image clipboard paste must be consumed inside the composer');
+  assert.equal(await page.locator('.qc-image').count(), 1);
+  assert.match(await page.locator('#qc-status').textContent(), /из буфера обмена/i);
+  await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
+  const beforeClipboardPost = db.prepare('SELECT COUNT(*) n FROM posts').get().n;
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  assert.equal(await page.locator('#qc-close').textContent(), '×',
+    'close control must retain a compact icon after draft save');
+  assert.equal(await page.locator('#qc-close').getAttribute('aria-label'), 'Закрыть редактор');
+  const clipboardPostId = db.prepare('SELECT id FROM posts ORDER BY rowid DESC LIMIT 1').get().id;
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, beforeClipboardPost + 1);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM media WHERE post_id=?').get(clipboardPostId).n, 1);
+  assert.equal(await pasteImage(image2, 'clipboard-two.png'), true,
+    'clipboard paste remains available after server draft save');
+  assert.equal(await page.locator('.qc-image').count(), 2);
+  await page.screenshot({ path: 'test-results/p0-composer-clipboard-paste.png', fullPage: false });
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, beforeClipboardPost + 1,
+    'pasting extra images into a saved draft must not create duplicate posts');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM media WHERE post_id=?').get(clipboardPostId).n, 2);
+  const clipboardOrder = db.prepare('SELECT id FROM media WHERE post_id=? ORDER BY sort_order,created_at')
+    .all(clipboardPostId).map((row) => row.id);
+  assert.equal(new Set(clipboardOrder).size, 2, 'clipboard attachments have two unique persisted IDs');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM publication_events WHERE post_id=? AND event_type LIKE ?')
+    .get(clipboardPostId, '%publish%').n, 0, 'clipboard paste and Save never publish externally');
+  await closeComposer();
+
+  // Pasting an image must not bypass the no-mixed-photo/video safety rule.
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').fill('Видеопубликация без смешанных вложений');
+  await page.locator('#qc-video-file').setInputFiles([
+    { name: 'only-video.mp4', mimeType: 'video/mp4', buffer: mp4 }
+  ]);
+  assert.equal(await pasteImage(image1, 'blocked-clipboard.png'), true);
+  assert.equal(await page.locator('.qc-image').count(), 0);
+  assert.match(await page.locator('#qc-status').textContent(), /Смешивание фото и видео/);
+  assert.equal(await page.locator('#qc-video-preview video').count(), 1);
   await closeComposer();
 
   assert.deepEqual(errors, []);

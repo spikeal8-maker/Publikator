@@ -144,9 +144,9 @@ export async function openQuickComposer() {
           '<strong>Видео MP4 из прежней вкладки отсутствует</strong>' +
           '<p>Выберите MP4 снова или явно подтвердите отказ от него.</p>' +
           '<button type="button" id="qc-skip-recovered-video">Продолжить без прежнего видео</button></div>' +
-          '<div class="qc-photo-head"><strong>Фотографии</strong><span class="qc-muted">Можно добавить сразу, до сохранения</span></div>' +
+          '<div class="qc-photo-head"><strong>Фотографии</strong><span class="qc-muted">До сохранения, перетаскиванием или Ctrl+V</span></div>' +
           '<label class="qc-drop" id="qc-drop"><input id="qc-files" type="file" accept="image/*" multiple>' +
-          '<span class="qc-drop-icon" aria-hidden="true">+</span><strong>Добавить фото</strong><small>Выберите несколько изображений или перетащите сюда</small></label>' +
+          '<span class="qc-drop-icon" aria-hidden="true">+</span><strong>Добавить фото</strong><small>Выберите несколько изображений, перетащите или вставьте из буфера обмена</small></label>' +
           '<div id="qc-images" class="qc-images" aria-live="polite"></div>' +
           '<div class="qc-video-section"><div class="qc-photo-head"><strong>Видео MP4</strong>' +
           '<span class="qc-muted">Отдельно от фотографий · требуется текст публикации</span></div>' +
@@ -486,6 +486,30 @@ export async function openQuickComposer() {
       event.preventDefault(); drop.classList.remove('is-dragging');
       if (name === 'drop') addFiles(Array.from(event.dataTransfer?.files || []));
     }));
+    // Paste is handled only while the composer is open. Text-only clipboard
+    // data is left to the browser, so normal text editing is unaffected.
+    // Do not read navigator.clipboard or request persistent clipboard access.
+    root.addEventListener('paste', (event) => {
+      const clipboard = event.clipboardData;
+      if (!clipboard) return;
+      let images = Array.from(clipboard.items || [])
+        .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+        .map((item) => item.getAsFile())
+        .filter(Boolean);
+      if (!images.length) {
+        images = Array.from(clipboard.files || [])
+          .filter((file) => file.type.startsWith('image/'));
+      }
+      if (!images.length) return;
+      event.preventDefault();
+      const before = state.pending.length;
+      addFiles(images);
+      const added = state.pending.length - before;
+      if (added > 0) {
+        setStatus('Из буфера обмена добавлено изображений: ' + added +
+          '. Проверьте порядок и сохраните публикацию.');
+      }
+    });
     root.querySelectorAll('input[name="qc-account"]').forEach((input) => input.addEventListener('change', () => {
       markDirty();
       refreshPreview();
@@ -787,7 +811,7 @@ export async function openQuickComposer() {
         }
         recovery?.clear();
         root.querySelector('#qc-recovery-note').textContent = '';
-        root.querySelector('#qc-close').textContent = 'Закрыть';
+        root.querySelector('#qc-close').textContent = '×';
         root.querySelector('#qc-close').setAttribute('aria-label', 'Закрыть редактор');
       } catch (error) {
         if (state.uncertainPublish && !state.savedId) {
