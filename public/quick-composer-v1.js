@@ -408,6 +408,9 @@ export async function openQuickComposer() {
         previewArea.hidden = false;
         if (state.previewRows.length) renderPlatformPreview();
         else previewContent.textContent = 'В сохранённом черновике нет выбранных получателей.';
+        // Expose the actual result immediately, instead of leaving the preview
+        // hidden below a long target list in the independent scroll pane.
+        previewArea.scrollIntoView({ block: 'nearest', behavior: 'auto' });
       } catch (error) {
         if (token === state.previewToken && overlay.isConnected) {
           previewArea.hidden = false;
