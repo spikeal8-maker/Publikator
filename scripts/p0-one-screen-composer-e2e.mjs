@@ -185,9 +185,9 @@ try {
     .run(projectId, 'Москва', 'tz-moscow-composer', 'Europe/Moscow', nowIso());
   await page.locator('#quick-compose-nav').click();
   await page.locator('#qc-text').fill('Запланированное сообщение Москвы');
+  await page.locator('.qc-advanced summary').click();
   await page.locator('#qc-project').selectOption(projectId);
   await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
-  await page.locator('.qc-advanced summary').click();
   await page.locator('#qc-datetime').fill('2026-11-12T10:00');
   const imageForRetry = await sharp({ create: { width: 100, height: 100, channels: 3,
     background: '#99bbdd' } }).png().toBuffer();
@@ -231,9 +231,9 @@ try {
     .run(dstProjectId, 'Нью-Йорк', 'tz-ny-composer', 'America/New_York', nowIso());
   await page.locator('#quick-compose-nav').click();
   await page.locator('#qc-text').fill('Проверка неоднозначного времени');
+  await page.locator('.qc-advanced summary').click();
   await page.locator('#qc-project').selectOption(dstProjectId);
   await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
-  await page.locator('.qc-advanced summary').click();
   await page.locator('#qc-datetime').fill('2026-11-01T01:30');
   page.once('dialog', (dialog) => dialog.accept());
   await page.locator('#qc-schedule').click();
