@@ -773,6 +773,9 @@ try {
   const beforeClipboardPost = db.prepare('SELECT COUNT(*) n FROM posts').get().n;
   await page.locator('#qc-save').click();
   await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  assert.equal(await page.locator('#qc-close').textContent(), '×',
+    'close control must retain a compact icon after draft save');
+  assert.equal(await page.locator('#qc-close').getAttribute('aria-label'), 'Закрыть редактор');
   const clipboardPostId = db.prepare('SELECT id FROM posts ORDER BY rowid DESC LIMIT 1').get().id;
   assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, beforeClipboardPost + 1);
   assert.equal(db.prepare('SELECT COUNT(*) n FROM media WHERE post_id=?').get(clipboardPostId).n, 1);
