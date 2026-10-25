@@ -1022,6 +1022,36 @@ try {
   assert.equal(await mp.locator('#qc-video-preview video').count(), 1);
   assert.equal(await mp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
     '390px MP4 preview must not overflow');
+
+  // Mobile C2c: even with the video composer open, the failed readiness
+  // explanation must remain available without clipping the action bar.
+  await mp.locator('.qc-advanced summary').click();
+  await mp.locator('#qc-datetime').fill('2027-02-14T14:30');
+  await mp.route('**/api/posts/*/ready', async (route) => {
+    if (route.request().method() !== 'POST') { await route.continue(); return; }
+    await route.fulfill({
+      status: 409, contentType: 'application/json',
+      body: JSON.stringify({
+        error: 'Пост не готов к публикации',
+        issues: [
+          { platform: 'telegram', accountId: accounts[0].id, accountName: 'Account 0',
+            message: 'Нет права отправки видео', severity: 'error' },
+          { platform: 'vk', accountId: accounts[2].id, accountName: 'Account 2',
+            message: 'Формат видео не поддерживается этим подключением', severity: 'error' }
+        ]
+      })
+    });
+  });
+  mp.once('dialog', (dialog) => dialog.accept());
+  await mp.locator('#qc-schedule').click();
+  await mp.locator('#qc-preflight-issues:not([hidden])').waitFor({ timeout: 45000 });
+  assert.equal(await mp.locator('#qc-preflight-issues li').count(), 2);
+  assert.match(await mp.locator('#qc-preflight-issues').textContent(), /Нет права отправки видео/);
+  assert.match(await mp.locator('#qc-preflight-issues').textContent(), /Формат видео не поддерживается/);
+  assert.equal(await mp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
+    '390px failure diagnostics must not introduce horizontal overflow');
+  await mp.screenshot({ path: 'test-results/p0-composer-mobile-per-account-ready-errors.png', fullPage: false });
+  await mp.unroute('**/api/posts/*/ready');
   assert.deepEqual(errors, []);
   await mobile.close();
 
@@ -1075,6 +1105,8 @@ try {
     screenshots: [
       'test-results/p0-composer-video-desktop.png',
       'test-results/p0-composer-video-mobile.png',
+      'test-results/p0-composer-mobile-per-account-ready-errors.png',
+      'test-results/p0-composer-per-account-ready-errors.png',
       'test-results/p0-composer-video-responsive-320.png',
       'test-results/p0-composer-desktop.png',
       'test-results/p0-composer-mobile.png',
