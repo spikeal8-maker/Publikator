@@ -112,7 +112,8 @@ export async function openQuickComposer() {
       busy: false, finished: false, uncertainPublish: false, dirty: false,
       scheduleTimezone: null, scheduleMode: 'MANUAL', remoteMediaOrder: [],
       restoredScheduleTimezone: null, recoveryRequiredFiles: 0,
-      video: null, recoveryRequiresVideo: false
+      video: null, recoveryRequiresVideo: false,
+      previewToken: 0, previewLoading: false, previewRows: []
     };
     const available = accounts.filter((account) => account.enabled);
     const grouped = ['telegram', 'vk', 'max', 'instagram'].map((platform) => {
@@ -178,7 +179,15 @@ export async function openQuickComposer() {
           : '<div class="qc-empty">Нет активных подключений. Черновик можно сохранить и без них.' +
             '<a href="/socials" id="qc-connect">Перейти к подключению соцсетей</a></div>') +
         '<div class="qc-preview"><h4>Предпросмотр текста</h4><p id="qc-preview-text">Текст появится здесь</p>' +
-          '<div id="qc-preview-targets" class="qc-muted">Площадки пока не выбраны</div></div></section></div>' +
+          '<div id="qc-preview-targets" class="qc-muted">Площадки пока не выбраны</div>' +
+          '<button id="qc-platform-preview-load" class="qc-platform-preview-load" type="button" disabled>' +
+          'Посмотреть по площадкам</button>' +
+          '<div id="qc-platform-preview" class="qc-platform-preview" hidden>' +
+          '<label for="qc-platform-preview-choice">Какой аккаунт посмотреть' +
+          '<select id="qc-platform-preview-choice"></select></label>' +
+          '<div id="qc-platform-preview-card"></div>' +
+          '<p class="qc-muted">Ориентировочный внешний вид. Итоговую публикацию и разрешения проверяет сервер и сама площадка.</p>' +
+          '</div></div></section></div>' +
       '<footer class="qc-footer"><div class="qc-feedback">' +
         '<div id="qc-status" role="status" aria-live="polite">Добавьте текст и выберите площадки. Необязательные настройки скрыты.</div>' +
         '<section class="qc-preflight-issues" id="qc-preflight-issues" role="alert" aria-label="Причины отказа по аккаунтам" hidden></section></div>' +
@@ -300,15 +309,125 @@ export async function openQuickComposer() {
       root.querySelectorAll('input,textarea,select,button').forEach((element) => {
         const unavailable = element.matches('input[name="qc-account"]') &&
           !state.accounts.some((account) => account.id === element.value && account.enabled);
-        element.disabled = busy || (locked && !['qc-close', 'qc-start-new'].includes(element.id)) || unavailable ||
+        const previewUnavailable = element.id === 'qc-platform-preview-load' &&
+          (!state.savedId || state.dirty || state.previewLoading);
+        element.disabled = busy || (locked && !['qc-close', 'qc-start-new'].includes(element.id)) ||
+          unavailable || previewUnavailable ||
           (element.id === 'qc-project' && Boolean(state.savedId));
       });
       redrawPhotos();
       redrawVideo();
     }
+    const previewArea = root.querySelector('#qc-platform-preview');
+    const previewChoice = root.querySelector('#qc-platform-preview-choice');
+    const previewContent = root.querySelector('#qc-platform-preview-card');
+    const previewButton = root.querySelector('#qc-platform-preview-load');
+    const FORMAT_NAMES = {
+      TEXT_ONLY: 'Только текст', IMAGE: 'Фотография', CAROUSEL: 'Карусель',
+      VIDEO: 'Видео', VERTICAL_VIDEO: 'Вертикальное видео',
+      STORY_SEQUENCE: 'Истории'
+    };
+    function clearPlatformPreview() {
+      state.previewToken += 1;
+      state.previewRows = [];
+      previewArea.hidden = true;
+      previewChoice.replaceChildren();
+      previewContent.replaceChildren();
+    }
+    function renderPlatformPreview() {
+      previewContent.replaceChildren();
+      const selected = state.previewRows.find((item) => item.targetId === previewChoice.value);
+      if (!selected) return;
+      const heading = document.createElement('strong');
+      heading.textContent = (PLATFORM_NAMES[selected.platform] || selected.platform || 'Площадка') +
+        ' · ' + (selected.accountName || 'Подключение');
+      const format = document.createElement('span');
+      format.className = 'qc-muted';
+      format.textContent = FORMAT_NAMES[selected.contentFormat] || selected.contentFormat || 'Пост';
+      const mediaGroup = document.createElement('div');
+      mediaGroup.className = 'qc-platform-media';
+      const media = Array.isArray(selected.media) ? selected.media.filter((item) => item.role !== 'poster') : [];
+      for (const item of media) {
+        if (typeof item.url !== 'string' || !item.url.startsWith('/public-media/')) continue;
+        let element;
+        if (item.mimeType === 'video/mp4') {
+          element = document.createElement('video');
+          element.controls = true;
+          element.preload = 'metadata';
+          element.playsInline = true;
+          if (typeof item.posterUrl === 'string' && item.posterUrl.startsWith('/public-media/')) {
+            element.poster = item.posterUrl;
+          }
+        } else if (typeof item.mimeType === 'string' && item.mimeType.startsWith('image/')) {
+          element = document.createElement('img');
+          element.alt = 'Изображение для ' + (selected.accountName || 'площадки');
+          element.loading = 'lazy';
+        } else continue;
+        element.src = item.url;
+        mediaGroup.append(element);
+      }
+      const caption = document.createElement('p');
+      caption.className = 'qc-platform-caption';
+      caption.textContent = String(selected.text || '').trim() || 'Без подписи';
+      previewContent.append(heading, format);
+      if (selected.captionPlacement === 'above') previewContent.append(caption, mediaGroup);
+      else previewContent.append(mediaGroup, caption);
+      const issues = Array.isArray(selected.issues)
+        ? selected.issues.filter((i) => i && ['error', 'warning'].includes(i.severity)) : [];
+      if (issues.length) {
+        const warningList = document.createElement('ul');
+        warningList.className = 'qc-platform-notes';
+        for (const issue of issues) {
+          const row = document.createElement('li');
+          row.textContent = String(issue.message || 'Проверьте требования площадки');
+          warningList.append(row);
+        }
+        previewContent.append(warningList);
+      }
+    }
+    async function loadPlatformPreview() {
+      if (!state.savedId || state.busy || state.dirty || state.finished ||
+          state.uncertainPublish || state.previewLoading) return;
+      state.previewLoading = true;
+      const token = ++state.previewToken;
+      previewButton.disabled = true;
+      try {
+        const response = await request('/api/posts/' + encodeURIComponent(state.savedId) + '/platform-previews');
+        if (token !== state.previewToken || !overlay.isConnected || state.busy) return;
+        if (!Array.isArray(response?.previews)) throw new Error('Сервер не вернул данные предпросмотра');
+        state.previewRows = response.previews.filter((item) => item && item.enabled);
+        previewChoice.replaceChildren();
+        for (const item of state.previewRows) {
+          const option = document.createElement('option');
+          option.value = item.targetId;
+          option.textContent = (PLATFORM_NAMES[item.platform] || item.platform || 'Площадка') +
+            ' · ' + (item.accountName || 'Подключение');
+          previewChoice.append(option);
+        }
+        previewContent.replaceChildren();
+        previewArea.hidden = false;
+        if (state.previewRows.length) renderPlatformPreview();
+        else previewContent.textContent = 'В сохранённом черновике нет выбранных получателей.';
+        // Expose the actual result immediately, instead of leaving the preview
+        // hidden below a long target list in the independent scroll pane.
+        previewArea.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+      } catch (error) {
+        if (token === state.previewToken && overlay.isConnected) {
+          previewArea.hidden = false;
+          previewContent.textContent = 'Не удалось получить предпросмотр: ' + readableError(error);
+        }
+      } finally {
+        state.previewLoading = false;
+        previewButton.disabled = state.busy || state.dirty || state.finished ||
+          state.uncertainPublish || !state.savedId;
+      }
+    }
+    previewButton.addEventListener('click', loadPlatformPreview);
+    previewChoice.addEventListener('change', renderPlatformPreview);
     function markDirty() {
       if (state.busy || state.finished || state.uncertainPublish) return;
       clearPreflightIssues();
+      clearPlatformPreview();
       state.dirty = true;
       if (state.savedId || !recovery) return;
       const stored = recovery.saveLocalDraft({
@@ -822,6 +941,7 @@ export async function openQuickComposer() {
           chosen.map(accountLabel).join('\n') + '\n\nПроверьте текст и фотографии.')) return;
       }
       clearPreflightIssues();
+      clearPlatformPreview();
       setBusy(true);
       try {
         setStatus('Сохраняю публикацию…');
