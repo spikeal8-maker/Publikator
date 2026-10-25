@@ -650,7 +650,11 @@ try {
   // A versioned video deletion removes its generated poster as well.
   await page.locator('#qc-video-preview button[aria-label^="Удалить видео"]').click();
   assert.equal(await page.locator('#qc-video-preview video').count(), 0);
-  assert.equal(db.prepare('SELECT COUNT(*) n FROM media WHERE post_id=?').get(videoPost.id).n, 0);
+  const remainingAfterVideoDelete = db.prepare('SELECT id,mime_type,poster_asset_id FROM media WHERE post_id=?')
+    .all(videoPost.id);
+  assert.deepEqual(remainingAfterVideoDelete, [],
+    'deleting saved MP4 must remove both video and generated poster (remaining: ' +
+    JSON.stringify(remainingAfterVideoDelete) + ')');
   assert.equal(await page.locator('#qc-files').isDisabled(), false);
   await page.locator('#qc-files').setInputFiles([
     { name: 'now-a-photo.png', mimeType: 'image/png', buffer: image2 }
