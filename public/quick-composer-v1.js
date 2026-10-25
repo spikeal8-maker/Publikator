@@ -396,6 +396,80 @@ export async function openQuickComposer() {
       }
       redrawPhotos();
     }
+    function redrawVideo() {
+      const host = root.querySelector('#qc-video-preview');
+      host.replaceChildren();
+      updateMissingFilesNotice();
+      if (!state.video) { syncMediaInputs(); return; }
+      const item = state.video;
+      const card = document.createElement('div');
+      card.className = 'qc-video-card';
+      const preview = document.createElement('video');
+      preview.controls = true;
+      preview.muted = true;
+      preview.playsInline = true;
+      preview.preload = 'metadata';
+      preview.src = item.url;
+      preview.setAttribute('aria-label', 'Предпросмотр видео ' + item.file.name);
+      const meta = document.createElement('div');
+      meta.className = 'qc-video-meta';
+      const title = document.createElement('strong');
+      title.textContent = item.file.name;
+      const size = document.createElement('span');
+      size.textContent = (item.file.size / (1024 * 1024)).toFixed(1) + ' МБ · MP4' +
+        (item.uploaded ? ' · загружено на сервер' : ' · ожидает сохранения');
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.textContent = 'Удалить видео';
+      remove.setAttribute('aria-label', 'Удалить видео ' + item.file.name);
+      remove.disabled = state.busy || state.finished || state.uncertainPublish;
+      remove.addEventListener('click', async () => {
+        if (state.busy || state.finished || state.uncertainPublish) return;
+        if (item.uploaded && item.remoteId) {
+          setBusy(true);
+          try {
+            const deleted = await request('/api/media/' + encodeURIComponent(item.remoteId), {
+              method: 'DELETE', headers: { 'x-content-version': String(state.version) }
+            });
+            state.version = deleted.contentVersion;
+          } catch (error) {
+            setStatus(readableError(error), true);
+            setBusy(false);
+            return;
+          }
+          setBusy(false);
+        }
+        URL.revokeObjectURL(item.url);
+        state.video = null;
+        markDirty();
+        redrawVideo();
+      });
+      meta.append(title, size, remove);
+      card.append(preview, meta);
+      host.append(card);
+      syncMediaInputs();
+    }
+    root.querySelector('#qc-video-file').addEventListener('change', (event) => {
+      const input = event.currentTarget;
+      const file = input.files?.[0];
+      input.value = '';
+      if (!file || state.busy || state.finished || state.uncertainPublish) return;
+      if (state.pending.length || state.recoveryRequiredFiles) {
+        setStatus('Чтобы выбрать MP4, сначала удалите фотографии или завершите их восстановление.', true);
+        return;
+      }
+      if (state.video) {
+        setStatus('Сначала удалите ранее выбранное видео.', true);
+        return;
+      }
+      if (file.type !== 'video/mp4' || !file.name.toLowerCase().endsWith('.mp4') || !file.size) {
+        setStatus('Допустим непустой MP4 с MIME video/mp4. Другие видеоформаты не поддерживаются.', true);
+        return;
+      }
+      state.video = { file, url: URL.createObjectURL(file), uploaded: false, remoteId: null };
+      markDirty();
+      redrawVideo();
+    });
     root.querySelector('#qc-files').addEventListener('change', (event) => {
       addFiles(Array.from(event.currentTarget.files || []));
       event.currentTarget.value = '';
