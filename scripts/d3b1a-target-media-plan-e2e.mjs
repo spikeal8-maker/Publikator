@@ -191,6 +191,48 @@ assert.equal(db.prepare("SELECT COUNT(*) n FROM post_targets WHERE post_id=? AND
 assert.equal(db.prepare("SELECT COUNT(*) n FROM post_targets WHERE post_id=? AND state='RECOVERY_NEEDED'")
   .get(post.id).n, 0);
 
+// A poster is a stored image but NOT part of the publishable canonical
+// composition: reject it at mutation time, without consuming the version.
+const withPoster = await request('POST', '/api/posts', {
+  projectId, title: 'Carousel with poster asset', body: 'Carousel body', scheduleMode: 'MANUAL'
+});
+assert.equal(withPoster.statusCode, 201, withPoster.body);
+const posterPost = withPoster.json();
+const posterMedia = [];
+for (let i = 0; i < 3; i += 1) {
+  const mediaId = id('med');
+  posterMedia.push(mediaId);
+  db.prepare(`INSERT INTO media(id,post_id,original_name,relative_path,mime_type,
+    size_bytes,width,height,sha256,created_at,sort_order)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(mediaId, posterPost.id, `poster-fixture-${i}.jpg`,
+      `${posterPost.id}/poster-fixture-${i}.jpg`,
+      'image/jpeg', 1024, 1000, 1000, String(i + 5).repeat(64).slice(0, 64),
+      nowIso(), i);
+}
+const posterComposition = rich.setContentCompositionVersioned(
+  posterPost.id, posterPost.content_version, 'FEED', 'CAROUSEL', [
+    { mediaId: posterMedia[0], role: 'carousel_item' },
+    { mediaId: posterMedia[1], role: 'carousel_item' },
+    { mediaId: posterMedia[2], role: 'poster' }
+  ]
+);
+const posterTarget = db.prepare('SELECT id FROM post_targets WHERE post_id=? AND account_id=?')
+  .get(posterPost.id, 'acc_tg_one').id;
+const invalidPoster = await setPlan(posterTarget, [posterMedia[2]], posterComposition.contentVersion, posterPost.id);
+assert.equal(invalidPoster.statusCode, 400, invalidPoster.body);
+assert.match(invalidPoster.json().error, /не принадлежит/i);
+assert.equal(db.prepare('SELECT content_version FROM posts WHERE id=?').get(posterPost.id).content_version,
+  posterComposition.contentVersion, 'poster rejection must leave version and READY state unchanged');
+const validWithPoster = await setPlan(posterTarget,
+  [posterMedia[1], posterMedia[0]], posterComposition.contentVersion, posterPost.id);
+assert.equal(validWithPoster.statusCode, 200, validWithPoster.body);
+const posterPreview = await request('GET', `/api/posts/${posterPost.id}/platform-previews`);
+assert.equal(posterPreview.statusCode, 200, posterPreview.body);
+const selectedMedia = posterPreview.json().previews.find((x) => x.accountId === 'acc_tg_one').media
+  .filter((x) => x.role !== 'poster').map((x) => x.id);
+assert.deepEqual(selectedMedia, [posterMedia[1], posterMedia[0]]);
+
 // A post without images must not acquire a phantom image plan.
 const textOnly = await request('POST', '/api/posts', {
   projectId, title: 'Text-only', body: 'No media', scheduleMode: 'MANUAL'
