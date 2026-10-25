@@ -73,6 +73,55 @@
       ]
     },
     {
+      "id": "discover-drive-source-files",
+      "operationId": "listAgentSourceFiles",
+      "http": 200,
+      "request": {
+        "path": {
+          "sourceConnectorId": "source_drive_asa"
+        },
+        "query": {
+          "folderPath": "ASA_Lab",
+          "search": ".jpg",
+          "limit": 50
+        }
+      },
+      "response": {
+        "sourceConnectorId": "source_drive_asa",
+        "items": [
+          {
+            "sourceConnectorId": "source_drive_asa",
+            "fileId": "drive_file_first",
+            "relativePath": "ASA_Lab/first.jpg",
+            "name": "first.jpg",
+            "mimeType": "image/jpeg",
+            "sizeBytes": 125000,
+            "isFolder": false,
+            "sourceRevision": "rev_a"
+          },
+          {
+            "sourceConnectorId": "source_drive_asa",
+            "fileId": "drive_file_second",
+            "relativePath": "ASA_Lab/second.jpg",
+            "name": "second.jpg",
+            "mimeType": "image/jpeg",
+            "sizeBytes": 92000,
+            "isFolder": false,
+            "sourceRevision": "rev_b"
+          }
+        ],
+        "pagination": {
+          "limit": 50,
+          "nextCursor": null
+        }
+      },
+      "expect": [
+        "Scoped source file listing exposes connector-root-relative import paths",
+        "Every returned file rechecked for source ACL and path traversal before import",
+        "No local media copy or external publish from discovery"
+      ]
+    },
+    {
       "id": "import-media-started",
       "operationId": "importAgentMedia",
       "http": 202,
@@ -136,7 +185,8 @@
           "targetAccountIds": [
             "vk_001",
             "telegram_001"
-          ]
+          ],
+          "publicationKind": "FEED"
         }
       },
       "response": {
@@ -153,12 +203,170 @@
         "mediaAssetIds": [
           "media_01",
           "media_02"
-        ]
+        ],
+        "publicationKind": "FEED",
+        "contentFormat": "IMAGE",
+        "targetTextOverrides": [],
+        "schedule": null
       },
       "expect": [
         "no provider POST",
         "explicit two targets only",
         "photo-only body allowed"
+      ]
+    },
+    {
+      "id": "create-rich-scheduled-draft",
+      "operationId": "createAgentPost",
+      "http": 201,
+      "request": {
+        "idempotencyKey": "rich_scheduled_A",
+        "body": {
+          "projectId": "project_asa",
+          "publicationKind": "FEED",
+          "contentFormat": "CAROUSEL",
+          "internalTitle": "Робототехника — занятие",
+          "bodyPlain": "Сегодня мы собирали первых роботов.",
+          "bodyRich": {
+            "type": "doc",
+            "content": [
+              {
+                "type": "paragraph",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "Сегодня мы собирали первых роботов."
+                  }
+                ]
+              }
+            ]
+          },
+          "targetAccountIds": [
+            "vk_001",
+            "telegram_001"
+          ],
+          "mediaAssetIds": [
+            "media_01",
+            "media_02"
+          ],
+          "targetTextOverrides": [
+            {
+              "accountId": "vk_001",
+              "bodyPlain": "ВКонтакте: первые роботы на занятии."
+            }
+          ],
+          "schedule": {
+            "mode": "AT",
+            "atUtc": "2026-10-27T15:00:00Z",
+            "timezone": "Europe/Moscow"
+          }
+        }
+      },
+      "response": {
+        "postId": "post_demo_rich_001",
+        "contentVersion": 1,
+        "projectId": "project_asa",
+        "status": "DRAFT",
+        "editorialStage": "DRAFT",
+        "internalTitle": "Робототехника — занятие",
+        "publicationKind": "FEED",
+        "contentFormat": "CAROUSEL",
+        "bodyPlain": "Сегодня мы собирали первых роботов.",
+        "bodyRich": {
+          "type": "doc",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Сегодня мы собирали первых роботов."
+                }
+              ]
+            }
+          ]
+        },
+        "targetAccountIds": [
+          "vk_001",
+          "telegram_001"
+        ],
+        "mediaAssetIds": [
+          "media_01",
+          "media_02"
+        ],
+        "targetTextOverrides": [
+          {
+            "accountId": "vk_001",
+            "bodyPlain": "ВКонтакте: первые роботы на занятии."
+          }
+        ],
+        "schedule": {
+          "mode": "AT",
+          "atUtc": "2026-10-27T15:00:00Z",
+          "timezone": "Europe/Moscow"
+        }
+      },
+      "expect": [
+        "Persist original canonical rich text, per-account variants and schedule as DRAFT",
+        "No schedule execution or provider POST without owner approval"
+      ]
+    },
+    {
+      "id": "reload-rich-scheduled-draft",
+      "operationId": "getAgentPost",
+      "http": 200,
+      "request": {
+        "path": {
+          "postId": "post_demo_rich_001"
+        }
+      },
+      "response": {
+        "postId": "post_demo_rich_001",
+        "contentVersion": 1,
+        "projectId": "project_asa",
+        "status": "DRAFT",
+        "editorialStage": "DRAFT",
+        "internalTitle": "Робототехника — занятие",
+        "publicationKind": "FEED",
+        "contentFormat": "CAROUSEL",
+        "bodyPlain": "Сегодня мы собирали первых роботов.",
+        "bodyRich": {
+          "type": "doc",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Сегодня мы собирали первых роботов."
+                }
+              ]
+            }
+          ]
+        },
+        "targetAccountIds": [
+          "vk_001",
+          "telegram_001"
+        ],
+        "mediaAssetIds": [
+          "media_01",
+          "media_02"
+        ],
+        "targetTextOverrides": [
+          {
+            "accountId": "vk_001",
+            "bodyPlain": "ВКонтакте: первые роботы на занятии."
+          }
+        ],
+        "schedule": {
+          "mode": "AT",
+          "atUtc": "2026-10-27T15:00:00Z",
+          "timezone": "Europe/Moscow"
+        }
+      },
+      "expect": [
+        "Exact saved schedule, rich content, target overrides and original media order survive client reload",
+        "Read must never mutate targets or activate publishing"
       ]
     },
     {
