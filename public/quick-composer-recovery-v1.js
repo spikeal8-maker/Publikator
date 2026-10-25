@@ -34,11 +34,15 @@ export function createComposerRecovery(identity) {
       return null;
     }
     if (!saved || saved.version !== 1 || !Number.isFinite(saved.updatedAt) ||
-        Date.now() < saved.updatedAt || Date.now() - saved.updatedAt > TTL_MS) {
+        !['local', 'server-draft', 'uncertain'].includes(saved.kind)) {
       clear();
       return null;
     }
-    if (!['local', 'server-draft', 'uncertain'].includes(saved.kind)) {
+    // An old local text buffer may expire, but the absence of a response from
+    // a server operation NEVER becomes safe simply because 24 hours passed.
+    // Retain reconciliation guards until an explicit operator decision.
+    if (saved.kind === 'local' &&
+        (Date.now() < saved.updatedAt || Date.now() - saved.updatedAt > TTL_MS)) {
       clear();
       return null;
     }
