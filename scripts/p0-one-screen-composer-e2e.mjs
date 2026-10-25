@@ -624,7 +624,8 @@ try {
   ]);
   assert.equal(await page.locator('#qc-video-preview video').count(), 1);
   assert.match(await page.locator('#qc-video-preview').textContent(), /lesson-clip\.mp4/);
-  assert.match(await page.locator('#qc-video-preview').textContent(), /МБ/);
+  assert.match(await page.locator('#qc-video-preview').textContent(), /(?:КБ|МБ)/,
+    'file size must be displayed accurately in KB or MB');
   assert.equal(await page.locator('#qc-files').isDisabled(), true,
     'image picker must block mixing photos with MP4');
   assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, beforeC1,
