@@ -63,8 +63,8 @@ export async function openQuickComposer() {
   let state = null;
   const dispose = () => {
     if (state?.busy) return;
-    if (state?.savedId && !state?.finished &&
-        !window.confirm('Черновик сохранён, но операция не завершена. Закрыть редактор?')) return;
+    if (state?.uncertainPublish && !window.confirm('Результат последней операции не подтверждён. Проверьте публикации перед повторной отправкой. Закрыть редактор?')) return;
+    if (state?.dirty && !window.confirm('Есть несохранённые изменения. Закрыть редактор и потерять их?')) return;
     if (state?.pending) for (const image of state.pending) URL.revokeObjectURL(image.url);
     overlay.remove();
     document.body.classList.remove('qc-open');
@@ -72,7 +72,12 @@ export async function openQuickComposer() {
   };
   overlay.querySelector('#qc-close').addEventListener('click', dispose);
   overlay.addEventListener('click', (event) => { if (event.target === overlay) dispose(); });
-  const onKeyDown = (event) => { if (event.key === 'Escape' && !state?.busy && openDialog === overlay) dispose(); };
+  const onKeyDown = (event) => {
+    if (event.key !== 'Escape' || event.defaultPrevented || openDialog !== overlay) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    dispose();
+  };
   document.addEventListener('keydown', onKeyDown);
   // A newly opened overlay owns its one keydown listener.
   const removeListenerWhenClosed = new MutationObserver(() => {
@@ -87,7 +92,8 @@ export async function openQuickComposer() {
     if (!overlay.isConnected) return;
     state = {
       projects, accounts, pending: [], savedId: null, version: null,
-      busy: false, finished: false, uncertainPublish: false
+      busy: false, finished: false, uncertainPublish: false, dirty: false,
+      scheduleTimezone: null, scheduleMode: 'MANUAL', remoteMediaOrder: []
     };
     const available = accounts.filter((account) => account.enabled);
     const grouped = ['telegram', 'vk', 'max', 'instagram'].map((platform) => {
@@ -116,7 +122,10 @@ export async function openQuickComposer() {
           '<details class="qc-advanced"><summary>Дополнительно: проект и расписание</summary>' +
           '<div class="qc-options"><label>Проект (для организации материалов)<select id="qc-project">' +
           (projectOptions || '<option value="">Мои публикации — будет создан автоматически</option>') +
-          '</select></label><label>Дата и время, если нужно запланировать<input id="qc-datetime" type="datetime-local"></label></div></details>' +
+          '</select></label><label>Дата и время, если нужно запланировать<input id="qc-datetime" type="datetime-local"></label>' +
+          '<p id="qc-timezone-note" class="qc-muted"></p><label>При повторяющемся времени (перевод часов)' +
+          '<select id="qc-ambiguous"><option value="">Попросить уточнить</option><option value="earlier">Первое наступление времени</option>' +
+          '<option value="later">Второе наступление времени</option></select></label></div></details>' +
         '</section>' +
         '<section class="qc-right"><div class="qc-target-head"><div><h3>Куда опубликовать</h3><p>Выберите любое количество ваших подключений</p></div>' +
         '<span class="qc-counter" id="qc-counter">0 выбрано</span></div>' +
@@ -142,6 +151,26 @@ export async function openQuickComposer() {
       status.textContent = message;
       status.classList.toggle('is-error', error);
     }
+    const projectTimezone = (id) =>
+      state.projects.find((project) => project.id === id)?.default_timezone || 'UTC';
+    function showTimezone() {
+      root.querySelector('#qc-timezone-note').textContent =
+        'Время в часовом поясе ' + (state.savedId && state.scheduleMode === 'AT'
+          ? state.scheduleTimezone || 'UTC'
+          : projectTimezone(root.querySelector('#qc-project').value)) + '.';
+    }
+    function setBusy(busy) {
+      state.busy = busy;
+      const locked = state.finished || state.uncertainPublish;
+      root.querySelectorAll('input,textarea,select,button').forEach((element) => {
+        element.disabled = busy || (locked && element.id !== 'qc-close') ||
+          (element.id === 'qc-project' && Boolean(state.savedId));
+      });
+      redrawPhotos();
+    }
+    function markDirty() {
+      if (!state.busy && !state.finished && !state.uncertainPublish) state.dirty = true;
+    }
     function refreshPreview() {
       root.querySelector('#qc-preview-text').textContent = text.value.trim() || 'Текст появится здесь';
       const labels = checkedAccounts().map(accountLabel);
@@ -166,39 +195,45 @@ export async function openQuickComposer() {
         remove.type = 'button';
         remove.setAttribute('aria-label', 'Удалить ' + item.file.name);
         remove.textContent = 'Удалить';
-        remove.disabled = state.busy;
+        remove.disabled = state.busy || state.finished || state.uncertainPublish;
         remove.addEventListener('click', async () => {
-          if (state.busy) return;
+          if (state.busy || state.finished || state.uncertainPublish) return;
           if (item.uploaded && item.remoteId) {
-            state.busy = true;
+            setBusy(true);
             try {
               const result = await request('/api/media/' + encodeURIComponent(item.remoteId),
                 { method: 'DELETE', headers: { 'x-content-version': String(state.version) } });
               state.version = result.contentVersion;
+              state.remoteMediaOrder = state.remoteMediaOrder.filter((id) => id !== item.remoteId);
             } catch (error) {
               setStatus(readableError(error), true);
-              state.busy = false;
+              setBusy(false);
               return;
             }
-            state.busy = false;
+            setBusy(false);
           }
           URL.revokeObjectURL(item.url);
           state.pending.splice(state.pending.indexOf(item), 1);
+          markDirty();
           redrawPhotos();
         });
         controls.append(remove);
         const up = document.createElement('button');
         up.type = 'button'; up.textContent = '←'; up.setAttribute('aria-label', 'Переместить раньше');
-        up.disabled = index === 0 || Boolean(state.savedId);
+        up.disabled = index === 0 || state.busy || state.finished || state.uncertainPublish;
         up.addEventListener('click', () => {
+          if (state.busy || state.finished || state.uncertainPublish) return;
           [state.pending[index - 1], state.pending[index]] = [state.pending[index], state.pending[index - 1]];
+          markDirty();
           redrawPhotos();
         });
         const down = document.createElement('button');
         down.type = 'button'; down.textContent = '→'; down.setAttribute('aria-label', 'Переместить позже');
-        down.disabled = index === state.pending.length - 1 || Boolean(state.savedId);
+        down.disabled = index === state.pending.length - 1 || state.busy || state.finished || state.uncertainPublish;
         down.addEventListener('click', () => {
+          if (state.busy || state.finished || state.uncertainPublish) return;
           [state.pending[index + 1], state.pending[index]] = [state.pending[index], state.pending[index + 1]];
+          markDirty();
           redrawPhotos();
         });
         controls.append(up, down);
@@ -207,6 +242,7 @@ export async function openQuickComposer() {
       });
     }
     function addFiles(files) {
+      if (state.busy || state.finished || state.uncertainPublish) return;
       const currentKeys = new Set(state.pending.map((item) => item.file.name + ':' + item.file.size + ':' + item.file.lastModified));
       for (const file of files) {
         if (!file.type.startsWith('image/')) { setStatus('Выберите файлы изображений.', true); continue; }
@@ -215,6 +251,7 @@ export async function openQuickComposer() {
         if (currentKeys.has(key)) continue;
         currentKeys.add(key);
         state.pending.push({ file, url: URL.createObjectURL(file), uploaded: false, remoteId: null });
+        markDirty();
       }
       redrawPhotos();
     }
@@ -230,53 +267,82 @@ export async function openQuickComposer() {
       event.preventDefault(); drop.classList.remove('is-dragging');
       if (name === 'drop') addFiles(Array.from(event.dataTransfer?.files || []));
     }));
-    root.querySelectorAll('input[name="qc-account"]').forEach((input) => input.addEventListener('change', refreshPreview));
+    root.querySelectorAll('input[name="qc-account"]').forEach((input) => input.addEventListener('change', () => {
+      markDirty();
+      refreshPreview();
+    }));
     root.querySelector('#qc-select-all')?.addEventListener('click', () => {
+      if (state.busy || state.finished || state.uncertainPublish) return;
       root.querySelectorAll('input[name="qc-account"]:not(:disabled)').forEach((input) => { input.checked = true; });
+      markDirty();
       refreshPreview();
     });
     root.querySelector('#qc-select-none')?.addEventListener('click', () => {
+      if (state.busy || state.finished || state.uncertainPublish) return;
       root.querySelectorAll('input[name="qc-account"]').forEach((input) => { input.checked = false; });
+      markDirty();
       refreshPreview();
     });
-    text.addEventListener('input', refreshPreview);
+    text.addEventListener('input', () => { markDirty(); refreshPreview(); });
+    root.querySelector('#qc-project').addEventListener('change', () => { markDirty(); showTimezone(); });
+    root.querySelector('#qc-datetime').addEventListener('change', markDirty);
+    root.querySelector('#qc-ambiguous').addEventListener('change', markDirty);
     refreshPreview();
+    showTimezone();
     root.querySelector('#qc-close').addEventListener('click', dispose);
     root.querySelector('#qc-connect')?.addEventListener('click', (event) => {
       event.preventDefault(); window.location.assign('/socials');
     });
 
-    function createPayload(projectId, mode) {
-      const body = text.value.trim();
+    function snapshotOperation(action, chosen) {
+      const projectId = root.querySelector('#qc-project').value;
+      const mode = action === 'schedule' ? 'AT' : 'MANUAL';
+      const scheduledAtLocal = root.querySelector('#qc-datetime').value;
+      const ambiguousOffset = root.querySelector('#qc-ambiguous').value;
+      return Object.freeze({
+        action, mode, projectId, scheduledAtLocal, ambiguousOffset,
+        scheduleTimezone: mode === 'AT'
+          ? (state.savedId && state.scheduleMode === 'AT' && state.scheduleTimezone
+            ? state.scheduleTimezone : projectTimezone(projectId))
+          : null,
+        body: text.value.trim(),
+        accountIds: Object.freeze(chosen.map((account) => account.id)),
+        images: Object.freeze([...state.pending])
+      });
+    }
+
+    function createPayload(projectId, operation) {
       const payload = {
-        projectId, title: titleFromText(body), body,
-        bodyRich: plainTextToRichDocument(body),
-        contentFormat: state.pending.length ? 'MEDIA' : 'TEXT_ONLY', scheduleMode: mode
+        projectId, title: titleFromText(operation.body), body: operation.body,
+        bodyRich: plainTextToRichDocument(operation.body),
+        contentFormat: operation.images.length ? 'MEDIA' : 'TEXT_ONLY',
+        scheduleMode: operation.mode
       };
-      if (mode === 'AT') {
-        const at = root.querySelector('#qc-datetime').value;
-        if (!at) throw new Error('Укажите дату и время публикации.');
-        payload.scheduledAtLocal = at;
+      if (operation.mode === 'AT') {
+        if (!operation.scheduledAtLocal) throw new Error('Укажите дату и время публикации.');
+        payload.scheduledAtLocal = operation.scheduledAtLocal;
+        payload.scheduleTimezone = operation.scheduleTimezone || 'UTC';
+        if (operation.ambiguousOffset) payload.ambiguousOffset = operation.ambiguousOffset;
       }
       return payload;
     }
 
-    async function ensureProject() {
-      let projectId = root.querySelector('#qc-project').value;
-      if (projectId) return projectId;
+    async function ensureProject(operation) {
+      if (operation.projectId) return operation.projectId;
       const created = await request('/api/projects', {
         method: 'POST', body: JSON.stringify({ name: 'Мои публикации', slug: 'my-publications' })
       });
-      projectId = created.id;
+      state.projects.push(created);
       // The project is an internal scope; never ask the operator to create it manually.
       const select = root.querySelector('#qc-project');
-      select.innerHTML = '<option value="' + html(projectId) + '">Мои публикации</option>';
-      return projectId;
+      select.innerHTML = '<option value="' + html(created.id) + '">Мои публикации</option>';
+      showTimezone();
+      return created.id;
     }
 
-    async function persistDraft(mode) {
-      const projectId = await ensureProject();
-      const payload = createPayload(projectId, mode);
+    async function persistDraft(operation) {
+      const projectId = await ensureProject(operation);
+      const payload = createPayload(projectId, operation);
       if (!state.savedId) {
         // If the create response is lost, do not repeat blindly: the server may
         // have committed the draft. The operator can inspect /content safely.
@@ -295,13 +361,22 @@ export async function openQuickComposer() {
         });
         state.version = updated.contentVersion;
       }
+      state.scheduleMode = operation.mode;
+      state.scheduleTimezone = operation.scheduleTimezone;
       const updatedTargets = await request('/api/posts/' + encodeURIComponent(state.savedId) + '/targets', {
         method: 'PUT',
-        body: JSON.stringify({ accountIds: selectedIds(), expectedContentVersion: state.version })
+        body: JSON.stringify({ accountIds: operation.accountIds, expectedContentVersion: state.version })
       });
       state.version = updatedTargets.contentVersion;
+      const appliedIds = Array.isArray(updatedTargets.targets)
+        ? updatedTargets.targets.filter((target) => target.enabled).map((target) => target.account_id)
+        : null;
+      if (!appliedIds || appliedIds.length !== operation.accountIds.length ||
+          appliedIds.some((id) => !operation.accountIds.includes(id))) {
+        throw new Error('Сохранённые получатели отличаются от подтверждённых. Отправка остановлена.');
+      }
 
-      for (const item of state.pending) {
+      for (const item of operation.images) {
         if (item.uploaded) continue;
         setStatus('Загружаю: ' + item.file.name);
         const data = new FormData();
@@ -313,17 +388,28 @@ export async function openQuickComposer() {
         item.uploaded = true;
         state.version = saved.contentVersion;
       }
+      const nextOrder = operation.images.map((item) => item.remoteId);
+      if (nextOrder.some((id) => !id)) throw new Error('Не удалось подтвердить загрузку всех изображений.');
+      if (nextOrder.join('\u0000') !== state.remoteMediaOrder.join('\u0000')) {
+        const reordered = await request('/api/posts/' + encodeURIComponent(state.savedId) + '/media-order', {
+          method: 'PUT',
+          body: JSON.stringify({ mediaIds: nextOrder, expectedContentVersion: state.version })
+        });
+        state.version = reordered.contentVersion;
+        state.remoteMediaOrder = [...nextOrder];
+      }
       return state.savedId;
     }
 
     async function execute(action) {
-      if (state.busy || state.uncertainPublish) return;
-      const body = text.value.trim();
-      if (!body) { setStatus('Напишите текст публикации.', true); text.focus(); return; }
+      if (state.busy || state.uncertainPublish || state.finished) return;
       const chosen = checkedAccounts();
-      if (action !== 'save' && !chosen.length) { setStatus('Выберите хотя бы одно подключение.', true); return; }
-      const mode = action === 'schedule' ? 'AT' : 'MANUAL';
-      if (action === 'schedule' && !root.querySelector('#qc-datetime').value) {
+      const operation = snapshotOperation(action, chosen);
+      if (!operation.body) { setStatus('Напишите текст публикации.', true); text.focus(); return; }
+      if (action !== 'save' && !operation.accountIds.length) {
+        setStatus('Выберите хотя бы одно подключение.', true); return;
+      }
+      if (action === 'schedule' && !operation.scheduledAtLocal) {
         root.querySelector('.qc-advanced').open = true;
         setStatus('Чтобы запланировать, укажите дату и время в дополнительных настройках.', true);
         root.querySelector('#qc-datetime').focus();
@@ -334,11 +420,10 @@ export async function openQuickComposer() {
         if (!window.confirm(what + ' в ' + chosen.length + ' выбранных подключениях?\n\n' +
           chosen.map(accountLabel).join('\n') + '\n\nПроверьте текст и фотографии.')) return;
       }
-      state.busy = true;
-      root.querySelectorAll('#qc-save,#qc-schedule,#qc-send').forEach((button) => { button.disabled = true; });
+      setBusy(true);
       try {
         setStatus('Сохраняю публикацию…');
-        const id = await persistDraft(mode);
+        const id = await persistDraft(operation);
         if (action !== 'save') {
           setStatus('Проверяю права и форматы для выбранных площадок…');
           const ready = await request('/api/posts/' + encodeURIComponent(id) + '/ready', {
@@ -359,7 +444,7 @@ export async function openQuickComposer() {
             setStatus('Публикация запланирована. Её статус можно проверить в списке публикаций.');
           }
         } else {
-          state.finished = true;
+          state.dirty = false;
           setStatus('Черновик сохранён со всеми выбранными изображениями и площадками.');
         }
         root.querySelector('#qc-close').textContent = 'Закрыть';
@@ -367,10 +452,7 @@ export async function openQuickComposer() {
       } catch (error) {
         setStatus(readableError(error) + (state.savedId ? ' Черновик сохранён: откройте список публикаций при необходимости.' : ''), true);
       } finally {
-        state.busy = false;
-        if (!state.uncertainPublish && !state.finished) {
-          root.querySelectorAll('#qc-save,#qc-schedule,#qc-send').forEach((button) => { button.disabled = false; });
-        }
+        setBusy(false);
       }
     }
 
