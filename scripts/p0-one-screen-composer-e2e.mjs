@@ -774,6 +774,16 @@ try {
   assert.equal(await mp.locator('#qc-target-toggle').getAttribute('aria-expanded'), 'false');
   assert.match(await mp.locator('#qc-counter').textContent(), /2 выбрано/);
   assert.equal(await mp.locator('#qc-text').inputValue(), 'Новая публикация для всех подключений.');
+  await mp.locator('.qc-image button[aria-label^="Удалить"]').click();
+  assert.equal(await mp.locator('#qc-video-file').isDisabled(), false);
+  await mp.locator('#qc-video-file').setInputFiles([
+    { name: 'mobile-video.mp4', mimeType: 'video/mp4', buffer: mp4 }
+  ]);
+  await mp.locator('#qc-video-preview video').scrollIntoViewIfNeeded();
+  await mp.screenshot({ path: 'test-results/p0-composer-video-mobile.png', fullPage: false });
+  assert.equal(await mp.locator('#qc-video-preview video').count(), 1);
+  assert.equal(await mp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
+    '390px MP4 preview must not overflow');
   assert.deepEqual(errors, []);
   await mobile.close();
 
@@ -804,6 +814,17 @@ try {
     assert.equal(await rp.locator('#qc-text').isVisible(), true,
       'Escape must not dismiss the entire editor');
     assert.equal(await rp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+    if (width === 320) {
+      await rp.locator('#qc-video-file').setInputFiles([
+        { name: 'narrow-mobile.mp4', mimeType: 'video/mp4', buffer: mp4 }
+      ]);
+      await rp.locator('#qc-video-preview video').scrollIntoViewIfNeeded();
+      const videoBounds = await rp.locator('.qc-video-card').boundingBox();
+      assert.ok(videoBounds && videoBounds.x >= -1 && videoBounds.x + videoBounds.width <= width + 1,
+        '320px video preview must fit without clipping');
+      assert.equal(await rp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+      await rp.screenshot({ path: 'test-results/p0-composer-video-responsive-320.png', fullPage: false });
+    }
     await responsive.close();
   }
   assert.deepEqual(errors, []);
@@ -815,6 +836,8 @@ try {
     mobileRecipientsSheet: true, responsiveViewports: [320, 390, 768, 1440],
     screenshots: [
       'test-results/p0-composer-video-desktop.png',
+      'test-results/p0-composer-video-mobile.png',
+      'test-results/p0-composer-video-responsive-320.png',
       'test-results/p0-composer-desktop.png',
       'test-results/p0-composer-mobile.png',
       'test-results/p0-composer-mobile-targets.png',
