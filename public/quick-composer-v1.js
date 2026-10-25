@@ -510,22 +510,6 @@ export async function openQuickComposer() {
           '. Проверьте порядок и сохраните публикацию.');
       }
     });
-    root.addEventListener('paste', (event) => {
-      if (state.busy || state.finished || state.uncertainPublish) return;
-      const files = Array.from(event.clipboardData?.items || [])
-        .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
-        .map((item) => item.getAsFile()).filter(Boolean);
-      // Ordinary clipboard text must continue to paste into the textarea.
-      if (!files.length) return;
-      event.preventDefault();
-      const before = state.pending.length;
-      addFiles(files);
-      const accepted = state.pending.length - before;
-      if (accepted > 0) {
-        setStatus('Из буфера добавлено фотографий: ' + accepted +
-          '. Проверьте порядок изображений перед сохранением.');
-      }
-    });
     root.querySelectorAll('input[name="qc-account"]').forEach((input) => input.addEventListener('change', () => {
       markDirty();
       refreshPreview();
