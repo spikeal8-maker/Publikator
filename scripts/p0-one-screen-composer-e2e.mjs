@@ -452,10 +452,26 @@ try {
     'server dedup removes duplicate local card even if a later upload fails');
   assert.equal(db.prepare('SELECT COUNT(*) n FROM media WHERE post_id=?').get(interruptedMediaPost).n, 1);
   await page.unroute('**/api/posts/*/media');
+  let failMediaOrderOnce = true;
+  await page.route('**/api/posts/*/media-order', async (route) => {
+    if (failMediaOrderOnce && route.request().method() === 'PUT') {
+      failMediaOrderOnce = false;
+      await route.fulfill({ status: 503, contentType: 'application/json', body: '{}' });
+      return;
+    }
+    await route.continue();
+  });
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: /HTTP 503/ }).waitFor({ timeout: 30000 });
+  assert.equal(failMediaOrderOnce, false,
+    'force the media-order failure after deduplicated images have already reached the server');
+  assert.equal(await page.locator('.qc-image').count(), 2);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM media WHERE post_id=?').get(interruptedMediaPost).n, 2);
+  await page.unroute('**/api/posts/*/media-order');
   await page.locator('#qc-save').click();
   await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
   assert.equal(db.prepare('SELECT COUNT(*) n FROM media WHERE post_id=?').get(interruptedMediaPost).n, 2,
-    'retry must complete the original server draft rather than creating a second post');
+    'retry after media-order failure must use the original draft and must not duplicate images');
   await closeComposer();
 
   // P1: once a server POST starts, session recovery must become uncertain
