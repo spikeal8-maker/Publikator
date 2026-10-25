@@ -6,6 +6,7 @@
 **Репозиторий:** `spikeal8-maker/Publikator`  
 **Зафиксированный baseline первоначального аудита:** `main@2b2cb75132c8b5ddb1ad49f254c805ce6cea34bb`, SQLite schema `14`. **Актуализация 25.10.2026:** PR #171 объединён в `main@e869dd098364e1040e77f4cf4d638e91705edc65`; до реализации проверять ещё более свежий HEAD, а не выполнять слепой checkout на старый SHA.  
 **Область:** только `main`/vNext; ветка `release/1.0` не затрагивается.
+**Ревизия контракта:** `1.1 — P0 safety/convergence hardening (25.10.2026)`. Раздел 16 ниже — **обязательный блокирующий gate**, а не необязательная памятка.
 
 ## 0. Нормативность и принцип продукта
 
@@ -35,6 +36,8 @@
 `/api/integration/v1` и его semantics продолжают работать. Новый контракт не переопределяет legacy endpoint. Существующий `/api/posts/:id/publish-now` защищён административной browser session и **не является готовым агентским publish API**.
 
 В [Issue #170](https://github.com/spikeal8-maker/Publikator/issues/170) и [PR #171](https://github.com/spikeal8-maker/Publikator/pull/171) реализован единый быстрый composer (текст + фото + список конкретных аккаунтов). **PR #171 MERGED 25.10.2026** в `e869dd098364e1040e77f4cf4d638e91705edc65`: AGENT-04 MUST использовать уже принятый пользовательский сценарий и переиспользовать существующий серверный контур, не разрабатывать второй редактор.
+
+**Перед началом A1–A5 MUST закрыть P0 safety-gates из раздела 16:** route authentication/legacy API boundary, owner consent vs READY, durable receipts, dependency DAG, реальная OAuth/MCP connectivity. Они не меняют существующую ручную публикацию.
 
 Другие зависимости: [#144](https://github.com/spikeal8-maker/Publikator/issues/144), [#145](https://github.com/spikeal8-maker/Publikator/issues/145) (credential mutation/capability UI), [#160](https://github.com/spikeal8-maker/Publikator/issues/160) (Google source и реальная VK-готовность). Интеграция не объявляет ограниченные VK-ключи пригодными для фото.
 
@@ -82,6 +85,8 @@ ChatGPT / Codex / Claude / Cursor / Custom GPT / n8n / bots
 - **MUST:** 1Panel управляет инфраструктурой/сертификатами, но не содержанием постов. Нельзя выдавать 1Panel administrative API как Publikator capability.
 - **MUST:** никакой обязательной n8n/Redis/RabbitMQ/second worker/second scheduler; архитектурное исключение — только отдельный ADR, явно утверждённый владельцем.
 
+**P0 security boundary (обнаружено в коде):** `src/http/routes.ts` содержит глобальный `preHandler`, требующий admin cookie для `/api/*` кроме whitelist; `src/http/security.ts` применяет browser Origin для mutation endpoints. Просто добавить `/api/agent/v1` в исключения ЗАПРЕЩЕНО: явное разделение route security и интеграционные negative tests обязательны (раздел 16.1).
+
 Рекомендуемые границы исходников (имена уточняются после чтения существующих модулей): `src/agents/{commands,queries,policies,authz,publication-intents,jobs,audit}.ts`, `src/http/agent-api-v1.ts`, `src/mcp/{server,tools,resources,auth}.ts`. Запрещено механически создавать параллельные сущности вместо использования `src/publisher.ts`/`src/content-versioning.ts`.
 
 ## 3. Контракт идентичностей и разрешений
@@ -111,6 +116,8 @@ MUST фильтровать списки по разрешённым ресур�
 
 Раздельные permissions: `projects:read`, `accounts:read`, `sources:read`, `media:read`, `media:import`, `posts:read`, `posts:write`, `posts:preview`, `approval:request`, `schedule:write`, `publish:request`, `jobs:read`, `events:read`.
 
+**Legacy key boundary:** текущий `/api/integration/v1` ограничивает `source_type='integration-api'`, но чтение/правка не изолированы по key ID. Текущую single-owner семантику считать `trusted shared legacy namespace`, не обещать независимым внешним ботам изоляцию через legacy scopes. Новые `/api/agent/v1` и `/mcp` MUST проверять AgentGrant/project/post на уровне каждой операции, включая ID из path и list results. Расширение доступа legacy ключей запрещено. Отдельное изменение старого endpoint возможно только с backward-compatible миграцией и security acceptance (раздел 16.1).
+
 Роли Observer/Editor/Producer/Coordinator/Publisher — UI-наборы предложенных scopes, **не** широкие привилегии по умолчанию. Administrative credential management, permanent deletion, credential export/rotation и webhook registration не должны входить в обычный набор агента.
 
 ### 3.3 Обязательная безопасность
@@ -131,6 +138,8 @@ MUST фильтровать списки по разрешённым ресур�
 Для remote MCP MUST поддерживать защищённый OAuth Authorization Code + PKCE для публичных клиентов, при необходимости confidential client flow; HTTPS, discovery и привязка токена к Publikator resource.
 
 Обязательные элементы: OAuth Protected Resource Metadata (RFC 9728), AS metadata (RFC 8414 / OIDC discovery при применении), Resource Indicators (RFC 8707), issuer check (RFC 9207), token audience validation, проверка `state`/PKCE/redirect URI, consent scopes, refresh/revocation. **Не реализовывать собственную криптографию OAuth «с нуля»**, использовать проверенную библиотеку/провайдера с интеграцией в существующий процесс либо ADR для внешнего issuer.
+
+**A0 deployment decision gate:** до разработки authorization server зафиксировать один реальный вариант issuer/discovery/authorization/token/redirect/end-to-end TLS, который доступен облачному клиенту. Локальный `127.0.0.1` либо tunnel только до `/mcp` без доступного OAuth — НЕ считается подключением ChatGPT. Выбранные SDK, pin version, поддерживаемые static/CIMD clients, порядок выдачи scopes и callback validation должны пройти реальный connectivity probe в отдельной тестовой конфигурации, без рабочего VK POST.
 
 Client ID Metadata Documents (CIMD) — приоритетный способ регистрации, если конкретный клиент поддерживает. Static clients поддержать обязательно для проверяемого подключения; Dynamic Client Registration — только ограниченный и проверенный compatibility path, когда он нужен конкретному клиенту (в актуальном MCP DCR deprecated). Все redirect URI и client identity валидировать, не допускать произвольного privileged self-registration.
 
@@ -231,7 +240,7 @@ Client ID Metadata Documents (CIMD) — приоритетный способ р
 | `publikator_get_publication_status` | per-target publishing evidence |
 | `publikator_get_job` / `publikator_list_jobs` | jobs.query |
 
-Каждый Tool MUST иметь JSON Schema, краткое русское и/или английское описание, explicit side-effect annotation и bounded structuredContent. Возвращать ID/ссылки для последующих операций, а не гигантский дамп базы. Список инструментов фильтруется по разрешениям, но **каждый tools/call** MUST заново проверить grant на сервере.
+Каждый Tool MUST иметь JSON Schema, краткое русское и/или английское описание, explicit side-effect annotation и bounded structuredContent. Возвращать ID/ссылки для последующих операций, а не гигантский дамп базы. Список инструментов фильтруется по разрешениям, но **каждый tools/call** MUST заново проверить grant на сервере. **Tools-list cache/ETag/private cache hints MUST be scoped to principal + effective grantVersion + protocol version; no shared cross-agent cache.** Revocation/expiry is checked at call time and after reload, независимо от обновления каталога клиента.
 
 MCP Resources MAY предоставлять scoped descriptions/preview/status без секретов; медиа должны быть доступны только авторизованному клиенту по bounded URL/content (не публичные вечные URL). MCP Prompts MAY предлагать готовые сценарии, но не могут выдавать grants или approvals.
 
@@ -269,6 +278,8 @@ MUST предоставить поиск по относительному пу�
 
 Создать серверный `PublicationIntent` (или эквивалентный immutable receipt) на основе существующих ревизий, а не конкурентное новое состояние постов.
 
+**Критичный invariant:** существующий `markReadyRevision()` одновременно устанавливает `READY` и `APPROVED`, а `schedulerTick()` отправляет готовые `AT/QUEUE` посты. Для **agent-origin/agent-managed intent** эти состояния НЕ являются доказательством согласия владельца. Agent workflow MUST быть default-deny при отсутствии отдельного owner-granted immutable authorization receipt. Проверка receipt должна выполняться не только при подготовке, но и непосредственно перед scheduler/publisher claim; старые ручные публикации проходят через существующую owner-модель без регрессии. Детали — раздел 16.2.
+
 Намерение фиксирует:
 - `postId`, `approvedContentVersion`, `readyRevisionId`;
 - хеш canonical текста/медиа/order/target overrides;
@@ -294,6 +305,8 @@ MUST предоставить поиск по относительному пу�
 MUST использовать пересечение `PlatformCapability` и server-verified `CapabilityProfile` для конкретного credential/destination/method. Для VK различать ключ сообщества (возможен текст) и подтверждённый пользовательский метод загрузки фото; не называть совместимым media target при ошибке IP/permissions. Нативная отложенная публикация VK не входит в P0: применять существующий scheduler, пока другой transport не доказан capability и отдельным acceptance.
 
 ## 9. Jobs, события, webhooks
+
+**P0/P1 boundary:** минимальные SQLite-persisted operation receipts, idempotency, job state lookup, restart recovery и per-target outcome — **обязательные P0-примитивы A2/A4/A5**. В A6/P1 остаются расширенная история, подписки и подписанные Webhooks, но не базовое сохранение операций или возможность безопасно проверять статус.
 
 Для длительных импортов, отложенных публикаций и проверки внешних результатов — **durable job receipt** в существующей SQLite. Состояния: `QUEUED`, `RUNNING`, `SUCCEEDED`, `FAILED`, `REQUIRES_ATTENTION`; jobId, actor, postId, timestamps, per-target result, retryable code. На рестарте неполные provider sends не превращаются в повторяемую `QUEUED` задачу без reconciliation.
 
@@ -347,7 +360,7 @@ Desktop — плотная читаемая таблица; телефон 390/3
 | T-15 | `/mcp`: protocol negotiation, discovery, tools/list/call, tool schema, JSON errors, unsupported version fail-closed |
 | T-16 | Реальные клиенты: ChatGPT сканирует tools и вызывает разрешённый read/draft; Codex/Claude либо другой независимый MCP-клиент проходит тот же сценарий |
 | T-17 | REST/OpenAPI-клиент выполняет те же operations, что MCP, с одинаковыми idempotency/permitted outcomes |
-| T-18 | Webhook HMAC, allowlisted URL, event IDs, bounded retry, SSRF/replay protections |
+| T-18 (P1) | Webhook HMAC, allowlisted URL, event IDs, bounded retry, SSRF/replay protections — блокирует A6/P1, **не** release P0 |
 | T-19 | Canonical backup→schema migrate→backup/restore сохраняет grants, credentials, revisions, media, schedules и receipts |
 | T-20 | Один production Docker/process/SQLite/publisher/scheduler после интеграции; release gates не ослаблены |
 
@@ -361,17 +374,21 @@ GitHub CI должен использовать fake-provider network/no public 
 
 | Этап | Приоритет | Продуктовый результат | Зависит от |
 |---|---|---|---|
-| A0 — AGENT-CONTRACT | P0 | статический OpenAPI/MCP DTO + Threat model + ADR и accepted API error/version contract; без live изменение | базовый аудит |
-| A1 — AGENT-IDENTITY | P0 | agent principal/scoped grants/API-key isolation/OAuth discovery/token lifecycle | A0 |
-| A2 — AGENT-REST | P0 | read lists + create/edit DRAFT + OpenAPI без admin cookie | A1 |
-| A3 — AGENT-MCP | P0 | remote MCP, tools/resources, OAuth, read/write draft smoke с независимым клиентом | A2 |
-| A4 — AGENT-COMPOSER | P0 | Google Drive/media + один логический текст/фото/несколько target flow + previews, повторное использование принятого #171 | A2, #171 MERGED |
-| A5 — AGENT-PUBLISH | P0 | owner approval/policy + scheduled/publish intent + statuses + recovery | A1,A4 и credential lane |
-| A6 — AGENT-EVENTS | P1 | durable jobs/polling/webhooks с HMAC/retry | A5 |
-| A7 — AGENT-UI | P0 consent / P1 остальное | Минимальная настройка grants и owner consent обязательна для P0; полный onboarding/журнал/UX — P1 | A1,A3,A5 |
-| A8 — AGENT-ACCEPTANCE | P0 release gate | реальная ChatGPT/другие MCP/REST приёмка, live scoped send, backup/restore, release acceptance | A0–A5 + A7 P0 consent (A6 webhooks и A7 полный onboarding могут выйти позже как P1) |
+| A0 — AGENT-CONTRACT | P0 | машиночитаемые OpenAPI/JSON Schema + точная route ACL matrix + threat model + protocol/client matrix + OAuth/ingress ADR | базовый аудит |
+| A1 — AGENT-IDENTITY | P0 | agent/grants/isolated keys, route auth separation, OAuth discovery/token lifecycle; маленькие миграционные PR | A0 |
+| A2 — AGENT-REST | P0 | scoped read+DRAFT, typed OpenAPI, **durable idempotent operation receipts** and job/status lookup, browser/agent auth tests | A1 |
+| A3 — AGENT-MCP | P0 | remote MCP via verified OAuth/HTTPS, private tools cache, read/write draft with independent client | A1,A2 |
+| A4 — AGENT-COMPOSER | P0 | Drive/media import + один логический composer на существующем #171 + server side preview, recoverable job | A2, #171 MERGED |
+| A5a — AGENT-INTENT | P0 | agent provenance, immutable intent/preflight/draft approval request, **без provider POST** | A1,A4 и credential gate |
+| A7a — AGENT-CONSENT-UI | P0 | минимальный admin grant editor + owner approval/reject/pause, exact revision preview | A1,A5a |
+| A5b — AGENT-EXECUTE | P0 | execution-time consent/policy enforcement inside scheduler/publisher, status/recovery/quota | A5a,A7a и credential gate |
+| A6 — AGENT-EVENTS | P1 | **расширенные** job history/events + подписанные Webhooks с HMAC/retry (basic receipts уже A2–A5) | A5b |
+| A7b — AGENT-ADMIN-UI | P1 | полный onboarding/журнал/UX; не повторяет уже принятый A7a | A1,A3,A5b |
+| A8 — AGENT-ACCEPTANCE | P0 release gate | ChatGPT/независимый MCP + REST, Drive→draft→owner consent→scoped test send, backup/restore | A0,A1,A2,A3,A4,A5a,A7a,A5b; P1 исключён |
 
 **Обязательный P0 пользовательский DoD:** бот получает разрешённые материалы из Drive, делает текст и фото, выбирает конкретные аккаунты, показывает предпросмотр, получает owner consent, запланировано публикует в тестовые target и возвращает доказуемые ссылки/ошибки **без дублирующего внешнего POST**.
+
+**Запрещены циклические зависимости:** A5a → A7a → A5b, затем A8; A7b и A6 — независимые пост-P0 улучшения. Минимальный owner consent UI реализуется **до** разрешения agent publish. `READY` не означает owner consent.
 
 **A0 review MUST resolve прежде кодирования**: используются ли одни и те же Application Services для PR #171 и Agent API; формат owner consent/revision fingerprint; точные токенные scopes/expiry; транспортные версии MCP; авторизованный remote endpoint; latest schema milestone. Всё согласовывать **в рамках данного ТЗ**, не создавать второй master roadmap.
 
@@ -389,3 +406,125 @@ GitHub CI должен использовать fake-provider network/no public 
 ## 15. Граница этого документационного задания
 
 Публикация настоящего ТЗ в GitHub **не** означает: создан работающий MCP, опубликован новый HTTPS endpoint, изменена БД/секреты, выполнено реальное OAuth подключение или размещены посты. Любое утверждение DONE требует отдельного доказательства. Владелец поручил создать точное исполнимое ТЗ, issue backlog и контроль зависимостей.
+
+## 16. P0 Safety Convergence Gate — обязательные решения до программирования
+
+Этот раздел уточняет и блокирует опасные интерпретации разделов 2–15. Его выполнение документирует A0 (#174); реализация распределена по A1–A5 и A7a. **Считать любой из пунктов «готовым» без указанных тестов запрещено.**
+
+### 16.1 Матрица HTTP/MCP security boundary (BLOCKER-AUTH)
+
+| Клиент / пространство | Аутентификация | Проверка прав | Недопустимый обход |
+|---|---|---|---|
+| Browser `/api/*` (legacy) | только существующая `publikator_session` и browser origin/CSRF policy | single-admin authority | не принимать агентский bearer за admin cookie |
+| `/api/integration/v1/*` | legacy hashed `pk_` и existing scopes | текущий доверенный shared-integration namespace; compatibility retained | **не обещать** isolation by key ID и не выдавать его сторонним агентам в качестве restricted tenant |
+| `/api/agent/v1/*` | verified per-agent bearer/OAuth | `AgentGrant` + exact project/account/source/post ACL + lifecycle + rate/quota | отсутствие cookie не должно давать 401 **после** успешной agent auth; whitelist не должен открывать путь анонимно |
+| `/mcp` | OAuth Bearer и verified client/resource binding | тот же agent policy, на `tools/list` и повторно на каждом `tools/call` | не доверять `clientInfo`, cached catalog и model-provided grant |
+| `/.well-known/*` и OAuth login/callback | только необходимые discovery endpoints публичны; интерактивный login/consent использует owner identity | exact issuer, redirect, PKCE, state, scope, audience | не открывать endpoints изменения agent grants без owner auth |
+
+**Исходная проблема:** `src/http/routes.ts` имеет глобальный `preHandler`: на `/api/*` требует admin cookie, кроме legacy-исключений. `src/http/security.ts` добавляет Origin-проверку на mutation. Новые Agent маршруты MUST иметь **явно зарегистрированную security boundary**: порядок Fastify hooks, точные path prefixes, allowlist публичных discovery endpoints, ответы 401/403 и доступы OAuth/REST/MCP сверяются интеграционным тестом. Добавить `/api/agent/v1/*` в whitelist без собственного обязательного guard — hard FAIL. Вынести policy classification в единый слой/encapsulated router; browser Origin не должен ломать корректный remote bearer, но отсутствие Origin не заменяет авторизацию.
+
+**Legacy compatibility:** `src/http/integration-api.ts` сейчас list/get/patch DRAFT фильтруют только `source_type='integration-api'`, не `apiKeyId`. Это допустимо как **документированная особенность старых доверенных ключей одного владельца**, но не как безопасность изолированных агентов. A0 MUST выбрать:
+1. защищённый новый Agent API с обязательной ресурсной проверкой; старый integration namespace остаётся legacy-trusted;
+2. отдельная последующая миграция legacy при наличии требований, без silent contract break.
+Новые агенты по умолчанию не получают legacy ключи. REST/MCP должны одинаково обеспечивать effective ACL.
+
+**Proof cases:** пустой/чужой token, чужой post ID, чужой project ID, stale grant, brokered OAuth token для другого audience, конфликт cookie+bearer, неверный Origin, анонимный callback, disabled account, скрытый resource → denial без side effects. При совместно разрешённом проекте два агента могут видеть один пост по явному `posts:read`, но не токены и grants друг друга.
+
+### 16.2 READY ≠ owner approval (BLOCKER-CONSENT)
+
+`src/content-versioning.ts::markReadyRevision` выставляет `status=READY, editorial_stage=APPROVED` **самостоятельно**. `src/scheduler.ts::schedulerTick` выбирает `AT/QUEUE` READY-посты, `src/publisher.ts::publishPost` обеспечивает проверку immutable revision + atomic claim. Следовательно, **нельзя** доверять только состояниям `READY/APPROVED` для поста, управляемого агентом.
+
+Применить следующие правила:
+
+1. Для агентского создания или изменения записывать **доказуемое происхождение и ownership** `agentId/agentManaged`, которое невозможно изменить клиентом. В P0 агент может изменять только agent-created/явно owner-delegated editable posts. Legacy ручные посты сохраняют прежние правила; доступ к ним для агента без нового owner grant запрещён.
+2. `DRAFT_ONLY` никогда не вызывает ни legacy `/ready`, ни `publish-now`, ни auto-ready. API read/preview может показать готовность, но статус остаётся безопасным, пока owner policy не подтверждена.
+3. `A5a` создаёт immutable `PublicationIntent`: `intentId`, `postId`, `contentVersion`, `readyRevisionId?`, normalized content/media-order/target digest, effective `destination/capability/credential fingerprint`, `schedule(UTC,IANA)`, `agentId`, `grantVersion`, `authorizationType`, `approvalStatus`, `expiresAt`, `createdAt`. Само создание **не** отправляет provider POST.
+4. `A7a` показывает владельцу **точные** текст, фото и порядок, платформенные версии, выбранные `accountId[]`, время и policy. Подтверждение может выполнить только проверенная owner admin session; агент `approval:request` не может самостоятельно `approve`. Старый `READY/APPROVED` не подменяет signed consent.
+5. `A5b` выполняет атомарную проверку **сразу перед external claim/POST**, независимо от входа (agent API, scheduler `AT/QUEUE`, resume после restart, target retry): grant active, exact authorized intent, version/digest/targets/schedule, policy effective version, daily quota, credential fingerprint, expiry, owner consent. Если любая проверка отказала, для agent-managed публикации **0 provider POST** и явное `AUTHORIZATION_REVOKED`/`APPROVAL_STALE`/`POLICY_DENIED`/`CAPABILITY_CHANGED`, без стирания immutable history.
+6. Owner revoke/pause/disable account после scheduling MUST предотвращать ещё не начатую agent-публикацию; уже опубликованные target не повторять и не «откатывать» на внешней площадке. Если операция уже передана провайдеру, расследовать неопределённый результат через `RECOVERY_NEEDED`.
+7. Привязка должна пережить остановку/запуск, изменение provider credentials и новый `ContentRevision`; не читать mutable working text после claim. Ручные owner-scheduled посты (без agent-managed provenance) не регрессируют.
+
+**Fail-closed recovery** важнее «автоматического продолжения». Запретить новый вид `READY`, который scheduler способен отправить без execution-time receipt.
+
+### 16.3 Durable operation receipts P0, Webhooks P1 (BLOCKER-JOBS)
+
+Базовая операция агентского API должна быть восстанавливаемой ещё **до** Webhooks.
+
+- В `A2` добавить `AgentOperationReceipt`/equivalent SQLite state, которое хранит `agentId`, `operationName`, `idempotencyKeyHash`, `canonicalPayloadHash`, `postId?`, `jobId`, `phase/status`, `resultReference`, timestamps. Ключ уникальности: `(agentId, operationName, idempotencyKey)` с ресурсной привязкой; payload mismatch → HTTP 409.
+- Receipt фиксируется **перед** возвратом `202/jobId` и до опасных side effects. Same key + same payload возвращает тот же `jobId/postId/status` после restart. Новый key при retry, который может дублировать внешний POST, не обходит immutable claim/provenance.
+- Для Drive/media import: canonicalized partial assets either safely linked to recoverable draft or tracked as bounded temporary objects with cleanup; no double-upload/no data loss. Для publication: external outcome unknown MUST remain `RECOVERY_NEEDED`, не `QUEUED`/automatic retry.
+- Дневные/временные publish quotas для `PREAPPROVED_POLICY` persist в SQLite и резервируются **атомарно на execution** по owner/project/account/agent policy. Существующий in-memory 60/min API-key limiter не подходит как durable daily publication budget.
+- `A4/A5` расширяют receipt для media imports / target send; `A6` (P1) расширяет поисковые представления, долгосрочную аналитику и signed webhooks. `GET job/status` и basic polling относятся к P0.
+- Если нужна дополнительная таблица, следовать `SCHEMA_MILESTONES` и миграции N−1→N с backup/restore; не фиксировать номер наперёд.
+
+### 16.4 Реальный OAuth/MCP connectivity gate (BLOCKER-REMOTE)
+
+В `A0` выбрать **одну** проверяемую схему до code implementation:
+- Где находится `resource server /mcp` и `/api/agent/v1`, какой HTTPS hostname/tunnel/порт и policy reverse proxy?
+- Где находится OAuth authorization server и доступны ли из внешнего браузера/клиента `issuer`, metadata/discovery, authorization, token, refresh, redirect? Что именно разрешено публиковать наружу?
+- Какое trusted SDK/library/provider отвечает за issuer, token signing/opaque introspection, PKCE, consent, refresh/revoke? No hand-rolled OAuth. Как осуществляется key rotation и recovery без утраты master key?
+- Какие версии `ChatGPT/Codex/Claude/independent MCP client` и какие read/write capabilities подтверждены на реальном клиенте? Недоступность write у подписки фиксируется как `CLIENT_CAPABILITY_LIMIT`, не устраняется обходом клиентских ограничений.
+- Для `MCP 2026-07-28` использовать официальный TypeScript SDK v2, отдельные request-level `MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name` и `_meta`; `server/discover` optional, нет обязательных legacy `initialize`/`Mcp-Session-Id`. Legacy `2025-*` — только если есть протестированный независимый клиент, с отдельным compatibility path и тем же authz. Не добавлять обязательный SSE без доказанного клиента.
+- `tools/list` и его cache hints должны зависеть от `agentId + grantVersion + protocolVersion`; серверная проверка на `tools/call` никогда не зависит от кеша.
+
+**A0 proof:** с реального независимого клиента выполнить discovery/authorized `tools/list` (или подготовить изолированный connectivity prototype), зафиксировать HTTP traces без секретов, URL маршруты, проверку unauthorized 401 и конкретные требования к runtime deployment. Один успешный `curl localhost` не доказывает подключение ChatGPT.
+
+### 16.5 Контракт A0: конкретные проверяемые артефакты
+
+`A0` завершён только после отдельного принятого PR, содержащего:
+
+- `docs/ADR_AGENT_AUTH_AND_ROUTING.md`: единственная схема auth/route boundary, legacy coexistence, OAuth issuer/tunnel/HTTPS topology, threat model с P0/mitigations.
+- `docs/contracts/agent-api-v1.openapi.yaml`: валидный OpenAPI 3.1 для **запланированного** агентского контракта (не объявлять его уже опубликованным), endpoints, `operationId`, security, body/response schemas, pagination, errors, examples и idempotency.
+- `docs/contracts/mcp-tools.v1.json`: tool inventory с именами, входными/выходными JSON Schema, required scopes и read/write side-effect annotations. Привязка к OpenAPI `operationId` однозначна.
+- `docs/contracts/agent-contract-examples.json`: **минимум** success, permission-denied, version conflict, idempotent replay, stale approval, revoked grant, unknown provider outcome; значения синтетические, без реальных секретов и личных данных.
+- `docs/contracts/client-compatibility-matrix.md`: MCP protocol versions, SDK dependency pin, конкретные проверенные клиенты/transport/read/write, `SUPPORTED` vs `NOT_VERIFIED`, а не обещание «любой бот».
+- Тестовый скрипт `scripts/agent-contract-a0-e2e.mjs` (или эквивалент), зарегистрированный в **едином** workflow `Publikator CI / Acceptance`. Проверяет parse/dereference schemas, `$ref`, consistency REST↔MCP, requirement/scope naming, serialization examples и source contract of invariant. Не проверять nonexistent endpoints будто они уже реализованы.
+
+**Исключение:** отсутствие внешнего issuer или подтверждённого network ingress нужно оформить как отдельно проверяемый deployment blocker (P0), нельзя silently «выбрать любой» и начать выдавать publish permissions.
+
+### 16.6 Вертикальные slices и зависимости без циклов
+
+`A0 → A1a(principal/grants) → A1b(machine keys + exact ACL/route guards) → A2a(scoped read/OpenAPI) → A2b(draft + P0 receipt)`.
+
+После A2b независимыми ветками (без параллельной записи одних файлов) разрешены: `A3a(MCP/protocol read) → A3b(OAuth remote real clients)` и `A4a(Drive/media import) → A4b(composer + preview)`.
+
+**Путь до agent publish:** `A4b + A1 + credential gate → A5a(intent/preflight without publish) → A7a(owner grant/consent minimal UI) → A5b(execution-time scheduler/publisher guard + quotas + recovery) → A8(P0 e2e release)`.
+
+После первого работающего релиза: `A6(P1 webhooks/enhanced jobs)` и `A7b(P1 full agent admin/onboarding)`. Эти задачи не блокируют P0, но A7a и базовые job receipts блокируют.
+
+Один sub-PR MUST ограничиваться 1 coherent boundary и иметь focused regressions, exact-SHA CI и независимый review. Главный контролёр может довести весь блок до конца последовательно, не замораживая бизнес-результат на каждом промежуточном STOP без причины. Перед новым merge перепроверять `main` и change conflict; no blind rebase/overwrite accepted UI from #171/#183 or work in #184.
+
+### 16.7 Проверки, которые должны блокировать P0 выпуск
+
+- `G-01` Fastify browser-cookie и agent-bearer маршруты не пересекаются; отрицательные OAuth/Origin/Host/ACL варианты не делают side effects.
+- `G-02` Существующие legacy API и ручные READY/scheduled посты продолжают работать без новых препятствий.
+- `G-03` Агент без owner consent даже при `READY+APPROVED` и установленном расписании отправляет **0** внешних POST.
+- `G-04` Owner approval связан с точной immutable revision, media ordering, recipients, schedule и credential destination fingerprint; stale consent fail-closed.
+- `G-05` Owner revoke/pause, disabled account, changed credentials, expired token/policy, full daily quota блокируют ещё не начатую агентскую отправку.
+- `G-06` 2 параллельных агента + timeout + restart → не больше одного provider POST на exact target/revision; `RECOVERY_NEEDED` при неизвестном исходе.
+- `G-07` Безопасный Google Drive import: source root ACL, MIME/size, SHA, provenance, original media order, cleanup/recovery после partial failure.
+- `G-08` Запрошенные ID аккаунтов сохраняются точно, в том числе несколько VK; лишние не выбираются и не получают POST.
+- `G-09` REST/OpenAPI и MCP используют общую policy/application operation; проверен independent MCP client и обнаружение инструментов ChatGPT, если разрешено текущим client entitlement.
+- `G-10` Schema migrate из предыдущей версии + canonical backup/restore сохраняют existing projects, encrypted credentials, READY/manual posts, schedule/history, agent/grants/receipts.
+- `G-11` Confirmed real test deployment без leak secrets; не публиковать новые посты на реальных аккаунтах без явной owner acceptance.
+- `G-12` Exact-SHA full CI + focused negative security regression + independent review. Webhook test `T-18` блокирует A6/P1, **не** P0.
+
+Если G-01–G-12 не доказаны, нельзя маркировать «MCP подключён и полностью публикует» по одному `200 OK` или локальному tool smoke.
+
+### 16.8 Пример логической агентской операции — только иллюстрация A0
+
+```json
+{
+  "projectId": "project_asa",
+  "bodyPlain": "Наши занятия по робототехнике",
+  "mediaAssetIds": ["media_first", "media_second"],
+  "targetAccountIds": ["vk_class_a", "vk_class_b", "telegram_lab"],
+  "schedule": {
+    "mode": "AT",
+    "atUtc": "2026-10-27T15:00:00Z",
+    "timezone": "Europe/Moscow"
+  }
+}
+```
+
+Все IDs условные, не идентификаторы существующих пользователей/аккаунтов. Это **не** сетевой API spec и не публичный endpoint. A0 должен закрепить полноценный JSON Schema contract, в котором для `DRAFT_ONLY` указание расписания не подразумевает `READY`, approval или внешнюю отправку. Именно такое разделение ожидается от всех Agent и MCP клиентов.
