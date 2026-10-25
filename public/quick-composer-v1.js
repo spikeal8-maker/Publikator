@@ -188,7 +188,7 @@ export async function openQuickComposer() {
     targetToggle?.addEventListener('click', openTargetPicker);
     root.querySelector('#qc-target-done')?.addEventListener('click', closeTargetPicker);
     targetPicker?.addEventListener('keydown', (event) => {
-      if (event.key !== 'Tab') return;
+      if (event.key !== 'Tab' || !targetPicker.classList.contains('is-open')) return;
       const items = [...targetPicker.querySelectorAll('button:not(:disabled), input:not(:disabled)')]
         .filter((element) => element.getClientRects().length > 0);
       if (!items.length) return;
