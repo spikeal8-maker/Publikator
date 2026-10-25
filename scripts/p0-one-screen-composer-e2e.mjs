@@ -340,12 +340,30 @@ try {
   assert.match(await page.locator('#qc-status').textContent(), /Снова приложите фотографии/);
   assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, countBeforeRecovery,
     'recovered missing photos cannot be silently omitted from a save');
+  await page.locator('#qc-files').setInputFiles([
+    { name: 'restored-photo.png', mimeType: 'image/png', buffer: image2 }
+  ]);
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#qc-schedule').click();
+  await page.locator('#qc-status').filter({ hasText: /Публикация запланирована|Черновик сохранён:/ })
+    .waitFor({ timeout: 30000 });
+  const restoredSchedule = db.prepare(
+    'SELECT id,schedule_mode,schedule_timezone,scheduled_at_utc FROM posts WHERE project_id=? AND title=?'
+  ).get(projectId, 'Черновик на телефоне до перезагрузки');
+  assert.ok(restoredSchedule?.id, 'restored content must create one server draft after explicit save');
+  assert.equal(restoredSchedule.schedule_mode, 'AT');
+  assert.equal(restoredSchedule.schedule_timezone, 'Europe/Moscow',
+    'recovering schedule must preserve original timezone even after project defaults change');
+  assert.equal(restoredSchedule.scheduled_at_utc, '2026-11-16T15:30:00.000Z',
+    'restored local time must retain its original absolute UTC instant');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, countBeforeRecovery + 1,
+    'single operation after restored media cannot create a duplicate server draft');
   db.prepare("UPDATE projects SET default_timezone='Europe/Moscow' WHERE id=?").run(projectId);
   await closeComposer();
   await page.locator('#quick-compose-nav').click();
   await page.locator('#qc-text').waitFor();
   assert.equal(await page.locator('#qc-text').inputValue(), '',
-    'confirming discard must clear recovery record');
+    'confirmed server save must clear tab recovery data');
   await closeComposer();
 
   // P1: once a server POST starts, session recovery must become uncertain
@@ -378,6 +396,27 @@ try {
   release();
   await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
   await page.unroute('**/api/posts');
+  await closeComposer();
+
+  // An interrupted create cannot be cleared by one accidental click: the
+  // operator must explicitly confirm reconciliation with the publications list.
+  assert.equal(await page.evaluate(async () => {
+    const auth = await (await fetch('/api/auth/state')).json();
+    const { createComposerRecovery } = await import('/quick-composer-recovery-v1.js');
+    return createComposerRecovery(auth).saveUncertain();
+  }), true, 'simulate recovered unknown create result without contacting providers');
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-recovery-warning.is-visible').waitFor();
+  assert.equal(await page.locator('#qc-save').isDisabled(), true);
+  page.once('dialog', (dialog) => dialog.dismiss());
+  await page.locator('#qc-start-new').click();
+  assert.equal(await page.locator('#qc-recovery-warning').isVisible(), true,
+    'dismissed reconciliation must keep unknown-outcome guard');
+  assert.equal(await page.locator('#qc-save').isDisabled(), true);
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#qc-start-new').click();
+  assert.equal(await page.locator('#qc-recovery-warning').isVisible(), false);
+  assert.equal(await page.locator('#qc-save').isDisabled(), false);
   await closeComposer();
 
   assert.deepEqual(errors, []);
