@@ -18,7 +18,7 @@ const { encryptJson } = await import('../dist/crypto.js');
 const { buildApp } = await import('../dist/app.js');
 migrate();
 const composerScript = await fs.readFile(new URL('../public/quick-composer-v1.js', import.meta.url), 'utf8');
-assert.equal((composerScript.match(/root\\.addEventListener\\('paste'/g) || []).length, 1,
+assert.equal(composerScript.split("root.addEventListener('paste'").length - 1, 1,
   'the composer must install exactly one clipboard paste handler per open dialog');
 
 const accounts = [];
