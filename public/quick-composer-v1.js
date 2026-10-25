@@ -416,7 +416,10 @@ export async function openQuickComposer() {
       const title = document.createElement('strong');
       title.textContent = item.file.name;
       const size = document.createElement('span');
-      size.textContent = (item.file.size / (1024 * 1024)).toFixed(1) + ' МБ · MP4' +
+      const readableSize = item.file.size < 1024 * 1024
+        ? (item.file.size / 1024).toFixed(1) + ' КБ'
+        : (item.file.size / (1024 * 1024)).toFixed(1) + ' МБ';
+      size.textContent = readableSize + ' · MP4' +
         (item.uploaded ? ' · загружено на сервер' : ' · ожидает сохранения');
       const remove = document.createElement('button');
       remove.type = 'button';
@@ -469,6 +472,7 @@ export async function openQuickComposer() {
       state.video = { file, url: URL.createObjectURL(file), uploaded: false, remoteId: null };
       markDirty();
       redrawVideo();
+      setStatus('Видео MP4 выбрано. Проверьте предпросмотр и сохраните черновик.');
     });
     root.querySelector('#qc-files').addEventListener('change', (event) => {
       addFiles(Array.from(event.currentTarget.files || []));
