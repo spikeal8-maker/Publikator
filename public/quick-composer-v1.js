@@ -163,7 +163,9 @@ export async function openQuickComposer() {
       state.busy = busy;
       const locked = state.finished || state.uncertainPublish;
       root.querySelectorAll('input,textarea,select,button').forEach((element) => {
-        element.disabled = busy || (locked && element.id !== 'qc-close') ||
+        const unavailable = element.matches('input[name="qc-account"]') &&
+          !state.accounts.some((account) => account.id === element.value && account.enabled);
+        element.disabled = busy || (locked && element.id !== 'qc-close') || unavailable ||
           (element.id === 'qc-project' && Boolean(state.savedId));
       });
       redrawPhotos();
@@ -291,7 +293,10 @@ export async function openQuickComposer() {
     showTimezone();
     root.querySelector('#qc-close').addEventListener('click', dispose);
     root.querySelector('#qc-connect')?.addEventListener('click', (event) => {
-      event.preventDefault(); window.location.assign('/socials');
+      event.preventDefault();
+      if (state.busy) return;
+      if (state.dirty && !window.confirm('Есть несохранённые изменения. Перейти к подключению соцсетей и потерять их?')) return;
+      window.location.assign('/socials');
     });
 
     function snapshotOperation(action, chosen) {
@@ -376,20 +381,32 @@ export async function openQuickComposer() {
         throw new Error('Сохранённые получатели отличаются от подтверждённых. Отправка остановлена.');
       }
 
+      const nextOrder = [];
+      state.lastDeduplicatedCount = 0;
       for (const item of operation.images) {
-        if (item.uploaded) continue;
-        setStatus('Загружаю: ' + item.file.name);
-        const data = new FormData();
-        data.set('file', item.file);
-        const saved = await request('/api/posts/' + encodeURIComponent(state.savedId) + '/media', {
-          method: 'POST', body: data, headers: { 'x-content-version': String(state.version) }
-        });
-        item.remoteId = saved.id;
-        item.uploaded = true;
-        state.version = saved.contentVersion;
+        if (!item.uploaded) {
+          setStatus('Загружаю: ' + item.file.name);
+          const data = new FormData();
+          data.set('file', item.file);
+          const saved = await request('/api/posts/' + encodeURIComponent(state.savedId) + '/media', {
+            method: 'POST', body: data, headers: { 'x-content-version': String(state.version) }
+          });
+          item.remoteId = saved.id;
+          item.uploaded = true;
+          state.version = saved.contentVersion;
+        }
+        if (!item.remoteId) throw new Error('Не удалось подтвердить загрузку изображения.');
+        if (nextOrder.includes(item.remoteId)) {
+          // The server deduplicates identical normalized image bytes, not file names.
+          // Keep one local card per persisted media ID so order/delete stay consistent.
+          const index = state.pending.indexOf(item);
+          if (index !== -1) state.pending.splice(index, 1);
+          URL.revokeObjectURL(item.url);
+          state.lastDeduplicatedCount += 1;
+          continue;
+        }
+        nextOrder.push(item.remoteId);
       }
-      const nextOrder = operation.images.map((item) => item.remoteId);
-      if (nextOrder.some((id) => !id)) throw new Error('Не удалось подтвердить загрузку всех изображений.');
       if (nextOrder.join('\u0000') !== state.remoteMediaOrder.join('\u0000')) {
         const reordered = await request('/api/posts/' + encodeURIComponent(state.savedId) + '/media-order', {
           method: 'PUT',
@@ -447,7 +464,8 @@ export async function openQuickComposer() {
           }
         } else {
           state.dirty = false;
-          setStatus('Черновик сохранён со всеми выбранными изображениями и площадками.');
+          setStatus('Черновик сохранён со всеми выбранными изображениями и площадками.' +
+            (state.lastDeduplicatedCount ? ' Одинаковые изображения объединены: ' + state.lastDeduplicatedCount + '.' : ''));
         }
         root.querySelector('#qc-close').textContent = 'Закрыть';
         root.querySelector('#qc-close').setAttribute('aria-label', 'Закрыть редактор');
