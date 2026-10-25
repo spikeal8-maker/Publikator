@@ -1147,14 +1147,15 @@ export async function openQuickComposer() {
         root.querySelector('#qc-close').textContent = '×';
         root.querySelector('#qc-close').setAttribute('aria-label', 'Закрыть редактор');
       } catch (error) {
-        // HTTP 4xx (except 408/429) from READY is a definitive, pre-publish
-        // refusal: no provider POST was dispatched and the draft is persisted.
-        // Retaining an "unknown outcome" marker here would falsely block a
-        // future composer. Keep it for network ambiguity, media failures and
-        // any publish-now request whose external outcome might be uncertain.
+        // Only an explicit per-account preflight 409 with structured ERROR
+        // issues proves READY refused before any external publish attempt.
+        // A bare 409 can also mean PUBLISHING/PUBLISHED or version conflict,
+        // and must NOT retire a recovery marker without reconciliation.
+        // Keep the marker for HTTP 5xx, 408/429, transport failures, media
+        // ambiguity and every publish-now request.
         if (phase === 'ready' && !state.uncertainPublish &&
-            Number.isInteger(error?.httpStatus) && error.httpStatus >= 400 &&
-            error.httpStatus < 500 && ![408, 429].includes(error.httpStatus)) {
+            error?.httpStatus === 409 && Array.isArray(error?.preflightIssues) &&
+            error.preflightIssues.some((issue) => issue?.severity === 'error')) {
           recovery?.clear();
         }
         if (state.uncertainPublish && !state.savedId) {
