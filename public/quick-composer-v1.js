@@ -68,6 +68,7 @@ export async function openQuickComposer() {
     if (state?.uncertainPublish && !window.confirm('Результат последней операции не подтверждён. Проверьте публикации перед повторной отправкой. Закрыть редактор?')) return;
     if (state?.dirty && !window.confirm('Есть несохранённые изменения. Закрыть редактор и потерять их?')) return;
     if (state?.pending) for (const image of state.pending) URL.revokeObjectURL(image.url);
+    if (state?.video?.url) URL.revokeObjectURL(state.video.url);
     // Explicitly discarded unsaved content must not reappear on the next opening.
     // Keep recovery markers for interrupted/uncertain server operations.
     if (state && !state.savedId && !state.uncertainPublish) recovery?.clear();
@@ -107,7 +108,8 @@ export async function openQuickComposer() {
       projects, accounts, pending: [], savedId: null, version: null,
       busy: false, finished: false, uncertainPublish: false, dirty: false,
       scheduleTimezone: null, scheduleMode: 'MANUAL', remoteMediaOrder: [],
-      restoredScheduleTimezone: null, recoveryRequiredFiles: 0
+      restoredScheduleTimezone: null, recoveryRequiredFiles: 0,
+      video: null, recoveryRequiresVideo: false
     };
     const available = accounts.filter((account) => account.enabled);
     const grouped = ['telegram', 'vk', 'max', 'instagram'].map((platform) => {
@@ -138,10 +140,21 @@ export async function openQuickComposer() {
           '<strong>Фотографии из прежней вкладки отсутствуют</strong>' +
           '<p id="qc-missing-media-detail"></p>' +
           '<button type="button" id="qc-skip-recovered-media">Продолжить без прежних фотографий</button></div>' +
+          '<div id="qc-missing-video" class="qc-recovery-warning">' +
+          '<strong>Видео MP4 из прежней вкладки отсутствует</strong>' +
+          '<p>Выберите MP4 снова или явно подтвердите отказ от него.</p>' +
+          '<button type="button" id="qc-skip-recovered-video">Продолжить без прежнего видео</button></div>' +
           '<div class="qc-photo-head"><strong>Фотографии</strong><span class="qc-muted">Можно добавить сразу, до сохранения</span></div>' +
           '<label class="qc-drop" id="qc-drop"><input id="qc-files" type="file" accept="image/*" multiple>' +
           '<span class="qc-drop-icon" aria-hidden="true">+</span><strong>Добавить фото</strong><small>Выберите несколько изображений или перетащите сюда</small></label>' +
           '<div id="qc-images" class="qc-images" aria-live="polite"></div>' +
+          '<div class="qc-video-section"><div class="qc-photo-head"><strong>Видео MP4</strong>' +
+          '<span class="qc-muted">Отдельно от фотографий · требуется текст публикации</span></div>' +
+          '<label class="qc-drop qc-video-drop" id="qc-video-drop">' +
+          '<input id="qc-video-file" type="file" accept="video/mp4">' +
+          '<span class="qc-drop-icon" aria-hidden="true">▶</span><strong>Добавить MP4</strong>' +
+          '<small>До сохранения · формат и доступность проверяет сервер</small></label>' +
+          '<div id="qc-video-preview" class="qc-video-preview" aria-live="polite"></div></div>' +
           '<details class="qc-advanced"><summary>Дополнительно: проект и расписание</summary>' +
           '<div class="qc-options"><label>Проект (для организации материалов)<select id="qc-project">' +
           (projectOptions || '<option value="">Мои публикации — будет создан автоматически</option>') +
@@ -253,6 +266,7 @@ export async function openQuickComposer() {
           (element.id === 'qc-project' && Boolean(state.savedId));
       });
       redrawPhotos();
+      redrawVideo();
     }
     function markDirty() {
       if (state.busy || state.finished || state.uncertainPublish) return;
@@ -267,7 +281,8 @@ export async function openQuickComposer() {
         accountIds: selectedIds(),
         // Unattached files from a restored draft remain required across text,
         // target and schedule edits, including another tab refresh.
-        photoCount: Math.max(state.pending.length, state.recoveryRequiredFiles)
+        photoCount: Math.max(state.pending.length, state.recoveryRequiredFiles),
+        videoRequired: Boolean(state.video || state.recoveryRequiresVideo)
       });
       root.querySelector('#qc-recovery-note').textContent = stored
         ? 'Текст и настройки временно сохранены в этой вкладке. Файлы после перезагрузки нужно выбрать заново.'
@@ -278,6 +293,18 @@ export async function openQuickComposer() {
       root.querySelector('#qc-missing-media').classList.toggle('is-visible', missing > 0);
       root.querySelector('#qc-missing-media-detail').textContent =
         'Повторно добавьте ' + missing + ' фото или явно подтвердите отказ от них.';
+      root.querySelector('#qc-missing-video').classList.toggle('is-visible',
+        state.recoveryRequiresVideo && !state.video);
+    }
+    function syncMediaInputs() {
+      const locked = state.busy || state.finished || state.uncertainPublish;
+      const cannotAddPhotos = locked || Boolean(state.video) || state.recoveryRequiresVideo;
+      const cannotAddVideo = locked || state.pending.length > 0 || Boolean(state.video) ||
+        state.recoveryRequiredFiles > 0;
+      root.querySelector('#qc-files').disabled = cannotAddPhotos;
+      root.querySelector('#qc-video-file').disabled = cannotAddVideo;
+      root.querySelector('#qc-drop').classList.toggle('is-disabled', cannotAddPhotos);
+      root.querySelector('#qc-video-drop').classList.toggle('is-disabled', cannotAddVideo);
     }
     function refreshPreview() {
       root.querySelector('#qc-preview-text').textContent = text.value.trim() || 'Текст появится здесь';
@@ -349,9 +376,14 @@ export async function openQuickComposer() {
         card.append(img, caption, controls);
         pendingList.append(card);
       });
+      syncMediaInputs();
     }
     function addFiles(files) {
       if (state.busy || state.finished || state.uncertainPublish) return;
+      if (state.video || state.recoveryRequiresVideo) {
+        setStatus('Смешивание фото и видео не поддерживается. Сначала удалите MP4 либо отмените его восстановление.', true);
+        return;
+      }
       const currentKeys = new Set(state.pending.map((item) => item.file.name + ':' + item.file.size + ':' + item.file.lastModified));
       for (const file of files) {
         if (!file.type.startsWith('image/')) { setStatus('Выберите файлы изображений.', true); continue; }
