@@ -1290,7 +1290,8 @@
               }
             }
           }
-        }
+        },
+        "x-publikator-no-state-change": true
       }
     },
     "/api/agent/v1/posts/{postId}/preflight": {
@@ -1419,7 +1420,8 @@
               }
             }
           }
-        }
+        },
+        "x-publikator-no-state-change": true
       }
     },
     "/api/agent/v1/posts/{postId}/request-approval": {
@@ -5473,6 +5475,10 @@
           },
           "preapprovedPolicy": {
             "$ref": "#/components/schemas/OwnerAutoPolicy"
+          },
+          "confirmElevation": {
+            "type": "boolean",
+            "description": "Required true if effective grants increase; server computes elevation, client cannot override it"
           }
         },
         "additionalProperties": false
@@ -5777,6 +5783,10 @@
           },
           "preapprovedPolicy": {
             "$ref": "#/components/schemas/OwnerAutoPolicy"
+          },
+          "confirmElevation": {
+            "type": "boolean",
+            "description": "Only meaningful for non-default initial grants; owner-only"
           }
         },
         "additionalProperties": false
