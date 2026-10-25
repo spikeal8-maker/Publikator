@@ -902,6 +902,77 @@ try {
   await page.screenshot({ path: 'test-results/p0-composer-media-only-video.png', fullPage: false });
   await closeComposer();
 
+  // C2c: the READY endpoint reports authoritative per-target preflight
+  // diagnostics. Show exactly which account failed without issuing publish-now,
+  // and render server-provided text safely (never as HTML).
+  const beforePerAccountCheck = db.prepare('SELECT COUNT(*) AS n FROM posts').get().n;
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').fill('Проверить доступность двух подключений');
+  for (const account of [accounts[0], accounts[2]]) {
+    await page.locator('input[name="qc-account"][value="' + account.id + '"]').check();
+  }
+  await page.locator('.qc-advanced summary').click();
+  await page.locator('#qc-datetime').fill('2027-02-14T14:30');
+  const readyIssues = [
+    {
+      accountId: accounts[0].id, accountName: 'Account 0',
+      platform: 'telegram', severity: 'error',
+      message: 'Нет права публикации в канал. Проверьте настройки бота.'
+    },
+    {
+      accountId: accounts[2].id, accountName: 'Account 2',
+      platform: 'vk', severity: 'error',
+      message: 'Нет доступа к стене <b>сообщества</b>. Проверьте токен.'
+    }
+  ];
+  let readinessChecks = 0;
+  let unexpectedPublishNow = 0;
+  const onComposerRequest = (request) => {
+    if (request.url().includes('/publish-now')) unexpectedPublishNow += 1;
+  };
+  page.on('request', onComposerRequest);
+  await page.route('**/api/posts/*/ready', async (route) => {
+    if (route.request().method() !== 'POST') { await route.continue(); return; }
+    readinessChecks += 1;
+    await route.fulfill({
+      status: 409,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'Пост не готов к публикации', issues: readyIssues })
+    });
+  });
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#qc-schedule').click();
+  await page.locator('#qc-preflight-issues:not([hidden])').waitFor({ timeout: 30000 });
+  assert.equal(readinessChecks, 1, 'READY is evaluated once before any scheduled publication');
+  assert.equal(unexpectedPublishNow, 0, 'failed preflight must never dispatch publish-now');
+  const visibleFailures = await page.locator('#qc-preflight-issues').textContent();
+  assert.match(visibleFailures, /Telegram · Account 0/);
+  assert.match(visibleFailures, /VK|ВКонтакте/);
+  assert.match(visibleFailures, /Account 2/);
+  assert.match(visibleFailures, /Нет права публикации в канал/);
+  assert.match(visibleFailures, /Нет доступа к стене <b>сообщества<\/b>/);
+  assert.equal(await page.locator('#qc-preflight-issues li').count(), 2);
+  assert.equal(await page.locator('#qc-preflight-issues b').count(), 0,
+    'preflight diagnostic text must not be interpreted as markup');
+  assert.match(await page.locator('#qc-status').textContent(), /Проверка готовности не пройдена/);
+  const failedReadyPost = db.prepare('SELECT id,status FROM posts ORDER BY rowid DESC LIMIT 1').get();
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM posts').get().n, beforePerAccountCheck + 1);
+  assert.equal(failedReadyPost.status, 'DRAFT', 'preflight rejection keeps the draft editable');
+  assert.deepEqual(
+    db.prepare('SELECT account_id FROM post_targets WHERE post_id=? AND enabled=1 ORDER BY account_id')
+      .all(failedReadyPost.id).map((row) => row.account_id),
+    [accounts[0].id, accounts[2].id].sort()
+  );
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM publication_events WHERE post_id=? AND event_type LIKE '%publish%'")
+    .get(failedReadyPost.id).n, 0);
+  await page.screenshot({ path: 'test-results/p0-composer-per-account-ready-errors.png', fullPage: false });
+  await page.locator('#qc-text').fill('Поправка после отказа конкретного аккаунта');
+  assert.equal(await page.locator('#qc-preflight-issues').isVisible(), false,
+    'editing after failed readiness must discard stale per-target warnings');
+  await page.unroute('**/api/posts/*/ready');
+  page.off('request', onComposerRequest);
+  await closeComposer();
+
   assert.deepEqual(errors, []);
   await desktop.close();
 
