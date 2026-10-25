@@ -2685,7 +2685,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/OwnerGrantUpdate"
+                "$ref": "#/components/schemas/OwnerAgentCreate"
               }
             }
           }
@@ -3152,7 +3152,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/OwnerApprovalAction"
+                "$ref": "#/components/schemas/OwnerAgentControl"
               }
             }
           }
@@ -3274,7 +3274,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/OwnerApprovalAction"
+                "$ref": "#/components/schemas/OwnerAgentControl"
               }
             }
           }
@@ -4259,7 +4259,7 @@
             "maxLength": 100
           }
         },
-        "additionalProperties": {},
+        "additionalProperties": false,
         "allOf": [
           {
             "if": {
@@ -5470,6 +5470,9 @@
           "policyExpiresAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "preapprovedPolicy": {
+            "$ref": "#/components/schemas/OwnerAutoPolicy"
           }
         },
         "additionalProperties": false
@@ -5585,6 +5588,211 @@
         ],
         "properties": {
           "ok": {
+            "const": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "OwnerAutoPolicy": {
+        "type": "object",
+        "required": [
+          "projectIds",
+          "accountIds",
+          "allowedFormats",
+          "dailyMax",
+          "timezone",
+          "expiresAt"
+        ],
+        "properties": {
+          "projectIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            },
+            "uniqueItems": true,
+            "maxItems": 100
+          },
+          "accountIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            },
+            "uniqueItems": true,
+            "maxItems": 100
+          },
+          "sourceConnectorIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            },
+            "uniqueItems": true,
+            "maxItems": 100
+          },
+          "allowedFormats": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "TEXT_ONLY",
+                "IMAGE",
+                "CAROUSEL",
+                "VIDEO"
+              ]
+            },
+            "uniqueItems": true,
+            "minItems": 1,
+            "maxItems": 4
+          },
+          "dailyMax": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "timezone": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "allowedWeekdays": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 7
+            },
+            "uniqueItems": true,
+            "maxItems": 7
+          },
+          "allowedStartLocal": {
+            "type": "string",
+            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+          },
+          "allowedEndLocal": {
+            "type": "string",
+            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "approvedPolicyVersion": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "OwnerAgentCreate": {
+        "type": "object",
+        "required": [
+          "name",
+          "clientKind"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "clientKind": {
+            "enum": [
+              "chatgpt",
+              "codex",
+              "claude",
+              "cursor",
+              "n8n",
+              "telegram_bot",
+              "max_bot",
+              "custom_mcp",
+              "rest_client"
+            ]
+          },
+          "presetId": {
+            "enum": [
+              "OBSERVER",
+              "LIMITED",
+              "EXTENDED",
+              "FULL_CONTENT",
+              "CUSTOM"
+            ]
+          },
+          "publishMode": {
+            "enum": [
+              "DRAFT_ONLY",
+              "OWNER_APPROVAL",
+              "PREAPPROVED_POLICY"
+            ]
+          },
+          "scopeIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            },
+            "uniqueItems": true,
+            "maxItems": 100
+          },
+          "projectIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            },
+            "uniqueItems": true,
+            "maxItems": 100
+          },
+          "accountIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            },
+            "uniqueItems": true,
+            "maxItems": 100
+          },
+          "sourceConnectorIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            },
+            "uniqueItems": true,
+            "maxItems": 100
+          },
+          "preapprovedPolicy": {
+            "$ref": "#/components/schemas/OwnerAutoPolicy"
+          }
+        },
+        "additionalProperties": false
+      },
+      "OwnerAgentControl": {
+        "type": "object",
+        "required": [
+          "expectedGrantVersion",
+          "confirm"
+        ],
+        "properties": {
+          "expectedGrantVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "confirm": {
             "const": true
           }
         },
