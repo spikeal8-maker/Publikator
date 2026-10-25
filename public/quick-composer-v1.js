@@ -1100,9 +1100,13 @@ export async function openQuickComposer() {
       clearPreflightIssues();
       clearPlatformPreview();
       setBusy(true);
+      let phase = 'persist';
       try {
         setStatus('Сохраняю публикацию…');
         const id = await persistDraft(operation);
+        // All draft, target and media mutations are confirmed at this point.
+        // A later READY rejection must not pretend these changes were lost.
+        state.dirty = false;
         if (action !== 'save') {
           // A preceding Save clears its old recovery record. Restore the
           // durable server-draft guard before READY/schedule/publish operations.
@@ -1112,11 +1116,13 @@ export async function openQuickComposer() {
             throw new Error('Не удалось сохранить защитную запись операции. Публикация остановлена во избежание дублирования.');
           }
           setStatus('Проверяю права и форматы для выбранных площадок…');
+          phase = 'ready';
           const ready = await request('/api/posts/' + encodeURIComponent(id) + '/ready', {
             method: 'POST', body: JSON.stringify({ expectedContentVersion: state.version })
           });
           state.version = ready.contentVersion;
           if (action === 'send') {
+            phase = 'publish';
             setStatus('Отправляю на выбранные площадки…');
             // Once POST starts, an HTTP timeout is ambiguous. Never send twice automatically.
             state.uncertainPublish = true;
@@ -1141,6 +1147,17 @@ export async function openQuickComposer() {
         root.querySelector('#qc-close').textContent = '×';
         root.querySelector('#qc-close').setAttribute('aria-label', 'Закрыть редактор');
       } catch (error) {
+        // Only an explicit per-account preflight 409 with structured ERROR
+        // issues proves READY refused before any external publish attempt.
+        // A bare 409 can also mean PUBLISHING/PUBLISHED or version conflict,
+        // and must NOT retire a recovery marker without reconciliation.
+        // Keep the marker for HTTP 5xx, 408/429, transport failures, media
+        // ambiguity and every publish-now request.
+        if (phase === 'ready' && !state.uncertainPublish &&
+            error?.httpStatus === 409 && Array.isArray(error?.preflightIssues) &&
+            error.preflightIssues.some((issue) => issue?.severity === 'error')) {
+          recovery?.clear();
+        }
         if (state.uncertainPublish && !state.savedId) {
           root.querySelector('#qc-recovery-warning').classList.add('is-visible');
         }
