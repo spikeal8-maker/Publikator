@@ -27,6 +27,9 @@ async function request(url, options = {}) {
     const message = typeof data?.error === 'string' ? data.error : 'Сервер ответил HTTP ' + response.status;
     const error = new Error(message);
     error.httpStatus = response.status;
+    // Preserve the existing server's structured preflight diagnostics.
+    // This is display-only metadata; authorization stays server-side.
+    if (Array.isArray(data?.issues)) error.preflightIssues = data.issues;
     throw error;
   }
   return data;
@@ -176,7 +179,9 @@ export async function openQuickComposer() {
             '<a href="/socials" id="qc-connect">Перейти к подключению соцсетей</a></div>') +
         '<div class="qc-preview"><h4>Предпросмотр текста</h4><p id="qc-preview-text">Текст появится здесь</p>' +
           '<div id="qc-preview-targets" class="qc-muted">Площадки пока не выбраны</div></div></section></div>' +
-      '<footer class="qc-footer"><div id="qc-status" role="status" aria-live="polite">Добавьте текст и выберите площадки. Необязательные настройки скрыты.</div>' +
+      '<footer class="qc-footer"><div class="qc-feedback">' +
+        '<div id="qc-status" role="status" aria-live="polite">Добавьте текст и выберите площадки. Необязательные настройки скрыты.</div>' +
+        '<section class="qc-preflight-issues" id="qc-preflight-issues" role="alert" aria-label="Причины отказа по аккаунтам" hidden></section></div>' +
       '<div class="qc-buttons"><button type="button" id="qc-save" class="qc-subtle">Сохранить черновик</button>' +
       '<button type="button" id="qc-schedule" class="qc-subtle">Запланировать</button>' +
       '<button type="button" id="qc-send" class="qc-primary">Опубликовать сейчас</button></div></footer>';
@@ -248,6 +253,39 @@ export async function openQuickComposer() {
       status.textContent = message;
       status.classList.toggle('is-error', error);
     }
+    const preflightPanel = root.querySelector('#qc-preflight-issues');
+    function clearPreflightIssues() {
+      preflightPanel.replaceChildren();
+      preflightPanel.hidden = true;
+    }
+    function showPreflightIssues(issues) {
+      clearPreflightIssues();
+      if (!Array.isArray(issues)) return false;
+      const failures = issues.filter((issue) =>
+        issue && typeof issue === 'object' && issue.severity === 'error' &&
+        typeof issue.message === 'string' && issue.message.trim()
+      ).slice(0, 100);
+      if (!failures.length) return false;
+      const title = document.createElement('strong');
+      title.textContent = 'Не прошли проверку: ' + failures.length +
+        '. Публикация не отправлялась.';
+      const list = document.createElement('ul');
+      for (const issue of failures) {
+        const item = document.createElement('li');
+        const account = document.createElement('strong');
+        const platform = PLATFORM_NAMES[issue.platform] || String(issue.platform || 'Площадка');
+        account.textContent = platform + ' · ' +
+          (typeof issue.accountName === 'string' && issue.accountName.trim()
+            ? issue.accountName : 'Подключение');
+        const detail = document.createElement('span');
+        detail.textContent = issue.message;
+        item.append(account, detail);
+        list.append(item);
+      }
+      preflightPanel.append(title, list);
+      preflightPanel.hidden = false;
+      return true;
+    }
     const projectTimezone = (id) =>
       state.projects.find((project) => project.id === id)?.default_timezone || 'UTC';
     function showTimezone() {
@@ -270,6 +308,7 @@ export async function openQuickComposer() {
     }
     function markDirty() {
       if (state.busy || state.finished || state.uncertainPublish) return;
+      clearPreflightIssues();
       state.dirty = true;
       if (state.savedId || !recovery) return;
       const stored = recovery.saveLocalDraft({
@@ -782,6 +821,7 @@ export async function openQuickComposer() {
         if (!window.confirm(what + ' в ' + chosen.length + ' выбранных подключениях?\n\n' +
           chosen.map(accountLabel).join('\n') + '\n\nПроверьте текст и фотографии.')) return;
       }
+      clearPreflightIssues();
       setBusy(true);
       try {
         setStatus('Сохраняю публикацию…');
@@ -827,7 +867,11 @@ export async function openQuickComposer() {
         if (state.uncertainPublish && !state.savedId) {
           root.querySelector('#qc-recovery-warning').classList.add('is-visible');
         }
-        setStatus(readableError(error) + (state.savedId ? ' Черновик сохранён: откройте список публикаций при необходимости.' : ''), true);
+        const hasTargetFailures = showPreflightIssues(error?.preflightIssues);
+        const explanation = hasTargetFailures
+          ? 'Проверка готовности не пройдена. Исправьте ошибки аккаунтов ниже.'
+          : readableError(error);
+        setStatus(explanation + (state.savedId ? ' Черновик сохранён: откройте список публикаций при необходимости.' : ''), true);
       } finally {
         setBusy(false);
       }
