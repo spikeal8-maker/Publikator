@@ -508,6 +508,7 @@ export async function openQuickComposer() {
     root.querySelector('#qc-ambiguous').addEventListener('change', markDirty);
     refreshPreview();
     showTimezone();
+    redrawVideo();
     root.querySelector('#qc-close').addEventListener('click', dispose);
     root.querySelector('#qc-skip-recovered-media').addEventListener('click', () => {
       if (state.busy || state.finished || state.uncertainPublish) return;
@@ -516,6 +517,15 @@ export async function openQuickComposer() {
       updateMissingFilesNotice();
       markDirty();
       setStatus('Подтверждено: продолжить без фотографий из предыдущей сессии.');
+    });
+    root.querySelector('#qc-skip-recovered-video').addEventListener('click', () => {
+      if (state.busy || state.finished || state.uncertainPublish) return;
+      if (!window.confirm('Вы отказываетесь от видео из прежней вкладки? Публикация будет без него.')) return;
+      state.recoveryRequiresVideo = false;
+      updateMissingFilesNotice();
+      markDirty();
+      syncMediaInputs();
+      setStatus('Подтверждено: продолжить без видео из предыдущей сессии.');
     });
     root.querySelector('#qc-connect')?.addEventListener('click', (event) => {
       event.preventDefault();
@@ -537,7 +547,8 @@ export async function openQuickComposer() {
           : null,
         body: text.value.trim(),
         accountIds: Object.freeze(chosen.map((account) => account.id)),
-        images: Object.freeze([...state.pending])
+        images: Object.freeze([...state.pending]),
+        video: state.video
       });
     }
 
@@ -545,7 +556,7 @@ export async function openQuickComposer() {
       const payload = {
         projectId, title: titleFromText(operation.body), body: operation.body,
         bodyRich: plainTextToRichDocument(operation.body),
-        contentFormat: operation.images.length ? 'MEDIA' : 'TEXT_ONLY',
+        contentFormat: operation.images.length || operation.video ? 'MEDIA' : 'TEXT_ONLY',
         scheduleMode: operation.mode
       };
       if (operation.mode === 'AT') {
@@ -663,6 +674,34 @@ export async function openQuickComposer() {
         state.version = reordered.contentVersion;
         state.remoteMediaOrder = [...nextOrder];
       }
+      if (operation.video && !operation.video.uploaded) {
+        // A completed MP4 POST may have a lost response; never retry it blindly.
+        if (!recovery?.saveServerDraft(state.savedId)) {
+          throw new Error('Не удалось сохранить защитную запись загрузки MP4. Операция остановлена.');
+        }
+        setStatus('Загружаю видео: ' + operation.video.file.name);
+        const data = new FormData();
+        data.set('file', operation.video.file);
+        let uploaded;
+        try {
+          uploaded = await request('/api/posts/' + encodeURIComponent(state.savedId) + '/video', {
+            method: 'POST', body: data, headers: { 'x-content-version': String(state.version) }
+          });
+        } catch (error) {
+          if (!Number.isInteger(error?.httpStatus) || error.httpStatus >= 500 ||
+              [408, 429].includes(error.httpStatus)) {
+            state.uncertainPublish = true;
+            throw new Error('Результат загрузки MP4 неизвестен. Проверьте публикацию и вложения перед повтором: ' +
+              readableError(error));
+          }
+          throw error;
+        }
+        operation.video.remoteId = uploaded.id;
+        operation.video.uploaded = true;
+        state.version = uploaded.contentVersion;
+        redrawVideo();
+      }
+      state.recoveryRequiresVideo = false;
       // The transient recovery requirement protects only the initial rebuild
       // of a lost local media selection. Once all files are persisted, any
       // server deduplication or later explicit deletion must not revive it.
@@ -678,6 +717,15 @@ export async function openQuickComposer() {
       if (state.recoveryRequiredFiles > state.pending.length) {
         updateMissingFilesNotice();
         setStatus('Снова приложите фотографии или подтвердите продолжение без них.', true);
+        return;
+      }
+      if (state.recoveryRequiresVideo && !operation.video) {
+        updateMissingFilesNotice();
+        setStatus('Снова выберите MP4 или явно подтвердите отказ от прежнего видео.', true);
+        return;
+      }
+      if (operation.video && operation.images.length) {
+        setStatus('Смешивание фотографий и видео не поддерживается. Выберите один тип вложений.', true);
         return;
       }
       if (!operation.body) { setStatus('Напишите текст публикации.', true); text.focus(); return; }
@@ -729,7 +777,7 @@ export async function openQuickComposer() {
           }
         } else {
           state.dirty = false;
-          setStatus('Черновик сохранён со всеми выбранными изображениями и площадками.' +
+          setStatus('Черновик сохранён со всеми выбранными медиафайлами и получателями.' +
             (state.lastDeduplicatedCount ? ' Одинаковые изображения объединены: ' + state.lastDeduplicatedCount + '.' : ''));
         }
         recovery?.clear();
@@ -763,7 +811,8 @@ export async function openQuickComposer() {
     const previous = recovery?.read();
     if (previous?.kind === 'local') {
       if (window.confirm('Есть незавершённая публикация в этой вкладке. Восстановить текст и получателей?' +
-          (previous.photoCount ? '\\nФотографии потребуется добавить заново.' : ''))) {
+          (previous.photoCount ? '\\nФотографии потребуется добавить заново.' : '') +
+          (previous.videoRequired ? '\\nMP4 потребуется выбрать заново.' : ''))) {
         text.value = typeof previous.body === 'string' ? previous.body : '';
         const project = root.querySelector('#qc-project');
         if ([...project.options].some((option) => option.value === previous.projectId)) project.value = previous.projectId;
@@ -787,12 +836,16 @@ export async function openQuickComposer() {
           }
         }
         state.recoveryRequiredFiles = Math.max(0, Number(previous.photoCount) || 0);
+        state.recoveryRequiresVideo = Boolean(previous.videoRequired);
         updateMissingFilesNotice();
+        syncMediaInputs();
         refreshPreview();
         showTimezone();
         setStatus(previous.photoCount
           ? 'Текст и получатели восстановлены. Добавьте фотографии заново перед публикацией.'
-          : 'Восстановлены текст, получатели и настройки времени.');
+          : previous.videoRequired
+            ? 'Текст и получатели восстановлены. Снова выберите MP4 перед публикацией.'
+            : 'Восстановлены текст, получатели и настройки времени.');
       } else {
         recovery.clear();
       }
