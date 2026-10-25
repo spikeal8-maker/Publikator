@@ -1,0 +1,278 @@
+{
+  "contractId": "publikator.agent-auth-routing",
+  "schemaVersion": 1,
+  "status": "PLANNED_NOT_DEPLOYED",
+  "ownerIssue": 174,
+  "sourceMainSha": "19141f5db280fa2522731228a5a81e492c64a264",
+  "transport": {
+    "mcpProtocolVersion": "2026-07-28",
+    "mcpPath": "/mcp",
+    "agentRestBase": "/api/agent/v1",
+    "ownerBase": "/api/owner",
+    "defaultFailClosed": true,
+    "oauthResourceId": "https://<owner-approved-host>/mcp",
+    "oauthIssuerOrigin": "https://<owner-approved-host>",
+    "externalIngressStatus": "NOT_PROVEN",
+    "publicHostnameConfirmed": false,
+    "serverArchitecture": "EXISTING_SINGLE_FASTIFY_PROCESS",
+    "oauthServerImplementation": "TRUSTED_OIDC_PROVIDER_CANDIDATE_V9",
+    "tokenPassThroughAllowed": false
+  },
+  "keyRules": {
+    "noImplicitAgentAdminCookie": true,
+    "noAmbientAdminAuthorizationForAgent": true,
+    "perToolGrantRecheck": true,
+    "ownerGrantMutationsBrowserSessionOnly": true,
+    "noLegacyKeyUpgrade": true,
+    "oauthAccessTokenMustTargetMcpResource": true,
+    "oauthIssuerBinding": true,
+    "oauthAuthorizationCodePkce": true,
+    "oauthClientRegistration": "STATIC_OR_CIMD_PREFERRED_DCR_RESTRICTED",
+    "noOwnerSecretsInClient": true,
+    "denyMissingHostOrInvalidOrigin": true,
+    "scopeEscalationOwnerConfirmation": true
+  },
+  "routes": [
+    {
+      "id": "public-health",
+      "path": "/api/health",
+      "match": "exact",
+      "methods": [
+        "GET"
+      ],
+      "auth": "PUBLIC_HEALTH",
+      "origin": "NOT_APPLICABLE",
+      "allowWrites": false
+    },
+    {
+      "id": "browser-auth-public",
+      "path": "/api/auth/state",
+      "match": "exact",
+      "methods": [
+        "GET"
+      ],
+      "auth": "PUBLIC_BROWSER_READ",
+      "origin": "BROWSER_SAME_ORIGIN",
+      "allowWrites": false
+    },
+    {
+      "id": "browser-auth-login",
+      "path": "/api/auth/login",
+      "match": "exact",
+      "methods": [
+        "POST"
+      ],
+      "auth": "BROWSER_LOGIN_RATE_LIMITED",
+      "origin": "BROWSER_SAME_ORIGIN",
+      "allowWrites": true
+    },
+    {
+      "id": "browser-auth-setup",
+      "path": "/api/auth/setup",
+      "match": "exact",
+      "methods": [
+        "POST"
+      ],
+      "auth": "ONE_TIME_OWNER_BOOTSTRAP",
+      "origin": "BROWSER_SAME_ORIGIN",
+      "allowWrites": true
+    },
+    {
+      "id": "browser-auth-recovery",
+      "path": "/api/auth/recover",
+      "match": "exact",
+      "methods": [
+        "POST"
+      ],
+      "auth": "OWNER_RECOVERY_FLOW",
+      "origin": "BROWSER_SAME_ORIGIN",
+      "allowWrites": true
+    },
+    {
+      "id": "legacy-vk-oauth-callback",
+      "path": "/api/vk/oauth/callback",
+      "match": "exact",
+      "methods": [
+        "GET"
+      ],
+      "auth": "EXISTING_VK_OAUTH_CALLBACK",
+      "origin": "EXPLICIT_CALLBACK",
+      "allowWrites": false
+    },
+    {
+      "id": "mcp-resource-metadata",
+      "path": "/.well-known/oauth-protected-resource",
+      "match": "exact",
+      "methods": [
+        "GET"
+      ],
+      "auth": "PUBLIC_METADATA_ONLY",
+      "origin": "NOT_APPLICABLE",
+      "allowWrites": false
+    },
+    {
+      "id": "mcp-resource-metadata-path",
+      "path": "/.well-known/oauth-protected-resource/mcp",
+      "match": "exact",
+      "methods": [
+        "GET"
+      ],
+      "auth": "PUBLIC_METADATA_ONLY",
+      "origin": "NOT_APPLICABLE",
+      "allowWrites": false
+    },
+    {
+      "id": "oauth-as-metadata",
+      "path": "/.well-known/oauth-authorization-server",
+      "match": "exact",
+      "methods": [
+        "GET"
+      ],
+      "auth": "PUBLIC_METADATA_ONLY",
+      "origin": "NOT_APPLICABLE",
+      "allowWrites": false
+    },
+    {
+      "id": "oauth-oidc-metadata",
+      "path": "/.well-known/openid-configuration",
+      "match": "exact",
+      "methods": [
+        "GET"
+      ],
+      "auth": "PUBLIC_METADATA_ONLY",
+      "origin": "NOT_APPLICABLE",
+      "allowWrites": false
+    },
+    {
+      "id": "oauth-authorize",
+      "path": "/oauth/authorize",
+      "match": "exact",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "auth": "OWNER_LOGIN_AND_EXPLICIT_OAUTH_CONSENT",
+      "origin": "BROWSER_SAME_ORIGIN",
+      "allowWrites": true
+    },
+    {
+      "id": "oauth-token",
+      "path": "/oauth/token",
+      "match": "exact",
+      "methods": [
+        "POST"
+      ],
+      "auth": "OAUTH_CODE_PKCE_OR_VERIFIED_REFRESH",
+      "origin": "OAUTH_TOKEN_ENDPOINT",
+      "allowWrites": true
+    },
+    {
+      "id": "oauth-revoke",
+      "path": "/oauth/revoke",
+      "match": "exact",
+      "methods": [
+        "POST"
+      ],
+      "auth": "OAUTH_TOKEN_REVOCATION",
+      "origin": "OAUTH_TOKEN_ENDPOINT",
+      "allowWrites": true
+    },
+    {
+      "id": "legacy-integration",
+      "path": "/api/integration/v1/",
+      "match": "prefix",
+      "methods": [
+        "*"
+      ],
+      "auth": "HASHED_LEGACY_PK_KEY",
+      "origin": "NON_BROWSER_BEARER",
+      "allowWrites": true
+    },
+    {
+      "id": "owner-configuration",
+      "path": "/api/owner/",
+      "match": "prefix",
+      "methods": [
+        "*"
+      ],
+      "auth": "OWNER_COOKIE_ONLY",
+      "origin": "BROWSER_SAME_ORIGIN",
+      "allowWrites": true
+    },
+    {
+      "id": "scoped-agent-rest",
+      "path": "/api/agent/v1/",
+      "match": "prefix",
+      "methods": [
+        "*"
+      ],
+      "auth": "SCOPED_AGENT_BEARER_ONLY",
+      "origin": "BEARER_HOST_ORIGIN_VALIDATED",
+      "allowWrites": true,
+      "audienceCheck": true,
+      "grantCheck": true
+    },
+    {
+      "id": "mcp-tools",
+      "path": "/mcp",
+      "match": "exact",
+      "methods": [
+        "POST"
+      ],
+      "auth": "SCOPED_MCP_OAUTH_ONLY",
+      "origin": "MCP_HOST_ORIGIN_VALIDATED",
+      "allowWrites": true,
+      "audienceCheck": true,
+      "grantCheck": true
+    },
+    {
+      "id": "public-legacy-media",
+      "path": "/public-media/",
+      "match": "prefix",
+      "methods": [
+        "GET",
+        "HEAD"
+      ],
+      "auth": "EXISTING_PUBLIC_PROVIDER_MEDIA_ONLY",
+      "origin": "PUBLIC_MEDIA_LEGACY",
+      "allowWrites": false,
+      "compatibilityOnly": true
+    },
+    {
+      "id": "legacy-owner-api",
+      "path": "/api/",
+      "match": "prefix",
+      "methods": [
+        "*"
+      ],
+      "auth": "OWNER_COOKIE_ONLY",
+      "origin": "BROWSER_SAME_ORIGIN",
+      "allowWrites": true,
+      "catchAll": true
+    },
+    {
+      "id": "default-deny",
+      "path": "/",
+      "match": "prefix",
+      "methods": [
+        "*"
+      ],
+      "auth": "DENY_OR_EXISTING_STATIC_SPA",
+      "origin": "NO_AGENT_AUTH",
+      "allowWrites": false,
+      "catchAll": true
+    }
+  ],
+  "tests": {
+    "unknownAgentRoute": "DENY_NOT_PUBLIC",
+    "unknownOauthRoute": "DENY_NOT_PUBLIC",
+    "agentOnAdminCookie": "DENY",
+    "ownerViaAgentBearer": "DENY",
+    "wrongOauthAudience": "DENY",
+    "revokedGrant": "DENY",
+    "originSpoof": "DENY",
+    "invalidMcpProtocol": "DENY",
+    "privacy": "NO_RAW_SECRETS_IN_LOGS",
+    "deployment": "NOT_ACCEPTED_UNTIL_REMOTE_CONNECTIVITY_PROOF"
+  }
+}
