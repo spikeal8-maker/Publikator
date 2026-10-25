@@ -4,7 +4,7 @@
 **Дата:** 25 октября 2026 года  
 **Основная задача:** [Issue #172](https://github.com/spikeal8-maker/Publikator/issues/172)  
 **Репозиторий:** `spikeal8-maker/Publikator`  
-**Зафиксированный baseline для аудита:** `main@2b2cb75132c8b5ddb1ad49f254c805ce6cea34bb`, SQLite schema `14`. Перед реализацией сверять свежий `main`, а не использовать зафиксированный SHA для слепого checkout.  
+**Зафиксированный baseline первоначального аудита:** `main@2b2cb75132c8b5ddb1ad49f254c805ce6cea34bb`, SQLite schema `14`. **Актуализация 25.10.2026:** PR #171 объединён в `main@e869dd098364e1040e77f4cf4d638e91705edc65`; до реализации проверять ещё более свежий HEAD, а не выполнять слепой checkout на старый SHA.  
 **Область:** только `main`/vNext; ветка `release/1.0` не затрагивается.
 
 ## 0. Нормативность и принцип продукта
@@ -34,7 +34,7 @@
 
 `/api/integration/v1` и его semantics продолжают работать. Новый контракт не переопределяет legacy endpoint. Существующий `/api/posts/:id/publish-now` защищён административной browser session и **не является готовым агентским publish API**.
 
-В [Issue #170](https://github.com/spikeal8-maker/Publikator/issues/170) и [PR #171](https://github.com/spikeal8-maker/Publikator/pull/171) разрабатывается единый быстрый composer (текст + фото + список конкретных аккаунтов). На дату аудита PR #171 **OPEN**: AGENT-04 MUST согласовать его серверные application services, но MUST NOT перезаписать незавершённую ветку или повторно построить редактор.
+В [Issue #170](https://github.com/spikeal8-maker/Publikator/issues/170) и [PR #171](https://github.com/spikeal8-maker/Publikator/pull/171) реализован единый быстрый composer (текст + фото + список конкретных аккаунтов). **PR #171 MERGED 25.10.2026** в `e869dd098364e1040e77f4cf4d638e91705edc65`: AGENT-04 MUST использовать уже принятый пользовательский сценарий и переиспользовать существующий серверный контур, не разрабатывать второй редактор.
 
 Другие зависимости: [#144](https://github.com/spikeal8-maker/Publikator/issues/144), [#145](https://github.com/spikeal8-maker/Publikator/issues/145) (credential mutation/capability UI), [#160](https://github.com/spikeal8-maker/Publikator/issues/160) (Google source и реальная VK-готовность). Интеграция не объявляет ограниченные VK-ключи пригодными для фото.
 
@@ -78,7 +78,7 @@ ChatGPT / Codex / Claude / Cursor / Custom GPT / n8n / bots
 
 - **MUST:** оставить один production Docker container, Fastify process, SQLite/WAL и локальный scheduler по `VNEXT_TECHNICAL_SPEC.md`.
 - **MUST:** new Agent REST and MCP adapters вызывают общий application service in-process. Нельзя использовать административную cookie-сессию, вызовы `inject` или HTTP к своему собственному API как внутреннюю authority.
-- **MUST:** Web UI и API используют те же валидаторы, определения форматов, canonical media ordering и server-authoritative preflight. Редактор из PR #171 следует перевести на общее ядро без изменения его сценария.
+- **MUST:** Web UI и API используют те же валидаторы, определения форматов, canonical media ordering и server-authoritative preflight. Принятый редактор PR #171 и Agent API должны постепенно использовать общие Application Services без изменения работающего пользовательского сценария.
 - **MUST:** 1Panel управляет инфраструктурой/сертификатами, но не содержанием постов. Нельзя выдавать 1Panel administrative API как Publikator capability.
 - **MUST:** никакой обязательной n8n/Redis/RabbitMQ/second worker/second scheduler; архитектурное исключение — только отдельный ADR, явно утверждённый владельцем.
 
@@ -365,7 +365,7 @@ GitHub CI должен использовать fake-provider network/no public 
 | A1 — AGENT-IDENTITY | P0 | agent principal/scoped grants/API-key isolation/OAuth discovery/token lifecycle | A0 |
 | A2 — AGENT-REST | P0 | read lists + create/edit DRAFT + OpenAPI без admin cookie | A1 |
 | A3 — AGENT-MCP | P0 | remote MCP, tools/resources, OAuth, read/write draft smoke с независимым клиентом | A2 |
-| A4 — AGENT-COMPOSER | P0 | Google Drive/media + один логический текст/фото/несколько target flow + previews, согласование с #171 | A2, #171 disposition |
+| A4 — AGENT-COMPOSER | P0 | Google Drive/media + один логический текст/фото/несколько target flow + previews, повторное использование принятого #171 | A2, #171 MERGED |
 | A5 — AGENT-PUBLISH | P0 | owner approval/policy + scheduled/publish intent + statuses + recovery | A1,A4 и credential lane |
 | A6 — AGENT-EVENTS | P1 | durable jobs/polling/webhooks с HMAC/retry | A5 |
 | A7 — AGENT-UI | P1 | Настройки «ИИ и API», onboarding, access control, consent UI | A1,A3,A5 |
