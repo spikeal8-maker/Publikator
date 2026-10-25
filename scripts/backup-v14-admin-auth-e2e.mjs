@@ -13,6 +13,7 @@ process.env.PUBLIC_BASE_URL = 'http://127.0.0.1:8080';
 
 const {db,migrate,id,nowIso} = await import('../dist/db.js');
 const {config} = await import('../dist/config.js');
+const {DATABASE_SCHEMA_VERSION} = await import('../dist/schema.js');
 const {encryptJson,decryptJson} = await import('../dist/crypto.js');
 const {createAdminSetupGrant,createOrRecoverAdmin,sessionAdmin} = await import('../dist/admin-auth.js');
 const {createBackupBundle,resolveBackupBundle,stageRestoreBundle} = await import('../dist/backups.js');
@@ -51,14 +52,15 @@ db.prepare('DELETE FROM admin_users').run();
 db.prepare("UPDATE posts SET status='DRAFT' WHERE id=?").run(postId);
 db.prepare('DELETE FROM social_accounts WHERE platform=?').run('vk'); // Unrelated social account
 const stage = await stageRestoreBundle(resolveBackupBundle(backup.name));
-assert.equal(stage.manifest.schemaVersion,14);
+assert.ok(DATABASE_SCHEMA_VERSION >= 14);
+assert.equal(stage.manifest.schemaVersion,DATABASE_SCHEMA_VERSION);
 db.close();
 const result = await applyPendingRestore();
 assert.equal(result.applied,true);
 const restored = new Database(config.dbPath,{readonly:true,fileMustExist:true});
 try {
   assert.equal(restored.pragma('integrity_check',{simple:true}),'ok');
-  assert.equal(Number(restored.pragma('user_version',{simple:true})),14);
+  assert.equal(Number(restored.pragma('user_version',{simple:true})),DATABASE_SCHEMA_VERSION);
   assert.deepEqual(restored.prepare('SELECT * FROM admin_users').get(),before.user);
   assert.deepEqual(restored.prepare('SELECT * FROM admin_sessions').get(),before.session);
   assert.deepEqual(restored.prepare('SELECT * FROM social_accounts ORDER BY platform').all(),before.accounts);
@@ -69,7 +71,7 @@ try {
     assert.deepEqual(secret,account.platform==='telegram'?telegram:vk);
   }
   assert.equal(restored.prepare('SELECT COUNT(*) as n FROM admin_users').get().n,1);
-  console.log(JSON.stringify({ok:true,schema:14,accountsPreserved:true,readyPostPreserved:true,encryptedSecretsDecryptable:true,adminSessionRestored:true}));
+  console.log(JSON.stringify({ok:true,schema:DATABASE_SCHEMA_VERSION,checkpoint:'schema14-admin-auth',accountsPreserved:true,readyPostPreserved:true,encryptedSecretsDecryptable:true,adminSessionRestored:true}));
 } finally {
   restored.close();
   await fs.rm(dataDir,{recursive:true,force:true});
