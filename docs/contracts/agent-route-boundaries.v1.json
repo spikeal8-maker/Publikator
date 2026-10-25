@@ -1,0 +1,258 @@
+{
+  "contractId": "publikator.agent-route-boundaries",
+  "schemaVersion": 1,
+  "status": "PLANNED_NOT_DEPLOYED",
+  "classify": "EXACT_THEN_LONGEST_PATH_SEGMENT_PREFIX",
+  "unmatched": "DENY",
+  "neverTrust": [
+    "request.body.authKind",
+    "request.body.publishReady",
+    "request.headers.clientInfo",
+    "MCP tools/list cache",
+    "user-provided scope",
+    "provider capability sent by client"
+  ],
+  "classes": [
+    {
+      "id": "PUBLIC_EXISTING",
+      "mode": "exact",
+      "paths": [
+        "/api/health",
+        "/api/auth/state",
+        "/api/auth/login",
+        "/api/auth/setup",
+        "/api/auth/recover",
+        "/api/auth/migrate",
+        "/api/auth/logout",
+        "/api/vk/oauth/callback"
+      ],
+      "auth": "LEGACY_EXISTING",
+      "policy": "PRESERVE_EXISTING_ONLY",
+      "methods": [
+        "EXISTING"
+      ],
+      "note": "Current exceptions only. Do not expand to agent route prefixes."
+    },
+    {
+      "id": "OAUTH_METADATA",
+      "mode": "exact",
+      "paths": [
+        "/.well-known/oauth-protected-resource",
+        "/.well-known/oauth-protected-resource/mcp",
+        "/.well-known/oauth-authorization-server",
+        "/.well-known/openid-configuration"
+      ],
+      "auth": "PUBLIC_METADATA",
+      "policy": "GET_ONLY_NO_SECRETS",
+      "methods": [
+        "GET",
+        "HEAD"
+      ],
+      "note": "Only after implementing real OAuth discovery; never dynamic write."
+    },
+    {
+      "id": "MCP",
+      "mode": "exact",
+      "paths": [
+        "/mcp"
+      ],
+      "auth": "RESOURCE_BOUND_OAUTH",
+      "policy": "AGENT_GRANT_PER_TOOL",
+      "methods": [
+        "POST"
+      ],
+      "note": "Modern MCP stateless. Unknown request methods/protocol denied."
+    },
+    {
+      "id": "OAUTH_FLOW",
+      "mode": "prefix",
+      "paths": [
+        "/oauth/"
+      ],
+      "auth": "OIDC_PROVIDER_CONTROLLED",
+      "policy": "OWNER_LOGIN_CONSENT_PKCE_REDIRECT_AUDIENCE",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "note": "Only exact provider registered routes; unknown subpaths must 404, no wildcard admin."
+    },
+    {
+      "id": "LEGACY_INTEGRATION",
+      "mode": "prefix",
+      "paths": [
+        "/api/integration/v1/"
+      ],
+      "auth": "EXISTING_HASHED_PK",
+      "policy": "LEGACY_SHARED_NAMESPACE",
+      "methods": [
+        "GET",
+        "POST",
+        "PATCH"
+      ],
+      "note": "Explicitly not an isolated agent principal; maintain prior semantics."
+    },
+    {
+      "id": "AGENT",
+      "mode": "prefix",
+      "paths": [
+        "/api/agent/v1/"
+      ],
+      "auth": "OAUTH_OR_SCOPED_MACHINE_BEARER",
+      "policy": "AGENT_GRANT_SCOPE_RESOURCE_LIFECYCLE",
+      "methods": [
+        "GET",
+        "POST",
+        "PATCH"
+      ],
+      "note": "Never bypass global cookie guard without an equivalent mandatory agent guard."
+    },
+    {
+      "id": "OWNER_AGENT",
+      "mode": "prefix",
+      "paths": [
+        "/api/owner/"
+      ],
+      "auth": "OWNER_COOKIE_ONLY",
+      "policy": "OWNER_SESSION_CSRF_AND_GRANT_VERSION",
+      "methods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "PUT"
+      ],
+      "note": "No agent bearer, even for FULL_CONTENT."
+    },
+    {
+      "id": "BROWSER_EXISTING",
+      "mode": "prefix",
+      "paths": [
+        "/api/"
+      ],
+      "auth": "EXISTING_OWNER_COOKIE",
+      "policy": "BROWSER_ORIGIN_CSRF",
+      "methods": [
+        "EXISTING"
+      ],
+      "note": "Fallback for all old API routes except exact/prefix classes above."
+    },
+    {
+      "id": "PUBLIC_MEDIA_LEGACY",
+      "mode": "prefix",
+      "paths": [
+        "/public-media/"
+      ],
+      "auth": "EXISTING_PUBLIC_LEGACY",
+      "policy": "MIGRATION_REQUIRED_BEFORE_NEW_AGENT_ASSETS",
+      "methods": [
+        "GET",
+        "HEAD"
+      ],
+      "note": "Existing provider URLs only; never make private agent originals anonymously available."
+    }
+  ],
+  "defaultBearerMode": "FAIL_CLOSED",
+  "ownerCookieForMcp": false,
+  "agentBearerForOwner": false,
+  "ambiguousCookieBearer": "REJECT",
+  "modernMcp": {
+    "version": "2026-07-28",
+    "transport": "POST_STREAMABLE_HTTP",
+    "requiresHeaders": [
+      "MCP-Protocol-Version",
+      "Mcp-Method"
+    ],
+    "namedMethods": [
+      "tools/call",
+      "resources/read",
+      "prompts/get"
+    ],
+    "requiresNameHeader": "Mcp-Name",
+    "legacyInitializeRequired": false,
+    "sessionRequired": false,
+    "versionNegotiation": "EXPLICIT_SDK_V2_OPT_IN",
+    "scopeCacheKey": [
+      "agentId",
+      "grantVersion",
+      "protocolVersion"
+    ],
+    "recheckGrantPerTool": true
+  },
+  "oauth": {
+    "candidate": "oidc-provider",
+    "major": 9,
+    "dependencyExactPatch": "PIN_IN_A1C_COMPATIBILITY_SPIKE",
+    "state": "NOT_VERIFIED",
+    "metadataResource": "/.well-known/oauth-protected-resource",
+    "metadataIssuer": "/.well-known/oauth-authorization-server",
+    "pkceMethod": "S256",
+    "resourceParameterRequired": true,
+    "returnIssRequired": true,
+    "clientRegistration": [
+      "CIMD_AFTER_REAL_PROOF",
+      "PRE_REGISTERED_STATIC_FALLBACK",
+      "BOUNDED_DCR_IF_NEEDED"
+    ],
+    "externalOrigin": "NOT_CONFIGURED",
+    "liveProbeRequired": true
+  },
+  "negativeCases": [
+    {
+      "path": "/api/agent/v1/posts",
+      "method": "GET",
+      "noToken": "DENY",
+      "withOwnerCookie": "DENY",
+      "withAgentBearer": "ALLOW_ONLY_IF_GRANTED"
+    },
+    {
+      "path": "/api/owner/agents",
+      "method": "GET",
+      "noToken": "DENY",
+      "withOwnerCookie": "ALLOW_ONLY_IF_OWNER",
+      "withAgentBearer": "DENY"
+    },
+    {
+      "path": "/mcp",
+      "method": "POST",
+      "noToken": "DENY",
+      "withOwnerCookie": "DENY",
+      "withAgentBearer": "OAUTH_ONLY"
+    },
+    {
+      "path": "/api/integration/v1/drafts",
+      "method": "GET",
+      "noToken": "DENY",
+      "withAgentBearer": "DENY_AS_NEW_AGENT"
+    },
+    {
+      "path": "/api/health",
+      "method": "GET",
+      "noToken": "ALLOW_EXISTING"
+    },
+    {
+      "path": "/.well-known/oauth-protected-resource",
+      "method": "GET",
+      "noToken": "ALLOW_METADATA_ONLY"
+    },
+    {
+      "path": "/.well-known/oauth-protected-resource",
+      "method": "POST",
+      "noToken": "DENY"
+    },
+    {
+      "path": "/api/agent/v1/../../api/owner/agents",
+      "method": "POST",
+      "noToken": "DENY_NON_CANONICAL"
+    },
+    {
+      "path": "/api/owner/agents?authKind=agent",
+      "method": "GET",
+      "withAgentBearer": "DENY"
+    },
+    {
+      "path": "/api/agent/v1/posts%2F..%2Fowner",
+      "method": "GET",
+      "withAgentBearer": "DENY_NON_CANONICAL"
+    }
+  ]
+}
