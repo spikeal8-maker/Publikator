@@ -235,7 +235,8 @@
           },
           "errorCode": {
             "type": "string",
-            "pattern": "^[A-Z][A-Z0-9_]+$"
+            "pattern": "^[A-Z][A-Z0-9_]+$",
+            "maxLength": 80
           }
         }
       }
