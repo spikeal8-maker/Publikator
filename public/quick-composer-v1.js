@@ -306,9 +306,12 @@ export async function openQuickComposer() {
       root.querySelector('#qc-drop').classList.toggle('is-disabled', cannotAddPhotos);
       root.querySelector('#qc-video-drop').classList.toggle('is-disabled', cannotAddVideo);
     }
-    function refreshPreview() {
+    function updateCaptionPreview() {
       root.querySelector('#qc-preview-text').textContent = text.value.trim() ||
         (state.pending.length || state.video ? 'Без подписи' : 'Текст появится здесь');
+    }
+    function refreshPreview() {
+      updateCaptionPreview();
       const labels = checkedAccounts().map(accountLabel);
       root.querySelector('#qc-counter').textContent = labels.length + ' выбрано';
       if (status.classList.contains('is-error') && !state.busy) setStatus('Проверьте текст и получателей перед сохранением.');
@@ -378,6 +381,7 @@ export async function openQuickComposer() {
         pendingList.append(card);
       });
       syncMediaInputs();
+      updateCaptionPreview();
     }
     function addFiles(files) {
       if (state.busy || state.finished || state.uncertainPublish) return;
@@ -401,7 +405,7 @@ export async function openQuickComposer() {
       const host = root.querySelector('#qc-video-preview');
       host.replaceChildren();
       updateMissingFilesNotice();
-      if (!state.video) { syncMediaInputs(); return; }
+      if (!state.video) { syncMediaInputs(); updateCaptionPreview(); return; }
       const item = state.video;
       const card = document.createElement('div');
       card.className = 'qc-video-card';
@@ -452,6 +456,7 @@ export async function openQuickComposer() {
       card.append(preview, meta);
       host.append(card);
       syncMediaInputs();
+      updateCaptionPreview();
     }
     root.querySelector('#qc-video-file').addEventListener('change', (event) => {
       const input = event.currentTarget;
