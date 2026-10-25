@@ -1130,13 +1130,12 @@ try {
   // The opener loads projects/accounts/auth asynchronously: wait for its real
   // form before querying the recovery warning (the initial spinner has none).
   await page.locator('#qc-text').waitFor({ state: 'visible', timeout: 30000 });
-  // The earlier deliberate READY failure can leave a durable server-draft
-  // recovery marker. Our test already reconciled its exact DRAFT status and
-  // zero provider sends, so explicitly confirm starting a separate material.
-  if (await page.locator('#qc-recovery-warning').isVisible()) {
-    page.once('dialog', (dialog) => dialog.accept());
-    await page.locator('#qc-start-new').click();
-  }
+  // B2b: the previous READY 409 was an explicit refusal before any
+  // publication. It must not leave a false unknown-outcome guard.
+  assert.equal(await page.locator('#qc-recovery-warning').isVisible(), false,
+    'definitive READY 409 must not block the next unrelated composer');
+  assert.equal(await page.locator('#qc-text').isEnabled(), true,
+    'an operator may start a new material without reconciling a known refusal');
   await page.locator('#qc-text').fill('Отдельный вариант после отклонённого создания');
   await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
   await page.locator('#qc-variant-editor summary').click();
@@ -1166,6 +1165,42 @@ try {
   assert.equal(await page.locator('#qc-variant-text').inputValue(),
     'Текст выбранного Telegram после HTTP400',
     'rejected draft creation must not discard recoverable target-specific text');
+  await closeComposer();
+
+  // B2b converse: an ambiguous READY 503 must retain the guarded server-draft
+  // marker. Never clear unknown outcomes as though they were definite 409s.
+  const beforeUnknownReady = db.prepare('SELECT COUNT(*) n FROM posts').get().n;
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').waitFor({ state: 'visible', timeout: 30000 });
+  await page.locator('#qc-text').fill('Неопределённый результат проверки готовности');
+  await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
+  await page.locator('.qc-advanced summary').click();
+  await page.locator('#qc-datetime').fill('2027-03-14T14:30');
+  await page.route('**/api/posts/*/ready', async (route) => {
+    if (route.request().method() === 'POST') {
+      await route.fulfill({ status: 503, contentType: 'application/json',
+        body: JSON.stringify({ error: 'Временная ошибка проверки готовности' }) });
+    } else await route.continue();
+  });
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#qc-schedule').click();
+  await page.locator('#qc-status').filter({ hasText: /Временная ошибка проверки готовности/ })
+    .waitFor({ timeout: 30000 });
+  await page.unroute('**/api/posts/*/ready');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, beforeUnknownReady + 1);
+  const unknownReadyPostId = db.prepare('SELECT id FROM posts ORDER BY rowid DESC LIMIT 1').get().id;
+  assert.equal(db.prepare('SELECT status FROM posts WHERE id=?').get(unknownReadyPostId).status, 'DRAFT');
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM publication_events WHERE post_id=? AND event_type LIKE '%publish%'")
+    .get(unknownReadyPostId).n, 0);
+  await closeComposer();
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').waitFor({ state: 'visible', timeout: 30000 });
+  assert.equal(await page.locator('#qc-recovery-warning').isVisible(), true,
+    'unknown READY HTTP503 retains the durable operator reconciliation guard');
+  assert.equal(await page.locator('#qc-text').isEnabled(), false);
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#qc-start-new').click();
+  assert.equal(await page.locator('#qc-text').isEnabled(), true);
   await closeComposer();
 
   assert.deepEqual(errors, []);
