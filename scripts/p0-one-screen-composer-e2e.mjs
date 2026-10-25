@@ -329,14 +329,67 @@ try {
   await mp.locator('#qc-files').setInputFiles([{ name: 'mobile.png', mimeType: 'image/png', buffer: image1 }]);
   await mp.screenshot({ path: 'test-results/p0-composer-mobile.png', fullPage: false });
   await mp.locator('.qc-right').scrollIntoViewIfNeeded();
+  assert.equal(await mp.locator('#qc-target-toggle').isVisible(), true,
+    'mobile offers a compact recipient chooser');
+  assert.equal(await mp.locator('#qc-target-picker').isVisible(), false,
+    '11 checkboxes must not inflate the main mobile composer');
+  await mp.locator('#qc-target-toggle').click();
+  assert.equal(await mp.locator('#qc-target-picker').isVisible(), true);
+  assert.equal(await mp.locator('#qc-target-picker').getAttribute('aria-modal'), 'true');
+  assert.equal(await mp.locator('input[name="qc-account"]').count(), 11);
+  await mp.locator('input[name="qc-account"]').nth(0).check();
+  await mp.locator('input[name="qc-account"]').nth(2).check();
   await mp.screenshot({ path: 'test-results/p0-composer-mobile-targets.png', fullPage: false });
+  await mp.locator('#qc-target-done').click();
+  assert.equal(await mp.locator('#qc-target-picker').isVisible(), false);
+  assert.equal(await mp.locator('#qc-target-toggle').getAttribute('aria-expanded'), 'false');
+  assert.match(await mp.locator('#qc-counter').textContent(), /2 выбрано/);
+  assert.equal(await mp.locator('#qc-text').inputValue(), 'Новая публикация для всех подключений.');
   assert.deepEqual(errors, []);
   await mobile.close();
+
+  for (const width of [320, 768]) {
+    const responsive = await browser.newContext({
+      viewport: { width, height: 720 }, isMobile: width === 320, hasTouch: width === 320
+    });
+    const rp = await responsive.newPage();
+    rp.on('pageerror', (error) => errors.push(String(error)));
+    await rp.goto('http://127.0.0.1:18889/');
+    await rp.locator('#login-form:not(.hidden)').waitFor();
+    await rp.locator('#password').fill('composer-e2e-legacy-password-2026');
+    await rp.locator('#login-form button[type="submit"]').click();
+    await rp.locator('#app:not(.hidden)').waitFor();
+    await rp.evaluate(() => window.PublikatorQuickComposer.open());
+    await rp.locator('#qc-text').waitFor();
+    assert.equal(await rp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
+      'full-page horizontal overflow at ' + width + 'px');
+    await rp.locator('#qc-target-toggle').click();
+    const geometry = await rp.locator('#qc-target-picker').boundingBox();
+    assert.ok(geometry && geometry.x >= -1 && geometry.width <= width + 1,
+      'recipient sheet must fit ' + width + 'px screen without cropping');
+    await rp.locator('input[name="qc-account"]').nth(1).check();
+    await rp.screenshot({ path: 'test-results/p0-composer-responsive-' + width + '.png', fullPage: false });
+    await rp.keyboard.press('Escape');
+    assert.equal(await rp.locator('#qc-target-picker').isVisible(), false,
+      'Escape must close only the recipient sheet at ' + width + 'px');
+    assert.equal(await rp.locator('#qc-text').isVisible(), true,
+      'Escape must not dismiss the entire editor');
+    assert.equal(await rp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+    await responsive.close();
+  }
+  assert.deepEqual(errors, []);
   console.log(JSON.stringify({
     ok: true, oneScreen: true, preSaveImages: true, mediaCount: 2,
     multiAccount: 3, samePlatformAccounts: 2, noRequiredTitle: true,
     textOnly: true, cancelledSend: true, noPublicPost: true, mobile: true,
-    screenshots: ['test-results/p0-composer-desktop.png', 'test-results/p0-composer-mobile.png', 'test-results/p0-composer-mobile-targets.png']
+    mobileRecipientsSheet: true, responsiveViewports: [320, 390, 768, 1440],
+    screenshots: [
+      'test-results/p0-composer-desktop.png',
+      'test-results/p0-composer-mobile.png',
+      'test-results/p0-composer-mobile-targets.png',
+      'test-results/p0-composer-responsive-320.png',
+      'test-results/p0-composer-responsive-768.png'
+    ]
   }));
 } finally {
   if (browser) await browser.close();

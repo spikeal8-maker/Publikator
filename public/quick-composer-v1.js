@@ -66,6 +66,7 @@ export async function openQuickComposer() {
     if (state?.uncertainPublish && !window.confirm('Результат последней операции не подтверждён. Проверьте публикации перед повторной отправкой. Закрыть редактор?')) return;
     if (state?.dirty && !window.confirm('Есть несохранённые изменения. Закрыть редактор и потерять их?')) return;
     if (state?.pending) for (const image of state.pending) URL.revokeObjectURL(image.url);
+    document.body.classList.remove('qc-target-sheet-open');
     overlay.remove();
     document.body.classList.remove('qc-open');
     openDialog = null;
@@ -76,7 +77,11 @@ export async function openQuickComposer() {
     if (event.key !== 'Escape' || event.defaultPrevented || openDialog !== overlay) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    dispose();
+    if (overlay.querySelector('#qc-target-picker')?.classList.contains('is-open')) {
+      overlay.querySelector('#qc-target-done')?.click();
+    } else {
+      dispose();
+    }
   };
   document.addEventListener('keydown', onKeyDown);
   // A newly opened overlay owns its one keydown listener.
@@ -129,8 +134,13 @@ export async function openQuickComposer() {
         '</section>' +
         '<section class="qc-right"><div class="qc-target-head"><div><h3>Куда опубликовать</h3><p>Выберите любое количество ваших подключений</p></div>' +
         '<span class="qc-counter" id="qc-counter">0 выбрано</span></div>' +
-        (available.length ? '<div class="qc-target-actions"><button type="button" id="qc-select-all">Выбрать все</button>' +
-          '<button type="button" id="qc-select-none">Снять выбор</button></div><div class="qc-accounts">' + grouped + '</div>'
+        (available.length ? '<button type="button" id="qc-target-toggle" class="qc-target-toggle" aria-expanded="false" aria-controls="qc-target-picker">' +
+          'Выбрать получателей <span aria-hidden="true">›</span></button>' +
+          '<div class="qc-target-picker" id="qc-target-picker">' +
+          '<header class="qc-target-sheet-head"><h4 id="qc-target-picker-title">Аккаунты и каналы</h4>' +
+          '<button type="button" id="qc-target-done">Готово</button></header>' +
+          '<div class="qc-target-actions"><button type="button" id="qc-select-all">Выбрать все</button>' +
+          '<button type="button" id="qc-select-none">Снять выбор</button></div><div class="qc-accounts">' + grouped + '</div></div>'
           : '<div class="qc-empty">Нет активных подключений. Черновик можно сохранить и без них.' +
             '<a href="/socials" id="qc-connect">Перейти к подключению соцсетей</a></div>') +
         '<div class="qc-preview"><h4>Предпросмотр текста</h4><p id="qc-preview-text">Текст появится здесь</p>' +
@@ -146,6 +156,62 @@ export async function openQuickComposer() {
     const selectedIds = () => [...root.querySelectorAll('input[name="qc-account"]:checked')].map((input) => input.value);
     const checkedAccounts = () => state.accounts.filter((account) => selectedIds().includes(account.id));
     const pendingList = root.querySelector('#qc-images');
+    const targetPicker = root.querySelector('#qc-target-picker');
+    const targetToggle = root.querySelector('#qc-target-toggle');
+
+    function closeTargetPicker() {
+      if (!targetPicker?.classList.contains('is-open')) return;
+      targetPicker.classList.remove('is-open');
+      targetPicker.removeAttribute('role');
+      targetPicker.removeAttribute('aria-modal');
+      document.body.classList.remove('qc-target-sheet-open');
+      targetToggle.setAttribute('aria-expanded', 'false');
+      for (const element of root.querySelectorAll('.qc-head, .qc-editor, .qc-footer, .qc-preview')) {
+        element.inert = false;
+      }
+      targetToggle.focus();
+    }
+    function openTargetPicker() {
+      if (!targetPicker || state.busy || state.finished || state.uncertainPublish) return;
+      if (!window.matchMedia('(max-width: 810px)').matches) return;
+      targetPicker.classList.add('is-open');
+      targetPicker.setAttribute('role', 'dialog');
+      targetPicker.setAttribute('aria-modal', 'true');
+      targetPicker.setAttribute('aria-labelledby', 'qc-target-picker-title');
+      targetToggle.setAttribute('aria-expanded', 'true');
+      document.body.classList.add('qc-target-sheet-open');
+      for (const element of root.querySelectorAll('.qc-head, .qc-editor, .qc-footer, .qc-preview')) {
+        element.inert = true;
+      }
+      root.querySelector('#qc-target-done').focus();
+    }
+    targetToggle?.addEventListener('click', openTargetPicker);
+    root.querySelector('#qc-target-done')?.addEventListener('click', closeTargetPicker);
+    targetPicker?.addEventListener('keydown', (event) => {
+      if (event.key !== 'Tab' || !targetPicker.classList.contains('is-open')) return;
+      const items = [...targetPicker.querySelectorAll('button:not(:disabled), input:not(:disabled)')]
+        .filter((element) => element.getClientRects().length > 0);
+      if (!items.length) return;
+      const first = items[0], last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    });
+    const onWindowResize = () => {
+      if (targetPicker?.classList.contains('is-open') &&
+          !window.matchMedia('(max-width: 810px)').matches) closeTargetPicker();
+    };
+    window.addEventListener('resize', onWindowResize);
+    const stopSheetResizeListener = new MutationObserver(() => {
+      if (overlay.isConnected) return;
+      window.removeEventListener('resize', onWindowResize);
+      stopSheetResizeListener.disconnect();
+    });
+    stopSheetResizeListener.observe(document.body, { childList: true });
 
     function setStatus(message, error = false) {
       status.textContent = message;

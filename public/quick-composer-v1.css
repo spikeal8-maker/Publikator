@@ -133,6 +133,8 @@
 .qc-target-head h3 { font-size: 16px; margin: 0 0 5px; color: #172338; }
 .qc-target-head p { font-size: 12px; color: #63738a; margin: 0; }
 .qc-counter { padding: 5px 9px; background: #e7eeff; border-radius: 30px; color: #2549ae; white-space: nowrap; font-size: 11px; font-weight: 750; }
+.qc-target-toggle, .qc-target-sheet-head { display: none; }
+.qc-target-picker { min-width: 0; }
 .qc-target-actions { display: flex; gap: 12px; margin: 17px 0 11px; }
 .qc-target-actions button { background: transparent; border: none; padding: 3px 0; color: #2d54ba; font-size: 12px; font-weight: 700; text-decoration: underline; cursor: pointer; }
 .qc-accounts {
@@ -187,12 +189,47 @@
   .qc-editor { overflow: visible; padding: 18px 16px; }
   .qc-right { overflow: visible; border-left: none; border-top: 1px solid #e5eaf1; padding: 20px 16px; }
   #qc-text { min-height: 170px; }
-  .qc-accounts { max-height: 260px; }
-  .qc-footer { padding: 12px 16px; flex-shrink: 0; }
+  .qc-target-toggle {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    width: 100%; min-height: 44px; margin-top: 12px; padding: 10px 14px;
+    border: 1px solid #cbd7ed; border-radius: 10px; background: #fff;
+    color: #2448a4; font: inherit; font-size: 14px; font-weight: 750; cursor: pointer;
+  }
+  .qc-target-toggle span { font-size: 21px; line-height: 1; }
+  .qc-target-toggle:focus-visible { outline: 3px solid #82aaff; outline-offset: 2px; }
+  .qc-target-picker {
+    display: none; position: fixed; inset: 0; z-index: 205;
+    padding: max(16px,env(safe-area-inset-top)) 16px max(14px,env(safe-area-inset-bottom));
+    flex-direction: column; min-height: 0; background: #f7f9fc;
+    overflow: hidden;
+  }
+  .qc-target-picker.is-open { display: flex; }
+  .qc-target-sheet-head {
+    display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    flex-shrink: 0; border-bottom: 1px solid #dfe7f2;
+    margin: -4px 0 8px; padding: 4px 0 13px;
+  }
+  .qc-target-sheet-head h4 { font-size: 17px; margin: 0; color: #172338; }
+  #qc-target-done {
+    min-height: 42px; min-width: 78px; border: 1px solid #315ee8; border-radius: 9px;
+    background: #315ee8; color: #fff; font-size: 14px; font-weight: 750; cursor: pointer;
+  }
+  .qc-target-actions { flex-shrink: 0; margin: 5px 0 10px; }
+  .qc-accounts {
+    flex: 1; min-height: 0; max-height: none; overflow-y: auto;
+    overscroll-behavior: contain; padding: 6px 10px;
+  }
+  .qc-account { min-height: 44px; font-size: 14px; padding: 12px 5px; }
+  .qc-account input { width: 20px; height: 20px; }
+  .qc-footer {
+    padding: 11px 16px max(11px,env(safe-area-inset-bottom));
+    flex-shrink: 0;
+  }
   .qc-buttons { width: 100%; display: grid; grid-template-columns: 1fr 1fr; }
   #qc-send { grid-column: 1 / -1; grid-row: 1; min-height: 46px; }
 }
 @media (max-width: 390px) {
+  .qc-head { gap: 8px; }
   .qc-head h2 { font-size: 18px; }
   .qc-photo-head { gap: 5px; }
   .qc-images { gap: 7px; }
