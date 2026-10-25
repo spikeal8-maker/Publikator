@@ -138,9 +138,9 @@ for (const [path, methods] of Object.entries(openapi.paths)) {
     }
   }
 }
-assert.equal(agentRoutes, 21);
+assert.equal(agentRoutes, 22);
 assert.equal(ownerRoutes, 11);
-assert.equal(catalog.size, 32);
+assert.equal(catalog.size, 33);
 assert.equal(mcp.tools.length, agentRoutes);
 assert.equal(new Set(mcp.tools.map(t => t.name)).size, mcp.tools.length, 'duplicate MCP tools');
 const names = new Set();
@@ -320,6 +320,54 @@ for (const id of ownerOps) {
   assert.ok(!mcp.tools.some(t => t.restOperationId === id),
     'owner auto-policy must not be exported to the MCP tools');
 }
+
+// A fresh agent must discover allowed Drive files before importing; an
+// import job and a reloaded draft must round-trip the same ordered assets.
+const sourceDiscovered = cases.find(c => c.id === 'discover-drive-source-files');
+const sourceImportStart = cases.find(c => c.id === 'import-media-started');
+assert.ok(sourceDiscovered && sourceImportStart, 'discover→import fixtures missing');
+assert.deepEqual(sourceDiscovered.response.items.map(x => x.relativePath),
+  sourceImportStart.request.body.relativePaths, 'discovered root-relative paths must feed media import directly');
+assert.equal(sourceDiscovered.request.path.sourceConnectorId,
+  sourceImportStart.request.body.sourceConnectorId, 'connector ACL identity must remain unchanged');
+assert.ok(sourceDiscovered.response.items.every(x =>
+  x.sourceConnectorId === sourceDiscovered.response.sourceConnectorId && !x.isFolder &&
+  !x.relativePath.startsWith('/') && !x.relativePath.includes('..') && !x.relativePath.includes('\\')),
+  'source-file discovery must never return filesystem absolute/traversal paths');
+const discoverMcp = mcp.tools.find(t => t.restOperationId === 'listAgentSourceFiles');
+assert.ok(discoverMcp && discoverMcp.annotations.readOnlyHint === true, 'source discovery must be a read-only MCP tool');
+assert.deepEqual(discoverMcp.outputSchema, inlineAll(schemaDefs.SourceFileList),
+  'REST/MCP source file list output must match precisely');
+for(const field of ['sourceConnectorId','limit','cursor']){
+  assert.ok(Object.hasOwn(discoverMcp.inputSchema.properties,field), field+' missing from file discovery');
+}
+assert.ok(discoverMcp.inputSchema.required.includes('sourceConnectorId'));
+
+const richCreated = cases.find(c=>c.id==='create-rich-scheduled-draft');
+const richReloaded = cases.find(c=>c.id==='reload-rich-scheduled-draft');
+assert.ok(richCreated && richReloaded,'save→reload rich draft fixtures missing');
+assert.deepEqual(richReloaded.response,richCreated.response,
+  'reloaded draft must return exact persisted canonical state');
+for(const field of ['bodyPlain','bodyRich','targetTextOverrides','schedule','publicationKind','contentFormat','targetAccountIds','mediaAssetIds']){
+  assert.deepEqual(richCreated.request.body[field], richReloaded.response[field],
+    field+' must round-trip through the stored agent draft');
+}
+assert.equal(richReloaded.response.status,'DRAFT','planned schedule must not imply READY/approval');
+assert.deepEqual(richReloaded.response.mediaAssetIds, importedJob.resultMediaAssetIds);
+for(const operationId of ['getAgentPost','createAgentPost','updateAgentPost']){
+  const out = mcp.tools.find(t=>t.restOperationId===operationId)?.outputSchema;
+  assert.deepEqual(out,inlineAll(schemaDefs.Post),operationId+' must expose saved draft fields in MCP');
+}
+assert.deepEqual(mcp.tools.find(t=>t.restOperationId==='listAgentPosts').outputSchema,
+  inlineAll(schemaDefs.PostList),'post list and detail must use the same persisted Post fields');
+const withoutSchedule = {...richReloaded.response};
+delete withoutSchedule.schedule;
+assert.throws(() => valid(schemaDefs.Post, withoutSchedule, 'reloaded draft missing schedule'),
+  undefined,'getAgentPost must return the originally saved schedule');
+const withoutOverrides = {...richReloaded.response};
+delete withoutOverrides.targetTextOverrides;
+assert.throws(() => valid(schemaDefs.Post, withoutOverrides, 'reloaded draft missing overrides'),
+  undefined,'post detail must return saved per-account overrides');
 
 assert.ok(cases.some(c=>c.id==='create-image-draft'&&!c.request.body.bodyPlain), 'captionless image draft contract required');
 assert.ok(cases.some(c=>c.id==='unknown-provider-outcome'), 'RECOVERY_NEEDED fixture absent');
