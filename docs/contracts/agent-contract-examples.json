@@ -370,6 +370,253 @@
       ]
     },
     {
+      "id": "change-account-captions",
+      "operationId": "updateAgentPost",
+      "http": 200,
+      "request": {
+        "path": {
+          "postId": "post_demo_rich_001"
+        },
+        "idempotencyKey": "update_account_captions_v2",
+        "body": {
+          "expectedContentVersion": 1,
+          "targetTextOverrides": [
+            {
+              "accountId": "vk_001",
+              "bodyPlain": "Обновлённая подпись только для VK."
+            },
+            {
+              "accountId": "telegram_001",
+              "bodyPlain": "Новый текст отдельно для Telegram."
+            }
+          ]
+        }
+      },
+      "response": {
+        "postId": "post_demo_rich_001",
+        "contentVersion": 2,
+        "projectId": "project_asa",
+        "status": "DRAFT",
+        "editorialStage": "DRAFT",
+        "internalTitle": "Робототехника — занятие",
+        "publicationKind": "FEED",
+        "contentFormat": "CAROUSEL",
+        "bodyPlain": "Сегодня мы собирали первых роботов.",
+        "bodyRich": {
+          "type": "doc",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Сегодня мы собирали первых роботов."
+                }
+              ]
+            }
+          ]
+        },
+        "targetAccountIds": [
+          "vk_001",
+          "telegram_001"
+        ],
+        "mediaAssetIds": [
+          "media_01",
+          "media_02"
+        ],
+        "targetTextOverrides": [
+          {
+            "accountId": "vk_001",
+            "bodyPlain": "Обновлённая подпись только для VK."
+          },
+          {
+            "accountId": "telegram_001",
+            "bodyPlain": "Новый текст отдельно для Telegram."
+          }
+        ],
+        "schedule": {
+          "mode": "AT",
+          "atUtc": "2026-10-27T15:00:00Z",
+          "timezone": "Europe/Moscow"
+        }
+      },
+      "expect": [
+        "Two target captions are atomically replaced on contentVersion=1",
+        "Other draft fields remain persisted; zero provider POST"
+      ]
+    },
+    {
+      "id": "reload-changed-captions",
+      "operationId": "getAgentPost",
+      "http": 200,
+      "request": {
+        "path": {
+          "postId": "post_demo_rich_001"
+        }
+      },
+      "response": {
+        "postId": "post_demo_rich_001",
+        "contentVersion": 2,
+        "projectId": "project_asa",
+        "status": "DRAFT",
+        "editorialStage": "DRAFT",
+        "internalTitle": "Робототехника — занятие",
+        "publicationKind": "FEED",
+        "contentFormat": "CAROUSEL",
+        "bodyPlain": "Сегодня мы собирали первых роботов.",
+        "bodyRich": {
+          "type": "doc",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Сегодня мы собирали первых роботов."
+                }
+              ]
+            }
+          ]
+        },
+        "targetAccountIds": [
+          "vk_001",
+          "telegram_001"
+        ],
+        "mediaAssetIds": [
+          "media_01",
+          "media_02"
+        ],
+        "targetTextOverrides": [
+          {
+            "accountId": "vk_001",
+            "bodyPlain": "Обновлённая подпись только для VK."
+          },
+          {
+            "accountId": "telegram_001",
+            "bodyPlain": "Новый текст отдельно для Telegram."
+          }
+        ],
+        "schedule": {
+          "mode": "AT",
+          "atUtc": "2026-10-27T15:00:00Z",
+          "timezone": "Europe/Moscow"
+        }
+      },
+      "expect": [
+        "Reload shows newly saved target-specific captions and version 2"
+      ]
+    },
+    {
+      "id": "clear-account-captions",
+      "operationId": "updateAgentPost",
+      "http": 200,
+      "request": {
+        "path": {
+          "postId": "post_demo_rich_001"
+        },
+        "idempotencyKey": "clear_account_captions_v3",
+        "body": {
+          "expectedContentVersion": 2,
+          "targetTextOverrides": []
+        }
+      },
+      "response": {
+        "postId": "post_demo_rich_001",
+        "contentVersion": 3,
+        "projectId": "project_asa",
+        "status": "DRAFT",
+        "editorialStage": "DRAFT",
+        "internalTitle": "Робототехника — занятие",
+        "publicationKind": "FEED",
+        "contentFormat": "CAROUSEL",
+        "bodyPlain": "Сегодня мы собирали первых роботов.",
+        "bodyRich": {
+          "type": "doc",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Сегодня мы собирали первых роботов."
+                }
+              ]
+            }
+          ]
+        },
+        "targetAccountIds": [
+          "vk_001",
+          "telegram_001"
+        ],
+        "mediaAssetIds": [
+          "media_01",
+          "media_02"
+        ],
+        "targetTextOverrides": [],
+        "schedule": {
+          "mode": "AT",
+          "atUtc": "2026-10-27T15:00:00Z",
+          "timezone": "Europe/Moscow"
+        }
+      },
+      "expect": [
+        "Empty array removes all account overrides without changing recipients/media",
+        "Content version increments, post remains DRAFT"
+      ]
+    },
+    {
+      "id": "reload-cleared-captions",
+      "operationId": "getAgentPost",
+      "http": 200,
+      "request": {
+        "path": {
+          "postId": "post_demo_rich_001"
+        }
+      },
+      "response": {
+        "postId": "post_demo_rich_001",
+        "contentVersion": 3,
+        "projectId": "project_asa",
+        "status": "DRAFT",
+        "editorialStage": "DRAFT",
+        "internalTitle": "Робототехника — занятие",
+        "publicationKind": "FEED",
+        "contentFormat": "CAROUSEL",
+        "bodyPlain": "Сегодня мы собирали первых роботов.",
+        "bodyRich": {
+          "type": "doc",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Сегодня мы собирали первых роботов."
+                }
+              ]
+            }
+          ]
+        },
+        "targetAccountIds": [
+          "vk_001",
+          "telegram_001"
+        ],
+        "mediaAssetIds": [
+          "media_01",
+          "media_02"
+        ],
+        "targetTextOverrides": [],
+        "schedule": {
+          "mode": "AT",
+          "atUtc": "2026-10-27T15:00:00Z",
+          "timezone": "Europe/Moscow"
+        }
+      },
+      "expect": [
+        "Reload returns empty overrides, preserves main rich text and scheduled draft state"
+      ]
+    },
+    {
       "id": "reject-empty-text-post",
       "operationId": "createAgentPost",
       "http": 400,
