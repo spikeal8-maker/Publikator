@@ -219,6 +219,58 @@ valid(getJobSchema, importedJob, 'import completed response');
 assert.throws(() => valid(getJobSchema, {...importedJob, resultMediaAssetIds:undefined}, 'missing media IDs'), undefined,
   'completed import requires ordered media IDs');
 
+// REST and MCP preview/preflight must expose the same effective target media,
+// order, protected thumbnails and downgrade reasons before the owner approves.
+function inlineAll(schema, depth = 0) {
+  assert.ok(depth < 35, 'preview schema expansion too deep');
+  if (schema == null || typeof schema !== 'object') return schema;
+  if (Array.isArray(schema)) return schema.map(v => inlineAll(v, depth + 1));
+  if (schema.$ref) return inlineAll(schemaByRef(schema.$ref), depth + 1);
+  return Object.fromEntries(Object.entries(schema).map(([k, v]) => [k, inlineAll(v, depth + 1)]));
+}
+const previewContract = inlineAll(schemaDefs.Preview);
+for (const operationId of ['previewAgentPost', 'preflightAgentPost']) {
+  const restOutput = catalog.get(operationId).op.responses['200'].content['application/json'].schema;
+  const mcpOutput = mcp.tools.find(t => t.restOperationId === operationId).outputSchema;
+  assert.deepEqual(inlineAll(restOutput), previewContract, operationId + ' REST preview drift');
+  assert.deepEqual(mcpOutput, previewContract, operationId + ' MCP preview drift');
+  assert.equal(mcp.tools.find(t => t.restOperationId === operationId).annotations.readOnlyHint, true);
+}
+const mediaPreview = cases.find(c => c.id === 'per-target-media-downgrade').response;
+valid(schemaDefs.Preview, mediaPreview, 'per-target effective media preview');
+assert.equal(mediaPreview.targets.length, 2, 'must prove distinct target renditions');
+assert.deepEqual(mediaPreview.targets[0].effectiveMedia.map(x => x.mediaAssetId),
+  importedJob.resultMediaAssetIds, 'target preview must preserve imported media ID order');
+assert.deepEqual(mediaPreview.targets[0].effectiveMedia.map(x => x.sortOrder), [0, 1],
+  'effective media must preserve explicit order');
+assert.equal(mediaPreview.targets[1].effectiveFormat, 'IMAGE', 'second target must demonstrate a downgrade');
+assert.deepEqual(mediaPreview.targets[1].effectiveMedia.map(x => x.mediaAssetId), ['media_01']);
+assert.ok(mediaPreview.targets[1].warnings.some(w => w.code === 'CAROUSEL_TO_IMAGE'));
+assert.ok(mediaPreview.targets[0].effectiveMedia.every(x => x.thumbnailMediaId && !('thumbnailUrl' in x)),
+  'previews must reference protected thumbnail IDs, not open URLs');
+const changeMediaPreviewTarget = change => ({
+  ...mediaPreview,
+  targets: [{ ...mediaPreview.targets[0], ...change }, mediaPreview.targets[1]]
+});
+for (const field of ['effectiveFormat', 'effectiveMedia', 'warnings']) {
+  const without = structuredClone(mediaPreview.targets[0]);
+  delete without[field];
+  assert.throws(() => valid(schemaDefs.Preview, changeMediaPreviewTarget(without), 'preview missing '+field),
+    undefined, field + ' is mandatory in per-target preview');
+}
+const invalidOrder = structuredClone(mediaPreview.targets[0].effectiveMedia);
+invalidOrder[0].sortOrder = -1;
+assert.throws(() => valid(schemaDefs.Preview, changeMediaPreviewTarget({effectiveMedia:invalidOrder}), 'invalid media order'),
+  undefined, 'negative sortOrder must fail');
+const leakedPreviewMedia = structuredClone(mediaPreview.targets[0].effectiveMedia);
+leakedPreviewMedia[0].thumbnailUrl = 'https://unrestricted.example/private.jpg';
+assert.throws(() => valid(schemaDefs.Preview, changeMediaPreviewTarget({effectiveMedia:leakedPreviewMedia}), 'unsafe thumbnail url'),
+  undefined, 'arbitrary public thumbnail URL must not be in the preview contract');
+const invalidWarning = structuredClone(mediaPreview.targets[0].warnings);
+invalidWarning.push({code:'UNKNOWN',message:'x'.repeat(501)});
+assert.throws(() => valid(schemaDefs.Preview, changeMediaPreviewTarget({warnings:invalidWarning}), 'unbounded warning'),
+  undefined, 'downgrade warning size must be bounded');
+
 assert.ok(cases.some(c=>c.id==='create-image-draft'&&!c.request.body.bodyPlain), 'captionless image draft contract required');
 assert.ok(cases.some(c=>c.id==='unknown-provider-outcome'), 'RECOVERY_NEEDED fixture absent');
 assert.ok(cases.some(c=>c.id==='reject-unapproved-send'), 'consent denied fixture absent');
