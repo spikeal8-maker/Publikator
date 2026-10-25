@@ -850,6 +850,52 @@ try {
   ], { timeout: 25000 });
   const mp4 = await fs.readFile(mp4Path);
   assert.ok(mp4.length > 1024, 'FFmpeg must produce real H.264 MP4 fixture');
+
+  // D3b1b/P2: a saved recipient-specific photo plan must also be resettable
+  // AFTER removing the photos and picking MP4, before a video Save is allowed.
+  const beforeVideoReset = db.prepare('SELECT COUNT(*) AS n FROM posts').get().n;
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').fill('Вместо фотографий отправляем видео');
+  await page.locator('#qc-files').setInputFiles([
+    { name: 'old-cover.png', mimeType: 'image/png', buffer: image1 },
+    { name: 'old-photo.png', mimeType: 'image/png', buffer: image2 }
+  ]);
+  await page.locator('input[name="qc-account"][value="' + accounts[2].id + '"]').check();
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  const videoResetPost = db.prepare('SELECT id FROM posts ORDER BY rowid DESC LIMIT 1').get().id;
+  const videoResetTarget = db.prepare('SELECT id FROM post_targets WHERE post_id=? AND account_id=?')
+    .get(videoResetPost, accounts[2].id).id;
+  await page.locator('#qc-variant-choice').selectOption(accounts[2].id);
+  await page.locator('.qc-media-variant-row input[type="checkbox"]').nth(1).uncheck();
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  const videoResetPlan = () => db.prepare('SELECT media_plan_json FROM target_renditions WHERE target_id=?')
+    .get(videoResetTarget)?.media_plan_json ?? null;
+  assert.ok(videoResetPlan(), 'an individual plan must exist before replacing photos with video');
+  await page.locator('.qc-image button[aria-label^="Удалить"]').first().click();
+  await page.locator('.qc-image button[aria-label^="Удалить"]').first().click();
+  await page.locator('#qc-video-file').setInputFiles([
+    { name: 'replacement.mp4', mimeType: 'video/mp4', buffer: mp4 }
+  ]);
+  assert.equal(await page.locator('#qc-media-variant').isVisible(), true,
+    'media-plan reset remains available with MP4 selected');
+  assert.equal(await page.locator('#qc-media-variant-reset').isEnabled(), true);
+  assert.match(await page.locator('#qc-media-variant-note').textContent(), /видео/);
+  await page.locator('#qc-media-variant-reset').click();
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 45000 });
+  assert.equal(videoResetPlan(), null, 'MP4 switch clears stale recipient photo plan through explicit reset');
+  assert.equal(db.prepare('SELECT content_format FROM posts WHERE id=?').get(videoResetPost).content_format,
+    'VIDEO', 'same saved draft transitions safely from photos to MP4');
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM media WHERE post_id=? AND mime_type='video/mp4'")
+    .get(videoResetPost).n, 1, 'new video is stored once');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM posts').get().n, beforeVideoReset + 1,
+    'switching to video must not create a duplicate post');
+  assert.equal(await page.locator('#qc-media-variant').isVisible(), false,
+    'after reset, video has no active photo-specific controls');
+  await closeComposer();
+
   const beforeC1 = db.prepare('SELECT COUNT(*) n FROM posts').get().n;
   await page.locator('#quick-compose-nav').click();
   await page.locator('#qc-text').fill('Короткое видео для школьного проекта');
