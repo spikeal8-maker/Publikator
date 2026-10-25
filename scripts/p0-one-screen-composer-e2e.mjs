@@ -306,6 +306,295 @@ try {
   await closeComposer();
   db.prepare('UPDATE social_accounts SET enabled=1').run();
 
+  // B2A: a tab refresh must restore text, accounts and schedule without
+  // creating a server post. File bytes are deliberately not stored in sessionStorage.
+  const countBeforeRecovery = db.prepare('SELECT COUNT(*) n FROM posts').get().n;
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').fill('Черновик на телефоне до перезагрузки');
+  await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
+  await page.locator('.qc-advanced summary').click();
+  await page.locator('#qc-project').selectOption(projectId);
+  await page.locator('#qc-datetime').fill('2026-11-16T18:30');
+  await page.locator('#qc-files').setInputFiles([
+    { name: 'offline-file.png', mimeType: 'image/png', buffer: image2 }
+  ]);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, countBeforeRecovery,
+    'local recovery must never implicitly create a server draft');
+  db.prepare("UPDATE projects SET default_timezone='UTC' WHERE id=?").run(projectId);
+  await page.reload();
+  await page.locator('#app:not(.hidden)').waitFor();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').waitFor();
+  assert.equal(await page.locator('#qc-text').inputValue(), 'Черновик на телефоне до перезагрузки');
+  assert.equal(await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').isChecked(), true);
+  await page.locator('.qc-advanced summary').click();
+  assert.equal(await page.locator('#qc-datetime').inputValue(), '2026-11-16T18:30');
+  assert.match(await page.locator('#qc-timezone-note').textContent(), /Europe\/Moscow/,
+    'recovering wall-clock time must keep its original IANA zone if the project default changes');
+  assert.equal(await page.locator('.qc-image').count(), 0,
+    'never pretend an unsaved photo survived a refresh');
+  assert.match(await page.locator('#qc-status').textContent(), /Добавьте фотографии заново/);
+  assert.equal(await page.locator('#qc-missing-media').isVisible(), true);
+  await page.locator('#qc-text').fill('Черновик на телефоне до перезагрузки — исправлен');
+  // A second interruption after editing text must not silently remove the
+  // outstanding photo requirement or rewrite the original timezone.
+  await page.reload();
+  await page.locator('#app:not(.hidden)').waitFor();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').waitFor();
+  assert.equal(await page.locator('#qc-text').inputValue(),
+    'Черновик на телефоне до перезагрузки — исправлен');
+  assert.equal(await page.locator('#qc-missing-media').isVisible(), true,
+    'second reload must retain missing-photo warning after text edits');
+  assert.match(await page.locator('#qc-missing-media-detail').textContent(), /1 фото/);
+  assert.match(await page.locator('#qc-timezone-note').textContent(), /Europe\/Moscow/);
+  await page.screenshot({ path: 'test-results/p0-composer-recovery-warning.png', fullPage: false });
+  await page.locator('#qc-save').click();
+  assert.match(await page.locator('#qc-status').textContent(), /Снова приложите фотографии/);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, countBeforeRecovery,
+    'recovered missing photos cannot be silently omitted from a save');
+  await page.locator('#qc-files').setInputFiles([
+    { name: 'restored-photo.png', mimeType: 'image/png', buffer: image2 }
+  ]);
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#qc-schedule').click();
+  await page.locator('#qc-status').filter({ hasText: /Публикация запланирована|Черновик сохранён:/ })
+    .waitFor({ timeout: 30000 });
+  const restoredSchedule = db.prepare(
+    'SELECT id,schedule_mode,schedule_timezone,scheduled_at_utc FROM posts WHERE project_id=? AND title=?'
+  ).get(projectId, 'Черновик на телефоне до перезагрузки — исправлен');
+  assert.ok(restoredSchedule?.id, 'restored content must create one server draft after explicit save');
+  assert.equal(restoredSchedule.schedule_mode, 'AT');
+  assert.equal(restoredSchedule.schedule_timezone, 'Europe/Moscow',
+    'recovering schedule must preserve original timezone even after project defaults change');
+  assert.equal(restoredSchedule.scheduled_at_utc, '2026-11-16T15:30:00.000Z',
+    'restored local time must retain its original absolute UTC instant');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, countBeforeRecovery + 1,
+    'single operation after restored media cannot create a duplicate server draft');
+  db.prepare("UPDATE projects SET default_timezone='Europe/Moscow' WHERE id=?").run(projectId);
+  await closeComposer();
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').waitFor();
+  assert.equal(await page.locator('#qc-text').inputValue(), '',
+    'confirmed server save must clear tab recovery data');
+  await closeComposer();
+
+  // B2a: two recovered byte-identical photos count as two missing local files
+  // before save, but as one persisted server media ID after deduplication.
+  const dedupBefore = db.prepare('SELECT COUNT(*) n FROM posts').get().n;
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').fill('Восстановление одинаковых фотографий');
+  await page.locator('#qc-files').setInputFiles([
+    { name: 'lost-a.png', mimeType: 'image/png', buffer: image1 },
+    { name: 'lost-b.png', mimeType: 'image/png', buffer: image1 }
+  ]);
+  await page.reload();
+  await page.locator('#app:not(.hidden)').waitFor();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').waitFor();
+  assert.match(await page.locator('#qc-missing-media-detail').textContent(), /2 фото/,
+    'both missing files must be acknowledged before a first save');
+  await page.locator('#qc-files').setInputFiles([
+    { name: 'returned-a.png', mimeType: 'image/png', buffer: image1 },
+    { name: 'returned-b.png', mimeType: 'image/png', buffer: image1 }
+  ]);
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  const dedupRecoveredPost = db.prepare('SELECT id FROM posts ORDER BY rowid DESC LIMIT 1').get().id;
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, dedupBefore + 1);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM media WHERE post_id=?').get(dedupRecoveredPost).n, 1);
+  assert.equal(await page.locator('.qc-image').count(), 1);
+  assert.equal(await page.locator('#qc-missing-media').isVisible(), false,
+    'successful persistence retires original missing-media guard');
+  await page.locator('.qc-image button[aria-label^="Удалить"]').click();
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM media WHERE post_id=?').get(dedupRecoveredPost).n, 0,
+    'deliberate deletion after successful recovery must not be blocked by stale requirement');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, dedupBefore + 1);
+  await closeComposer();
+
+  // A later HTTP 503 after two normalized-equal uploads must not lock out retry.
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').fill('Восстановленный набор из трёх фотографий');
+  await page.locator('#qc-files').setInputFiles([
+    { name: 'original-1.png', mimeType: 'image/png', buffer: image1 },
+    { name: 'original-1-copy.png', mimeType: 'image/png', buffer: image1 },
+    { name: 'original-2.png', mimeType: 'image/png', buffer: image2 }
+  ]);
+  await page.reload();
+  await page.locator('#app:not(.hidden)').waitFor();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').waitFor();
+  assert.match(await page.locator('#qc-missing-media-detail').textContent(), /3 фото/);
+  await page.locator('#qc-files').setInputFiles([
+    { name: 'retry-1.png', mimeType: 'image/png', buffer: image1 },
+    { name: 'retry-1-copy.png', mimeType: 'image/png', buffer: image1 },
+    { name: 'retry-2.png', mimeType: 'image/png', buffer: image2 }
+  ]);
+  let uploadsSeen = 0;
+  await page.route('**/api/posts/*/media', async (route) => {
+    if (route.request().method() === 'POST' && ++uploadsSeen === 3) {
+      await route.fulfill({ status: 503, contentType: 'application/json', body: '{}' });
+      return;
+    }
+    await route.continue();
+  });
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: /HTTP 503/ }).waitFor({ timeout: 30000 });
+  const interruptedMediaPost = db.prepare('SELECT id FROM posts ORDER BY rowid DESC LIMIT 1').get().id;
+  assert.equal(uploadsSeen, 3);
+  assert.equal(await page.locator('.qc-image').count(), 2,
+    'server dedup removes duplicate local card even if a later upload fails');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM media WHERE post_id=?').get(interruptedMediaPost).n, 1);
+  await page.unroute('**/api/posts/*/media');
+  let failMediaOrderOnce = true;
+  await page.route('**/api/posts/*/media-order', async (route) => {
+    if (failMediaOrderOnce && route.request().method() === 'PUT') {
+      failMediaOrderOnce = false;
+      await route.fulfill({ status: 503, contentType: 'application/json', body: '{}' });
+      return;
+    }
+    await route.continue();
+  });
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: /HTTP 503/ }).waitFor({ timeout: 30000 });
+  assert.equal(failMediaOrderOnce, false,
+    'force the media-order failure after deduplicated images have already reached the server');
+  assert.equal(await page.locator('.qc-image').count(), 2);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM media WHERE post_id=?').get(interruptedMediaPost).n, 2);
+  await page.unroute('**/api/posts/*/media-order');
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM media WHERE post_id=?').get(interruptedMediaPost).n, 2,
+    'retry after media-order failure must use the original draft and must not duplicate images');
+  await closeComposer();
+
+  // P1: once a server POST starts, session recovery must become uncertain
+  // before any server response. Never keep a misleading local-only snapshot.
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').fill('Проверка маркера до POST');
+  await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
+  let intercepted;
+  const reached = new Promise((resolve) => { intercepted = resolve; });
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  await page.route('**/api/posts', async (route) => {
+    if (route.request().method() === 'POST') {
+      intercepted();
+      await gate;
+    }
+    await route.continue();
+  });
+  await page.locator('#qc-save').click();
+  await reached;
+  const inFlight = await page.evaluate(() => {
+    for (const key of Object.keys(sessionStorage)) {
+      if (!key.startsWith('publikator.quick-composer.recovery.v1')) continue;
+      try { const value = JSON.parse(sessionStorage.getItem(key)); if (value.kind === 'uncertain') return value; }
+      catch { /* not recovery */ }
+    }
+    return null;
+  });
+  assert.equal(inFlight?.kind, 'uncertain', 'uncertain marker precedes the external POST outcome');
+  release();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  await page.unroute('**/api/posts');
+  await closeComposer();
+
+  // An interrupted create cannot be cleared by one accidental click: the
+  // operator must explicitly confirm reconciliation with the publications list.
+  assert.equal(await page.evaluate(async () => {
+    const auth = await (await fetch('/api/auth/state')).json();
+    const { createComposerRecovery } = await import('/quick-composer-recovery-v1.js');
+    return createComposerRecovery(auth).saveUncertain();
+  }), true, 'simulate recovered unknown create result without contacting providers');
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-recovery-warning.is-visible').waitFor();
+  assert.equal(await page.locator('#qc-save').isDisabled(), true);
+  page.once('dialog', (dialog) => dialog.dismiss());
+  await page.locator('#qc-start-new').click();
+  assert.equal(await page.locator('#qc-recovery-warning').isVisible(), true,
+    'dismissed reconciliation must keep unknown-outcome guard');
+  assert.equal(await page.locator('#qc-save').isDisabled(), true);
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#qc-start-new').click();
+  assert.equal(await page.locator('#qc-recovery-warning').isVisible(), false);
+  assert.equal(await page.locator('#qc-save').isDisabled(), false);
+  await closeComposer();
+
+  // P2: the 24h expiration applies to unsaved local text, never to an
+  // ambiguous server operation that still requires explicit reconciliation.
+  const guardTtl = await page.evaluate(async () => {
+    const auth = await (await fetch('/api/auth/state')).json();
+    const { createComposerRecovery } = await import('/quick-composer-recovery-v1.js');
+    const recovery = createComposerRecovery(auth);
+    const expire = () => {
+      const key = Object.keys(sessionStorage).find((item) =>
+        item.startsWith('publikator.quick-composer.recovery.v1'));
+      const entry = JSON.parse(sessionStorage.getItem(key));
+      sessionStorage.setItem(key, JSON.stringify({
+        ...entry, updatedAt: Date.now() - 26 * 60 * 60 * 1000
+      }));
+    };
+    recovery.saveUncertain();
+    expire();
+    const uncertain = recovery.read()?.kind;
+    recovery.saveServerDraft('post_known_by_id');
+    expire();
+    const serverDraft = recovery.read()?.kind;
+    recovery.saveLocalDraft({ body: 'Истекший локальный текст', accountIds: [] });
+    expire();
+    const local = recovery.read();
+    recovery.clear();
+    return { uncertain, serverDraft, local };
+  });
+  assert.deepEqual(guardTtl, { uncertain: 'uncertain', serverDraft: 'server-draft', local: null },
+    'local text may expire, but ambiguous or known server-draft markers must survive TTL');
+
+  // P1: Save draft clears old recovery record. A subsequent Publish Now in the
+  // SAME editor must restore the durable marker before the outbound request.
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').fill('Сначала сохранить, затем опубликовать без дубликата');
+  await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  let publishReached;
+  const publishStarted = new Promise((resolve) => { publishReached = resolve; });
+  let releasePublish;
+  const heldPublish = new Promise((resolve) => { releasePublish = resolve; });
+  await page.route('**/api/posts/*/publish-now', async (route) => {
+    publishReached();
+    await heldPublish;
+    await route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ post: { status: 'PUBLISHED' } })
+    });
+  });
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#qc-send').click();
+  await publishStarted;
+  const publishMarker = await page.evaluate(() => {
+    for (const key of Object.keys(sessionStorage)) {
+      if (!key.startsWith('publikator.quick-composer.recovery.v1')) continue;
+      try { return JSON.parse(sessionStorage.getItem(key)); }
+      catch { /* ignore malformed test data */ }
+    }
+    return null;
+  });
+  assert.equal(publishMarker?.kind, 'server-draft',
+    'published from an existing saved draft must persist a server-draft marker before POST');
+  assert.ok(publishMarker?.savedId?.startsWith('post_'),
+    'recovery marker must contain the exact saved draft identifier');
+  releasePublish();
+  await page.locator('#qc-status').filter({ hasText: 'Публикация обработана' }).waitFor({ timeout: 30000 });
+  await page.unroute('**/api/posts/*/publish-now');
+  await closeComposer();
+
   assert.deepEqual(errors, []);
   await desktop.close();
 
