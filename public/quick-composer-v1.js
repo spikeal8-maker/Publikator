@@ -627,6 +627,8 @@ export async function openQuickComposer() {
     root.querySelector('#qc-send').addEventListener('click', () => execute('send'));
 
     root.querySelector('#qc-start-new').addEventListener('click', () => {
+      if (!state.uncertainPublish || state.busy) return;
+      if (!window.confirm('Вы проверили список публикаций и убедились, что новый материал не дублирует уже сохранённый? Начать новый материал?')) return;
       recovery?.clear();
       state.uncertainPublish = false;
       root.querySelector('#qc-recovery-warning').classList.remove('is-visible');
