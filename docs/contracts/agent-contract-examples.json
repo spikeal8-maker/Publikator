@@ -514,6 +514,255 @@
         "No provider POST; no state mutation",
         "Synthetic capabilities, not claims about real VK/Telegram accounts"
       ]
+    },
+    {
+      "id": "preview-auto-publish-policy",
+      "operationId": "previewOwnerAgentGrant",
+      "http": 200,
+      "request": {
+        "path": {
+          "agentId": "agent_demo_001"
+        },
+        "idempotencyKey": "owner_preview_policy_001",
+        "body": {
+          "expectedGrantVersion": 3,
+          "presetId": "FULL_CONTENT",
+          "publishMode": "PREAPPROVED_POLICY",
+          "scopeIds": [
+            "projects:read",
+            "accounts:read",
+            "sources:read",
+            "posts:read",
+            "posts:write",
+            "posts:preview",
+            "approval:request",
+            "schedule:write",
+            "publish:request",
+            "jobs:read"
+          ],
+          "projectIds": [
+            "project_asa"
+          ],
+          "accountIds": [
+            "vk_001",
+            "telegram_001"
+          ],
+          "sourceConnectorIds": [
+            "source_drive_asa"
+          ],
+          "preapprovedPolicy": {
+            "projectIds": [
+              "project_asa"
+            ],
+            "accountIds": [
+              "vk_001",
+              "telegram_001"
+            ],
+            "sourceConnectorIds": [
+              "source_drive_asa"
+            ],
+            "allowedFormats": [
+              "TEXT_ONLY",
+              "IMAGE",
+              "CAROUSEL"
+            ],
+            "dailyMax": 2,
+            "timezone": "Europe/Moscow",
+            "allowedWeekdays": [
+              1,
+              2,
+              3,
+              4,
+              5
+            ],
+            "allowedStartLocal": "09:00",
+            "allowedEndLocal": "19:00",
+            "expiresAt": "2026-11-30T23:00:00Z",
+            "approvedPolicyVersion": 2
+          },
+          "confirmElevation": true
+        }
+      },
+      "response": {
+        "before": {
+          "agentId": "agent_demo_001",
+          "presetId": "FULL_CONTENT",
+          "presetVersion": 1,
+          "scopeIds": [
+            "projects:read",
+            "accounts:read",
+            "sources:read",
+            "posts:read",
+            "posts:write",
+            "posts:preview",
+            "approval:request",
+            "schedule:write",
+            "publish:request",
+            "jobs:read"
+          ],
+          "projectIds": [
+            "project_asa"
+          ],
+          "accountIds": [
+            "vk_001",
+            "telegram_001"
+          ],
+          "sourceConnectorIds": [
+            "source_drive_asa"
+          ],
+          "status": "ACTIVE",
+          "grantVersion": 3,
+          "publishMode": "OWNER_APPROVAL"
+        },
+        "after": {
+          "agentId": "agent_demo_001",
+          "presetId": "FULL_CONTENT",
+          "presetVersion": 1,
+          "scopeIds": [
+            "projects:read",
+            "accounts:read",
+            "sources:read",
+            "posts:read",
+            "posts:write",
+            "posts:preview",
+            "approval:request",
+            "schedule:write",
+            "publish:request",
+            "jobs:read"
+          ],
+          "projectIds": [
+            "project_asa"
+          ],
+          "accountIds": [
+            "vk_001",
+            "telegram_001"
+          ],
+          "sourceConnectorIds": [
+            "source_drive_asa"
+          ],
+          "status": "ACTIVE",
+          "grantVersion": 4,
+          "publishMode": "PREAPPROVED_POLICY",
+          "preapprovedPolicy": {
+            "projectIds": [
+              "project_asa"
+            ],
+            "accountIds": [
+              "vk_001",
+              "telegram_001"
+            ],
+            "sourceConnectorIds": [
+              "source_drive_asa"
+            ],
+            "allowedFormats": [
+              "TEXT_ONLY",
+              "IMAGE",
+              "CAROUSEL"
+            ],
+            "dailyMax": 2,
+            "timezone": "Europe/Moscow",
+            "allowedWeekdays": [
+              1,
+              2,
+              3,
+              4,
+              5
+            ],
+            "allowedStartLocal": "09:00",
+            "allowedEndLocal": "19:00",
+            "expiresAt": "2026-11-30T23:00:00Z",
+            "approvedPolicyVersion": 2
+          }
+        },
+        "elevation": true,
+        "requiresOwnerConfirmation": true
+      },
+      "expect": [
+        "Exact before/after account IDs and approval limits owner-visible",
+        "approvedPolicyVersion 2 survives preview",
+        "No external provider POST"
+      ]
+    },
+    {
+      "id": "reload-saved-auto-publish-policy",
+      "operationId": "getOwnerAgent",
+      "http": 200,
+      "request": {
+        "path": {
+          "agentId": "agent_demo_001"
+        }
+      },
+      "response": {
+        "agentId": "agent_demo_001",
+        "name": "ChatGPT — ASA Lab",
+        "clientKind": "chatgpt",
+        "status": "ACTIVE",
+        "grant": {
+          "agentId": "agent_demo_001",
+          "presetId": "FULL_CONTENT",
+          "presetVersion": 1,
+          "scopeIds": [
+            "projects:read",
+            "accounts:read",
+            "sources:read",
+            "posts:read",
+            "posts:write",
+            "posts:preview",
+            "approval:request",
+            "schedule:write",
+            "publish:request",
+            "jobs:read"
+          ],
+          "projectIds": [
+            "project_asa"
+          ],
+          "accountIds": [
+            "vk_001",
+            "telegram_001"
+          ],
+          "sourceConnectorIds": [
+            "source_drive_asa"
+          ],
+          "status": "ACTIVE",
+          "grantVersion": 4,
+          "publishMode": "PREAPPROVED_POLICY",
+          "preapprovedPolicy": {
+            "projectIds": [
+              "project_asa"
+            ],
+            "accountIds": [
+              "vk_001",
+              "telegram_001"
+            ],
+            "sourceConnectorIds": [
+              "source_drive_asa"
+            ],
+            "allowedFormats": [
+              "TEXT_ONLY",
+              "IMAGE",
+              "CAROUSEL"
+            ],
+            "dailyMax": 2,
+            "timezone": "Europe/Moscow",
+            "allowedWeekdays": [
+              1,
+              2,
+              3,
+              4,
+              5
+            ],
+            "allowedStartLocal": "09:00",
+            "allowedEndLocal": "19:00",
+            "expiresAt": "2026-11-30T23:00:00Z",
+            "approvedPolicyVersion": 2
+          }
+        },
+        "lastUsedAt": "2026-10-25T12:45:00Z"
+      },
+      "expect": [
+        "Owner-only get after reload returns exact saved auto rules and version",
+        "No provider/API tokens in response"
+      ]
     }
   ]
 }
