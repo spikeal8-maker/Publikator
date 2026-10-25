@@ -215,7 +215,7 @@ Owner UI авторизован через existing admin session + origin/CSRF;
 | `UI-06` | Изменение credential/fingerprint после consent блокирует отправку, история фиксирует конкретный `CAPABILITY_CHANGED` без секретов |
 | `UI-07` | Во время long job owner видит истинный этап/прогресс, `jobId` и переход в `PARTIAL/RECOVERY_NEEDED`; отсутствуют фиктивные «100%» |
 | `UI-08` | 2 агента и один общий проект: каждый видит разрешённый контент, но нет чтения чужих токенов, grants и private activity |
-| `UI-09` | P0 audit сохраняется после process SIGKILL/restart, backup→restore; matching ``requestId/jobId/postId` и per-target provider evidence |
+| `UI-09` | P0 audit сохраняется после process SIGKILL/restart, backup→restore; matching `requestId/jobId/postId` и per-target provider evidence |
 | `UI-10` | Test с canary token, Google key, URL, текстом и приватным media проверяет **SQLite raw bytes + HTTP API + UI + backups**: 0 secret leakage |
 | `UI-11` | Browser desktop/390/320px, keyboard/screen reader, список 11+ targets, фильтр журнала и не более bounded page response |
 | `UI-12` | Owner approval, denial, grant change/revoke, failed/ambiguous provider POST представлены понятными системными событиями и ссылками на evidence |
