@@ -152,6 +152,8 @@ const withWrongTarget = { ...sample, targetAccountIds: ['vk1', 'vk1'] };
 mustReject(withWrongTarget, 'duplicate target IDs');
 const withSecretTarget = { ...sample, externalResults: [{ accountId: 'vk1', state: 'PUBLISHED', authorization: 'hidden' }] };
 mustReject(withSecretTarget, 'secret in per-target status');
+const oversizedPerTargetCode = { ...sample, externalResults: [{ accountId: 'vk1', state: 'FAILED', errorCode: 'A'.repeat(81) }] };
+mustReject(oversizedPerTargetCode, 'unbounded per-target errorCode');
 
 const [productSpec, integrationSpec, workflow] = await Promise.all([
   readFile('docs/AGENT_ACCESS_LEVELS_AND_ACTIVITY_LOGS.md', 'utf8'),
@@ -175,6 +177,6 @@ console.log(JSON.stringify({
   sendModes: presets.publishModes.map(m => m.id),
   scopeCount: catalog.length, activityEventSchema: '2020-12',
   samplesValidated: eventSchema.examples.length,
-  negativeCases: 8,
+  negativeCases: 10,
   canonicalAcceptanceWired: true
 }, null, 2));
