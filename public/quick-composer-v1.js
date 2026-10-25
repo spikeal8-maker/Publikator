@@ -1,4 +1,5 @@
 import { plainTextToRichDocument } from './rich-text-editor-v1.js';
+import { createComposerRecovery } from './quick-composer-recovery-v1.js';
 
 // The visible user operation is a single composer. Existing versioned APIs still
 // create an immutable draft, upload media, select targets and run READY in order.
@@ -61,11 +62,15 @@ export async function openQuickComposer() {
   document.body.classList.add('qc-open');
 
   let state = null;
+  let recovery = null;
   const dispose = () => {
     if (state?.busy) return;
     if (state?.uncertainPublish && !window.confirm('Результат последней операции не подтверждён. Проверьте публикации перед повторной отправкой. Закрыть редактор?')) return;
     if (state?.dirty && !window.confirm('Есть несохранённые изменения. Закрыть редактор и потерять их?')) return;
     if (state?.pending) for (const image of state.pending) URL.revokeObjectURL(image.url);
+    // Explicitly discarded unsaved content must not reappear on the next opening.
+    // Keep recovery markers for interrupted/uncertain server operations.
+    if (state && !state.savedId && !state.uncertainPublish) recovery?.clear();
     document.body.classList.remove('qc-target-sheet-open');
     overlay.remove();
     document.body.classList.remove('qc-open');
@@ -93,8 +98,11 @@ export async function openQuickComposer() {
   removeListenerWhenClosed.observe(document.body, { childList: true });
 
   try {
-    const [projects, accounts] = await Promise.all([request('/api/projects'), request('/api/accounts')]);
+    const [projects, accounts, auth] = await Promise.all([
+      request('/api/projects'), request('/api/accounts'), request('/api/auth/state')
+    ]);
     if (!overlay.isConnected) return;
+    recovery = createComposerRecovery(auth);
     state = {
       projects, accounts, pending: [], savedId: null, version: null,
       busy: false, finished: false, uncertainPublish: false, dirty: false,
@@ -120,6 +128,11 @@ export async function openQuickComposer() {
       '<div class="qc-main">' +
         '<section class="qc-editor"><label class="qc-label" for="qc-text">Текст публикации</label>' +
           '<textarea id="qc-text" rows="8" placeholder="Напишите то, что увидят подписчики. Заголовок не нужен." autofocus></textarea>' +
+          '<span id="qc-recovery-note" class="qc-muted" role="status" aria-live="polite"></span>' +
+          '<div id="qc-recovery-warning" class="qc-recovery-warning"><strong>Возможен уже сохранённый черновик</strong>' +
+          '<p>Предыдущая операция прервалась. Проверьте список публикаций перед повторной отправкой.</p>' +
+          '<a href="/content">Открыть публикации</a>' +
+          '<button type="button" id="qc-start-new">Я проверил — начать новый материал</button></div>' +
           '<div class="qc-photo-head"><strong>Фотографии</strong><span class="qc-muted">Можно добавить сразу, до сохранения</span></div>' +
           '<label class="qc-drop" id="qc-drop"><input id="qc-files" type="file" accept="image/*" multiple>' +
           '<span class="qc-drop-icon" aria-hidden="true">+</span><strong>Добавить фото</strong><small>Выберите несколько изображений или перетащите сюда</small></label>' +
@@ -231,13 +244,26 @@ export async function openQuickComposer() {
       root.querySelectorAll('input,textarea,select,button').forEach((element) => {
         const unavailable = element.matches('input[name="qc-account"]') &&
           !state.accounts.some((account) => account.id === element.value && account.enabled);
-        element.disabled = busy || (locked && element.id !== 'qc-close') || unavailable ||
+        element.disabled = busy || (locked && !['qc-close', 'qc-start-new'].includes(element.id)) || unavailable ||
           (element.id === 'qc-project' && Boolean(state.savedId));
       });
       redrawPhotos();
     }
     function markDirty() {
-      if (!state.busy && !state.finished && !state.uncertainPublish) state.dirty = true;
+      if (state.busy || state.finished || state.uncertainPublish) return;
+      state.dirty = true;
+      if (state.savedId || !recovery) return;
+      const stored = recovery.saveLocalDraft({
+        body: text.value,
+        projectId: root.querySelector('#qc-project').value,
+        scheduledAtLocal: root.querySelector('#qc-datetime').value,
+        ambiguousOffset: root.querySelector('#qc-ambiguous').value,
+        accountIds: selectedIds(),
+        photoCount: state.pending.length
+      });
+      root.querySelector('#qc-recovery-note').textContent = stored
+        ? 'Текст и настройки временно сохранены в этой вкладке. Файлы после перезагрузки нужно выбрать заново.'
+        : 'Локальное восстановление недоступно: сохраните черновик на сервере.';
     }
     function refreshPreview() {
       root.querySelector('#qc-preview-text').textContent = text.value.trim() || 'Текст появится здесь';
@@ -421,11 +447,13 @@ export async function openQuickComposer() {
         try {
           created = await request('/api/posts', { method: 'POST', body: JSON.stringify(payload) });
         } catch (error) {
-          state.uncertainPublish = !Number.isInteger(error?.httpStatus);
+          state.uncertainPublish = !Number.isInteger(error?.httpStatus) || error.httpStatus >= 500;
+          if (state.uncertainPublish) recovery?.saveUncertain();
           throw new Error('Не удалось подтвердить создание черновика. Проверьте список публикаций, чтобы избежать дубля. ' + readableError(error));
         }
         state.savedId = created.id;
         state.version = created.content_version;
+        recovery?.saveServerDraft(created.id);
       } else {
         const updated = await request('/api/posts/' + encodeURIComponent(state.savedId), {
           method: 'PATCH', body: JSON.stringify({ ...payload, expectedContentVersion: state.version })
@@ -533,6 +561,8 @@ export async function openQuickComposer() {
           setStatus('Черновик сохранён со всеми выбранными изображениями и площадками.' +
             (state.lastDeduplicatedCount ? ' Одинаковые изображения объединены: ' + state.lastDeduplicatedCount + '.' : ''));
         }
+        recovery?.clear();
+        root.querySelector('#qc-recovery-note').textContent = '';
         root.querySelector('#qc-close').textContent = 'Закрыть';
         root.querySelector('#qc-close').setAttribute('aria-label', 'Закрыть редактор');
       } catch (error) {
@@ -545,6 +575,46 @@ export async function openQuickComposer() {
     root.querySelector('#qc-save').addEventListener('click', () => execute('save'));
     root.querySelector('#qc-schedule').addEventListener('click', () => execute('schedule'));
     root.querySelector('#qc-send').addEventListener('click', () => execute('send'));
+
+    root.querySelector('#qc-start-new').addEventListener('click', () => {
+      recovery?.clear();
+      state.uncertainPublish = false;
+      root.querySelector('#qc-recovery-warning').classList.remove('is-visible');
+      setBusy(false);
+      setStatus('Начат новый материал. Предыдущий черновик не изменён.');
+      text.focus();
+    });
+    const previous = recovery?.read();
+    if (previous?.kind === 'local') {
+      if (window.confirm('Есть незавершённая публикация в этой вкладке. Восстановить текст и получателей?' +
+          (previous.photoCount ? '\\nФотографии потребуется добавить заново.' : ''))) {
+        text.value = typeof previous.body === 'string' ? previous.body : '';
+        const project = root.querySelector('#qc-project');
+        if ([...project.options].some((option) => option.value === previous.projectId)) project.value = previous.projectId;
+        const datetime = root.querySelector('#qc-datetime');
+        if (typeof previous.scheduledAtLocal === 'string') datetime.value = previous.scheduledAtLocal;
+        if (['earlier', 'later'].includes(previous.ambiguousOffset)) {
+          root.querySelector('#qc-ambiguous').value = previous.ambiguousOffset;
+        }
+        const validIds = new Set(Array.isArray(previous.accountIds) ? previous.accountIds : []);
+        root.querySelectorAll('input[name="qc-account"]').forEach((input) => {
+          input.checked = !input.disabled && validIds.has(input.value);
+        });
+        state.dirty = true;
+        refreshPreview();
+        showTimezone();
+        setStatus(previous.photoCount
+          ? 'Текст и получатели восстановлены. Добавьте фотографии заново перед публикацией.'
+          : 'Восстановлены текст, получатели и настройки времени.');
+      } else {
+        recovery.clear();
+      }
+    } else if (previous?.kind === 'server-draft' || previous?.kind === 'uncertain') {
+      state.uncertainPublish = true;
+      root.querySelector('#qc-recovery-warning').classList.add('is-visible');
+      setBusy(false);
+      setStatus('Обнаружена незавершённая серверная операция. Сначала проверьте список публикаций.', true);
+    }
     text.focus();
   } catch (error) {
     if (overlay.isConnected) {
