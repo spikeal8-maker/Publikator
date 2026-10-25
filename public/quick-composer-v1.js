@@ -374,7 +374,13 @@ export async function openQuickComposer() {
       else if (state.variantApplied.has(accountId)) state.variantEdits.set(accountId, null);
       else state.variantEdits.delete(accountId);
       markDirty();
-      refreshVariantControls();
+      // Do not rewrite the live textarea while the operator types: trimming
+      // here would erase spaces and move the caret on every keystroke.
+      variantStatus.textContent = value
+        ? 'Отдельный текст подготовлен для выбранного аккаунта.'
+        : 'Используется основной текст (наследование).';
+      variantReset.disabled = !state.variantEdits.has(accountId) &&
+        !state.variantApplied.has(accountId);
     });
     variantReset.addEventListener('click', () => {
       if (state.busy || state.finished || state.uncertainPublish) return;
