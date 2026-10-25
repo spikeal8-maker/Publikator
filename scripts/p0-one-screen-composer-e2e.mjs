@@ -527,6 +527,74 @@ try {
   assert.equal(await page.locator('#qc-save').isDisabled(), false);
   await closeComposer();
 
+  // P2: the 24h expiration applies to unsaved local text, never to an
+  // ambiguous server operation that still requires explicit reconciliation.
+  const guardTtl = await page.evaluate(async () => {
+    const auth = await (await fetch('/api/auth/state')).json();
+    const { createComposerRecovery } = await import('/quick-composer-recovery-v1.js');
+    const recovery = createComposerRecovery(auth);
+    const expire = () => {
+      const key = Object.keys(sessionStorage).find((item) =>
+        item.startsWith('publikator.quick-composer.recovery.v1'));
+      const entry = JSON.parse(sessionStorage.getItem(key));
+      sessionStorage.setItem(key, JSON.stringify({
+        ...entry, updatedAt: Date.now() - 26 * 60 * 60 * 1000
+      }));
+    };
+    recovery.saveUncertain();
+    expire();
+    const uncertain = recovery.read()?.kind;
+    recovery.saveServerDraft('post_known_by_id');
+    expire();
+    const serverDraft = recovery.read()?.kind;
+    recovery.saveLocalDraft({ body: 'Истекший локальный текст', accountIds: [] });
+    expire();
+    const local = recovery.read();
+    recovery.clear();
+    return { uncertain, serverDraft, local };
+  });
+  assert.deepEqual(guardTtl, { uncertain: 'uncertain', serverDraft: 'server-draft', local: null },
+    'local text may expire, but ambiguous or known server-draft markers must survive TTL');
+
+  // P1: Save draft clears old recovery record. A subsequent Publish Now in the
+  // SAME editor must restore the durable marker before the outbound request.
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').fill('Сначала сохранить, затем опубликовать без дубликата');
+  await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  let publishReached;
+  const publishStarted = new Promise((resolve) => { publishReached = resolve; });
+  let releasePublish;
+  const heldPublish = new Promise((resolve) => { releasePublish = resolve; });
+  await page.route('**/api/posts/*/publish-now', async (route) => {
+    publishReached();
+    await heldPublish;
+    await route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ post: { status: 'PUBLISHED' } })
+    });
+  });
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#qc-send').click();
+  await publishStarted;
+  const publishMarker = await page.evaluate(() => {
+    for (const key of Object.keys(sessionStorage)) {
+      if (!key.startsWith('publikator.quick-composer.recovery.v1')) continue;
+      try { return JSON.parse(sessionStorage.getItem(key)); }
+      catch { /* ignore malformed test data */ }
+    }
+    return null;
+  });
+  assert.equal(publishMarker?.kind, 'server-draft',
+    'published from an existing saved draft must persist a server-draft marker before POST');
+  assert.ok(publishMarker?.savedId?.startsWith('post_'),
+    'recovery marker must contain the exact saved draft identifier');
+  releasePublish();
+  await page.locator('#qc-status').filter({ hasText: 'Публикация обработана' }).waitFor({ timeout: 30000 });
+  await page.unroute('**/api/posts/*/publish-now');
+  await closeComposer();
+
   assert.deepEqual(errors, []);
   await desktop.close();
 
