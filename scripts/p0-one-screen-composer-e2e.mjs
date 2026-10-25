@@ -69,6 +69,8 @@ try {
     'project and scheduling are secondary');
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM posts').get().n, 0,
     'opening the composer never creates a draft');
+  assert.equal(await page.locator('#qc-platform-preview-load').isDisabled(), true,
+    'preview requires both content and at least one explicitly selected account');
 
   const image1 = await sharp({ create: { width: 120, height: 110, channels: 3, background: '#ff6600' } }).png().toBuffer();
   const image2 = await sharp({ create: { width: 160, height: 130, channels: 3, background: '#0055ff' } }).png().toBuffer();
@@ -82,7 +84,52 @@ try {
     await page.locator('input[name="qc-account"][value="' + account.id + '"]').check();
   }
   assert.match(await page.locator('#qc-counter').textContent(), /3 выбрано/);
+
+  // D2: preview selected accounts using local browser-owned blobs before the
+  // first server write. It is explicitly labelled unvalidated/approximate.
+  const localPreviewRequests = [];
+  const recordPreviewGet = (request) => {
+    if (request.url().includes('/platform-previews')) localPreviewRequests.push(request.url());
+  };
+  page.on('request', recordPreviewGet);
+  assert.equal(await page.locator('#qc-platform-preview-load').isDisabled(), false);
+  assert.equal(await page.locator('#qc-platform-preview-load').textContent(), 'Предпросмотр до сохранения');
+  await page.locator('#qc-platform-preview-load').click();
+  await page.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });
+  assert.equal(await page.locator('#qc-platform-preview-choice option').count(), 3);
+  assert.match(await page.locator('#qc-platform-preview-source').textContent(), /До сохранения.*локальный/);
+  const telegramLocalOption = 'local:' + accounts[0].id;
+  const vkLocalOption = 'local:' + accounts[2].id;
+  await page.locator('#qc-platform-preview-choice').selectOption(telegramLocalOption);
+  assert.equal(await page.locator('.qc-platform-media img').count(), 2);
+  const originalLocalOrder = await page.locator('.qc-platform-media img').evaluateAll((images) =>
+    images.map((img) => img.getAttribute('src')));
+  assert.ok(originalLocalOrder.every((uri) => uri.startsWith('blob:')),
+    'unsaved preview shows only local object URLs, not invented remote media');
+  let localParts = await page.locator('#qc-platform-preview-card > *').evaluateAll((elements) =>
+    elements.map((el) => el.className));
+  assert.ok(localParts.indexOf('qc-platform-media') < localParts.indexOf('qc-platform-caption'),
+    'local Telegram caption is below local images');
+  await page.locator('#qc-platform-preview-choice').selectOption(vkLocalOption);
+  localParts = await page.locator('#qc-platform-preview-card > *').evaluateAll((elements) =>
+    elements.map((el) => el.className));
+  assert.ok(localParts.indexOf('qc-platform-caption') < localParts.indexOf('qc-platform-media'),
+    'local VK caption is above local images');
+  assert.equal(localPreviewRequests.length, 0, 'pre-save preview must not fetch server renditions');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM posts').get().n, 0,
+    'local preview does not create a draft');
   await fs.mkdir('test-results', { recursive: true });
+  await page.screenshot({ path: 'test-results/p0-composer-local-preview-desktop.png', fullPage: false });
+  await page.locator('.qc-image').nth(1).getByRole('button', { name: 'Переместить раньше' }).click();
+  assert.equal(await page.locator('#qc-platform-preview').isVisible(), false,
+    'changing local media order invalidates the previous approximate view');
+  await page.locator('#qc-platform-preview-load').click();
+  await page.locator('#qc-platform-preview-choice').selectOption(telegramLocalOption);
+  const reorderedLocal = await page.locator('.qc-platform-media img').evaluateAll((images) =>
+    images.map((img) => img.getAttribute('src')));
+  assert.deepEqual(reorderedLocal, [...originalLocalOrder].reverse(),
+    'local preview follows the operator-specified image order');
+  page.off('request', recordPreviewGet);
   await page.screenshot({ path: 'test-results/p0-composer-desktop.png', fullPage: false });
   await page.locator('#qc-save').click();
   await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
@@ -108,6 +155,9 @@ try {
   await page.locator('#qc-platform-preview-load').click();
   await page.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });
   assert.equal(await page.locator('#qc-platform-preview-choice option').count(), 3);
+  assert.match(await page.locator('#qc-platform-preview-source').textContent(), /сохранённой серверной версии/);
+  assert.ok((await page.locator('.qc-platform-media img').first().getAttribute('src')).startsWith('/public-media/'),
+    'server preview after Save uses canonical media URLs rather than old local blobs');
   const desktopPreviewVisible = await page.evaluate(() => {
     const card = document.querySelector('#qc-platform-preview-card').getBoundingClientRect();
     const head = document.querySelector('.qc-head').getBoundingClientRect();
