@@ -3766,6 +3766,162 @@
           }
         }
       }
+    },
+    "/api/agent/v1/sources/{sourceConnectorId}/files": {
+      "get": {
+        "operationId": "listAgentSourceFiles",
+        "summary": "List scoped source files available for media import",
+        "tags": [
+          "Agent"
+        ],
+        "security": [
+          {
+            "agentOAuth": [
+              "sources:read"
+            ]
+          },
+          {
+            "agentApiKey": []
+          }
+        ],
+        "x-publikator-required-scopes": [
+          "sources:read"
+        ],
+        "x-publikator-auth-kind": "AGENT_GRANT",
+        "x-publikator-no-state-change": true,
+        "parameters": [
+          {
+            "name": "sourceConnectorId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            }
+          },
+          {
+            "name": "folderPath",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 1024,
+              "description": "Folder within granted connector root, never absolute host path."
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 160
+            }
+          },
+          {
+            "name": "mimeType",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scoped source-file listing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceFileList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error 400",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Error 401",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Error 403",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Error 404",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Error 409",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Error 429",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -4344,7 +4500,13 @@
           "contentVersion",
           "status",
           "targetAccountIds",
-          "mediaAssetIds"
+          "mediaAssetIds",
+          "projectId",
+          "contentFormat",
+          "publicationKind",
+          "bodyPlain",
+          "targetTextOverrides",
+          "schedule"
         ],
         "properties": {
           "postId": {
@@ -4416,6 +4578,64 @@
             "minLength": 1,
             "maxLength": 128,
             "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "contentFormat": {
+            "enum": [
+              "TEXT_ONLY",
+              "IMAGE",
+              "CAROUSEL",
+              "VIDEO"
+            ]
+          },
+          "publicationKind": {
+            "enum": [
+              "FEED",
+              "SHORT",
+              "STORY"
+            ]
+          },
+          "bodyRich": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Saved canonical rich text if provided; not compiled platform output."
+          },
+          "targetTextOverrides": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "accountId",
+                "bodyPlain"
+              ],
+              "properties": {
+                "accountId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9._:-]+$"
+                },
+                "bodyPlain": {
+                  "type": "string",
+                  "minLength": 0,
+                  "maxLength": 20000
+                }
+              },
+              "additionalProperties": false
+            },
+            "minItems": 0,
+            "maxItems": 100,
+            "description": "Saved account-specific text overrides, not platform preview."
+          },
+          "schedule": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Schedule"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Saved draft schedule, never evidence of owner approval or automatic readiness."
           }
         },
         "additionalProperties": false
@@ -6010,6 +6230,91 @@
           }
         },
         "additionalProperties": false
+      },
+      "SourceFile": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sourceConnectorId",
+          "relativePath",
+          "name",
+          "mimeType",
+          "sizeBytes",
+          "isFolder"
+        ],
+        "properties": {
+          "sourceConnectorId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "fileId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "relativePath": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024,
+            "description": "Connector-root-relative authorized path usable in /media/import after server-side revalidation; never expose host absolute paths."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "mimeType": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "isFolder": {
+            "type": "boolean"
+          },
+          "modifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sourceRevision": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "SourceFileList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sourceConnectorId",
+          "items",
+          "pagination"
+        ],
+        "properties": {
+          "sourceConnectorId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SourceFile"
+            },
+            "maxItems": 100
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/Pagination"
+          }
+        }
       }
     }
   }
