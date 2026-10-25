@@ -230,6 +230,57 @@ try {
   assert.match(await page.locator('.qc-platform-caption').textContent(), /Наша новая публикация/);
   await page.screenshot({ path: 'test-results/p0-composer-variant-inherited-again.png', fullPage: false });
 
+  // D3b1b: selected VK recipient can use its own image order/subset without
+  // editing canonical attachments or the inherited two Telegram accounts.
+  await page.locator('#qc-variant-choice').selectOption(accounts[2].id);
+  assert.equal(await page.locator('#qc-media-variant').isVisible(), true,
+    'media variant controls appear for selected account after the first Save');
+  assert.equal(await page.locator('.qc-media-variant-row').count(), 2);
+  const baseImageOrder = db.prepare('SELECT id FROM media WHERE post_id=? ORDER BY sort_order,created_at')
+    .all(post.id).map((row) => row.id);
+  await page.locator('.qc-media-variant-row').nth(1)
+    .getByRole('button', { name: /Передвинуть.*раньше для аккаунта/ }).click();
+  assert.match(await page.locator('#qc-media-variant-note').textContent(), /Особый порядок/);
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  const mediaPlanRow = () => db.prepare('SELECT media_plan_json FROM target_renditions WHERE target_id=?')
+    .get(vkTarget)?.media_plan_json;
+  assert.deepEqual(JSON.parse(mediaPlanRow()), { version: 1,
+    mediaIds: [...baseImageOrder].reverse() },
+    'VK media plan stores target-only reversed media order');
+  let targetViews = (await page.evaluate(async (id) =>
+    (await (await fetch('/api/posts/' + encodeURIComponent(id) + '/platform-previews')).json()).previews,
+  post.id));
+  assert.deepEqual(targetViews.find((x) => x.accountId === accounts[2].id).media
+    .filter((x) => x.role !== 'poster').map((x) => x.id), [...baseImageOrder].reverse());
+  assert.deepEqual(targetViews.find((x) => x.accountId === accounts[0].id).media
+    .filter((x) => x.role !== 'poster').map((x) => x.id), baseImageOrder,
+    'other accounts still inherit canonical media');
+  await page.locator('#qc-platform-preview-load').click();
+  await page.locator('#qc-platform-preview-choice').selectOption(vkTarget);
+  await page.screenshot({ path: 'test-results/p0-composer-target-photo-order.png', fullPage: false });
+
+  await page.locator('.qc-media-variant-row input[type="checkbox"]').nth(1).uncheck();
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  assert.deepEqual(JSON.parse(mediaPlanRow()).mediaIds, [baseImageOrder[1]],
+    'excluding one photo uses exact chosen VK media ID');
+  targetViews = (await page.evaluate(async (id) =>
+    (await (await fetch('/api/posts/' + encodeURIComponent(id) + '/platform-previews')).json()).previews,
+  post.id));
+  assert.equal(targetViews.find((x) => x.accountId === accounts[2].id).contentFormat, 'IMAGE');
+  assert.equal(targetViews.find((x) => x.accountId === accounts[0].id).mediaCount, 2);
+
+  await page.locator('#qc-media-variant-reset').click();
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  assert.equal(mediaPlanRow(), null, 'reset removes custom media plan and restores inheritance');
+  assert.deepEqual(db.prepare('SELECT id FROM media WHERE post_id=? ORDER BY sort_order,created_at')
+    .all(post.id).map((row) => row.id), baseImageOrder,
+    'per-recipient photo order changes must never reorder canonical photos');
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM publication_events WHERE post_id=? AND event_type LIKE '%publish%'")
+    .get(post.id).n, 0, 'recipient media controls and Save never dispatch provider POSTs');
+
   // Media order remains editable after the initial save and must reach the server.
   const initialOrder = db.prepare('SELECT id FROM media WHERE post_id=? ORDER BY sort_order,created_at').all(post.id)
     .map((row) => row.id);
@@ -1401,6 +1452,7 @@ try {
       'test-results/p0-composer-video-mobile.png',
       'test-results/p0-composer-local-preview-desktop.png',
       'test-results/p0-composer-local-preview-mobile.png',
+      'test-results/p0-composer-target-photo-order.png',
       'test-results/p0-composer-per-account-text-variant.png',
       'test-results/p0-composer-variant-inherited-again.png',
       'test-results/p0-composer-platform-preview-desktop.png',
