@@ -5180,7 +5180,10 @@
               "type": "object",
               "required": [
                 "accountId",
-                "state"
+                "state",
+                "effectiveFormat",
+                "effectiveMedia",
+                "warnings"
               ],
               "properties": {
                 "accountId": {
@@ -5199,12 +5202,37 @@
                 "previewText": {
                   "type": "string",
                   "minLength": 0,
-                  "maxLength": 20000
+                  "maxLength": 20000,
+                  "description": "Actual resolved target-specific plain preview/caption, not generic working draft."
                 },
                 "errorCode": {
                   "type": "string",
                   "minLength": 1,
                   "maxLength": 80
+                },
+                "effectiveFormat": {
+                  "enum": [
+                    "TEXT_ONLY",
+                    "IMAGE",
+                    "CAROUSEL",
+                    "VIDEO",
+                    "VERTICAL_VIDEO",
+                    "STORY_SEQUENCE"
+                  ]
+                },
+                "effectiveMedia": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PreviewMedia"
+                  },
+                  "maxItems": 100
+                },
+                "warnings": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DowngradeWarning"
+                  },
+                  "maxItems": 30
                 }
               },
               "additionalProperties": false
@@ -5845,6 +5873,71 @@
           },
           "confirm": {
             "const": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "PreviewMedia": {
+        "type": "object",
+        "required": [
+          "mediaAssetId",
+          "sortOrder",
+          "mimeType"
+        ],
+        "properties": {
+          "mediaAssetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "sortOrder": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "mimeType": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "thumbnailMediaId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "width": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "height": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "durationMs": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "DowngradeWarning": {
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "pattern": "^[A-Z][A-Z0-9_]+$"
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
           }
         },
         "additionalProperties": false
