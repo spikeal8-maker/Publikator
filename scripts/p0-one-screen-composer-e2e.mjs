@@ -37,6 +37,15 @@ try {
   const desktop = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await desktop.newPage();
   const errors = [];
+  async function closeComposer() {
+    const acceptIfAsked = (dialog) => dialog.accept();
+    page.on('dialog', acceptIfAsked);
+    try {
+      await page.locator('#qc-close').click();
+    } finally {
+      page.off('dialog', acceptIfAsked);
+    }
+  }
   page.on('pageerror', (error) => errors.push(String(error)));
   await page.goto('http://127.0.0.1:18889/');
   await page.locator('#login-form:not(.hidden)').waitFor();
@@ -130,8 +139,7 @@ try {
   page.once('dialog', (dialog) => dialog.dismiss());
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('#qc-text').isVisible(), true, 'dismissed Escape preserves unsaved content');
-  page.once('dialog', (dialog) => dialog.accept());
-  await page.locator('#qc-close').click();
+  await closeComposer();
 
   // P1 regression: the confirmation for account A must never turn into a send to B,
   // even if the DOM is changed programmatically during a delayed /api/posts response.
@@ -176,8 +184,7 @@ try {
   assert.ok(interceptedPublish <= 1, 'publish-now must not be repeated automatically');
   await page.unroute('**/api/posts');
   await page.unroute('**/api/posts/*/publish-now');
-  page.once('dialog', (dialog) => dialog.accept());
-  await page.locator('#qc-close').click();
+  await closeComposer();
 
   // P2 regression: saved AT draft retry must preserve the project timezone and UTC instant.
   const projectId = id('prj');
@@ -222,8 +229,7 @@ try {
     id: atPost.id, schedule_timezone: 'Europe/Moscow',
     scheduled_at_utc: '2026-11-12T07:00:00.000Z'
   }, 'retry must patch same draft without UTC drift or duplicate');
-  page.once('dialog', (dialog) => dialog.accept());
-  await page.locator('#qc-close').click();
+  await closeComposer();
 
   // DST ambiguity must not silently choose an instant; an explicit user choice is required.
   const dstProjectId = id('prj');
@@ -248,8 +254,7 @@ try {
   const dstPost = db.prepare('SELECT schedule_timezone,scheduled_at_utc FROM posts WHERE project_id=?').get(dstProjectId);
   assert.equal(dstPost.schedule_timezone, 'America/New_York');
   assert.equal(dstPost.scheduled_at_utc, '2026-11-01T05:30:00.000Z');
-  page.once('dialog', (dialog) => dialog.accept());
-  await page.locator('#qc-close').click();
+  await closeComposer();
 
   assert.deepEqual(errors, []);
   await desktop.close();
