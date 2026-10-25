@@ -697,6 +697,44 @@ try {
     'reselect and save must create exactly one draft');
   await closeComposer();
 
+  // C1/P2: a definitive create validation failure cannot rewrite the
+  // recovery record as text-only and silently forget the selected MP4.
+  const beforeRejectedVideo = db.prepare('SELECT COUNT(*) n FROM posts').get().n;
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').fill('Проверка восстановления MP4 после отказа сервера');
+  await page.locator('#qc-video-file').setInputFiles([
+    { name: 'retry-after-reject.mp4', mimeType: 'video/mp4', buffer: mp4 }
+  ]);
+  await page.route('**/api/posts', async (route) => {
+    if (route.request().method() === 'POST') {
+      await route.fulfill({ status: 400, contentType: 'application/json',
+        body: JSON.stringify({ error: 'Неверное расписание' }) });
+    } else {
+      await route.continue();
+    }
+  });
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: /Неверное расписание/ }).waitFor({ timeout: 30000 });
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, beforeRejectedVideo);
+  await page.unroute('**/api/posts');
+  await page.reload();
+  await page.locator('#app:not(.hidden)').waitFor();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').waitFor();
+  assert.equal(await page.locator('#qc-text').inputValue(),
+    'Проверка восстановления MP4 после отказа сервера');
+  assert.equal(await page.locator('#qc-missing-video').isVisible(), true,
+    'definitive 4xx must retain video-required across refresh');
+  await page.locator('#qc-save').click();
+  assert.match(await page.locator('#qc-status').textContent(), /Снова выберите MP4/);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, beforeRejectedVideo);
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#qc-skip-recovered-video').click();
+  assert.equal(await page.locator('#qc-missing-video').isVisible(), false,
+    'operator can explicitly waive a missing MP4, not implicitly lose it');
+  await closeComposer();
+
   assert.deepEqual(errors, []);
   await desktop.close();
 
