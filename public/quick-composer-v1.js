@@ -352,9 +352,15 @@ export async function openQuickComposer() {
       mediaVariantList.replaceChildren();
       const photos = state.pending.filter((item) => item.uploaded && item.remoteId);
       const relevant = accountId && selectedIds().includes(accountId) &&
-        state.savedId && !state.video && photos.length > 0;
+        !state.video && state.pending.length > 0;
       mediaVariant.hidden = !relevant;
       if (!relevant) return;
+      if (!state.savedId || !photos.length) {
+        mediaVariantNote.textContent =
+          'Индивидуальный порядок фотографий становится доступен после сохранения черновика. Исходный порядок уже можно менять слева.';
+        mediaVariantReset.disabled = true;
+        return;
+      }
       const all = photos.map((item) => item.remoteId);
       const raw = state.mediaEdits.get(accountId);
       const selected = Array.isArray(raw) ? [...raw] : [...all];
@@ -785,6 +791,7 @@ export async function openQuickComposer() {
       });
       syncMediaInputs();
       updateCaptionPreview();
+      refreshMediaVariantControls();
     }
     function addFiles(files) {
       if (state.busy || state.finished || state.uncertainPublish) return;
