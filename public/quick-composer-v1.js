@@ -265,7 +265,9 @@ export async function openQuickComposer() {
         scheduleTimezone: state.restoredScheduleTimezone || projectTimezone(root.querySelector('#qc-project').value),
         ambiguousOffset: root.querySelector('#qc-ambiguous').value,
         accountIds: selectedIds(),
-        photoCount: state.pending.length
+        // Unattached files from a restored draft remain required across text,
+        // target and schedule edits, including another tab refresh.
+        photoCount: Math.max(state.pending.length, state.recoveryRequiredFiles)
       });
       root.querySelector('#qc-recovery-note').textContent = stored
         ? 'Текст и настройки временно сохранены в этой вкладке. Файлы после перезагрузки нужно выбрать заново.'
@@ -551,6 +553,11 @@ export async function openQuickComposer() {
         state.version = reordered.contentVersion;
         state.remoteMediaOrder = [...nextOrder];
       }
+      // The transient recovery requirement protects only the initial rebuild
+      // of a lost local media selection. Once all files are persisted, any
+      // server deduplication or later explicit deletion must not revive it.
+      state.recoveryRequiredFiles = 0;
+      updateMissingFilesNotice();
       return state.savedId;
     }
 
