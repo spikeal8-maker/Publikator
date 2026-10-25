@@ -1542,7 +1542,7 @@
     {
       "name": "publikator_preview_post",
       "title": "Предпросмотр без внешней отправки",
-      "description": "Предпросмотр без внешней отправки. Права и публикационная политика проверяются сервером. Не отправляйте секреты.",
+      "description": "Предпросмотр без внешней отправки. Права и публикационная политика проверяются сервером. Не отправляйте секреты. Не изменяет контент или получателей.",
       "restOperationId": "previewAgentPost",
       "restMethod": "POST",
       "restPath": "/api/agent/v1/posts/{postId}/preview",
@@ -1644,7 +1644,7 @@
         "additionalProperties": false
       },
       "annotations": {
-        "readOnlyHint": false,
+        "readOnlyHint": true,
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
@@ -1653,7 +1653,7 @@
     {
       "name": "publikator_preflight_post",
       "title": "Проверить готовность без отправки",
-      "description": "Проверить готовность без отправки. Права и публикационная политика проверяются сервером. Не отправляйте секреты.",
+      "description": "Проверить готовность без отправки. Права и публикационная политика проверяются сервером. Не отправляйте секреты. Не изменяет контент или получателей.",
       "restOperationId": "preflightAgentPost",
       "restMethod": "POST",
       "restPath": "/api/agent/v1/posts/{postId}/preflight",
@@ -1755,7 +1755,7 @@
         "additionalProperties": false
       },
       "annotations": {
-        "readOnlyHint": false,
+        "readOnlyHint": true,
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
