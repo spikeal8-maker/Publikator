@@ -336,6 +336,21 @@ try {
     'never pretend an unsaved photo survived a refresh');
   assert.match(await page.locator('#qc-status').textContent(), /Добавьте фотографии заново/);
   assert.equal(await page.locator('#qc-missing-media').isVisible(), true);
+  await page.locator('#qc-text').fill('Черновик на телефоне до перезагрузки — исправлен');
+  // A second interruption after editing text must not silently remove the
+  // outstanding photo requirement or rewrite the original timezone.
+  await page.reload();
+  await page.locator('#app:not(.hidden)').waitFor();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').waitFor();
+  assert.equal(await page.locator('#qc-text').inputValue(),
+    'Черновик на телефоне до перезагрузки — исправлен');
+  assert.equal(await page.locator('#qc-missing-media').isVisible(), true,
+    'second reload must retain missing-photo warning after text edits');
+  assert.match(await page.locator('#qc-missing-media-detail').textContent(), /1 фото/);
+  assert.match(await page.locator('#qc-timezone-note').textContent(), /Europe\/Moscow/);
+  await page.screenshot({ path: 'test-results/p0-composer-recovery-warning.png', fullPage: false });
   await page.locator('#qc-save').click();
   assert.match(await page.locator('#qc-status').textContent(), /Снова приложите фотографии/);
   assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, countBeforeRecovery,
@@ -349,7 +364,7 @@ try {
     .waitFor({ timeout: 30000 });
   const restoredSchedule = db.prepare(
     'SELECT id,schedule_mode,schedule_timezone,scheduled_at_utc FROM posts WHERE project_id=? AND title=?'
-  ).get(projectId, 'Черновик на телефоне до перезагрузки');
+  ).get(projectId, 'Черновик на телефоне до перезагрузки — исправлен');
   assert.ok(restoredSchedule?.id, 'restored content must create one server draft after explicit save');
   assert.equal(restoredSchedule.schedule_mode, 'AT');
   assert.equal(restoredSchedule.schedule_timezone, 'Europe/Moscow',
@@ -364,6 +379,42 @@ try {
   await page.locator('#qc-text').waitFor();
   assert.equal(await page.locator('#qc-text').inputValue(), '',
     'confirmed server save must clear tab recovery data');
+  await closeComposer();
+
+  // B2a: two recovered byte-identical photos count as two missing local files
+  // before save, but as one persisted server media ID after deduplication.
+  const dedupBefore = db.prepare('SELECT COUNT(*) n FROM posts').get().n;
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').fill('Восстановление одинаковых фотографий');
+  await page.locator('#qc-files').setInputFiles([
+    { name: 'lost-a.png', mimeType: 'image/png', buffer: image1 },
+    { name: 'lost-b.png', mimeType: 'image/png', buffer: image1 }
+  ]);
+  await page.reload();
+  await page.locator('#app:not(.hidden)').waitFor();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').waitFor();
+  assert.match(await page.locator('#qc-missing-media-detail').textContent(), /2 фото/,
+    'both missing files must be acknowledged before a first save');
+  await page.locator('#qc-files').setInputFiles([
+    { name: 'returned-a.png', mimeType: 'image/png', buffer: image1 },
+    { name: 'returned-b.png', mimeType: 'image/png', buffer: image1 }
+  ]);
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  const dedupRecoveredPost = db.prepare('SELECT id FROM posts ORDER BY rowid DESC LIMIT 1').get().id;
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, dedupBefore + 1);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM media WHERE post_id=?').get(dedupRecoveredPost).n, 1);
+  assert.equal(await page.locator('.qc-image').count(), 1);
+  assert.equal(await page.locator('#qc-missing-media').isVisible(), false,
+    'successful persistence retires original missing-media guard');
+  await page.locator('.qc-image button[aria-label^="Удалить"]').click();
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM media WHERE post_id=?').get(dedupRecoveredPost).n, 0,
+    'deliberate deletion after successful recovery must not be blocked by stale requirement');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, dedupBefore + 1);
   await closeComposer();
 
   // P1: once a server POST starts, session recovery must become uncertain
