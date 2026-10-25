@@ -1,0 +1,286 @@
+{
+  "contractId": "publikator.agent-access-presets",
+  "schemaVersion": 1,
+  "presetVersion": 1,
+  "status": "PLANNED_CONTRACT_NOT_DEPLOYED",
+  "defaultGrant": {
+    "presetId": "OBSERVER",
+    "publishMode": "DRAFT_ONLY",
+    "projectIds": [],
+    "accountIds": [],
+    "sourceConnectorIds": [],
+    "scopes": [],
+    "note": "Resource allowlists are empty until explicit owner grants; preset scopes do not bypass them."
+  },
+  "scopes": [
+    {
+      "id": "projects:read",
+      "label": "Читать доступные проекты"
+    },
+    {
+      "id": "accounts:read",
+      "label": "Читать безопасные сведения о разрешённых соцаккаунтах"
+    },
+    {
+      "id": "sources:read",
+      "label": "Читать разрешённые источники"
+    },
+    {
+      "id": "media:read",
+      "label": "Читать разрешённые метаданные медиа"
+    },
+    {
+      "id": "media:import",
+      "label": "Импортировать медиа из разрешённых источников"
+    },
+    {
+      "id": "posts:read",
+      "label": "Читать разрешённые публикации"
+    },
+    {
+      "id": "posts:write",
+      "label": "Создавать и изменять разрешённые черновики"
+    },
+    {
+      "id": "posts:preview",
+      "label": "Получать предпросмотр и preflight без публикации"
+    },
+    {
+      "id": "approval:request",
+      "label": "Передавать материал на редакционное рассмотрение"
+    },
+    {
+      "id": "schedule:write",
+      "label": "Запрашивать и отменять расписание в пределах политики"
+    },
+    {
+      "id": "publish:request",
+      "label": "Запрашивать разрешённую публикацию, без самостоятельного owner approval"
+    },
+    {
+      "id": "jobs:read",
+      "label": "Читать состояние разрешённых заданий"
+    },
+    {
+      "id": "events:read",
+      "label": "Читать только разрешённую историю событий"
+    }
+  ],
+  "publishModes": [
+    {
+      "id": "DRAFT_ONLY",
+      "label": "Не публиковать",
+      "description": "Черновики/предпросмотр; при scope approval:request допускается редакционное рассмотрение, но не внешняя отправка",
+      "individualOwnerApproval": false,
+      "automaticWithoutPerPostApproval": false
+    },
+    {
+      "id": "OWNER_APPROVAL",
+      "label": "Только после моего подтверждения",
+      "description": "Только утверждённый владельцем точный PublicationIntent",
+      "individualOwnerApproval": true,
+      "automaticWithoutPerPostApproval": false,
+      "requiresScopes": [
+        "approval:request",
+        "publish:request"
+      ]
+    },
+    {
+      "id": "PREAPPROVED_POLICY",
+      "label": "Автоматически по моим правилам",
+      "description": "Только внутри отдельной owner-approved policy с явно указанными ресурсами, форматами, лимитами, сроком",
+      "individualOwnerApproval": false,
+      "automaticWithoutPerPostApproval": true,
+      "requiresScopes": [
+        "approval:request",
+        "schedule:write",
+        "publish:request"
+      ],
+      "requiresExplicitPolicy": true
+    }
+  ],
+  "presets": [
+    {
+      "id": "OBSERVER",
+      "label": "Наблюдатель",
+      "description": "Только просмотр разрешённых материалов и статусов",
+      "can": [
+        "Просматривать выбранные проекты, аккаунты, публикации, статусы"
+      ],
+      "cannot": [
+        "Изменять материалы",
+        "Публиковать"
+      ],
+      "scopes": [
+        "projects:read",
+        "accounts:read",
+        "sources:read",
+        "media:read",
+        "posts:read",
+        "jobs:read",
+        "events:read"
+      ],
+      "allowedPublishModes": [
+        "DRAFT_ONLY"
+      ],
+      "scopeSource": "preset"
+    },
+    {
+      "id": "LIMITED",
+      "label": "Ограниченный",
+      "description": "Готовить материалы, импортировать медиа и направлять черновики на редакционное рассмотрение",
+      "can": [
+        "Создавать и менять разрешённые черновики",
+        "Работать с разрешёнными фотографиями",
+        "Запрашивать редакционную проверку"
+      ],
+      "cannot": [
+        "Отправлять публикации",
+        "Включать автоматическую отправку"
+      ],
+      "scopes": [
+        "projects:read",
+        "accounts:read",
+        "sources:read",
+        "media:read",
+        "posts:read",
+        "jobs:read",
+        "events:read",
+        "media:import",
+        "posts:write",
+        "posts:preview",
+        "approval:request"
+      ],
+      "allowedPublishModes": [
+        "DRAFT_ONLY"
+      ],
+      "scopeSource": "preset"
+    },
+    {
+      "id": "EXTENDED",
+      "label": "Расширенный",
+      "description": "Подготавливать расписание и запрашивать индивидуальное подтверждение отправки",
+      "can": [
+        "Готовить публикации и расписание",
+        "Запрашивать утверждение и отправку конкретного поста"
+      ],
+      "cannot": [
+        "Самостоятельно подтверждать отправку",
+        "Включать автопубликацию без владельца"
+      ],
+      "scopes": [
+        "projects:read",
+        "accounts:read",
+        "sources:read",
+        "media:read",
+        "posts:read",
+        "jobs:read",
+        "events:read",
+        "media:import",
+        "posts:write",
+        "posts:preview",
+        "approval:request",
+        "schedule:write",
+        "publish:request"
+      ],
+      "allowedPublishModes": [
+        "DRAFT_ONLY",
+        "OWNER_APPROVAL"
+      ],
+      "scopeSource": "preset"
+    },
+    {
+      "id": "FULL_CONTENT",
+      "label": "Полный",
+      "description": "Все неадминистративные функции публикации в выбранных проектах и аккаунтах",
+      "can": [
+        "Готовить контент, расписание и разрешённые публикации",
+        "Использовать предварительно утверждённую автоматизацию"
+      ],
+      "cannot": [
+        "Читать секреты и ключи",
+        "Менять права других ботов",
+        "Публиковать вне owner policy"
+      ],
+      "scopes": [
+        "projects:read",
+        "accounts:read",
+        "sources:read",
+        "media:read",
+        "posts:read",
+        "jobs:read",
+        "events:read",
+        "media:import",
+        "posts:write",
+        "posts:preview",
+        "approval:request",
+        "schedule:write",
+        "publish:request"
+      ],
+      "allowedPublishModes": [
+        "DRAFT_ONLY",
+        "OWNER_APPROVAL",
+        "PREAPPROVED_POLICY"
+      ],
+      "scopeSource": "preset"
+    },
+    {
+      "id": "CUSTOM",
+      "label": "Свой набор",
+      "description": "Индивидуальные scopes, выбранные владельцем",
+      "can": [
+        "Только отмеченные операции и ресурсы"
+      ],
+      "cannot": [
+        "Выходить за рамки owner policy",
+        "Получать административные секреты"
+      ],
+      "scopes": [],
+      "allowedPublishModes": [
+        "DRAFT_ONLY",
+        "OWNER_APPROVAL",
+        "PREAPPROVED_POLICY"
+      ],
+      "scopeSource": "owner-selection",
+      "modeRules": {
+        "OWNER_APPROVAL": {
+          "requires": [
+            "approval:request",
+            "publish:request"
+          ]
+        },
+        "PREAPPROVED_POLICY": {
+          "requires": [
+            "approval:request",
+            "schedule:write",
+            "publish:request"
+          ],
+          "ownerApprovedPolicy": true
+        }
+      }
+    }
+  ],
+  "ownerOnlyOperations": [
+    "grant:create",
+    "grant:preview-change",
+    "grant:update",
+    "grant:revoke",
+    "grant:pause",
+    "intent:approve",
+    "intent:reject",
+    "webhook:configure",
+    "credential:export",
+    "agent-token:rotate"
+  ],
+  "rules": {
+    "presetScoping": "Snapshot exact granted scope IDs and presetVersion. New scopes NEVER auto-added to existing grants.",
+    "noImplicitWildcard": true,
+    "allowlistsRequired": true,
+    "newAccountAutoInheritance": false,
+    "fullContentIsNotAdmin": true,
+    "fullContentIsNotProviderCapabilityFull": true,
+    "externalPublishNeedsExplicitConsentOrPreapprovedPolicy": true,
+    "executionTimeGrantRecheck": true,
+    "ownerOnlyGrants": true
+  }
+}

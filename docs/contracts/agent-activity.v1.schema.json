@@ -1,0 +1,344 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://publikator.local/schemas/agent-activity.v1.schema.json",
+  "title": "Publikator AgentActivityEvent v1 (planned persisted server-side contract)",
+  "description": "Only server-observed activity; never arbitrary model reasoning, request bodies, credentials or unredacted provider errors.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "eventId",
+    "sequence",
+    "occurredAtUtc",
+    "actorType",
+    "origin",
+    "requestId",
+    "operationId",
+    "stage",
+    "safeSummary"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "eventId": {
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._:-]+$"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "occurredAtUtc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "actorType": {
+      "enum": [
+        "AGENT",
+        "OWNER",
+        "SYSTEM"
+      ]
+    },
+    "agentId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "clientKind": {
+      "enum": [
+        "chatgpt",
+        "codex",
+        "claude",
+        "cursor",
+        "n8n",
+        "telegram_bot",
+        "max_bot",
+        "custom_mcp",
+        "rest_client",
+        "system"
+      ]
+    },
+    "origin": {
+      "enum": [
+        "MCP",
+        "REST",
+        "UI",
+        "SCHEDULER",
+        "RECOVERY",
+        "SYSTEM"
+      ]
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "correlationId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "operationId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-zA-Z][a-zA-Z0-9._:-]*$"
+    },
+    "jobId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "postId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "projectId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "targetAccountIds": {
+      "type": "array",
+      "maxItems": 100,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      }
+    },
+    "mediaCount": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2000
+    },
+    "revisedContentVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "grantVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "publicationIntentId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "stage": {
+      "enum": [
+        "REQUESTED",
+        "AUTHORIZED",
+        "STARTED",
+        "PROGRESS",
+        "WAITING_APPROVAL",
+        "SCHEDULED",
+        "COMPLETED",
+        "FAILED",
+        "DENIED",
+        "RECOVERY_NEEDED",
+        "POLICY_CHANGED",
+        "PAUSED",
+        "REVOKED",
+        "PARTIAL"
+      ]
+    },
+    "outcome": {
+      "enum": [
+        "PENDING",
+        "SUCCEEDED",
+        "PARTIAL",
+        "FAILED",
+        "DENIED",
+        "UNKNOWN"
+      ]
+    },
+    "safeSummary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 240
+    },
+    "errorCode": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^[A-Z][A-Z0-9_]+$"
+    },
+    "remediationCode": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^[A-Z][A-Z0-9_]+$"
+    },
+    "durationMs": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "progress": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "completed",
+        "total"
+      ],
+      "properties": {
+        "completed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "externalResults": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "state"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "state": {
+            "enum": [
+              "PENDING",
+              "PUBLISHING",
+              "PUBLISHED",
+              "FAILED",
+              "RETRY",
+              "RECOVERY_NEEDED",
+              "PARTIAL"
+            ]
+          },
+          "externalId": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "externalUrl": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 2048
+          },
+          "errorCode": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]+$",
+            "maxLength": 80
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "actorType": {
+            "const": "AGENT"
+          }
+        },
+        "required": [
+          "actorType"
+        ]
+      },
+      "then": {
+        "required": [
+          "agentId"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "stage": {
+            "const": "PROGRESS"
+          }
+        },
+        "required": [
+          "stage"
+        ]
+      },
+      "then": {
+        "required": [
+          "jobId",
+          "progress"
+        ]
+      }
+    }
+  ],
+  "examples": [
+    {
+      "schemaVersion": 1,
+      "eventId": "evt_a0_001",
+      "sequence": 1,
+      "occurredAtUtc": "2026-10-25T12:00:00Z",
+      "actorType": "AGENT",
+      "agentId": "agent_001",
+      "clientKind": "chatgpt",
+      "origin": "MCP",
+      "requestId": "req_001",
+      "operationId": "publikator_create_post",
+      "jobId": "job_001",
+      "postId": "post_001",
+      "projectId": "project_asa",
+      "stage": "COMPLETED",
+      "outcome": "SUCCEEDED",
+      "safeSummary": "Создан черновик №post_001",
+      "grantVersion": 1
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "evt_a0_002",
+      "sequence": 2,
+      "occurredAtUtc": "2026-10-25T12:00:01Z",
+      "actorType": "SYSTEM",
+      "origin": "SCHEDULER",
+      "requestId": "req_002",
+      "operationId": "scheduler.publish_target",
+      "jobId": "job_001",
+      "postId": "post_001",
+      "stage": "RECOVERY_NEEDED",
+      "outcome": "UNKNOWN",
+      "safeSummary": "Результат отправки в один канал не подтверждён",
+      "errorCode": "RECOVERY_NEEDED",
+      "externalResults": [
+        {
+          "accountId": "vk_group_01",
+          "state": "RECOVERY_NEEDED"
+        }
+      ]
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "evt_a0_003",
+      "sequence": 3,
+      "occurredAtUtc": "2026-10-25T12:00:02Z",
+      "actorType": "AGENT",
+      "agentId": "agent_001",
+      "origin": "REST",
+      "requestId": "req_003",
+      "operationId": "media.import",
+      "jobId": "job_003",
+      "stage": "PROGRESS",
+      "outcome": "PENDING",
+      "safeSummary": "Обработаны две из трёх фотографий",
+      "progress": {
+        "completed": 2,
+        "total": 3
+      }
+    }
+  ]
+}
