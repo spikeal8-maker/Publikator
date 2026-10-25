@@ -1,0 +1,1223 @@
+{
+  "contractId": "publikator.agent-contract-examples",
+  "schemaVersion": 1,
+  "status": "PLANNED_NOT_DEPLOYED",
+  "notes": "Synthetic examples only. Negative cases describe desired server behaviour, not already passing runtime tests.",
+  "cases": [
+    {
+      "id": "read-projects",
+      "operationId": "listAgentProjects",
+      "http": 200,
+      "request": {
+        "query": {
+          "limit": 50
+        }
+      },
+      "response": {
+        "items": [
+          {
+            "id": "project_asa",
+            "name": "ASA Lab",
+            "defaultTimezone": "Europe/Moscow"
+          }
+        ],
+        "pagination": {
+          "limit": 50,
+          "nextCursor": null
+        }
+      },
+      "expect": [
+        "no mutation",
+        "only allowlisted project IDs"
+      ]
+    },
+    {
+      "id": "read-accounts",
+      "operationId": "listAgentAccounts",
+      "http": 200,
+      "request": {
+        "query": {
+          "limit": 50
+        }
+      },
+      "response": {
+        "items": [
+          {
+            "id": "vk_001",
+            "platform": "vk",
+            "name": "ASA Lab VK",
+            "enabled": true,
+            "capability": {
+              "verified": true,
+              "formats": [
+                {
+                  "format": "TEXT_ONLY",
+                  "state": "READY"
+                },
+                {
+                  "format": "IMAGE",
+                  "state": "BLOCKED",
+                  "reasonCode": "UPLOAD_USER_CREDENTIAL_REQUIRED"
+                }
+              ]
+            }
+          }
+        ],
+        "pagination": {
+          "limit": 50,
+          "nextCursor": null
+        }
+      },
+      "expect": [
+        "provider capabilities never inferred from enabled alone"
+      ]
+    },
+    {
+      "id": "discover-drive-source-files",
+      "operationId": "listAgentSourceFiles",
+      "http": 200,
+      "request": {
+        "path": {
+          "sourceConnectorId": "source_drive_asa"
+        },
+        "query": {
+          "folderPath": "ASA_Lab",
+          "search": ".jpg",
+          "limit": 50
+        }
+      },
+      "response": {
+        "sourceConnectorId": "source_drive_asa",
+        "items": [
+          {
+            "sourceConnectorId": "source_drive_asa",
+            "fileId": "drive_file_first",
+            "relativePath": "ASA_Lab/first.jpg",
+            "name": "first.jpg",
+            "mimeType": "image/jpeg",
+            "sizeBytes": 125000,
+            "isFolder": false,
+            "sourceRevision": "rev_a"
+          },
+          {
+            "sourceConnectorId": "source_drive_asa",
+            "fileId": "drive_file_second",
+            "relativePath": "ASA_Lab/second.jpg",
+            "name": "second.jpg",
+            "mimeType": "image/jpeg",
+            "sizeBytes": 92000,
+            "isFolder": false,
+            "sourceRevision": "rev_b"
+          }
+        ],
+        "pagination": {
+          "limit": 50,
+          "nextCursor": null
+        }
+      },
+      "expect": [
+        "Scoped source file listing exposes connector-root-relative import paths",
+        "Every returned file rechecked for source ACL and path traversal before import",
+        "No local media copy or external publish from discovery"
+      ]
+    },
+    {
+      "id": "import-media-started",
+      "operationId": "importAgentMedia",
+      "http": 202,
+      "request": {
+        "idempotencyKey": "drive_import_001",
+        "body": {
+          "sourceConnectorId": "source_drive_asa",
+          "relativePaths": [
+            "ASA_Lab/first.jpg",
+            "ASA_Lab/second.jpg"
+          ]
+        }
+      },
+      "response": {
+        "jobId": "job_media_001",
+        "status": "QUEUED"
+      },
+      "expect": [
+        "No external provider POST",
+        "An operation receipt is persisted before 202 response"
+      ]
+    },
+    {
+      "id": "import-media-completed",
+      "operationId": "getAgentJob",
+      "http": 200,
+      "request": {
+        "path": {
+          "jobId": "job_media_001"
+        }
+      },
+      "response": {
+        "jobId": "job_media_001",
+        "operationId": "importAgentMedia",
+        "status": "SUCCEEDED",
+        "resultMediaAssetIds": [
+          "media_01",
+          "media_02"
+        ],
+        "resultMediaCount": 2
+      },
+      "expect": [
+        "The response returns media IDs in source order",
+        "CreateDraft.mediaAssetIds can reuse these IDs without global media list"
+      ]
+    },
+    {
+      "id": "create-image-draft",
+      "operationId": "createAgentPost",
+      "http": 201,
+      "request": {
+        "idempotencyKey": "create_20261025_A",
+        "body": {
+          "projectId": "project_asa",
+          "contentFormat": "IMAGE",
+          "bodyPlain": "",
+          "mediaAssetIds": [
+            "media_01",
+            "media_02"
+          ],
+          "targetAccountIds": [
+            "vk_001",
+            "telegram_001"
+          ],
+          "publicationKind": "FEED"
+        }
+      },
+      "response": {
+        "postId": "post_demo_001",
+        "projectId": "project_asa",
+        "contentVersion": 1,
+        "status": "DRAFT",
+        "editorialStage": "DRAFT",
+        "bodyPlain": "",
+        "targetAccountIds": [
+          "vk_001",
+          "telegram_001"
+        ],
+        "mediaAssetIds": [
+          "media_01",
+          "media_02"
+        ],
+        "publicationKind": "FEED",
+        "contentFormat": "IMAGE",
+        "targetTextOverrides": [],
+        "schedule": null
+      },
+      "expect": [
+        "no provider POST",
+        "explicit two targets only",
+        "photo-only body allowed"
+      ]
+    },
+    {
+      "id": "create-rich-scheduled-draft",
+      "operationId": "createAgentPost",
+      "http": 201,
+      "request": {
+        "idempotencyKey": "rich_scheduled_A",
+        "body": {
+          "projectId": "project_asa",
+          "publicationKind": "FEED",
+          "contentFormat": "CAROUSEL",
+          "internalTitle": "Робототехника — занятие",
+          "bodyPlain": "Сегодня мы собирали первых роботов.",
+          "bodyRich": {
+            "type": "doc",
+            "content": [
+              {
+                "type": "paragraph",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "Сегодня мы собирали первых роботов."
+                  }
+                ]
+              }
+            ]
+          },
+          "targetAccountIds": [
+            "vk_001",
+            "telegram_001"
+          ],
+          "mediaAssetIds": [
+            "media_01",
+            "media_02"
+          ],
+          "targetTextOverrides": [
+            {
+              "accountId": "vk_001",
+              "bodyPlain": "ВКонтакте: первые роботы на занятии."
+            }
+          ],
+          "schedule": {
+            "mode": "AT",
+            "atUtc": "2026-10-27T15:00:00Z",
+            "timezone": "Europe/Moscow"
+          }
+        }
+      },
+      "response": {
+        "postId": "post_demo_rich_001",
+        "contentVersion": 1,
+        "projectId": "project_asa",
+        "status": "DRAFT",
+        "editorialStage": "DRAFT",
+        "internalTitle": "Робототехника — занятие",
+        "publicationKind": "FEED",
+        "contentFormat": "CAROUSEL",
+        "bodyPlain": "Сегодня мы собирали первых роботов.",
+        "bodyRich": {
+          "type": "doc",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Сегодня мы собирали первых роботов."
+                }
+              ]
+            }
+          ]
+        },
+        "targetAccountIds": [
+          "vk_001",
+          "telegram_001"
+        ],
+        "mediaAssetIds": [
+          "media_01",
+          "media_02"
+        ],
+        "targetTextOverrides": [
+          {
+            "accountId": "vk_001",
+            "bodyPlain": "ВКонтакте: первые роботы на занятии."
+          }
+        ],
+        "schedule": {
+          "mode": "AT",
+          "atUtc": "2026-10-27T15:00:00Z",
+          "timezone": "Europe/Moscow"
+        }
+      },
+      "expect": [
+        "Persist original canonical rich text, per-account variants and schedule as DRAFT",
+        "No schedule execution or provider POST without owner approval"
+      ]
+    },
+    {
+      "id": "reload-rich-scheduled-draft",
+      "operationId": "getAgentPost",
+      "http": 200,
+      "request": {
+        "path": {
+          "postId": "post_demo_rich_001"
+        }
+      },
+      "response": {
+        "postId": "post_demo_rich_001",
+        "contentVersion": 1,
+        "projectId": "project_asa",
+        "status": "DRAFT",
+        "editorialStage": "DRAFT",
+        "internalTitle": "Робототехника — занятие",
+        "publicationKind": "FEED",
+        "contentFormat": "CAROUSEL",
+        "bodyPlain": "Сегодня мы собирали первых роботов.",
+        "bodyRich": {
+          "type": "doc",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Сегодня мы собирали первых роботов."
+                }
+              ]
+            }
+          ]
+        },
+        "targetAccountIds": [
+          "vk_001",
+          "telegram_001"
+        ],
+        "mediaAssetIds": [
+          "media_01",
+          "media_02"
+        ],
+        "targetTextOverrides": [
+          {
+            "accountId": "vk_001",
+            "bodyPlain": "ВКонтакте: первые роботы на занятии."
+          }
+        ],
+        "schedule": {
+          "mode": "AT",
+          "atUtc": "2026-10-27T15:00:00Z",
+          "timezone": "Europe/Moscow"
+        }
+      },
+      "expect": [
+        "Exact saved schedule, rich content, target overrides and original media order survive client reload",
+        "Read must never mutate targets or activate publishing"
+      ]
+    },
+    {
+      "id": "change-account-captions",
+      "operationId": "updateAgentPost",
+      "http": 200,
+      "request": {
+        "path": {
+          "postId": "post_demo_rich_001"
+        },
+        "idempotencyKey": "update_account_captions_v2",
+        "body": {
+          "expectedContentVersion": 1,
+          "targetTextOverrides": [
+            {
+              "accountId": "vk_001",
+              "bodyPlain": "Обновлённая подпись только для VK."
+            },
+            {
+              "accountId": "telegram_001",
+              "bodyPlain": "Новый текст отдельно для Telegram."
+            }
+          ]
+        }
+      },
+      "response": {
+        "postId": "post_demo_rich_001",
+        "contentVersion": 2,
+        "projectId": "project_asa",
+        "status": "DRAFT",
+        "editorialStage": "DRAFT",
+        "internalTitle": "Робототехника — занятие",
+        "publicationKind": "FEED",
+        "contentFormat": "CAROUSEL",
+        "bodyPlain": "Сегодня мы собирали первых роботов.",
+        "bodyRich": {
+          "type": "doc",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Сегодня мы собирали первых роботов."
+                }
+              ]
+            }
+          ]
+        },
+        "targetAccountIds": [
+          "vk_001",
+          "telegram_001"
+        ],
+        "mediaAssetIds": [
+          "media_01",
+          "media_02"
+        ],
+        "targetTextOverrides": [
+          {
+            "accountId": "vk_001",
+            "bodyPlain": "Обновлённая подпись только для VK."
+          },
+          {
+            "accountId": "telegram_001",
+            "bodyPlain": "Новый текст отдельно для Telegram."
+          }
+        ],
+        "schedule": {
+          "mode": "AT",
+          "atUtc": "2026-10-27T15:00:00Z",
+          "timezone": "Europe/Moscow"
+        }
+      },
+      "expect": [
+        "Two target captions are atomically replaced on contentVersion=1",
+        "Other draft fields remain persisted; zero provider POST"
+      ]
+    },
+    {
+      "id": "reload-changed-captions",
+      "operationId": "getAgentPost",
+      "http": 200,
+      "request": {
+        "path": {
+          "postId": "post_demo_rich_001"
+        }
+      },
+      "response": {
+        "postId": "post_demo_rich_001",
+        "contentVersion": 2,
+        "projectId": "project_asa",
+        "status": "DRAFT",
+        "editorialStage": "DRAFT",
+        "internalTitle": "Робототехника — занятие",
+        "publicationKind": "FEED",
+        "contentFormat": "CAROUSEL",
+        "bodyPlain": "Сегодня мы собирали первых роботов.",
+        "bodyRich": {
+          "type": "doc",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Сегодня мы собирали первых роботов."
+                }
+              ]
+            }
+          ]
+        },
+        "targetAccountIds": [
+          "vk_001",
+          "telegram_001"
+        ],
+        "mediaAssetIds": [
+          "media_01",
+          "media_02"
+        ],
+        "targetTextOverrides": [
+          {
+            "accountId": "vk_001",
+            "bodyPlain": "Обновлённая подпись только для VK."
+          },
+          {
+            "accountId": "telegram_001",
+            "bodyPlain": "Новый текст отдельно для Telegram."
+          }
+        ],
+        "schedule": {
+          "mode": "AT",
+          "atUtc": "2026-10-27T15:00:00Z",
+          "timezone": "Europe/Moscow"
+        }
+      },
+      "expect": [
+        "Reload shows newly saved target-specific captions and version 2"
+      ]
+    },
+    {
+      "id": "clear-account-captions",
+      "operationId": "updateAgentPost",
+      "http": 200,
+      "request": {
+        "path": {
+          "postId": "post_demo_rich_001"
+        },
+        "idempotencyKey": "clear_account_captions_v3",
+        "body": {
+          "expectedContentVersion": 2,
+          "targetTextOverrides": []
+        }
+      },
+      "response": {
+        "postId": "post_demo_rich_001",
+        "contentVersion": 3,
+        "projectId": "project_asa",
+        "status": "DRAFT",
+        "editorialStage": "DRAFT",
+        "internalTitle": "Робототехника — занятие",
+        "publicationKind": "FEED",
+        "contentFormat": "CAROUSEL",
+        "bodyPlain": "Сегодня мы собирали первых роботов.",
+        "bodyRich": {
+          "type": "doc",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Сегодня мы собирали первых роботов."
+                }
+              ]
+            }
+          ]
+        },
+        "targetAccountIds": [
+          "vk_001",
+          "telegram_001"
+        ],
+        "mediaAssetIds": [
+          "media_01",
+          "media_02"
+        ],
+        "targetTextOverrides": [],
+        "schedule": {
+          "mode": "AT",
+          "atUtc": "2026-10-27T15:00:00Z",
+          "timezone": "Europe/Moscow"
+        }
+      },
+      "expect": [
+        "Empty array removes all account overrides without changing recipients/media",
+        "Content version increments, post remains DRAFT"
+      ]
+    },
+    {
+      "id": "reload-cleared-captions",
+      "operationId": "getAgentPost",
+      "http": 200,
+      "request": {
+        "path": {
+          "postId": "post_demo_rich_001"
+        }
+      },
+      "response": {
+        "postId": "post_demo_rich_001",
+        "contentVersion": 3,
+        "projectId": "project_asa",
+        "status": "DRAFT",
+        "editorialStage": "DRAFT",
+        "internalTitle": "Робототехника — занятие",
+        "publicationKind": "FEED",
+        "contentFormat": "CAROUSEL",
+        "bodyPlain": "Сегодня мы собирали первых роботов.",
+        "bodyRich": {
+          "type": "doc",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Сегодня мы собирали первых роботов."
+                }
+              ]
+            }
+          ]
+        },
+        "targetAccountIds": [
+          "vk_001",
+          "telegram_001"
+        ],
+        "mediaAssetIds": [
+          "media_01",
+          "media_02"
+        ],
+        "targetTextOverrides": [],
+        "schedule": {
+          "mode": "AT",
+          "atUtc": "2026-10-27T15:00:00Z",
+          "timezone": "Europe/Moscow"
+        }
+      },
+      "expect": [
+        "Reload returns empty overrides, preserves main rich text and scheduled draft state"
+      ]
+    },
+    {
+      "id": "reject-empty-text-post",
+      "operationId": "createAgentPost",
+      "http": 400,
+      "request": {
+        "idempotencyKey": "bad_text_A",
+        "body": {
+          "projectId": "project_asa",
+          "contentFormat": "TEXT_ONLY",
+          "bodyPlain": "",
+          "targetAccountIds": [],
+          "mediaAssetIds": []
+        }
+      },
+      "response": {
+        "error": {
+          "code": "VALIDATION_ERROR",
+          "message": "Для текстовой публикации нужен текст"
+        },
+        "requestId": "req_demo_001",
+        "retryable": false
+      },
+      "expect": [
+        "HTTP 400",
+        "zero DB mutation",
+        "empty TEXT_ONLY forbidden"
+      ]
+    },
+    {
+      "id": "reject-stale-edit",
+      "operationId": "updateAgentPost",
+      "http": 409,
+      "request": {
+        "path": {
+          "postId": "post_demo_001"
+        },
+        "idempotencyKey": "edit_stale_A",
+        "body": {
+          "expectedContentVersion": 1,
+          "bodyPlain": "Изменение"
+        }
+      },
+      "response": {
+        "error": {
+          "code": "CONTENT_VERSION_CONFLICT",
+          "message": "Черновик уже был изменён"
+        },
+        "requestId": "req_demo_001",
+        "retryable": false
+      },
+      "expect": [
+        "no overwrite of newer content"
+      ]
+    },
+    {
+      "id": "reject-hidden-post",
+      "operationId": "getAgentPost",
+      "http": 403,
+      "request": {
+        "path": {
+          "postId": "post_forbidden_001"
+        }
+      },
+      "response": {
+        "error": {
+          "code": "RESOURCE_DENIED",
+          "message": "Нет доступа к запрошенной публикации"
+        },
+        "requestId": "req_demo_001",
+        "retryable": false
+      },
+      "expect": [
+        "no cross-agent read",
+        "404 may be used to conceal existence in live implementation"
+      ]
+    },
+    {
+      "id": "request-owner-approval",
+      "operationId": "requestAgentApproval",
+      "http": 200,
+      "request": {
+        "path": {
+          "postId": "post_demo_001"
+        },
+        "idempotencyKey": "approval_req_A",
+        "body": {
+          "expectedContentVersion": 1
+        }
+      },
+      "response": {
+        "postId": "post_demo_001",
+        "state": "WAITING_APPROVAL",
+        "intentId": "intent_demo_001",
+        "contentVersion": 1
+      },
+      "expect": [
+        "owner still must approve exact revision",
+        "0 provider POST"
+      ]
+    },
+    {
+      "id": "reject-unapproved-send",
+      "operationId": "publishAgentPost",
+      "http": 409,
+      "request": {
+        "path": {
+          "postId": "post_demo_001"
+        },
+        "idempotencyKey": "no_consent_A",
+        "body": {
+          "intentId": "intent_demo_001"
+        }
+      },
+      "response": {
+        "error": {
+          "code": "APPROVAL_REQUIRED",
+          "message": "Требуется подтверждение владельца"
+        },
+        "requestId": "req_demo_001",
+        "retryable": false
+      },
+      "expect": [
+        "0 provider POST even if READY in database"
+      ]
+    },
+    {
+      "id": "unknown-provider-outcome",
+      "operationId": "getAgentPublicationStatus",
+      "http": 200,
+      "request": {
+        "path": {
+          "postId": "post_demo_001"
+        }
+      },
+      "response": {
+        "postId": "post_demo_001",
+        "overall": "RECOVERY_NEEDED",
+        "targets": [
+          {
+            "accountId": "vk_001",
+            "state": "PUBLISHED",
+            "externalId": "1001",
+            "externalUrl": "https://vk.com/wall-100_1001"
+          },
+          {
+            "accountId": "telegram_001",
+            "state": "RECOVERY_NEEDED",
+            "errorCode": "OUTCOME_UNKNOWN"
+          }
+        ]
+      },
+      "expect": [
+        "no automatic retry on ambiguous external result",
+        "published target not resent"
+      ]
+    },
+    {
+      "id": "reject-stale-grant",
+      "operationId": "updateOwnerAgentGrant",
+      "http": 409,
+      "request": {
+        "path": {
+          "agentId": "agent_demo_001"
+        },
+        "idempotencyKey": "grant_bad_A",
+        "body": {
+          "expectedGrantVersion": 1,
+          "presetId": "LIMITED",
+          "publishMode": "DRAFT_ONLY",
+          "projectIds": [
+            "project_asa"
+          ],
+          "accountIds": [],
+          "sourceConnectorIds": []
+        }
+      },
+      "response": {
+        "error": {
+          "code": "GRANT_VERSION_CONFLICT",
+          "message": "Права изменились, обновите настройки"
+        },
+        "requestId": "req_demo_001",
+        "retryable": false
+      },
+      "expect": [
+        "admin session required",
+        "stale update does not grant new scopes"
+      ]
+    },
+    {
+      "id": "owner-readable-audit",
+      "operationId": "listOwnerAgentActivity",
+      "http": 200,
+      "request": {
+        "path": {
+          "agentId": "agent_demo_001"
+        },
+        "query": {
+          "limit": 50
+        }
+      },
+      "response": {
+        "items": [
+          {
+            "schemaVersion": 1,
+            "eventId": "evt_demo_001",
+            "sequence": 1,
+            "occurredAtUtc": "2026-10-25T12:00:00Z",
+            "actorType": "AGENT",
+            "agentId": "agent_demo_001",
+            "clientKind": "chatgpt",
+            "origin": "MCP",
+            "requestId": "req_001",
+            "operationId": "publikator_create_post",
+            "postId": "post_demo_001",
+            "stage": "COMPLETED",
+            "outcome": "SUCCEEDED",
+            "safeSummary": "Создан черновик №post_demo_001"
+          }
+        ],
+        "pagination": {
+          "limit": 50,
+          "nextCursor": null
+        }
+      },
+      "expect": [
+        "owner sees same event ID as agent-scoped history",
+        "no secret in audit"
+      ]
+    },
+    {
+      "id": "pure-preview",
+      "operationId": "previewAgentPost",
+      "http": 200,
+      "request": {
+        "path": {
+          "postId": "post_demo_001"
+        },
+        "idempotencyKey": "preview_A",
+        "body": {
+          "expectedContentVersion": 1
+        }
+      },
+      "response": {
+        "postId": "post_demo_001",
+        "contentVersion": 1,
+        "targets": [
+          {
+            "accountId": "vk_001",
+            "state": "READY",
+            "previewText": "Робототехника",
+            "effectiveFormat": "CAROUSEL",
+            "effectiveMedia": [
+              {
+                "mediaAssetId": "media_01",
+                "sortOrder": 0,
+                "mimeType": "image/jpeg",
+                "thumbnailMediaId": "thumb_media_01",
+                "width": 1024,
+                "height": 768
+              },
+              {
+                "mediaAssetId": "media_02",
+                "sortOrder": 1,
+                "mimeType": "image/jpeg",
+                "thumbnailMediaId": "thumb_media_02",
+                "width": 1024,
+                "height": 768
+              }
+            ],
+            "warnings": []
+          }
+        ]
+      },
+      "expect": [
+        "Preview does not mutate post, targets or content version",
+        "Effective target media IDs and original source order exposed",
+        "Thumbnail referenced by protected ID, not a public bearer URL",
+        "No provider POST"
+      ]
+    },
+    {
+      "id": "per-target-media-downgrade",
+      "operationId": "preflightAgentPost",
+      "http": 200,
+      "request": {
+        "path": {
+          "postId": "post_demo_001"
+        },
+        "idempotencyKey": "preflight_demo_A",
+        "body": {
+          "expectedContentVersion": 1
+        }
+      },
+      "response": {
+        "postId": "post_demo_001",
+        "contentVersion": 1,
+        "targets": [
+          {
+            "accountId": "vk_001",
+            "state": "READY",
+            "previewText": "Робототехника",
+            "effectiveFormat": "CAROUSEL",
+            "effectiveMedia": [
+              {
+                "mediaAssetId": "media_01",
+                "sortOrder": 0,
+                "mimeType": "image/jpeg",
+                "thumbnailMediaId": "thumb_media_01",
+                "width": 1024,
+                "height": 768
+              },
+              {
+                "mediaAssetId": "media_02",
+                "sortOrder": 1,
+                "mimeType": "image/jpeg",
+                "thumbnailMediaId": "thumb_media_02",
+                "width": 1024,
+                "height": 768
+              }
+            ],
+            "warnings": []
+          },
+          {
+            "accountId": "telegram_001",
+            "state": "READY",
+            "previewText": "Робототехника",
+            "effectiveFormat": "IMAGE",
+            "effectiveMedia": [
+              {
+                "mediaAssetId": "media_01",
+                "sortOrder": 0,
+                "mimeType": "image/jpeg",
+                "thumbnailMediaId": "thumb_media_01",
+                "width": 1024,
+                "height": 768
+              }
+            ],
+            "warnings": [
+              {
+                "code": "CAROUSEL_TO_IMAGE",
+                "message": "Синтетическая цель использует один снимок вместо карусели; проверьте реальную платформенную совместимость."
+              }
+            ]
+          }
+        ]
+      },
+      "expect": [
+        "Each platform has independent effective format and media ordering",
+        "Target-specific warnings and safe thumbnail IDs are visible",
+        "No provider POST; no state mutation",
+        "Synthetic capabilities, not claims about real VK/Telegram accounts"
+      ]
+    },
+    {
+      "id": "preview-auto-publish-policy",
+      "operationId": "previewOwnerAgentGrant",
+      "http": 200,
+      "request": {
+        "path": {
+          "agentId": "agent_demo_001"
+        },
+        "idempotencyKey": "owner_preview_policy_001",
+        "body": {
+          "expectedGrantVersion": 3,
+          "presetId": "FULL_CONTENT",
+          "publishMode": "PREAPPROVED_POLICY",
+          "scopeIds": [
+            "projects:read",
+            "accounts:read",
+            "sources:read",
+            "posts:read",
+            "posts:write",
+            "posts:preview",
+            "approval:request",
+            "schedule:write",
+            "publish:request",
+            "jobs:read"
+          ],
+          "projectIds": [
+            "project_asa"
+          ],
+          "accountIds": [
+            "vk_001",
+            "telegram_001"
+          ],
+          "sourceConnectorIds": [
+            "source_drive_asa"
+          ],
+          "preapprovedPolicy": {
+            "projectIds": [
+              "project_asa"
+            ],
+            "accountIds": [
+              "vk_001",
+              "telegram_001"
+            ],
+            "sourceConnectorIds": [
+              "source_drive_asa"
+            ],
+            "allowedFormats": [
+              "TEXT_ONLY",
+              "IMAGE",
+              "CAROUSEL"
+            ],
+            "dailyMax": 2,
+            "timezone": "Europe/Moscow",
+            "allowedWeekdays": [
+              1,
+              2,
+              3,
+              4,
+              5
+            ],
+            "allowedStartLocal": "09:00",
+            "allowedEndLocal": "19:00",
+            "expiresAt": "2026-11-30T23:00:00Z",
+            "approvedPolicyVersion": 2
+          },
+          "confirmElevation": true
+        }
+      },
+      "response": {
+        "before": {
+          "agentId": "agent_demo_001",
+          "presetId": "FULL_CONTENT",
+          "presetVersion": 1,
+          "scopeIds": [
+            "projects:read",
+            "accounts:read",
+            "sources:read",
+            "posts:read",
+            "posts:write",
+            "posts:preview",
+            "approval:request",
+            "schedule:write",
+            "publish:request",
+            "jobs:read"
+          ],
+          "projectIds": [
+            "project_asa"
+          ],
+          "accountIds": [
+            "vk_001",
+            "telegram_001"
+          ],
+          "sourceConnectorIds": [
+            "source_drive_asa"
+          ],
+          "status": "ACTIVE",
+          "grantVersion": 3,
+          "publishMode": "OWNER_APPROVAL"
+        },
+        "after": {
+          "agentId": "agent_demo_001",
+          "presetId": "FULL_CONTENT",
+          "presetVersion": 1,
+          "scopeIds": [
+            "projects:read",
+            "accounts:read",
+            "sources:read",
+            "posts:read",
+            "posts:write",
+            "posts:preview",
+            "approval:request",
+            "schedule:write",
+            "publish:request",
+            "jobs:read"
+          ],
+          "projectIds": [
+            "project_asa"
+          ],
+          "accountIds": [
+            "vk_001",
+            "telegram_001"
+          ],
+          "sourceConnectorIds": [
+            "source_drive_asa"
+          ],
+          "status": "ACTIVE",
+          "grantVersion": 4,
+          "publishMode": "PREAPPROVED_POLICY",
+          "preapprovedPolicy": {
+            "projectIds": [
+              "project_asa"
+            ],
+            "accountIds": [
+              "vk_001",
+              "telegram_001"
+            ],
+            "sourceConnectorIds": [
+              "source_drive_asa"
+            ],
+            "allowedFormats": [
+              "TEXT_ONLY",
+              "IMAGE",
+              "CAROUSEL"
+            ],
+            "dailyMax": 2,
+            "timezone": "Europe/Moscow",
+            "allowedWeekdays": [
+              1,
+              2,
+              3,
+              4,
+              5
+            ],
+            "allowedStartLocal": "09:00",
+            "allowedEndLocal": "19:00",
+            "expiresAt": "2026-11-30T23:00:00Z",
+            "approvedPolicyVersion": 2
+          }
+        },
+        "elevation": true,
+        "requiresOwnerConfirmation": true
+      },
+      "expect": [
+        "Exact before/after account IDs and approval limits owner-visible",
+        "approvedPolicyVersion 2 survives preview",
+        "No external provider POST"
+      ]
+    },
+    {
+      "id": "reload-saved-auto-publish-policy",
+      "operationId": "getOwnerAgent",
+      "http": 200,
+      "request": {
+        "path": {
+          "agentId": "agent_demo_001"
+        }
+      },
+      "response": {
+        "agentId": "agent_demo_001",
+        "name": "ChatGPT — ASA Lab",
+        "clientKind": "chatgpt",
+        "status": "ACTIVE",
+        "grant": {
+          "agentId": "agent_demo_001",
+          "presetId": "FULL_CONTENT",
+          "presetVersion": 1,
+          "scopeIds": [
+            "projects:read",
+            "accounts:read",
+            "sources:read",
+            "posts:read",
+            "posts:write",
+            "posts:preview",
+            "approval:request",
+            "schedule:write",
+            "publish:request",
+            "jobs:read"
+          ],
+          "projectIds": [
+            "project_asa"
+          ],
+          "accountIds": [
+            "vk_001",
+            "telegram_001"
+          ],
+          "sourceConnectorIds": [
+            "source_drive_asa"
+          ],
+          "status": "ACTIVE",
+          "grantVersion": 4,
+          "publishMode": "PREAPPROVED_POLICY",
+          "preapprovedPolicy": {
+            "projectIds": [
+              "project_asa"
+            ],
+            "accountIds": [
+              "vk_001",
+              "telegram_001"
+            ],
+            "sourceConnectorIds": [
+              "source_drive_asa"
+            ],
+            "allowedFormats": [
+              "TEXT_ONLY",
+              "IMAGE",
+              "CAROUSEL"
+            ],
+            "dailyMax": 2,
+            "timezone": "Europe/Moscow",
+            "allowedWeekdays": [
+              1,
+              2,
+              3,
+              4,
+              5
+            ],
+            "allowedStartLocal": "09:00",
+            "allowedEndLocal": "19:00",
+            "expiresAt": "2026-11-30T23:00:00Z",
+            "approvedPolicyVersion": 2
+          }
+        },
+        "lastUsedAt": "2026-10-25T12:45:00Z"
+      },
+      "expect": [
+        "Owner-only get after reload returns exact saved auto rules and version",
+        "No provider/API tokens in response"
+      ]
+    }
+  ]
+}

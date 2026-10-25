@@ -1,0 +1,3764 @@
+{
+  "contractId": "publikator.mcp-tools",
+  "schemaVersion": 1,
+  "status": "PLANNED_NOT_DEPLOYED",
+  "protocolVersion": "2026-07-28",
+  "notes": {
+    "toolsRequireActiveAgentGrant": true,
+    "toolsListScopedCacheBy": "agentId+grantVersion+protocolVersion",
+    "recheckEveryToolCall": true,
+    "ownerOnlyOperationsNeverExposed": true,
+    "authorizationChallenge": "_meta['mcp/www_authenticate'] plus OAuth Protected Resource Metadata (A3 live proof)",
+    "legacy": "Older handshake clients only by explicit verified compatibility; agent bearer never grants admin cookie"
+  },
+  "tools": [
+    {
+      "name": "publikator_get_capabilities",
+      "title": "Узнать мои разрешённые возможности",
+      "description": "Узнать мои разрешённые возможности. Права и публикационная политика проверяются сервером. Не отправляйте секреты.",
+      "restOperationId": "getAgentCapabilities",
+      "restMethod": "GET",
+      "restPath": "/api/agent/v1/capabilities",
+      "requiredScopes": [],
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": []
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "agentId",
+          "presetId",
+          "publishMode",
+          "grantVersion",
+          "scopeIds",
+          "projectIds",
+          "accountIds",
+          "sourceConnectorIds"
+        ],
+        "properties": {
+          "agentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "presetId": {
+            "enum": [
+              "OBSERVER",
+              "LIMITED",
+              "EXTENDED",
+              "FULL_CONTENT",
+              "CUSTOM"
+            ]
+          },
+          "publishMode": {
+            "enum": [
+              "DRAFT_ONLY",
+              "OWNER_APPROVAL",
+              "PREAPPROVED_POLICY"
+            ]
+          },
+          "grantVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "scopeIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            },
+            "minItems": 0,
+            "maxItems": 30,
+            "uniqueItems": true
+          },
+          "projectIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            },
+            "minItems": 0,
+            "maxItems": 100,
+            "uniqueItems": true
+          },
+          "accountIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            },
+            "minItems": 0,
+            "maxItems": 100,
+            "uniqueItems": true
+          },
+          "sourceConnectorIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            },
+            "minItems": 0,
+            "maxItems": 100,
+            "uniqueItems": true
+          },
+          "blockedReasons": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300
+            },
+            "minItems": 0,
+            "maxItems": 100
+          }
+        },
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "publikator_list_projects",
+      "title": "Список доступных проектов",
+      "description": "Список доступных проектов. Права и публикационная политика проверяются сервером. Не отправляйте секреты.",
+      "restOperationId": "listAgentProjects",
+      "restMethod": "GET",
+      "restPath": "/api/agent/v1/projects",
+      "requiredScopes": [
+        "projects:read"
+      ],
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "projects:read"
+          ]
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "items",
+          "pagination"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "name"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9._:-]+$"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160
+                },
+                "defaultTimezone": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                }
+              },
+              "additionalProperties": false
+            },
+            "minItems": 0,
+            "maxItems": 100
+          },
+          "pagination": {
+            "type": "object",
+            "required": [
+              "limit",
+              "nextCursor"
+            ],
+            "properties": {
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "publikator_list_accounts",
+      "title": "Выбрать конкретные разрешённые аккаунты",
+      "description": "Выбрать конкретные разрешённые аккаунты. Права и публикационная политика проверяются сервером. Не отправляйте секреты.",
+      "restOperationId": "listAgentAccounts",
+      "restMethod": "GET",
+      "restPath": "/api/agent/v1/accounts",
+      "requiredScopes": [
+        "accounts:read"
+      ],
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "accounts:read"
+          ]
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "items",
+          "pagination"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "platform",
+                "name",
+                "enabled",
+                "capability"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9._:-]+$"
+                },
+                "platform": {
+                  "enum": [
+                    "vk",
+                    "telegram",
+                    "max",
+                    "instagram"
+                  ]
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "capability": {
+                  "type": "object",
+                  "required": [
+                    "verified",
+                    "formats"
+                  ],
+                  "properties": {
+                    "verified": {
+                      "type": "boolean"
+                    },
+                    "formats": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "format",
+                          "state"
+                        ],
+                        "properties": {
+                          "format": {
+                            "enum": [
+                              "TEXT_ONLY",
+                              "IMAGE",
+                              "CAROUSEL",
+                              "VIDEO",
+                              "VERTICAL_VIDEO",
+                              "STORY_SEQUENCE"
+                            ]
+                          },
+                          "state": {
+                            "enum": [
+                              "READY",
+                              "BLOCKED",
+                              "UNKNOWN"
+                            ]
+                          },
+                          "reasonCode": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80
+                          }
+                        },
+                        "additionalProperties": false
+                      },
+                      "minItems": 0,
+                      "maxItems": 16
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            },
+            "minItems": 0,
+            "maxItems": 100
+          },
+          "pagination": {
+            "type": "object",
+            "required": [
+              "limit",
+              "nextCursor"
+            ],
+            "properties": {
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "publikator_list_sources",
+      "title": "Посмотреть разрешённые источники",
+      "description": "Посмотреть разрешённые источники. Права и публикационная политика проверяются сервером. Не отправляйте секреты.",
+      "restOperationId": "listAgentSources",
+      "restMethod": "GET",
+      "restPath": "/api/agent/v1/sources",
+      "requiredScopes": [
+        "sources:read"
+      ],
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "sources:read"
+          ]
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "items",
+          "pagination"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "type",
+                "name"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9._:-]+$"
+                },
+                "type": {
+                  "enum": [
+                    "google_drive",
+                    "google_sheets",
+                    "yandex_disk",
+                    "local"
+                  ]
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160
+                },
+                "rootLabel": {
+                  "type": "string",
+                  "minLength": 0,
+                  "maxLength": 160
+                }
+              },
+              "additionalProperties": false
+            },
+            "minItems": 0,
+            "maxItems": 100
+          },
+          "pagination": {
+            "type": "object",
+            "required": [
+              "limit",
+              "nextCursor"
+            ],
+            "properties": {
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "publikator_list_source_files",
+      "title": "Найти файлы в разрешённой папке источника",
+      "description": "Список разрешённых файлов Google Drive/Яндекс Диска по конкретному источнику и относительной папке. Возвращает безопасные root-relative пути, пригодные для последующего импорта, не раскрывая ключи.",
+      "restOperationId": "listAgentSourceFiles",
+      "restMethod": "GET",
+      "restPath": "/api/agent/v1/sources/{sourceConnectorId}/files",
+      "requiredScopes": [
+        "sources:read"
+      ],
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "sources:read"
+          ]
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sourceConnectorId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "folderPath": {
+            "type": "string",
+            "maxLength": 1024,
+            "description": "Folder within granted connector root, never absolute host path."
+          },
+          "search": {
+            "type": "string",
+            "maxLength": 160
+          },
+          "mimeType": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "required": [
+          "sourceConnectorId"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sourceConnectorId",
+          "items",
+          "pagination"
+        ],
+        "properties": {
+          "sourceConnectorId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "sourceConnectorId",
+                "relativePath",
+                "name",
+                "mimeType",
+                "sizeBytes",
+                "isFolder"
+              ],
+              "properties": {
+                "sourceConnectorId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9._:-]+$"
+                },
+                "fileId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9._:-]+$"
+                },
+                "relativePath": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024,
+                  "description": "Connector-root-relative authorized path usable in /media/import after server-side revalidation; never expose host absolute paths."
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 255
+                },
+                "mimeType": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "sizeBytes": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "isFolder": {
+                  "type": "boolean"
+                },
+                "modifiedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "sourceRevision": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              }
+            },
+            "maxItems": 100
+          },
+          "pagination": {
+            "type": "object",
+            "required": [
+              "limit",
+              "nextCursor"
+            ],
+            "properties": {
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "publikator_search_media",
+      "title": "Найти разрешённые фотографии и видео",
+      "description": "Найти разрешённые фотографии и видео. Права и публикационная политика проверяются сервером. Не отправляйте секреты.",
+      "restOperationId": "listAgentMedia",
+      "restMethod": "GET",
+      "restPath": "/api/agent/v1/media",
+      "requiredScopes": [
+        "media:read"
+      ],
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "media:read"
+          ]
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "items",
+          "pagination"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "mimeType",
+                "sizeBytes",
+                "sha256"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9._:-]+$"
+                },
+                "mimeType": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "sizeBytes": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "sortOrder": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "originalName": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160
+                }
+              },
+              "additionalProperties": false
+            },
+            "minItems": 0,
+            "maxItems": 100
+          },
+          "pagination": {
+            "type": "object",
+            "required": [
+              "limit",
+              "nextCursor"
+            ],
+            "properties": {
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "publikator_import_media",
+      "title": "Импортировать материалы из разрешённого источника",
+      "description": "Импортировать материалы из разрешённого источника. Права и публикационная политика проверяются сервером. Не отправляйте секреты.",
+      "restOperationId": "importAgentMedia",
+      "restMethod": "POST",
+      "restPath": "/api/agent/v1/media/import",
+      "requiredScopes": [
+        "media:import"
+      ],
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "media:import"
+          ]
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "sourceConnectorId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "relativePaths": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            },
+            "minItems": 1,
+            "maxItems": 100
+          }
+        },
+        "required": [
+          "idempotencyKey",
+          "sourceConnectorId",
+          "relativePaths"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "jobId",
+          "status"
+        ],
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "status": {
+            "enum": [
+              "QUEUED",
+              "RUNNING"
+            ]
+          },
+          "postId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "publikator_list_posts",
+      "title": "Прочитать разрешённые публикации",
+      "description": "Прочитать разрешённые публикации. Права и публикационная политика проверяются сервером. Не отправляйте секреты.",
+      "restOperationId": "listAgentPosts",
+      "restMethod": "GET",
+      "restPath": "/api/agent/v1/posts",
+      "requiredScopes": [
+        "posts:read"
+      ],
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "posts:read"
+          ]
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "items",
+          "pagination"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "postId",
+                "contentVersion",
+                "status",
+                "targetAccountIds",
+                "mediaAssetIds",
+                "projectId",
+                "contentFormat",
+                "publicationKind",
+                "bodyPlain",
+                "targetTextOverrides",
+                "schedule"
+              ],
+              "properties": {
+                "postId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9._:-]+$"
+                },
+                "contentVersion": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "status": {
+                  "enum": [
+                    "DRAFT",
+                    "READY",
+                    "PUBLISHING",
+                    "PUBLISHED",
+                    "PARTIAL",
+                    "FAILED"
+                  ]
+                },
+                "editorialStage": {
+                  "enum": [
+                    "IDEA",
+                    "DRAFT",
+                    "IN_REVIEW",
+                    "APPROVED",
+                    "ARCHIVED",
+                    "TRASHED"
+                  ]
+                },
+                "internalTitle": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160
+                },
+                "bodyPlain": {
+                  "type": "string",
+                  "minLength": 0,
+                  "maxLength": 20000
+                },
+                "targetAccountIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9._:-]+$"
+                  },
+                  "minItems": 0,
+                  "maxItems": 100,
+                  "uniqueItems": true
+                },
+                "mediaAssetIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9._:-]+$"
+                  },
+                  "minItems": 0,
+                  "maxItems": 100,
+                  "uniqueItems": true
+                },
+                "projectId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9._:-]+$"
+                },
+                "contentFormat": {
+                  "enum": [
+                    "TEXT_ONLY",
+                    "IMAGE",
+                    "CAROUSEL",
+                    "VIDEO"
+                  ]
+                },
+                "publicationKind": {
+                  "enum": [
+                    "FEED",
+                    "SHORT",
+                    "STORY"
+                  ]
+                },
+                "bodyRich": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "description": "Saved canonical rich text if provided; not compiled platform output."
+                },
+                "targetTextOverrides": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "accountId",
+                      "bodyPlain"
+                    ],
+                    "properties": {
+                      "accountId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                        "pattern": "^[A-Za-z0-9._:-]+$"
+                      },
+                      "bodyPlain": {
+                        "type": "string",
+                        "minLength": 0,
+                        "maxLength": 20000
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "minItems": 0,
+                  "maxItems": 100,
+                  "description": "Saved account-specific text overrides, not platform preview."
+                },
+                "schedule": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "mode"
+                      ],
+                      "properties": {
+                        "mode": {
+                          "enum": [
+                            "MANUAL",
+                            "AT",
+                            "QUEUE"
+                          ]
+                        },
+                        "atUtc": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "timezone": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 100
+                        }
+                      },
+                      "additionalProperties": false,
+                      "allOf": [
+                        {
+                          "if": {
+                            "properties": {
+                              "mode": {
+                                "const": "AT"
+                              }
+                            },
+                            "required": [
+                              "mode"
+                            ]
+                          },
+                          "then": {
+                            "required": [
+                              "atUtc",
+                              "timezone"
+                            ]
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Saved draft schedule, never evidence of owner approval or automatic readiness."
+                }
+              },
+              "additionalProperties": false
+            },
+            "minItems": 0,
+            "maxItems": 100
+          },
+          "pagination": {
+            "type": "object",
+            "required": [
+              "limit",
+              "nextCursor"
+            ],
+            "properties": {
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "publikator_get_post",
+      "title": "Прочитать разрешённую публикацию",
+      "description": "Прочитать разрешённую публикацию. Права и публикационная политика проверяются сервером. Не отправляйте секреты.",
+      "restOperationId": "getAgentPost",
+      "restMethod": "GET",
+      "restPath": "/api/agent/v1/posts/{postId}",
+      "requiredScopes": [
+        "posts:read"
+      ],
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "posts:read"
+          ]
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          }
+        },
+        "required": [
+          "postId"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "postId",
+          "contentVersion",
+          "status",
+          "targetAccountIds",
+          "mediaAssetIds",
+          "projectId",
+          "contentFormat",
+          "publicationKind",
+          "bodyPlain",
+          "targetTextOverrides",
+          "schedule"
+        ],
+        "properties": {
+          "postId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "contentVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "status": {
+            "enum": [
+              "DRAFT",
+              "READY",
+              "PUBLISHING",
+              "PUBLISHED",
+              "PARTIAL",
+              "FAILED"
+            ]
+          },
+          "editorialStage": {
+            "enum": [
+              "IDEA",
+              "DRAFT",
+              "IN_REVIEW",
+              "APPROVED",
+              "ARCHIVED",
+              "TRASHED"
+            ]
+          },
+          "internalTitle": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "bodyPlain": {
+            "type": "string",
+            "minLength": 0,
+            "maxLength": 20000
+          },
+          "targetAccountIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            },
+            "minItems": 0,
+            "maxItems": 100,
+            "uniqueItems": true
+          },
+          "mediaAssetIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            },
+            "minItems": 0,
+            "maxItems": 100,
+            "uniqueItems": true
+          },
+          "projectId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "contentFormat": {
+            "enum": [
+              "TEXT_ONLY",
+              "IMAGE",
+              "CAROUSEL",
+              "VIDEO"
+            ]
+          },
+          "publicationKind": {
+            "enum": [
+              "FEED",
+              "SHORT",
+              "STORY"
+            ]
+          },
+          "bodyRich": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Saved canonical rich text if provided; not compiled platform output."
+          },
+          "targetTextOverrides": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "accountId",
+                "bodyPlain"
+              ],
+              "properties": {
+                "accountId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9._:-]+$"
+                },
+                "bodyPlain": {
+                  "type": "string",
+                  "minLength": 0,
+                  "maxLength": 20000
+                }
+              },
+              "additionalProperties": false
+            },
+            "minItems": 0,
+            "maxItems": 100,
+            "description": "Saved account-specific text overrides, not platform preview."
+          },
+          "schedule": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "mode"
+                ],
+                "properties": {
+                  "mode": {
+                    "enum": [
+                      "MANUAL",
+                      "AT",
+                      "QUEUE"
+                    ]
+                  },
+                  "atUtc": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "timezone": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  }
+                },
+                "additionalProperties": false,
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "mode": {
+                          "const": "AT"
+                        }
+                      },
+                      "required": [
+                        "mode"
+                      ]
+                    },
+                    "then": {
+                      "required": [
+                        "atUtc",
+                        "timezone"
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Saved draft schedule, never evidence of owner approval or automatic readiness."
+          }
+        },
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "publikator_create_post",
+      "title": "Создать черновик без внешней отправки",
+      "description": "Создать черновик без внешней отправки. Права и публикационная политика проверяются сервером. Не отправляйте секреты.",
+      "restOperationId": "createAgentPost",
+      "restMethod": "POST",
+      "restPath": "/api/agent/v1/posts",
+      "requiredScopes": [
+        "posts:write"
+      ],
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "posts:write"
+          ]
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "projectId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "contentFormat": {
+            "enum": [
+              "TEXT_ONLY",
+              "IMAGE",
+              "CAROUSEL",
+              "VIDEO"
+            ]
+          },
+          "publicationKind": {
+            "enum": [
+              "FEED",
+              "SHORT",
+              "STORY"
+            ]
+          },
+          "bodyPlain": {
+            "type": "string",
+            "minLength": 0,
+            "maxLength": 20000
+          },
+          "bodyRich": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "internalTitle": {
+            "type": "string",
+            "minLength": 0,
+            "maxLength": 160
+          },
+          "targetAccountIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            },
+            "minItems": 0,
+            "maxItems": 100,
+            "uniqueItems": true
+          },
+          "mediaAssetIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            },
+            "minItems": 0,
+            "maxItems": 100,
+            "uniqueItems": true
+          },
+          "targetTextOverrides": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "accountId",
+                "bodyPlain"
+              ],
+              "properties": {
+                "accountId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9._:-]+$"
+                },
+                "bodyPlain": {
+                  "type": "string",
+                  "minLength": 0,
+                  "maxLength": 20000
+                }
+              },
+              "additionalProperties": false
+            },
+            "minItems": 0,
+            "maxItems": 100
+          },
+          "schedule": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "mode"
+                ],
+                "properties": {
+                  "mode": {
+                    "enum": [
+                      "MANUAL",
+                      "AT",
+                      "QUEUE"
+                    ]
+                  },
+                  "atUtc": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "timezone": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  }
+                },
+                "additionalProperties": false,
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "mode": {
+                          "const": "AT"
+                        }
+                      },
+                      "required": [
+                        "mode"
+                      ]
+                    },
+                    "then": {
+                      "required": [
+                        "atUtc",
+                        "timezone"
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "idempotencyKey",
+          "projectId",
+          "contentFormat",
+          "targetAccountIds",
+          "mediaAssetIds"
+        ],
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "contentFormat": {
+                  "const": "TEXT_ONLY"
+                }
+              },
+              "required": [
+                "contentFormat"
+              ]
+            },
+            "then": {
+              "required": [
+                "bodyPlain"
+              ],
+              "properties": {
+                "bodyPlain": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 20000
+                },
+                "mediaAssetIds": {
+                  "type": "array",
+                  "maxItems": 0
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "contentFormat": {
+                  "enum": [
+                    "IMAGE",
+                    "CAROUSEL",
+                    "VIDEO"
+                  ]
+                }
+              },
+              "required": [
+                "contentFormat"
+              ]
+            },
+            "then": {
+              "properties": {
+                "mediaAssetIds": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 100
+                }
+              }
+            }
+          }
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "postId",
+          "contentVersion",
+          "status",
+          "targetAccountIds",
+          "mediaAssetIds",
+          "projectId",
+          "contentFormat",
+          "publicationKind",
+          "bodyPlain",
+          "targetTextOverrides",
+          "schedule"
+        ],
+        "properties": {
+          "postId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "contentVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "status": {
+            "enum": [
+              "DRAFT",
+              "READY",
+              "PUBLISHING",
+              "PUBLISHED",
+              "PARTIAL",
+              "FAILED"
+            ]
+          },
+          "editorialStage": {
+            "enum": [
+              "IDEA",
+              "DRAFT",
+              "IN_REVIEW",
+              "APPROVED",
+              "ARCHIVED",
+              "TRASHED"
+            ]
+          },
+          "internalTitle": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "bodyPlain": {
+            "type": "string",
+            "minLength": 0,
+            "maxLength": 20000
+          },
+          "targetAccountIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            },
+            "minItems": 0,
+            "maxItems": 100,
+            "uniqueItems": true
+          },
+          "mediaAssetIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            },
+            "minItems": 0,
+            "maxItems": 100,
+            "uniqueItems": true
+          },
+          "projectId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "contentFormat": {
+            "enum": [
+              "TEXT_ONLY",
+              "IMAGE",
+              "CAROUSEL",
+              "VIDEO"
+            ]
+          },
+          "publicationKind": {
+            "enum": [
+              "FEED",
+              "SHORT",
+              "STORY"
+            ]
+          },
+          "bodyRich": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Saved canonical rich text if provided; not compiled platform output."
+          },
+          "targetTextOverrides": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "accountId",
+                "bodyPlain"
+              ],
+              "properties": {
+                "accountId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9._:-]+$"
+                },
+                "bodyPlain": {
+                  "type": "string",
+                  "minLength": 0,
+                  "maxLength": 20000
+                }
+              },
+              "additionalProperties": false
+            },
+            "minItems": 0,
+            "maxItems": 100,
+            "description": "Saved account-specific text overrides, not platform preview."
+          },
+          "schedule": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "mode"
+                ],
+                "properties": {
+                  "mode": {
+                    "enum": [
+                      "MANUAL",
+                      "AT",
+                      "QUEUE"
+                    ]
+                  },
+                  "atUtc": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "timezone": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  }
+                },
+                "additionalProperties": false,
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "mode": {
+                          "const": "AT"
+                        }
+                      },
+                      "required": [
+                        "mode"
+                      ]
+                    },
+                    "then": {
+                      "required": [
+                        "atUtc",
+                        "timezone"
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Saved draft schedule, never evidence of owner approval or automatic readiness."
+          }
+        },
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "publikator_update_post",
+      "title": "Изменить разрешённый черновик",
+      "description": "Изменить разрешённый черновик. Права и публикационная политика проверяются сервером. Не отправляйте секреты.",
+      "restOperationId": "updateAgentPost",
+      "restMethod": "PATCH",
+      "restPath": "/api/agent/v1/posts/{postId}",
+      "requiredScopes": [
+        "posts:write"
+      ],
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "posts:write"
+          ]
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "expectedContentVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "bodyPlain": {
+            "type": "string",
+            "minLength": 0,
+            "maxLength": 20000
+          },
+          "bodyRich": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "targetAccountIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            },
+            "minItems": 0,
+            "maxItems": 100,
+            "uniqueItems": true
+          },
+          "mediaAssetIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            },
+            "minItems": 0,
+            "maxItems": 100,
+            "uniqueItems": true
+          },
+          "internalTitle": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "schedule": {
+            "type": "object",
+            "required": [
+              "mode"
+            ],
+            "properties": {
+              "mode": {
+                "enum": [
+                  "MANUAL",
+                  "AT",
+                  "QUEUE"
+                ]
+              },
+              "atUtc": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "timezone": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              }
+            },
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "mode": {
+                      "const": "AT"
+                    }
+                  },
+                  "required": [
+                    "mode"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "atUtc",
+                    "timezone"
+                  ]
+                }
+              }
+            ]
+          },
+          "targetTextOverrides": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "accountId",
+                "bodyPlain"
+              ],
+              "properties": {
+                "accountId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9._:-]+$"
+                },
+                "bodyPlain": {
+                  "type": "string",
+                  "minLength": 0,
+                  "maxLength": 20000
+                }
+              },
+              "additionalProperties": false
+            },
+            "minItems": 0,
+            "maxItems": 100,
+            "description": "Optional full replacement of saved target-specific text overrides for this editable draft. [] clears all. All accountIds must be explicit selected targets; expectedContentVersion is mandatory."
+          }
+        },
+        "required": [
+          "postId",
+          "idempotencyKey",
+          "expectedContentVersion"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "postId",
+          "contentVersion",
+          "status",
+          "targetAccountIds",
+          "mediaAssetIds",
+          "projectId",
+          "contentFormat",
+          "publicationKind",
+          "bodyPlain",
+          "targetTextOverrides",
+          "schedule"
+        ],
+        "properties": {
+          "postId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "contentVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "status": {
+            "enum": [
+              "DRAFT",
+              "READY",
+              "PUBLISHING",
+              "PUBLISHED",
+              "PARTIAL",
+              "FAILED"
+            ]
+          },
+          "editorialStage": {
+            "enum": [
+              "IDEA",
+              "DRAFT",
+              "IN_REVIEW",
+              "APPROVED",
+              "ARCHIVED",
+              "TRASHED"
+            ]
+          },
+          "internalTitle": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "bodyPlain": {
+            "type": "string",
+            "minLength": 0,
+            "maxLength": 20000
+          },
+          "targetAccountIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            },
+            "minItems": 0,
+            "maxItems": 100,
+            "uniqueItems": true
+          },
+          "mediaAssetIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            },
+            "minItems": 0,
+            "maxItems": 100,
+            "uniqueItems": true
+          },
+          "projectId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "contentFormat": {
+            "enum": [
+              "TEXT_ONLY",
+              "IMAGE",
+              "CAROUSEL",
+              "VIDEO"
+            ]
+          },
+          "publicationKind": {
+            "enum": [
+              "FEED",
+              "SHORT",
+              "STORY"
+            ]
+          },
+          "bodyRich": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Saved canonical rich text if provided; not compiled platform output."
+          },
+          "targetTextOverrides": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "accountId",
+                "bodyPlain"
+              ],
+              "properties": {
+                "accountId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9._:-]+$"
+                },
+                "bodyPlain": {
+                  "type": "string",
+                  "minLength": 0,
+                  "maxLength": 20000
+                }
+              },
+              "additionalProperties": false
+            },
+            "minItems": 0,
+            "maxItems": 100,
+            "description": "Saved account-specific text overrides, not platform preview."
+          },
+          "schedule": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "mode"
+                ],
+                "properties": {
+                  "mode": {
+                    "enum": [
+                      "MANUAL",
+                      "AT",
+                      "QUEUE"
+                    ]
+                  },
+                  "atUtc": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "timezone": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  }
+                },
+                "additionalProperties": false,
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "mode": {
+                          "const": "AT"
+                        }
+                      },
+                      "required": [
+                        "mode"
+                      ]
+                    },
+                    "then": {
+                      "required": [
+                        "atUtc",
+                        "timezone"
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Saved draft schedule, never evidence of owner approval or automatic readiness."
+          }
+        },
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "publikator_preview_post",
+      "title": "Предпросмотр без внешней отправки",
+      "description": "Предпросмотр без внешней отправки. Права и публикационная политика проверяются сервером. Не отправляйте секреты. Не изменяет контент или получателей.",
+      "restOperationId": "previewAgentPost",
+      "restMethod": "POST",
+      "restPath": "/api/agent/v1/posts/{postId}/preview",
+      "requiredScopes": [
+        "posts:preview"
+      ],
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "posts:preview"
+          ]
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "expectedContentVersion": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "postId",
+          "idempotencyKey",
+          "expectedContentVersion"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "postId",
+          "contentVersion",
+          "targets"
+        ],
+        "properties": {
+          "postId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "contentVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "accountId",
+                "state",
+                "effectiveFormat",
+                "effectiveMedia",
+                "warnings"
+              ],
+              "properties": {
+                "accountId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9._:-]+$"
+                },
+                "state": {
+                  "enum": [
+                    "READY",
+                    "BLOCKED",
+                    "UNKNOWN"
+                  ]
+                },
+                "previewText": {
+                  "type": "string",
+                  "minLength": 0,
+                  "maxLength": 20000,
+                  "description": "Actual resolved target-specific plain preview/caption, not generic working draft."
+                },
+                "errorCode": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                "effectiveFormat": {
+                  "enum": [
+                    "TEXT_ONLY",
+                    "IMAGE",
+                    "CAROUSEL",
+                    "VIDEO",
+                    "VERTICAL_VIDEO",
+                    "STORY_SEQUENCE"
+                  ]
+                },
+                "effectiveMedia": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "mediaAssetId",
+                      "sortOrder",
+                      "mimeType"
+                    ],
+                    "properties": {
+                      "mediaAssetId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                        "pattern": "^[A-Za-z0-9._:-]+$"
+                      },
+                      "sortOrder": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "mimeType": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "thumbnailMediaId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                        "pattern": "^[A-Za-z0-9._:-]+$"
+                      },
+                      "width": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "height": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "durationMs": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "maxItems": 100
+                },
+                "warnings": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "code",
+                      "message"
+                    ],
+                    "properties": {
+                      "code": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80,
+                        "pattern": "^[A-Z][A-Z0-9_]+$"
+                      },
+                      "message": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 500
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "maxItems": 30
+                }
+              },
+              "additionalProperties": false
+            },
+            "minItems": 0,
+            "maxItems": 100
+          }
+        },
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "publikator_preflight_post",
+      "title": "Проверить готовность без отправки",
+      "description": "Проверить готовность без отправки. Права и публикационная политика проверяются сервером. Не отправляйте секреты. Не изменяет контент или получателей.",
+      "restOperationId": "preflightAgentPost",
+      "restMethod": "POST",
+      "restPath": "/api/agent/v1/posts/{postId}/preflight",
+      "requiredScopes": [
+        "posts:preview"
+      ],
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "posts:preview"
+          ]
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "expectedContentVersion": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "postId",
+          "idempotencyKey",
+          "expectedContentVersion"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "postId",
+          "contentVersion",
+          "targets"
+        ],
+        "properties": {
+          "postId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "contentVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "accountId",
+                "state",
+                "effectiveFormat",
+                "effectiveMedia",
+                "warnings"
+              ],
+              "properties": {
+                "accountId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9._:-]+$"
+                },
+                "state": {
+                  "enum": [
+                    "READY",
+                    "BLOCKED",
+                    "UNKNOWN"
+                  ]
+                },
+                "previewText": {
+                  "type": "string",
+                  "minLength": 0,
+                  "maxLength": 20000,
+                  "description": "Actual resolved target-specific plain preview/caption, not generic working draft."
+                },
+                "errorCode": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                "effectiveFormat": {
+                  "enum": [
+                    "TEXT_ONLY",
+                    "IMAGE",
+                    "CAROUSEL",
+                    "VIDEO",
+                    "VERTICAL_VIDEO",
+                    "STORY_SEQUENCE"
+                  ]
+                },
+                "effectiveMedia": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "mediaAssetId",
+                      "sortOrder",
+                      "mimeType"
+                    ],
+                    "properties": {
+                      "mediaAssetId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                        "pattern": "^[A-Za-z0-9._:-]+$"
+                      },
+                      "sortOrder": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "mimeType": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "thumbnailMediaId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                        "pattern": "^[A-Za-z0-9._:-]+$"
+                      },
+                      "width": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "height": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "durationMs": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "maxItems": 100
+                },
+                "warnings": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "code",
+                      "message"
+                    ],
+                    "properties": {
+                      "code": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80,
+                        "pattern": "^[A-Z][A-Z0-9_]+$"
+                      },
+                      "message": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 500
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "maxItems": 30
+                }
+              },
+              "additionalProperties": false
+            },
+            "minItems": 0,
+            "maxItems": 100
+          }
+        },
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "publikator_request_approval",
+      "title": "Запросить согласование владельца",
+      "description": "Запросить согласование владельца. Права и публикационная политика проверяются сервером. Не отправляйте секреты.",
+      "restOperationId": "requestAgentApproval",
+      "restMethod": "POST",
+      "restPath": "/api/agent/v1/posts/{postId}/request-approval",
+      "requiredScopes": [
+        "approval:request"
+      ],
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "approval:request"
+          ]
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "expectedContentVersion": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "postId",
+          "idempotencyKey",
+          "expectedContentVersion"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "postId",
+          "state"
+        ],
+        "properties": {
+          "postId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "state": {
+            "enum": [
+              "NOT_REQUESTED",
+              "WAITING_APPROVAL",
+              "APPROVED",
+              "REJECTED",
+              "EXPIRED",
+              "INVALIDATED"
+            ]
+          },
+          "intentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "contentVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "publikator_get_approval_status",
+      "title": "Проверить согласование",
+      "description": "Проверить согласование. Права и публикационная политика проверяются сервером. Не отправляйте секреты.",
+      "restOperationId": "getAgentApproval",
+      "restMethod": "GET",
+      "restPath": "/api/agent/v1/posts/{postId}/approval",
+      "requiredScopes": [
+        "posts:read"
+      ],
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "posts:read"
+          ]
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          }
+        },
+        "required": [
+          "postId"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "postId",
+          "state"
+        ],
+        "properties": {
+          "postId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "state": {
+            "enum": [
+              "NOT_REQUESTED",
+              "WAITING_APPROVAL",
+              "APPROVED",
+              "REJECTED",
+              "EXPIRED",
+              "INVALIDATED"
+            ]
+          },
+          "intentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "contentVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "publikator_schedule_post",
+      "title": "Запросить расписание для утверждённого намерения",
+      "description": "Запросить расписание для утверждённого намерения. Права и публикационная политика проверяются сервером. Не отправляйте секреты.",
+      "restOperationId": "scheduleAgentPost",
+      "restMethod": "POST",
+      "restPath": "/api/agent/v1/posts/{postId}/schedule",
+      "requiredScopes": [
+        "schedule:write"
+      ],
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "schedule:write"
+          ]
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "intentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "schedule": {
+            "type": "object",
+            "required": [
+              "mode"
+            ],
+            "properties": {
+              "mode": {
+                "enum": [
+                  "MANUAL",
+                  "AT",
+                  "QUEUE"
+                ]
+              },
+              "atUtc": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "timezone": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              }
+            },
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "mode": {
+                      "const": "AT"
+                    }
+                  },
+                  "required": [
+                    "mode"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "atUtc",
+                    "timezone"
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        "required": [
+          "postId",
+          "idempotencyKey",
+          "intentId",
+          "schedule"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "jobId",
+          "status"
+        ],
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "status": {
+            "enum": [
+              "QUEUED",
+              "RUNNING"
+            ]
+          },
+          "postId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "publikator_publish_post",
+      "title": "Запросить разрешённую внешнюю отправку",
+      "description": "Запросить разрешённую внешнюю отправку. Права и публикационная политика проверяются сервером. Не отправляйте секреты.",
+      "restOperationId": "publishAgentPost",
+      "restMethod": "POST",
+      "restPath": "/api/agent/v1/posts/{postId}/publish",
+      "requiredScopes": [
+        "publish:request"
+      ],
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "publish:request"
+          ]
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "intentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          }
+        },
+        "required": [
+          "postId",
+          "idempotencyKey",
+          "intentId"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "jobId",
+          "status"
+        ],
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "status": {
+            "enum": [
+              "QUEUED",
+              "RUNNING"
+            ]
+          },
+          "postId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "publikator_get_publication_status",
+      "title": "Получить статус публикации по аккаунтам",
+      "description": "Получить статус публикации по аккаунтам. Права и публикационная политика проверяются сервером. Не отправляйте секреты.",
+      "restOperationId": "getAgentPublicationStatus",
+      "restMethod": "GET",
+      "restPath": "/api/agent/v1/posts/{postId}/status",
+      "requiredScopes": [
+        "posts:read"
+      ],
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "posts:read"
+          ]
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          }
+        },
+        "required": [
+          "postId"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "postId",
+          "overall",
+          "targets"
+        ],
+        "properties": {
+          "postId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "overall": {
+            "enum": [
+              "DRAFT",
+              "READY",
+              "PUBLISHING",
+              "PUBLISHED",
+              "PARTIAL",
+              "FAILED",
+              "RECOVERY_NEEDED"
+            ]
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "accountId",
+                "state"
+              ],
+              "properties": {
+                "accountId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9._:-]+$"
+                },
+                "state": {
+                  "enum": [
+                    "PENDING",
+                    "PUBLISHING",
+                    "PUBLISHED",
+                    "PARTIAL",
+                    "FAILED",
+                    "RETRY",
+                    "RECOVERY_NEEDED"
+                  ]
+                },
+                "externalId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "externalUrl": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "errorCode": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                }
+              },
+              "additionalProperties": false
+            },
+            "minItems": 0,
+            "maxItems": 100
+          }
+        },
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "publikator_cancel_schedule",
+      "title": "Отменить ещё не исполненное расписание",
+      "description": "Отменить ещё не исполненное расписание. Права и публикационная политика проверяются сервером. Не отправляйте секреты.",
+      "restOperationId": "cancelAgentSchedule",
+      "restMethod": "POST",
+      "restPath": "/api/agent/v1/posts/{postId}/cancel-schedule",
+      "requiredScopes": [
+        "schedule:write"
+      ],
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "schedule:write"
+          ]
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "intentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          }
+        },
+        "required": [
+          "postId",
+          "idempotencyKey",
+          "intentId"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "ok"
+        ],
+        "properties": {
+          "ok": {
+            "const": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "publikator_list_jobs",
+      "title": "Прочитать мои задания",
+      "description": "Прочитать мои задания. Права и публикационная политика проверяются сервером. Не отправляйте секреты.",
+      "restOperationId": "listAgentJobs",
+      "restMethod": "GET",
+      "restPath": "/api/agent/v1/jobs",
+      "requiredScopes": [
+        "jobs:read"
+      ],
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "jobs:read"
+          ]
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "items",
+          "pagination"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "jobId",
+                "status"
+              ],
+              "properties": {
+                "jobId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9._:-]+$"
+                },
+                "postId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9._:-]+$"
+                },
+                "operationId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "status": {
+                  "enum": [
+                    "QUEUED",
+                    "RUNNING",
+                    "SUCCEEDED",
+                    "FAILED",
+                    "REQUIRES_ATTENTION"
+                  ]
+                },
+                "safeSummary": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 240
+                },
+                "resultPostId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9._:-]+$"
+                },
+                "resultMediaAssetIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9._:-]+$"
+                  },
+                  "uniqueItems": true,
+                  "maxItems": 100,
+                  "description": "Ordered canonical mediaAssetIds, stable and suitable for CreateDraft.mediaAssetIds after successful import."
+                },
+                "resultMediaCount": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
+                }
+              },
+              "additionalProperties": false,
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "operationId": {
+                        "const": "importAgentMedia"
+                      },
+                      "status": {
+                        "const": "SUCCEEDED"
+                      }
+                    },
+                    "required": [
+                      "operationId",
+                      "status"
+                    ]
+                  },
+                  "then": {
+                    "required": [
+                      "resultMediaAssetIds",
+                      "resultMediaCount"
+                    ]
+                  }
+                }
+              ]
+            },
+            "minItems": 0,
+            "maxItems": 100
+          },
+          "pagination": {
+            "type": "object",
+            "required": [
+              "limit",
+              "nextCursor"
+            ],
+            "properties": {
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "publikator_get_job",
+      "title": "Прочитать статус задания",
+      "description": "Прочитать статус задания. Права и публикационная политика проверяются сервером. Не отправляйте секреты.",
+      "restOperationId": "getAgentJob",
+      "restMethod": "GET",
+      "restPath": "/api/agent/v1/jobs/{jobId}",
+      "requiredScopes": [
+        "jobs:read"
+      ],
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "jobs:read"
+          ]
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          }
+        },
+        "required": [
+          "jobId"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "jobId",
+          "status"
+        ],
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "postId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "operationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "status": {
+            "enum": [
+              "QUEUED",
+              "RUNNING",
+              "SUCCEEDED",
+              "FAILED",
+              "REQUIRES_ATTENTION"
+            ]
+          },
+          "safeSummary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240
+          },
+          "resultPostId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "resultMediaAssetIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            },
+            "uniqueItems": true,
+            "maxItems": 100,
+            "description": "Ordered canonical mediaAssetIds, stable and suitable for CreateDraft.mediaAssetIds after successful import."
+          },
+          "resultMediaCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          }
+        },
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "operationId": {
+                  "const": "importAgentMedia"
+                },
+                "status": {
+                  "const": "SUCCEEDED"
+                }
+              },
+              "required": [
+                "operationId",
+                "status"
+              ]
+            },
+            "then": {
+              "required": [
+                "resultMediaAssetIds",
+                "resultMediaCount"
+              ]
+            }
+          }
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "publikator_list_events",
+      "title": "Просмотреть безопасный журнал серверных действий",
+      "description": "Просмотреть безопасный журнал серверных действий. Права и публикационная политика проверяются сервером. Не отправляйте секреты.",
+      "restOperationId": "listAgentEvents",
+      "restMethod": "GET",
+      "restPath": "/api/agent/v1/events",
+      "requiredScopes": [
+        "events:read"
+      ],
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "events:read"
+          ]
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "items",
+          "pagination"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "title": "Server-observed sanitized AgentActivityEvent",
+              "description": "Only server-observed activity; never arbitrary model reasoning, request bodies, credentials or unredacted provider errors.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "schemaVersion",
+                "eventId",
+                "sequence",
+                "occurredAtUtc",
+                "actorType",
+                "origin",
+                "requestId",
+                "operationId",
+                "stage",
+                "safeSummary"
+              ],
+              "properties": {
+                "schemaVersion": {
+                  "const": 1
+                },
+                "eventId": {
+                  "type": "string",
+                  "minLength": 4,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9._:-]+$"
+                },
+                "sequence": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "occurredAtUtc": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "actorType": {
+                  "enum": [
+                    "AGENT",
+                    "OWNER",
+                    "SYSTEM"
+                  ]
+                },
+                "agentId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "clientKind": {
+                  "enum": [
+                    "chatgpt",
+                    "codex",
+                    "claude",
+                    "cursor",
+                    "n8n",
+                    "telegram_bot",
+                    "max_bot",
+                    "custom_mcp",
+                    "rest_client",
+                    "system"
+                  ]
+                },
+                "origin": {
+                  "enum": [
+                    "MCP",
+                    "REST",
+                    "UI",
+                    "SCHEDULER",
+                    "RECOVERY",
+                    "SYSTEM"
+                  ]
+                },
+                "requestId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "correlationId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "operationId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[a-zA-Z][a-zA-Z0-9._:-]*$"
+                },
+                "jobId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "postId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "projectId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "targetAccountIds": {
+                  "type": "array",
+                  "maxItems": 100,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  }
+                },
+                "mediaCount": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2000
+                },
+                "revisedContentVersion": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "grantVersion": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "publicationIntentId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "stage": {
+                  "enum": [
+                    "REQUESTED",
+                    "AUTHORIZED",
+                    "STARTED",
+                    "PROGRESS",
+                    "WAITING_APPROVAL",
+                    "SCHEDULED",
+                    "COMPLETED",
+                    "FAILED",
+                    "DENIED",
+                    "RECOVERY_NEEDED",
+                    "POLICY_CHANGED",
+                    "PAUSED",
+                    "REVOKED",
+                    "PARTIAL"
+                  ]
+                },
+                "outcome": {
+                  "enum": [
+                    "PENDING",
+                    "SUCCEEDED",
+                    "PARTIAL",
+                    "FAILED",
+                    "DENIED",
+                    "UNKNOWN"
+                  ]
+                },
+                "safeSummary": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 240
+                },
+                "errorCode": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80,
+                  "pattern": "^[A-Z][A-Z0-9_]+$"
+                },
+                "remediationCode": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80,
+                  "pattern": "^[A-Z][A-Z0-9_]+$"
+                },
+                "durationMs": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "progress": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "completed",
+                    "total"
+                  ],
+                  "properties": {
+                    "completed": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "total": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  }
+                },
+                "externalResults": {
+                  "type": "array",
+                  "maxItems": 100,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "accountId",
+                      "state"
+                    ],
+                    "properties": {
+                      "accountId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "state": {
+                        "enum": [
+                          "PENDING",
+                          "PUBLISHING",
+                          "PUBLISHED",
+                          "FAILED",
+                          "RETRY",
+                          "RECOVERY_NEEDED",
+                          "PARTIAL"
+                        ]
+                      },
+                      "externalId": {
+                        "type": "string",
+                        "maxLength": 256
+                      },
+                      "externalUrl": {
+                        "type": "string",
+                        "format": "uri",
+                        "maxLength": 2048
+                      },
+                      "errorCode": {
+                        "type": "string",
+                        "pattern": "^[A-Z][A-Z0-9_]+$",
+                        "maxLength": 80
+                      }
+                    }
+                  }
+                }
+              },
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "actorType": {
+                        "const": "AGENT"
+                      }
+                    },
+                    "required": [
+                      "actorType"
+                    ]
+                  },
+                  "then": {
+                    "required": [
+                      "agentId"
+                    ]
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "stage": {
+                        "const": "PROGRESS"
+                      }
+                    },
+                    "required": [
+                      "stage"
+                    ]
+                  },
+                  "then": {
+                    "required": [
+                      "jobId",
+                      "progress"
+                    ]
+                  }
+                }
+              ]
+            },
+            "minItems": 0,
+            "maxItems": 100
+          },
+          "pagination": {
+            "type": "object",
+            "required": [
+              "limit",
+              "nextCursor"
+            ],
+            "properties": {
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    }
+  ]
+}
