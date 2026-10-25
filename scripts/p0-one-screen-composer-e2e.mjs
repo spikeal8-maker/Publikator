@@ -256,6 +256,56 @@ try {
   assert.equal(dstPost.scheduled_at_utc, '2026-11-01T05:30:00.000Z');
   await closeComposer();
 
+  // Uploading identical normalized image bytes under different names must not
+  // create duplicate cards, invalid media orders or broken delete actions.
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').fill('Проверка одинаковых фотографий');
+  await page.locator('#qc-files').setInputFiles([
+    { name: 'original.png', mimeType: 'image/png', buffer: image1 },
+    { name: 'renamed-copy.png', mimeType: 'image/png', buffer: image1 }
+  ]);
+  assert.equal(await page.locator('.qc-image').count(), 2);
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: /Одинаковые изображения объединены: 1/ })
+    .waitFor({ timeout: 30000 });
+  const dedupPostId = db.prepare('SELECT id FROM posts ORDER BY rowid DESC LIMIT 1').get().id;
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM media WHERE post_id=?').get(dedupPostId).n, 1);
+  assert.equal(await page.locator('.qc-image').count(), 1,
+    'a deduplicated server media ID must have only one editable card');
+  await page.locator('.qc-image button[aria-label^="Удалить"]').click();
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM media WHERE post_id=?').get(dedupPostId).n, 0,
+    'removing the remaining unique image must delete exactly one persisted media');
+  await closeComposer();
+
+  // Disabled accounts must remain disabled after a save toggles the entire editor busy.
+  db.prepare('UPDATE social_accounts SET enabled=0 WHERE id=?').run(accounts[10].id);
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').fill('Недоступные аккаунты не участвуют в отправке');
+  const unavailable = page.locator('input[name="qc-account"][value="' + accounts[10].id + '"]');
+  assert.equal(await unavailable.isDisabled(), true);
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  assert.equal(await unavailable.isDisabled(), true, 'unavailable checkbox remains disabled after setBusy(false)');
+  await page.locator('#qc-select-all').click();
+  assert.equal(await unavailable.isChecked(), false, 'select all excludes disabled account');
+  assert.match(await page.locator('#qc-counter').textContent(), /10 выбрано/);
+  await closeComposer();
+
+  // When zero accounts are available, navigating away from text + image draft
+  // requires confirmation and can be cancelled without losing the composer.
+  db.prepare('UPDATE social_accounts SET enabled=0').run();
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').fill('Не терять черновик при переходе к соцсетям');
+  await page.locator('#qc-files').setInputFiles([
+    { name: 'not-saved.png', mimeType: 'image/png', buffer: image2 }
+  ]);
+  page.once('dialog', (dialog) => dialog.dismiss());
+  await page.locator('#qc-connect').click();
+  assert.equal(await page.locator('#qc-text').inputValue(), 'Не терять черновик при переходе к соцсетям');
+  assert.equal(await page.locator('.qc-image').count(), 1);
+  await closeComposer();
+  db.prepare('UPDATE social_accounts SET enabled=1').run();
+
   assert.deepEqual(errors, []);
   await desktop.close();
 
