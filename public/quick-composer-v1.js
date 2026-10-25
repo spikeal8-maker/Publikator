@@ -605,7 +605,8 @@ export async function openQuickComposer() {
               scheduledAtLocal: operation.scheduledAtLocal,
               scheduleTimezone: operation.scheduleTimezone,
               ambiguousOffset: operation.ambiguousOffset,
-              accountIds: operation.accountIds, photoCount: operation.images.length
+              accountIds: operation.accountIds, photoCount: operation.images.length,
+              videoRequired: Boolean(operation.video || state.recoveryRequiresVideo)
             });
           } else {
             recovery.saveUncertain();
