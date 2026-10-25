@@ -106,7 +106,8 @@ export async function openQuickComposer() {
     state = {
       projects, accounts, pending: [], savedId: null, version: null,
       busy: false, finished: false, uncertainPublish: false, dirty: false,
-      scheduleTimezone: null, scheduleMode: 'MANUAL', remoteMediaOrder: []
+      scheduleTimezone: null, scheduleMode: 'MANUAL', remoteMediaOrder: [],
+      restoredScheduleTimezone: null, recoveryRequiredFiles: 0
     };
     const available = accounts.filter((account) => account.enabled);
     const grouped = ['telegram', 'vk', 'max', 'instagram'].map((platform) => {
@@ -236,7 +237,7 @@ export async function openQuickComposer() {
       root.querySelector('#qc-timezone-note').textContent =
         'Время в часовом поясе ' + (state.savedId && state.scheduleMode === 'AT'
           ? state.scheduleTimezone || 'UTC'
-          : projectTimezone(root.querySelector('#qc-project').value)) + '.';
+          : (state.restoredScheduleTimezone || projectTimezone(root.querySelector('#qc-project').value))) + '.';
     }
     function setBusy(busy) {
       state.busy = busy;
@@ -257,6 +258,7 @@ export async function openQuickComposer() {
         body: text.value,
         projectId: root.querySelector('#qc-project').value,
         scheduledAtLocal: root.querySelector('#qc-datetime').value,
+        scheduleTimezone: state.restoredScheduleTimezone || projectTimezone(root.querySelector('#qc-project').value),
         ambiguousOffset: root.querySelector('#qc-ambiguous').value,
         accountIds: selectedIds(),
         photoCount: state.pending.length
@@ -378,7 +380,11 @@ export async function openQuickComposer() {
       refreshPreview();
     });
     text.addEventListener('input', () => { markDirty(); refreshPreview(); });
-    root.querySelector('#qc-project').addEventListener('change', () => { markDirty(); showTimezone(); });
+    root.querySelector('#qc-project').addEventListener('change', () => {
+      state.restoredScheduleTimezone = null;
+      markDirty();
+      showTimezone();
+    });
     root.querySelector('#qc-datetime').addEventListener('change', markDirty);
     root.querySelector('#qc-ambiguous').addEventListener('change', markDirty);
     refreshPreview();
@@ -400,7 +406,7 @@ export async function openQuickComposer() {
         action, mode, projectId, scheduledAtLocal, ambiguousOffset,
         scheduleTimezone: mode === 'AT'
           ? (state.savedId && state.scheduleMode === 'AT' && state.scheduleTimezone
-            ? state.scheduleTimezone : projectTimezone(projectId))
+            ? state.scheduleTimezone : (state.restoredScheduleTimezone || projectTimezone(projectId)))
           : null,
         body: text.value.trim(),
         accountIds: Object.freeze(chosen.map((account) => account.id)),
@@ -618,6 +624,16 @@ export async function openQuickComposer() {
           input.checked = !input.disabled && validIds.has(input.value);
         });
         state.dirty = true;
+        if (typeof previous.scheduleTimezone === 'string' && previous.scheduleTimezone) {
+          try {
+            new Intl.DateTimeFormat('en-US', { timeZone: previous.scheduleTimezone });
+            state.restoredScheduleTimezone = previous.scheduleTimezone;
+          } catch {
+            root.querySelector('#qc-recovery-note').textContent =
+              'Часовой пояс не удалось восстановить. Проверьте расписание перед отправкой.';
+          }
+        }
+        state.recoveryRequiredFiles = Math.max(0, Number(previous.photoCount) || 0);
         refreshPreview();
         showTimezone();
         setStatus(previous.photoCount
