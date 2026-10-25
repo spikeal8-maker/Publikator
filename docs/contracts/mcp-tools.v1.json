@@ -1920,6 +1920,33 @@
                 }
               }
             ]
+          },
+          "targetTextOverrides": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "accountId",
+                "bodyPlain"
+              ],
+              "properties": {
+                "accountId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9._:-]+$"
+                },
+                "bodyPlain": {
+                  "type": "string",
+                  "minLength": 0,
+                  "maxLength": 20000
+                }
+              },
+              "additionalProperties": false
+            },
+            "minItems": 0,
+            "maxItems": 100,
+            "description": "Optional full replacement of saved target-specific text overrides for this editable draft. [] clears all. All accountIds must be explicit selected targets; expectedContentVersion is mandatory."
           }
         },
         "required": [
