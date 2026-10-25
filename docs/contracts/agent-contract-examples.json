@@ -411,13 +411,108 @@
           {
             "accountId": "vk_001",
             "state": "READY",
-            "previewText": "Робототехника"
+            "previewText": "Робототехника",
+            "effectiveFormat": "CAROUSEL",
+            "effectiveMedia": [
+              {
+                "mediaAssetId": "media_01",
+                "sortOrder": 0,
+                "mimeType": "image/jpeg",
+                "thumbnailMediaId": "thumb_media_01",
+                "width": 1024,
+                "height": 768
+              },
+              {
+                "mediaAssetId": "media_02",
+                "sortOrder": 1,
+                "mimeType": "image/jpeg",
+                "thumbnailMediaId": "thumb_media_02",
+                "width": 1024,
+                "height": 768
+              }
+            ],
+            "warnings": []
           }
         ]
       },
       "expect": [
-        "preview does not change post or targets",
-        "no provider POST"
+        "Preview does not mutate post, targets or content version",
+        "Effective target media IDs and original source order exposed",
+        "Thumbnail referenced by protected ID, not a public bearer URL",
+        "No provider POST"
+      ]
+    },
+    {
+      "id": "per-target-media-downgrade",
+      "operationId": "preflightAgentPost",
+      "http": 200,
+      "request": {
+        "path": {
+          "postId": "post_demo_001"
+        },
+        "idempotencyKey": "preflight_demo_A",
+        "body": {
+          "expectedContentVersion": 1
+        }
+      },
+      "response": {
+        "postId": "post_demo_001",
+        "contentVersion": 1,
+        "targets": [
+          {
+            "accountId": "vk_001",
+            "state": "READY",
+            "previewText": "Робототехника",
+            "effectiveFormat": "CAROUSEL",
+            "effectiveMedia": [
+              {
+                "mediaAssetId": "media_01",
+                "sortOrder": 0,
+                "mimeType": "image/jpeg",
+                "thumbnailMediaId": "thumb_media_01",
+                "width": 1024,
+                "height": 768
+              },
+              {
+                "mediaAssetId": "media_02",
+                "sortOrder": 1,
+                "mimeType": "image/jpeg",
+                "thumbnailMediaId": "thumb_media_02",
+                "width": 1024,
+                "height": 768
+              }
+            ],
+            "warnings": []
+          },
+          {
+            "accountId": "telegram_001",
+            "state": "READY",
+            "previewText": "Робототехника",
+            "effectiveFormat": "IMAGE",
+            "effectiveMedia": [
+              {
+                "mediaAssetId": "media_01",
+                "sortOrder": 0,
+                "mimeType": "image/jpeg",
+                "thumbnailMediaId": "thumb_media_01",
+                "width": 1024,
+                "height": 768
+              }
+            ],
+            "warnings": [
+              {
+                "code": "CAROUSEL_TO_IMAGE",
+                "message": "Синтетическая цель использует один снимок вместо карусели; проверьте реальную платформенную совместимость."
+              }
+            ]
+          }
+        ]
+      },
+      "expect": [
+        "Each platform has independent effective format and media ordering",
+        "Target-specific warnings and safe thumbnail IDs are visible",
+        "No provider POST; no state mutation",
+        "Synthetic capabilities, not claims about real VK/Telegram accounts"
       ]
     }
   ]
