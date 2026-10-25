@@ -436,10 +436,12 @@ export async function openQuickComposer() {
             state.uncertainPublish = true;
             const sent = await request('/api/posts/' + encodeURIComponent(id) + '/publish-now', { method: 'POST' });
             state.uncertainPublish = false;
+            state.dirty = false;
             state.finished = true;
             setStatus('Публикация обработана: ' + (sent.post?.status || 'статус уточняется') +
               '. Откройте список публикаций для результатов по каждой площадке.');
           } else {
+            state.dirty = false;
             state.finished = true;
             setStatus('Публикация запланирована. Её статус можно проверить в списке публикаций.');
           }
