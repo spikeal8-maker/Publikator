@@ -70,6 +70,27 @@ try {
     assert.deepEqual(JSON.parse(grant[name]),[],name+' must not grant new resources');
   assert.throws(() => db.prepare('UPDATE agent_grants SET publish_mode=? WHERE agent_id=?')
     .run('PREAPPROVED_POLICY',agentId),/CHECK constraint/);
+
+  const attemptAuto=db.prepare('UPDATE agent_grants SET publish_mode=?,preapproved_policy_json=? WHERE agent_id=?');
+  for(const invalid of [
+    '{}',
+    '{"approvedPolicyVersion":null}',
+    '{"approvedPolicyVersion":0}',
+    '{"approvedPolicyVersion":-2}',
+    '{"approvedPolicyVersion":"2"}',
+    '{"approvedPolicyVersion":1.5}'
+  ]) {
+    assert.throws(() => attemptAuto.run('PREAPPROVED_POLICY',invalid,agentId),
+      /CHECK constraint/, 'auto grants require a positive integer owner policy version: '+invalid);
+  }
+  assert.equal(db.prepare('SELECT publish_mode FROM agent_grants WHERE agent_id=?')
+    .get(agentId).publish_mode,'DRAFT_ONLY','invalid auto attempts must not elevate permission');
+  attemptAuto.run('PREAPPROVED_POLICY',JSON.stringify({approvedPolicyVersion:1}),agentId);
+  assert.equal(db.prepare('SELECT publish_mode FROM agent_grants WHERE agent_id=?')
+    .get(agentId).publish_mode,'PREAPPROVED_POLICY');
+  db.prepare("UPDATE agent_grants SET publish_mode='DRAFT_ONLY',preapproved_policy_json=NULL WHERE agent_id=?")
+    .run(agentId);
+
   assert.throws(() => db.prepare("UPDATE agent_grants SET scope_ids_json='untrusted' WHERE agent_id=?")
     .run(agentId),/CHECK constraint/);
   assert.throws(() => db.prepare(`INSERT INTO agent_principals(id,owner_admin_id,name,client_kind,created_at,updated_at)
