@@ -934,6 +934,7 @@ export async function openQuickComposer() {
               scheduleTimezone: operation.scheduleTimezone,
               ambiguousOffset: operation.ambiguousOffset,
               accountIds: operation.accountIds, photoCount: operation.images.length,
+              variants: operation.variants,
               videoRequired: Boolean(operation.video || state.recoveryRequiresVideo)
             });
           } else {
