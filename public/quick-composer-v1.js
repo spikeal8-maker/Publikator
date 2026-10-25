@@ -114,7 +114,8 @@ export async function openQuickComposer() {
       restoredScheduleTimezone: null, recoveryRequiredFiles: 0,
       video: null, recoveryRequiresVideo: false,
       previewToken: 0, previewLoading: false, previewRows: [],
-      variantEdits: new Map(), variantApplied: new Map()
+      variantEdits: new Map(), variantApplied: new Map(),
+      mediaEdits: new Map(), mediaApplied: new Map()
     };
     const available = accounts.filter((account) => account.enabled);
     const grouped = ['telegram', 'vk', 'max', 'instagram'].map((platform) => {
@@ -187,7 +188,11 @@ export async function openQuickComposer() {
         '<textarea id="qc-variant-text" rows="3" maxlength="20000" placeholder="Основной текст"></textarea></label>' +
         '<p class="qc-variant-status" id="qc-variant-status" role="status" aria-live="polite"></p>' +
         '<button type="button" id="qc-variant-reset">Использовать основной текст</button>' +
-        '<p class="qc-muted">По умолчанию все аккаунты наследуют основной текст. Отдельный вариант применяется при сохранении материала.</p>' +
+        '<div class="qc-media-variant" id="qc-media-variant"><h4>Фотографии для этого аккаунта</h4>' +
+        '<p id="qc-media-variant-note" role="status" aria-live="polite"></p>' +
+        '<div id="qc-media-variant-list" class="qc-media-variant-list"></div>' +
+        '<button type="button" id="qc-media-variant-reset">Общий набор и порядок фото</button></div>' +
+        '<p class="qc-muted">Все аккаунты наследуют основной текст и общий набор фото, пока вы явно не измените их вариант.</p>' +
         '</details>' +
         '<div class="qc-preview"><h4>Предпросмотр текста</h4><p id="qc-preview-text">Текст появится здесь</p>' +
           '<div id="qc-preview-targets" class="qc-muted">Площадки пока не выбраны</div>' +
@@ -330,6 +335,7 @@ export async function openQuickComposer() {
       });
       redrawPhotos();
       redrawVideo();
+      refreshMediaVariantControls();
       updatePreviewButton();
     }
     const variantPanel = root.querySelector('#qc-variant-editor');
@@ -337,6 +343,102 @@ export async function openQuickComposer() {
     const variantText = root.querySelector('#qc-variant-text');
     const variantStatus = root.querySelector('#qc-variant-status');
     const variantReset = root.querySelector('#qc-variant-reset');
+    const mediaVariant = root.querySelector('#qc-media-variant');
+    const mediaVariantList = root.querySelector('#qc-media-variant-list');
+    const mediaVariantNote = root.querySelector('#qc-media-variant-note');
+    const mediaVariantReset = root.querySelector('#qc-media-variant-reset');
+    function refreshMediaVariantControls() {
+      const accountId = variantChoice.value;
+      mediaVariantList.replaceChildren();
+      const photos = state.pending.filter((item) => item.uploaded && item.remoteId);
+      const relevant = accountId && selectedIds().includes(accountId) &&
+        state.savedId && !state.video && photos.length > 0;
+      mediaVariant.hidden = !relevant;
+      if (!relevant) return;
+      const all = photos.map((item) => item.remoteId);
+      const raw = state.mediaEdits.get(accountId);
+      const selected = Array.isArray(raw) ? [...raw] : [...all];
+      const missing = selected.filter((id) => !all.includes(id));
+      const selectedValid = selected.filter((id) => all.includes(id));
+      const current = selectedValid.map((id) => photos.find((item) => item.remoteId === id));
+      const excluded = photos.filter((item) => !selectedValid.includes(item.remoteId));
+      const ordered = [...current, ...excluded];
+      mediaVariantNote.textContent = missing.length
+        ? 'Часть фотографий была удалена из материала. Выберите новый набор или верните общий порядок перед сохранением.'
+        : Array.isArray(raw)
+          ? 'Особый порядок для этого аккаунта: ' + selected.length + ' из ' + all.length + '.'
+          : 'Используется общий набор из ' + all.length + ' фото.';
+      const locked = state.busy || state.finished || state.uncertainPublish;
+      for (const item of ordered) {
+        const mediaId = item.remoteId;
+        const row = document.createElement('div');
+        row.className = 'qc-media-variant-row';
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = selectedValid.includes(mediaId);
+        checkbox.disabled = locked;
+        checkbox.setAttribute('aria-label', 'Включить ' + item.file.name + ' для выбранного аккаунта');
+        checkbox.addEventListener('change', () => {
+          if (locked) return;
+          const next = checkbox.checked
+            ? [...selectedValid, mediaId]
+            : selectedValid.filter((id) => id !== mediaId);
+          if (!next.length) {
+            setStatus('Для этого аккаунта должна остаться хотя бы одна фотография.', true);
+            checkbox.checked = true;
+            return;
+          }
+          state.mediaEdits.set(accountId, next);
+          markDirty();
+          refreshMediaVariantControls();
+        });
+        const thumbnail = document.createElement('img');
+        thumbnail.src = item.url;
+        thumbnail.alt = '';
+        const label = document.createElement('span');
+        label.textContent = item.file.name;
+        const earlier = document.createElement('button');
+        earlier.type = 'button';
+        earlier.textContent = '↑';
+        earlier.setAttribute('aria-label', 'Передвинуть ' + item.file.name + ' раньше для аккаунта');
+        const index = selectedValid.indexOf(mediaId);
+        earlier.disabled = locked || index <= 0;
+        earlier.addEventListener('click', () => {
+          if (locked || index <= 0) return;
+          const next = [...selectedValid];
+          [next[index - 1], next[index]] = [next[index], next[index - 1]];
+          state.mediaEdits.set(accountId, next);
+          markDirty();
+          refreshMediaVariantControls();
+        });
+        const later = document.createElement('button');
+        later.type = 'button';
+        later.textContent = '↓';
+        later.setAttribute('aria-label', 'Передвинуть ' + item.file.name + ' позже для аккаунта');
+        later.disabled = locked || index < 0 || index >= selectedValid.length - 1;
+        later.addEventListener('click', () => {
+          if (locked || index < 0 || index >= selectedValid.length - 1) return;
+          const next = [...selectedValid];
+          [next[index + 1], next[index]] = [next[index], next[index + 1]];
+          state.mediaEdits.set(accountId, next);
+          markDirty();
+          refreshMediaVariantControls();
+        });
+        row.append(checkbox, thumbnail, label, earlier, later);
+        mediaVariantList.append(row);
+      }
+      mediaVariantReset.disabled = locked ||
+        (!state.mediaEdits.has(accountId) && !state.mediaApplied.has(accountId));
+    }
+    mediaVariantReset.addEventListener('click', () => {
+      if (state.busy || state.finished || state.uncertainPublish) return;
+      const accountId = variantChoice.value;
+      if (!accountId) return;
+      if (state.mediaApplied.has(accountId)) state.mediaEdits.set(accountId, null);
+      else state.mediaEdits.delete(accountId);
+      markDirty();
+      refreshMediaVariantControls();
+    });
     function refreshVariantControls() {
       const chosen = checkedAccounts();
       const previousChoice = variantChoice.value;
@@ -352,6 +454,7 @@ export async function openQuickComposer() {
         variantText.value = '';
         variantStatus.textContent = '';
         variantReset.disabled = true;
+        refreshMediaVariantControls();
         return;
       }
       if (chosen.some((account) => account.id === previousChoice)) variantChoice.value = previousChoice;
@@ -363,6 +466,7 @@ export async function openQuickComposer() {
         ? 'Отдельный текст подготовлен для выбранного аккаунта.'
         : 'Используется основной текст (наследование).';
       variantReset.disabled = !state.variantEdits.has(targetId) && !state.variantApplied.has(targetId);
+      refreshMediaVariantControls();
     }
     variantChoice.addEventListener('change', refreshVariantControls);
     variantText.addEventListener('input', () => {
