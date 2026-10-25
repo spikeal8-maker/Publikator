@@ -313,12 +313,14 @@ try {
   await page.locator('#qc-text').fill('Черновик на телефоне до перезагрузки');
   await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
   await page.locator('.qc-advanced summary').click();
+  await page.locator('#qc-project').selectOption(projectId);
   await page.locator('#qc-datetime').fill('2026-11-16T18:30');
   await page.locator('#qc-files').setInputFiles([
     { name: 'offline-file.png', mimeType: 'image/png', buffer: image2 }
   ]);
   assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, countBeforeRecovery,
     'local recovery must never implicitly create a server draft');
+  db.prepare("UPDATE projects SET default_timezone='UTC' WHERE id=?").run(projectId);
   await page.reload();
   await page.locator('#app:not(.hidden)').waitFor();
   page.once('dialog', (dialog) => dialog.accept());
@@ -328,15 +330,54 @@ try {
   assert.equal(await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').isChecked(), true);
   await page.locator('.qc-advanced summary').click();
   assert.equal(await page.locator('#qc-datetime').inputValue(), '2026-11-16T18:30');
+  assert.match(await page.locator('#qc-timezone-note').textContent(), /Europe\/Moscow/,
+    'recovering wall-clock time must keep its original IANA zone if the project default changes');
   assert.equal(await page.locator('.qc-image').count(), 0,
     'never pretend an unsaved photo survived a refresh');
   assert.match(await page.locator('#qc-status').textContent(), /Добавьте фотографии заново/);
-  assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, countBeforeRecovery);
+  assert.equal(await page.locator('#qc-missing-media').isVisible(), true);
+  await page.locator('#qc-save').click();
+  assert.match(await page.locator('#qc-status').textContent(), /Снова приложите фотографии/);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, countBeforeRecovery,
+    'recovered missing photos cannot be silently omitted from a save');
+  db.prepare("UPDATE projects SET default_timezone='Europe/Moscow' WHERE id=?").run(projectId);
   await closeComposer();
   await page.locator('#quick-compose-nav').click();
   await page.locator('#qc-text').waitFor();
   assert.equal(await page.locator('#qc-text').inputValue(), '',
     'confirming discard must clear recovery record');
+  await closeComposer();
+
+  // P1: once a server POST starts, session recovery must become uncertain
+  // before any server response. Never keep a misleading local-only snapshot.
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').fill('Проверка маркера до POST');
+  await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
+  let intercepted;
+  const reached = new Promise((resolve) => { intercepted = resolve; });
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  await page.route('**/api/posts', async (route) => {
+    if (route.request().method() === 'POST') {
+      intercepted();
+      await gate;
+    }
+    await route.continue();
+  });
+  await page.locator('#qc-save').click();
+  await reached;
+  const inFlight = await page.evaluate(() => {
+    for (const key of Object.keys(sessionStorage)) {
+      if (!key.startsWith('publikator.quick-composer.recovery.v1')) continue;
+      try { const value = JSON.parse(sessionStorage.getItem(key)); if (value.kind === 'uncertain') return value; }
+      catch { /* not recovery */ }
+    }
+    return null;
+  });
+  assert.equal(inFlight?.kind, 'uncertain', 'uncertain marker precedes the external POST outcome');
+  release();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  await page.unroute('**/api/posts');
   await closeComposer();
 
   assert.deepEqual(errors, []);
