@@ -48,6 +48,8 @@ Use search before opening large files. Do not repeatedly reread unchanged docume
 
 Document precedence is defined by `docs/VNEXT_TECHNICAL_SPEC.md`. `docs/CANONICAL_OPERATOR_UI_FUNCTIONAL_SPEC.md` is the canonical product/operator contract for UI and automation where it does not conflict with the higher-level domain, safety or architecture invariants.
 
+For **AGENT / API / MCP checkpoints** only, after reading the relevant master-spec section also read `docs/UNIVERSAL_AGENT_API_MCP_SPEC.md`; for bot permission presets, owner-facing Settings, agent activity or audit read `docs/AGENT_ACCESS_LEVELS_AND_ACTIVITY_LOGS.md`. These are subordinate integration/product contracts; never treat a named "Full" bot preset as administrative credentials or bypass the owner approval policy. Other subsystems need not load these documents.
+
 ## 2. Unit of work
 
 Default rule: **one checkpoint = one branch = one PR**.

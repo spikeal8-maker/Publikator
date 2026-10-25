@@ -118,7 +118,7 @@ MUST фильтровать списки по разрешённым ресур�
 
 **Legacy key boundary:** текущий `/api/integration/v1` ограничивает `source_type='integration-api'`, но чтение/правка не изолированы по key ID. Текущую single-owner семантику считать `trusted shared legacy namespace`, не обещать независимым внешним ботам изоляцию через legacy scopes. Новые `/api/agent/v1` и `/mcp` MUST проверять AgentGrant/project/post на уровне каждой операции, включая ID из path и list results. Расширение доступа legacy ключей запрещено. Отдельное изменение старого endpoint возможно только с backward-compatible миграцией и security acceptance (раздел 16.1).
 
-Роли Observer/Editor/Producer/Coordinator/Publisher — UI-наборы предложенных scopes, **не** широкие привилегии по умолчанию. Administrative credential management, permanent deletion, credential export/rotation и webhook registration не должны входить в обычный набор агента.
+Нормативные пользовательские уровни **Наблюдатель / Ограниченный / Расширенный / Полный / Свой набор**, их точные scopes, versioned snapshot, подтверждение владельца и независимый режим отправки подробно определены в [AGENT_ACCESS_LEVELS_AND_ACTIVITY_LOGS.md](AGENT_ACCESS_LEVELS_AND_ACTIVITY_LOGS.md). Старые концептуальные названия Observer/Editor/Producer/Coordinator/Publisher не должны превращаться во вторую конкурирующую серверную RBAC-модель. Preset — удобное отображение точного `AgentGrant`, а не расширение полномочий. Agent `FULL_CONTENT` **не равен** social credential `CapabilityProfile FULL` и не даёт административного доступа. Administrative credential management, permanent deletion, credential export/rotation и webhook registration не должны входить в обычный набор агента.
 
 ### 3.3 Обязательная безопасность
 
@@ -306,7 +306,7 @@ MUST использовать пересечение `PlatformCapability` и ser
 
 ## 9. Jobs, события, webhooks
 
-**P0/P1 boundary:** минимальные SQLite-persisted operation receipts, idempotency, job state lookup, restart recovery и per-target outcome — **обязательные P0-примитивы A2/A4/A5**. В A6/P1 остаются расширенная история, подписки и подписанные Webhooks, но не базовое сохранение операций или возможность безопасно проверять статус.
+**P0/P1 boundary:** минимальные SQLite-persisted operation receipts, idempotency, job state lookup, restart recovery, per-target outcome **и durable AgentActivityEvent + owner-visible activity timeline** — **обязательные P0-примитивы A2/A4/A5/A7a**. В A6/P1 остаются расширенная аналитика, экспорт, подписки и подписанные Webhooks, но не базовое журналирование действий и отображение актуального состояния бота. События и видимость описаны в [AGENT_ACCESS_LEVELS_AND_ACTIVITY_LOGS.md](AGENT_ACCESS_LEVELS_AND_ACTIVITY_LOGS.md).
 
 Для длительных импортов, отложенных публикаций и проверки внешних результатов — **durable job receipt** в существующей SQLite. Состояния: `QUEUED`, `RUNNING`, `SUCCEEDED`, `FAILED`, `REQUIRES_ATTENTION`; jobId, actor, postId, timestamps, per-target result, retryable code. На рестарте неполные provider sends не превращаются в повторяемую `QUEUED` задачу без reconciliation.
 
@@ -318,17 +318,18 @@ P1 webhooks: `post.created`, `post.approval_requested`, `post.approved`, `post.s
 
 ## 10. Пользовательский экран «ИИ и API»
 
-Расположение: `Настройки → ИИ и API` или согласованный с `CANONICAL_OPERATOR_UI_FUNCTIONAL_SPEC.md` существующий раздел «Интеграции»; **не делать вторую главную навигацию**.
+**Нормативный UX/доступы/логи:** [AGENT_ACCESS_LEVELS_AND_ACTIVITY_LOGS.md](AGENT_ACCESS_LEVELS_AND_ACTIVITY_LOGS.md). **P0 обязательно**: понятные уровни **Наблюдатель, Ограниченный, Расширенный, Полный, Свой набор**, отдельный режим публикации, точный allowlist ресурсов, owner approval/grants, журнал последних фактических действий и состояния заданий, пауза/отзыв.
 
-- Подключения: имя, тип клиента, scope, связанные project/account/source, ACTIVE/PAUSED/REVOKED, last use.
-- Мастер «Подключить»: ChatGPT MCP, Custom GPT Actions, Codex, Claude, Cursor, n8n, Telegram/другой bot, Generic REST; показывает только пригодный URL и безопасные шаги; проверяет соединение.
-- Гранты: чекбоксы по **конкретным** аккаунтам и проектам, права работы с медиа, draft-only/approval/automatic, лимиты и expiry.
-- Review Inbox: exact text/media order/targets/time/revision; явное «Подтвердить» или «Отклонить».
-- Журнал: кто/что/куда/когда + SHA/revision/policy result; без credential/token.
-- Выдача машинного ключа показывает его **один раз**; есть pause, revoke, rotate и экстренный «Остановить публикации агентов» (не останавливает уже состоявшиеся внешние посты).
+Расположение: `Настройки → ИИ и API` в рамках `CANONICAL_OPERATOR_UI_FUNCTIONAL_SPEC.md`; отдельную главную навигацию не добавлять. Страница включает:
+- **Подключённые боты:** название/клиент, уровень, разрешённые проекты/аккаунты/источники, режим отправки, last-used, подтверждённое текущее задание и последнее действие;
+- **Возможности:** выбор preset с описанием «Может / Не может», `CUSTOM` scoped checkbox editor, явное `Было → Стало`, `expectedGrantVersion`, подтверждение повышения прав; автопубликация отдельно включается только через owner-approved `PREAPPROVED_POLICY`;
+- **История:** server-authored persisted `AgentActivityEvent` из общего audit source, просмотр текущих jobs, статусы `WAITING_APPROVAL/PARTIAL/RECOVERY_NEEDED`, фильтр «Боты» в основном `Журнал`, без мнимых рассуждений модели;
+- **Контроль:** owner review inbox, кнопки `Приостановить/Отозвать`, объяснение in-flight ограничений, server-side denial and audit;
+- **P1:** мастер ChatGPT/Claude/Codex/n8n, расширенная аналитика, экспорт/подписки и дополнительные журнальные фильтры.
 
-Desktop — плотная читаемая таблица; телефон 390/320 px — компактные карточки без горизонтального скролла; клавиатура, focus, явные ошибки, отсутствие технических понятий в основных действиях.
+**Важно:** интерфейс не должен заявлять «Полный доступ» как право читать секреты или отправлять без owner consent; окончательная возможность определяется `AgentGrant × publisher policy × verified provider capability`. Одни и те же server events отображаются в карточке бота и существующем `Журнал`, без второго источника истины.
 
+Desktop — плотная таблица, телефон 320/390px — компактные карточки; 11+ аккаунтов, поиск и точные чекбоксы, клавиатура, текстовые статусы. Никакого доступа к `APP_MASTER_KEY`, провайдерским токенам или чужим grants.
 ## 11. Contract, migrations, backup, эксплуатация
 
 - Версионирование: `/api/agent/v1` + OpenAPI `3.1`; MCP-version negotiation и capability discover отдельно. **Не** переименовывать существующий `/api/integration/v1`.
@@ -376,17 +377,17 @@ GitHub CI должен использовать fake-provider network/no public 
 |---|---|---|---|
 | A0 — AGENT-CONTRACT | P0 | машиночитаемые OpenAPI/JSON Schema + точная route ACL matrix + threat model + protocol/client matrix + OAuth/ingress ADR | базовый аудит |
 | A1 — AGENT-IDENTITY | P0 | agent/grants/isolated keys, route auth separation, OAuth discovery/token lifecycle; маленькие миграционные PR | A0 |
-| A2 — AGENT-REST | P0 | scoped read+DRAFT, typed OpenAPI, **durable idempotent operation receipts** and job/status lookup, browser/agent auth tests | A1 |
+| A2 — AGENT-REST | P0 | scoped read+DRAFT, typed OpenAPI, durable idempotent receipts/**basic activity audit**, job/status lookup, auth tests | A1 |
 | A3 — AGENT-MCP | P0 | remote MCP via verified OAuth/HTTPS, private tools cache, read/write draft with independent client | A1,A2 |
 | A4 — AGENT-COMPOSER | P0 | Drive/media import + один логический composer на существующем #171 + server side preview, recoverable job | A2, #171 MERGED |
 | A5a — AGENT-INTENT | P0 | agent provenance, immutable intent/preflight/draft approval request, **без provider POST** | A1,A4 и credential gate |
-| A7a — AGENT-CONSENT-UI | P0 | минимальный admin grant editor + owner approval/reject/pause, exact revision preview | A1,A5a |
+| A7a — AGENT-CONSENT-UI | P0 | **5 понятных уровней и отдельный режим отправки**, exact resource grant editor, owner approval/reject/pause/revoke, **текущая операция и последние логи** | A1,A2,A5a |
 | A5b — AGENT-EXECUTE | P0 | execution-time consent/policy enforcement inside scheduler/publisher, status/recovery/quota | A5a,A7a и credential gate |
-| A6 — AGENT-EVENTS | P1 | **расширенные** job history/events + подписанные Webhooks с HMAC/retry (basic receipts уже A2–A5) | A5b |
-| A7b — AGENT-ADMIN-UI | P1 | полный onboarding/журнал/UX; не повторяет уже принятый A7a | A1,A3,A5b |
+| A6 — AGENT-EVENTS | P1 | расширенная аналитика/history/export + подписанные Webhooks с HMAC/retry (**basic durable activity + UI already P0**) | A5b |
+| A7b — AGENT-ADMIN-UI | P1 | расширенный onboarding, поиск/отчёты/экспорт по журналу, без повторной реализации P0 ролей и активности | A1,A3,A5b |
 | A8 — AGENT-ACCEPTANCE | P0 release gate | ChatGPT/независимый MCP + REST, Drive→draft→owner consent→scoped test send, backup/restore | A0,A1,A2,A3,A4,A5a,A7a,A5b; P1 исключён |
 
-**Обязательный P0 пользовательский DoD:** бот получает разрешённые материалы из Drive, делает текст и фото, выбирает конкретные аккаунты, показывает предпросмотр, получает owner consent, запланировано публикует в тестовые target и возвращает доказуемые ссылки/ошибки **без дублирующего внешнего POST**.
+**Обязательный P0 пользовательский DoD:** владелец настраивает **понятный уровень бота и режим публикации**, видит актуальные/последние **проверенные серверные действия и ошибки** в журнале, затем бот получает разрешённые материалы из Drive, делает текст и фото, выбирает конкретные аккаунты, показывает предпросмотр, получает owner consent, запланировано публикует в тестовые target и возвращает доказуемые ссылки/ошибки **без дублирующего внешнего POST**.
 
 **Запрещены циклические зависимости:** A5a → A7a → A5b, затем A8; A7b и A6 — независимые пост-P0 улучшения. Минимальный owner consent UI реализуется **до** разрешения agent publish. `READY` не означает owner consent.
 
@@ -478,6 +479,8 @@ GitHub CI должен использовать fake-provider network/no public 
 - `docs/contracts/mcp-tools.v1.json`: tool inventory с именами, входными/выходными JSON Schema, required scopes и read/write side-effect annotations. Привязка к OpenAPI `operationId` однозначна.
 - `docs/contracts/agent-contract-examples.json`: **минимум** success, permission-denied, version conflict, idempotent replay, stale approval, revoked grant, unknown provider outcome; значения синтетические, без реальных секретов и личных данных.
 - `docs/contracts/client-compatibility-matrix.md`: MCP protocol versions, SDK dependency pin, конкретные проверенные клиенты/transport/read/write, `SUPPORTED` vs `NOT_VERIFIED`, а не обещание «любой бот».
+- `docs/contracts/agent-access-presets.v1.json`: ID/версия/точные scopes пяти уровней, независимые publish modes, отсутствие implicit wildcard и проверка escalation.
+- `docs/contracts/agent-activity.v1.schema.json`: bounded server-observed event fields, stage/outcome, correlation IDs, redaction/retention rules, owner/agent visibility — в соответствии с `AGENT_ACCESS_LEVELS_AND_ACTIVITY_LOGS.md`.
 - Тестовый скрипт `scripts/agent-contract-a0-e2e.mjs` (или эквивалент), зарегистрированный в **едином** workflow `Publikator CI / Acceptance`. Проверяет parse/dereference schemas, `$ref`, consistency REST↔MCP, requirement/scope naming, serialization examples и source contract of invariant. Не проверять nonexistent endpoints будто они уже реализованы.
 
 **Исключение:** отсутствие внешнего issuer или подтверждённого network ingress нужно оформить как отдельно проверяемый deployment blocker (P0), нельзя silently «выбрать любой» и начать выдавать publish permissions.
@@ -508,6 +511,8 @@ GitHub CI должен использовать fake-provider network/no public 
 - `G-10` Schema migrate из предыдущей версии + canonical backup/restore сохраняют existing projects, encrypted credentials, READY/manual posts, schedule/history, agent/grants/receipts.
 - `G-11` Confirmed real test deployment без leak secrets; не публиковать новые посты на реальных аккаунтах без явной owner acceptance.
 - `G-12` Exact-SHA full CI + focused negative security regression + independent review. Webhook test `T-18` блокирует A6/P1, **не** P0.
+
+**UI/Audit P0 дополнительно:** `[AGENT_ACCESS_LEVELS_AND_ACTIVITY_LOGS.md](AGENT_ACCESS_LEVELS_AND_ACTIVITY_LOGS.md)` тесты `UI-01..UI-15` доказывают exact grantPreset, read vs write, отсутствие автопубликации при полном уровне без policy, 11+ accounts, server-verified activity, secrets redaction до записи, сохранение после restart/backup, owner-only журнал и мобильный UI. Зелёный `G-01..G-12` без этих проверок не означает готовность настроек агентов.
 
 Если G-01–G-12 не доказаны, нельзя маркировать «MCP подключён и полностью публикует» по одному `200 OK` или локальному tool smoke.
 
