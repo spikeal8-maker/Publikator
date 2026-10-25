@@ -1100,9 +1100,13 @@ export async function openQuickComposer() {
       clearPreflightIssues();
       clearPlatformPreview();
       setBusy(true);
+      let phase = 'persist';
       try {
         setStatus('Сохраняю публикацию…');
         const id = await persistDraft(operation);
+        // All draft, target and media mutations are confirmed at this point.
+        // A later READY rejection must not pretend these changes were lost.
+        state.dirty = false;
         if (action !== 'save') {
           // A preceding Save clears its old recovery record. Restore the
           // durable server-draft guard before READY/schedule/publish operations.
@@ -1112,11 +1116,13 @@ export async function openQuickComposer() {
             throw new Error('Не удалось сохранить защитную запись операции. Публикация остановлена во избежание дублирования.');
           }
           setStatus('Проверяю права и форматы для выбранных площадок…');
+          phase = 'ready';
           const ready = await request('/api/posts/' + encodeURIComponent(id) + '/ready', {
             method: 'POST', body: JSON.stringify({ expectedContentVersion: state.version })
           });
           state.version = ready.contentVersion;
           if (action === 'send') {
+            phase = 'publish';
             setStatus('Отправляю на выбранные площадки…');
             // Once POST starts, an HTTP timeout is ambiguous. Never send twice automatically.
             state.uncertainPublish = true;
@@ -1141,6 +1147,16 @@ export async function openQuickComposer() {
         root.querySelector('#qc-close').textContent = '×';
         root.querySelector('#qc-close').setAttribute('aria-label', 'Закрыть редактор');
       } catch (error) {
+        // HTTP 4xx (except 408/429) from READY is a definitive, pre-publish
+        // refusal: no provider POST was dispatched and the draft is persisted.
+        // Retaining an "unknown outcome" marker here would falsely block a
+        // future composer. Keep it for network ambiguity, media failures and
+        // any publish-now request whose external outcome might be uncertain.
+        if (phase === 'ready' && !state.uncertainPublish &&
+            Number.isInteger(error?.httpStatus) && error.httpStatus >= 400 &&
+            error.httpStatus < 500 && ![408, 429].includes(error.httpStatus)) {
+          recovery?.clear();
+        }
         if (state.uncertainPublish && !state.savedId) {
           root.querySelector('#qc-recovery-warning').classList.add('is-visible');
         }
