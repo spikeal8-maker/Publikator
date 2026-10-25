@@ -726,7 +726,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     let content: { body: string; bodyRichJson: string };
     try { content = resolvedPostBody(body); }
     catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) }); }
-    if (!title || !content.body.trim()) return reply.code(400).send({ error: 'Заголовок и текст обязательны' });
+    const isExplicitMediaDraft = body.contentFormat === 'MEDIA';
+    if (!title || (!content.body.trim() && !isExplicitMediaDraft)) {
+      return reply.code(400).send({ error: 'Заголовок и текст обязательны' });
+    }
     const mode = ['MANUAL','AT','QUEUE'].includes(body.scheduleMode) ? body.scheduleMode : 'MANUAL';
     let schedule: ScheduleMutation;
     const scheduleInput = mode === 'AT' && body.scheduleTimezone === undefined
@@ -747,6 +750,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       scheduledAt: schedule.scheduledAt,
       scheduledAtUtc: schedule.scheduledAtUtc,
       scheduleTimezone: schedule.scheduleTimezone,
+      allowMediaOnlyDraft: isExplicitMediaDraft,
       actorSource: 'manual'
     });
     return reply.code(201).send(postView(created));
@@ -765,7 +769,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     try { content = resolvedPostBody(body, current); }
     catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) }); }
     const mode = body.scheduleMode === undefined ? current.schedule_mode : String(body.scheduleMode);
-    if (!title || !content.body.trim()) return reply.code(400).send({ error: 'Заголовок и текст обязательны' });
+    const mediaCaptionOptional = contentFormat !== 'TEXT_ONLY' &&
+      (body.contentFormat === 'MEDIA' || listMedia(params.id).length > 0);
+    if (!title || (!content.body.trim() && !mediaCaptionOptional)) {
+      return reply.code(400).send({ error: 'Заголовок и текст обязательны' });
+    }
     if (!['MANUAL','AT','QUEUE'].includes(mode)) return reply.code(400).send({ error: 'Неверный scheduleMode' });
     if (current.schedule_mode === 'QUEUE' && mode === 'AT' && body.confirmQueueToAt !== true) {
       return reply.code(409).send({ error: 'QUEUE_TO_AT_CONFIRMATION_REQUIRED', message: 'Convert QUEUE -> AT requires explicit confirmation' });

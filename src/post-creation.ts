@@ -15,13 +15,20 @@ export type NewDraftPostInput = {
   contentFormat?: 'TEXT_ONLY' | 'IMAGE' | 'CAROUSEL' | 'VIDEO' | 'VERTICAL_VIDEO' | 'STORY_SEQUENCE';
   targetAccountIds?: string[];
   actorSource?: RevisionActorSource;
+  // Allow an empty caption only while building an explicit FEED/MEDIA draft.
+  // READY still validates actual attached media and each target capability.
+  allowMediaOnlyDraft?: boolean;
 };
 
 export function createDraftPost(input: NewDraftPostInput): any {
   const project = db.prepare('SELECT id,default_timezone FROM projects WHERE id=?')
     .get(input.projectId) as { id: string; default_timezone: string } | undefined;
   if (!project) throw new Error('Проект не найден');
-  if (!input.title.trim() || !input.body.trim()) throw new Error('Заголовок и текст обязательны');
+  const allowedEmptyMediaCaption = input.allowMediaOnlyDraft === true &&
+    (input.publicationKind ?? 'FEED') === 'FEED' && input.contentFormat === 'IMAGE';
+  if (!input.title.trim() || (!input.body.trim() && !allowedEmptyMediaCaption)) {
+    throw new Error('Заголовок и текст обязательны');
+  }
 
   const postId = id('post');
   const publicationKind = input.publicationKind ?? 'FEED';

@@ -807,6 +807,101 @@ try {
   assert.equal(await page.locator('#qc-video-preview video').count(), 1);
   await closeComposer();
 
+  // C2b: empty text without any media remains invalid; caption-free images
+  // use the existing versioned image and target APIs, not another publisher.
+  const beforeMediaOnly = db.prepare('SELECT COUNT(*) n FROM posts').get().n;
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-save').click();
+  assert.match(await page.locator('#qc-status').textContent(), /Добавьте текст, фотографии или MP4/);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, beforeMediaOnly);
+  await page.locator('#qc-files').setInputFiles([
+    { name: 'only-picture.png', mimeType: 'image/png', buffer: image1 }
+  ]);
+  assert.equal(await page.locator('#qc-preview-text').textContent(), 'Без подписи');
+  await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  const mediaOnly = db.prepare('SELECT * FROM posts ORDER BY rowid DESC LIMIT 1').get();
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, beforeMediaOnly + 1);
+  assert.equal(mediaOnly.title, 'Публикация', 'captionless media requires only an internal title');
+  assert.equal(mediaOnly.body, '', 'an empty caption must never be replaced by an unwanted title');
+  assert.equal(mediaOnly.content_format, 'IMAGE');
+  assert.equal(mediaOnly.status, 'DRAFT');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM media WHERE post_id=?').get(mediaOnly.id).n, 1);
+  assert.deepEqual(db.prepare('SELECT account_id FROM post_targets WHERE post_id=? AND enabled=1')
+    .all(mediaOnly.id).map((row) => row.account_id), [accounts[0].id]);
+  await page.locator('#qc-files').setInputFiles([
+    { name: 'other-picture.png', mimeType: 'image/png', buffer: image2 }
+  ]);
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, beforeMediaOnly + 1);
+  const mediaOnlyCarousel = db.prepare('SELECT body,content_format,content_version FROM posts WHERE id=?')
+    .get(mediaOnly.id);
+  assert.equal(mediaOnlyCarousel.body, '');
+  assert.equal(mediaOnlyCarousel.content_format, 'CAROUSEL');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM media WHERE post_id=?').get(mediaOnly.id).n, 2);
+  await page.screenshot({ path: 'test-results/p0-composer-media-only-images.png', fullPage: false });
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM publication_events WHERE post_id=? AND event_type LIKE ?')
+    .get(mediaOnly.id, '%publish%').n, 0, 'captionless draft must never call a social provider');
+  await closeComposer();
+
+  // A disabled selected destination must not become READY just because a
+  // caption-free carousel has actual media. Existing preflight remains authoritative.
+  db.prepare('UPDATE social_accounts SET enabled=0 WHERE id=?').run(accounts[0].id);
+  const deniedPreflight = await page.evaluate(async ({ postId, expectedContentVersion }) => {
+    const response = await fetch('/api/posts/' + encodeURIComponent(postId) + '/ready', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ expectedContentVersion })
+    });
+    return { status: response.status, body: await response.json() };
+  }, { postId: mediaOnly.id, expectedContentVersion: mediaOnlyCarousel.content_version });
+  assert.equal(deniedPreflight.status, 409, 'disabled recipient must be blocked by server READY');
+  assert.match(String(deniedPreflight.body.error), /отключён|аккаунт|сеть|готов/i);
+  assert.equal(db.prepare('SELECT status FROM posts WHERE id=?').get(mediaOnly.id).status, 'DRAFT');
+  db.prepare('UPDATE social_accounts SET enabled=1 WHERE id=?').run(accounts[0].id);
+
+  // Existing REST text-only contract must not be weakened by media-only mode.
+  const projectForValidation = db.prepare('SELECT id FROM projects ORDER BY created_at LIMIT 1').get().id;
+  const noTextOnlyPost = await page.evaluate(async (projectId) => {
+    const response = await fetch('/api/posts', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        projectId, title: 'Text-only without text is invalid', body: '',
+        bodyRich: { type: 'doc', content: [] },
+        contentFormat: 'TEXT_ONLY', scheduleMode: 'MANUAL'
+      })
+    });
+    return { status: response.status, body: await response.json() };
+  }, projectForValidation);
+  assert.equal(noTextOnlyPost.status, 400, 'TEXT_ONLY with empty text must remain invalid');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, beforeMediaOnly + 1);
+
+  // C2b: video-only is also a media draft; the server retains VIDEO and the
+  // generated poster without inventing any caption or triggering provider POST.
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-video-file').setInputFiles([
+    { name: 'no-caption.mp4', mimeType: 'video/mp4', buffer: mp4 }
+  ]);
+  await page.locator('input[name="qc-account"][value="' + accounts[1].id + '"]').check();
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 45000 });
+  const videoOnly = db.prepare('SELECT * FROM posts ORDER BY rowid DESC LIMIT 1').get();
+  assert.equal(videoOnly.body, '');
+  assert.equal(videoOnly.title, 'Публикация');
+  assert.equal(videoOnly.content_format, 'VIDEO');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM media WHERE post_id=? AND mime_type=?')
+    .get(videoOnly.id, 'video/mp4').n, 1);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM media WHERE post_id=?').get(videoOnly.id).n, 2,
+    'single captionless MP4 still has a generated poster');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, beforeMediaOnly + 2);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM publication_events WHERE post_id=? AND event_type LIKE ?')
+    .get(videoOnly.id, '%publish%').n, 0);
+  await page.screenshot({ path: 'test-results/p0-composer-media-only-video.png', fullPage: false });
+  await closeComposer();
+
   assert.deepEqual(errors, []);
   await desktop.close();
 
