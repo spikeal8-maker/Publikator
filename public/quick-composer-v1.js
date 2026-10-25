@@ -535,6 +535,10 @@ export async function openQuickComposer() {
         }
         if (!item.remoteId) throw new Error('Не удалось подтвердить загрузку изображения.');
         if (nextOrder.includes(item.remoteId)) {
+          // A confirmed duplicate consumes one of the original lost-file slots.
+          // If a later media upload fails, a retry must remain possible even
+          // though the server has normalized two files into a single media ID.
+          state.recoveryRequiredFiles = Math.max(0, state.recoveryRequiredFiles - 1);
           // The server deduplicates identical normalized image bytes, not file names.
           // Keep one local card per persisted media ID so order/delete stay consistent.
           const index = state.pending.indexOf(item);
