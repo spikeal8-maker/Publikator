@@ -1,0 +1,377 @@
+{
+  "contractId": "publikator.agent-contract-examples",
+  "schemaVersion": 1,
+  "status": "PLANNED_NOT_DEPLOYED",
+  "notes": "Synthetic examples only. Negative cases describe desired server behaviour, not already passing runtime tests.",
+  "cases": [
+    {
+      "id": "read-projects",
+      "operationId": "listAgentProjects",
+      "http": 200,
+      "request": {
+        "query": {
+          "limit": 50
+        }
+      },
+      "response": {
+        "items": [
+          {
+            "id": "project_asa",
+            "name": "ASA Lab",
+            "defaultTimezone": "Europe/Moscow"
+          }
+        ],
+        "pagination": {
+          "limit": 50,
+          "nextCursor": null
+        }
+      },
+      "expect": [
+        "no mutation",
+        "only allowlisted project IDs"
+      ]
+    },
+    {
+      "id": "read-accounts",
+      "operationId": "listAgentAccounts",
+      "http": 200,
+      "request": {
+        "query": {
+          "limit": 50
+        }
+      },
+      "response": {
+        "items": [
+          {
+            "id": "vk_001",
+            "platform": "vk",
+            "name": "ASA Lab VK",
+            "enabled": true,
+            "capability": {
+              "verified": true,
+              "formats": [
+                {
+                  "format": "TEXT_ONLY",
+                  "state": "READY"
+                },
+                {
+                  "format": "IMAGE",
+                  "state": "BLOCKED",
+                  "reasonCode": "UPLOAD_USER_CREDENTIAL_REQUIRED"
+                }
+              ]
+            }
+          }
+        ],
+        "pagination": {
+          "limit": 50,
+          "nextCursor": null
+        }
+      },
+      "expect": [
+        "provider capabilities never inferred from enabled alone"
+      ]
+    },
+    {
+      "id": "create-image-draft",
+      "operationId": "createAgentPost",
+      "http": 201,
+      "request": {
+        "idempotencyKey": "create_20261025_A",
+        "body": {
+          "projectId": "project_asa",
+          "contentFormat": "IMAGE",
+          "bodyPlain": "",
+          "mediaAssetIds": [
+            "media_01",
+            "media_02"
+          ],
+          "targetAccountIds": [
+            "vk_001",
+            "telegram_001"
+          ]
+        }
+      },
+      "response": {
+        "postId": "post_demo_001",
+        "projectId": "project_asa",
+        "contentVersion": 1,
+        "status": "DRAFT",
+        "editorialStage": "DRAFT",
+        "bodyPlain": "",
+        "targetAccountIds": [
+          "vk_001",
+          "telegram_001"
+        ],
+        "mediaAssetIds": [
+          "media_01",
+          "media_02"
+        ]
+      },
+      "expect": [
+        "no provider POST",
+        "explicit two targets only",
+        "photo-only body allowed"
+      ]
+    },
+    {
+      "id": "reject-empty-text-post",
+      "operationId": "createAgentPost",
+      "http": 400,
+      "request": {
+        "idempotencyKey": "bad_text_A",
+        "body": {
+          "projectId": "project_asa",
+          "contentFormat": "TEXT_ONLY",
+          "bodyPlain": "",
+          "targetAccountIds": [],
+          "mediaAssetIds": []
+        }
+      },
+      "response": {
+        "error": {
+          "code": "VALIDATION_ERROR",
+          "message": "Для текстовой публикации нужен текст"
+        },
+        "requestId": "req_demo_001",
+        "retryable": false
+      },
+      "expect": [
+        "HTTP 400",
+        "zero DB mutation",
+        "empty TEXT_ONLY forbidden"
+      ]
+    },
+    {
+      "id": "reject-stale-edit",
+      "operationId": "updateAgentPost",
+      "http": 409,
+      "request": {
+        "path": {
+          "postId": "post_demo_001"
+        },
+        "idempotencyKey": "edit_stale_A",
+        "body": {
+          "expectedContentVersion": 1,
+          "bodyPlain": "Изменение"
+        }
+      },
+      "response": {
+        "error": {
+          "code": "CONTENT_VERSION_CONFLICT",
+          "message": "Черновик уже был изменён"
+        },
+        "requestId": "req_demo_001",
+        "retryable": false
+      },
+      "expect": [
+        "no overwrite of newer content"
+      ]
+    },
+    {
+      "id": "reject-hidden-post",
+      "operationId": "getAgentPost",
+      "http": 403,
+      "request": {
+        "path": {
+          "postId": "post_forbidden_001"
+        }
+      },
+      "response": {
+        "error": {
+          "code": "RESOURCE_DENIED",
+          "message": "Нет доступа к запрошенной публикации"
+        },
+        "requestId": "req_demo_001",
+        "retryable": false
+      },
+      "expect": [
+        "no cross-agent read",
+        "404 may be used to conceal existence in live implementation"
+      ]
+    },
+    {
+      "id": "request-owner-approval",
+      "operationId": "requestAgentApproval",
+      "http": 200,
+      "request": {
+        "path": {
+          "postId": "post_demo_001"
+        },
+        "idempotencyKey": "approval_req_A",
+        "body": {
+          "expectedContentVersion": 1
+        }
+      },
+      "response": {
+        "postId": "post_demo_001",
+        "state": "WAITING_APPROVAL",
+        "intentId": "intent_demo_001",
+        "contentVersion": 1
+      },
+      "expect": [
+        "owner still must approve exact revision",
+        "0 provider POST"
+      ]
+    },
+    {
+      "id": "reject-unapproved-send",
+      "operationId": "publishAgentPost",
+      "http": 409,
+      "request": {
+        "path": {
+          "postId": "post_demo_001"
+        },
+        "idempotencyKey": "no_consent_A",
+        "body": {
+          "intentId": "intent_demo_001"
+        }
+      },
+      "response": {
+        "error": {
+          "code": "APPROVAL_REQUIRED",
+          "message": "Требуется подтверждение владельца"
+        },
+        "requestId": "req_demo_001",
+        "retryable": false
+      },
+      "expect": [
+        "0 provider POST even if READY in database"
+      ]
+    },
+    {
+      "id": "unknown-provider-outcome",
+      "operationId": "getAgentPublicationStatus",
+      "http": 200,
+      "request": {
+        "path": {
+          "postId": "post_demo_001"
+        }
+      },
+      "response": {
+        "postId": "post_demo_001",
+        "overall": "RECOVERY_NEEDED",
+        "targets": [
+          {
+            "accountId": "vk_001",
+            "state": "PUBLISHED",
+            "externalId": "1001",
+            "externalUrl": "https://vk.com/wall-100_1001"
+          },
+          {
+            "accountId": "telegram_001",
+            "state": "RECOVERY_NEEDED",
+            "errorCode": "OUTCOME_UNKNOWN"
+          }
+        ]
+      },
+      "expect": [
+        "no automatic retry on ambiguous external result",
+        "published target not resent"
+      ]
+    },
+    {
+      "id": "reject-stale-grant",
+      "operationId": "updateOwnerAgentGrant",
+      "http": 409,
+      "request": {
+        "path": {
+          "agentId": "agent_demo_001"
+        },
+        "idempotencyKey": "grant_bad_A",
+        "body": {
+          "expectedGrantVersion": 1,
+          "presetId": "LIMITED",
+          "publishMode": "DRAFT_ONLY",
+          "projectIds": [
+            "project_asa"
+          ],
+          "accountIds": [],
+          "sourceConnectorIds": []
+        }
+      },
+      "response": {
+        "error": {
+          "code": "GRANT_VERSION_CONFLICT",
+          "message": "Права изменились, обновите настройки"
+        },
+        "requestId": "req_demo_001",
+        "retryable": false
+      },
+      "expect": [
+        "admin session required",
+        "stale update does not grant new scopes"
+      ]
+    },
+    {
+      "id": "owner-readable-audit",
+      "operationId": "listOwnerAgentActivity",
+      "http": 200,
+      "request": {
+        "path": {
+          "agentId": "agent_demo_001"
+        },
+        "query": {
+          "limit": 50
+        }
+      },
+      "response": {
+        "items": [
+          {
+            "schemaVersion": 1,
+            "eventId": "evt_demo_001",
+            "sequence": 1,
+            "occurredAtUtc": "2026-10-25T12:00:00Z",
+            "actorType": "AGENT",
+            "agentId": "agent_demo_001",
+            "clientKind": "chatgpt",
+            "origin": "MCP",
+            "requestId": "req_001",
+            "operationId": "publikator_create_post",
+            "postId": "post_demo_001",
+            "stage": "COMPLETED",
+            "outcome": "SUCCEEDED",
+            "safeSummary": "Создан черновик №post_demo_001"
+          }
+        ],
+        "pagination": {
+          "limit": 50,
+          "nextCursor": null
+        }
+      },
+      "expect": [
+        "owner sees same event ID as agent-scoped history",
+        "no secret in audit"
+      ]
+    },
+    {
+      "id": "pure-preview",
+      "operationId": "previewAgentPost",
+      "http": 200,
+      "request": {
+        "path": {
+          "postId": "post_demo_001"
+        },
+        "idempotencyKey": "preview_A",
+        "body": {
+          "expectedContentVersion": 1
+        }
+      },
+      "response": {
+        "postId": "post_demo_001",
+        "contentVersion": 1,
+        "targets": [
+          {
+            "accountId": "vk_001",
+            "state": "READY",
+            "previewText": "Робототехника"
+          }
+        ]
+      },
+      "expect": [
+        "preview does not change post or targets",
+        "no provider POST"
+      ]
+    }
+  ]
+}
