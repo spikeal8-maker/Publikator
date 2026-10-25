@@ -60,7 +60,8 @@ export function migrateAgentOwnership(db: Database.Database): void {
             AND preapproved_policy_json IS NOT NULL
             AND json_valid(preapproved_policy_json)
             AND json_type(preapproved_policy_json)='object'
-            AND CAST(json_extract(preapproved_policy_json,'$.approvedPolicyVersion') AS INTEGER)>=1)
+            AND COALESCE(json_type(preapproved_policy_json,'$.approvedPolicyVersion')='integer',0)
+            AND COALESCE(CAST(json_extract(preapproved_policy_json,'$.approvedPolicyVersion') AS INTEGER)>=1,0))
           OR
           (publish_mode!='PREAPPROVED_POLICY' AND preapproved_policy_json IS NULL)
         )
