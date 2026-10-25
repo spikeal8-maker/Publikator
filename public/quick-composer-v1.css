@@ -90,7 +90,7 @@
 .qc-recovery-warning.is-visible { display: flex; }
 .qc-recovery-warning p { margin: 0; color: #694d2e; }
 .qc-recovery-warning a { color: #3151a0; text-decoration: underline; font-weight: 750; }
-#qc-start-new {
+#qc-start-new, #qc-skip-recovered-media {
   align-self: flex-start; padding: 9px 12px; border-radius: 8px;
   background: #fff; color: #634c2b; border: 1px solid #debd87;
   font-weight: 700; cursor: pointer;
