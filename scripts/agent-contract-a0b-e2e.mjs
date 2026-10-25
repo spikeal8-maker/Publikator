@@ -67,6 +67,7 @@ function valid(schema, value, path = '$', depth = 0) {
       if (schema.properties?.[k]) valid(schema.properties[k], v, path + '.' + k, depth + 1);
       else if (schema.additionalProperties === false) assert.fail(path + '.' + k + ' extra field');
     }
+  }
     if (schema.if) {
       let matched = true;
       try { valid(schema.if, value, path, depth + 1); } catch { matched = false; }
@@ -80,7 +81,6 @@ function valid(schema, value, path = '$', depth = 0) {
       }).length;
       assert.equal(matches, 1, path + ' oneOf');
     }
-  }
 }
 assert.equal(openapi.openapi, '3.1.0');
 assert.equal(openapi['x-publikator-contract-status'], 'PLANNED_NOT_IMPLEMENTED');
@@ -198,6 +198,27 @@ for (const c of cases) {
   }
 }
 assert.equal(invalidBodyCases, 1);
+
+const draftOperation=catalog.get('createAgentPost');
+const draftInput=draftOperation.op.requestBody.content['application/json'].schema;
+const validImageDraft=cases.find(c=>c.id==='create-image-draft').request.body;
+for(const invalidSchedule of [123, [], '2026-10-27', true]) {
+  assert.throws(() => valid(draftInput, {...validImageDraft,schedule:invalidSchedule}, 'invalid schedule'), undefined, 'schedule scalar/array must fail oneOf');
+}
+assert.throws(() => valid(draftInput, {...validImageDraft,schedule:{mode:'AT'}}, 'AT missing timestamp'), undefined, 'AT requires UTC instant and timezone');
+valid(draftInput, {...validImageDraft,schedule:null}, 'nullable schedule');
+const importedJob=cases.find(c=>c.id==='import-media-completed').response;
+assert.deepEqual(importedJob.resultMediaAssetIds, validImageDraft.mediaAssetIds, 'completed import IDs must preserve precise draft media order');
+assert.equal(importedJob.resultMediaCount, importedJob.resultMediaAssetIds.length, 'count must match ordered IDs');
+assert.ok(importedJob.resultMediaAssetIds.length >= 2);
+const getJobSchema=catalog.get('getAgentJob').op.responses['200'].content['application/json'].schema;
+assert.deepEqual(schemaDefs.Job.properties.resultMediaAssetIds,
+  mcp.tools.find(t=>t.restOperationId==='getAgentJob').outputSchema.properties.resultMediaAssetIds,
+  'MCP and REST completed-import results must match');
+valid(getJobSchema, importedJob, 'import completed response');
+assert.throws(() => valid(getJobSchema, {...importedJob, resultMediaAssetIds:undefined}, 'missing media IDs'), undefined,
+  'completed import requires ordered media IDs');
+
 assert.ok(cases.some(c=>c.id==='create-image-draft'&&!c.request.body.bodyPlain), 'captionless image draft contract required');
 assert.ok(cases.some(c=>c.id==='unknown-provider-outcome'), 'RECOVERY_NEEDED fixture absent');
 assert.ok(cases.some(c=>c.id==='reject-unapproved-send'), 'consent denied fixture absent');
