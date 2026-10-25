@@ -15,7 +15,7 @@ const { DATABASE_SCHEMA_VERSION } = await import('../dist/schema.js');
 const { encryptJson, decryptJson } = await import('../dist/crypto.js');
 migrate();
 try {
-  assert.equal(DATABASE_SCHEMA_VERSION, 14);
+  assert.ok(DATABASE_SCHEMA_VERSION >= 14);
   const project = db.prepare('SELECT id FROM projects ORDER BY created_at LIMIT 1').get();
   const timestamp = nowIso();
   const account = id('acc');
@@ -37,7 +37,7 @@ try {
   db.exec('DROP TABLE admin_sessions; DROP TABLE admin_setup_grants; DROP TABLE admin_users; DROP TABLE admin_legacy_session_revocations;');
   db.pragma('user_version = 13');
   migrate();
-  assert.equal(Number(db.pragma('user_version', { simple:true })), 14);
+  assert.equal(Number(db.pragma('user_version', { simple:true })), DATABASE_SCHEMA_VERSION);
   for (const table of ['admin_users','admin_sessions','admin_setup_grants','admin_legacy_session_revocations']) {
     assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table), table);
     assert.equal(db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n, 0);
@@ -48,11 +48,11 @@ try {
   assert.deepEqual(db.prepare('SELECT * FROM post_targets').all(), before.targets);
   assert.deepEqual(decryptJson(credential), { botToken: 'preserved-token', chatId: '@Alikin_SA' });
   migrate();
-  assert.equal(Number(db.pragma('user_version', {simple:true})), 14);
-  db.pragma('user_version = 15');
-  assert.throws(() => migrate(), /новее поддерживаемой 14/);
-  db.pragma('user_version = 14');
-  console.log(JSON.stringify({ok:true,from:13,to:14,readyPreserved:true,encryptedCredentialsPreserved:true,rerunSafe:true,downgradeGuard:true}));
+  assert.equal(Number(db.pragma('user_version', {simple:true})), DATABASE_SCHEMA_VERSION);
+  db.pragma(`user_version = ${DATABASE_SCHEMA_VERSION+1}`);
+  assert.throws(() => migrate(), new RegExp(`новее поддерживаемой ${DATABASE_SCHEMA_VERSION}`));
+  db.pragma(`user_version = ${DATABASE_SCHEMA_VERSION}`);
+  console.log(JSON.stringify({ok:true,from:13,to:14,readyPreserved:true,encryptedCredentialsPreserved:true,rerunSafe:true,downgradeGuard:true,latestVersion:DATABASE_SCHEMA_VERSION}));
 } finally {
   db.close();
   await fs.rm(dataDir, {recursive:true,force:true});
