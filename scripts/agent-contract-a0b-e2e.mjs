@@ -360,6 +360,42 @@ for(const operationId of ['getAgentPost','createAgentPost','updateAgentPost']){
 }
 assert.deepEqual(mcp.tools.find(t=>t.restOperationId==='listAgentPosts').outputSchema,
   inlineAll(schemaDefs.PostList),'post list and detail must use the same persisted Post fields');
+// A saved per-target caption must be editable and clearable without
+// replacing the canonical body, media, recipients or requested schedule.
+const captionUpdate = cases.find(c => c.id === 'change-account-captions');
+const captionReload = cases.find(c => c.id === 'reload-changed-captions');
+const captionClear = cases.find(c => c.id === 'clear-account-captions');
+const captionClearedReload = cases.find(c => c.id === 'reload-cleared-captions');
+assert.ok(captionUpdate && captionReload && captionClear && captionClearedReload,
+  'target caption edit/clear round-trip fixture sequence missing');
+const overrideDto = schemaDefs.DraftUpdate.properties.targetTextOverrides;
+const mcpUpdateDto = mcp.tools.find(t=>t.restOperationId === 'updateAgentPost').inputSchema.properties.targetTextOverrides;
+assert.deepEqual(mcpUpdateDto, overrideDto, 'REST/MCP target override update contract drift');
+assert.ok(!schemaDefs.DraftUpdate.required.includes('targetTextOverrides'),
+  'omitted updates must leave existing overrides unchanged');
+valid(schemaDefs.DraftUpdate, captionUpdate.request.body, 'versioned caption update');
+valid(schemaDefs.DraftUpdate, captionClear.request.body, 'versioned caption clearing');
+assert.equal(captionUpdate.request.body.expectedContentVersion, richReloaded.response.contentVersion);
+assert.equal(captionUpdate.response.contentVersion, richReloaded.response.contentVersion + 1);
+assert.deepEqual(captionUpdate.request.body.targetTextOverrides, captionReload.response.targetTextOverrides);
+assert.deepEqual(captionUpdate.response, captionReload.response, 'editing captions must survive reload');
+assert.equal(captionClear.request.body.expectedContentVersion, captionUpdate.response.contentVersion);
+assert.equal(captionClear.response.contentVersion, captionUpdate.response.contentVersion + 1);
+assert.deepEqual(captionClear.request.body.targetTextOverrides, [], 'explicit empty override list clears all');
+assert.deepEqual(captionClearedReload.response.targetTextOverrides, [], 'cleared overrides must stay cleared after reload');
+assert.deepEqual(captionClear.response, captionClearedReload.response, 'cleared captions must survive reload');
+for (const field of ['bodyPlain','bodyRich','publicationKind','contentFormat','targetAccountIds','mediaAssetIds','schedule']) {
+  assert.deepEqual(captionUpdate.response[field], richReloaded.response[field],
+    field + ' must survive caption-only update');
+  assert.deepEqual(captionClearedReload.response[field], richReloaded.response[field],
+    field + ' must survive caption clearing');
+}
+assert.equal(captionClearedReload.response.status, 'DRAFT', 'editing captions must not approve scheduled post');
+assert.throws(() => valid(schemaDefs.DraftUpdate,{expectedContentVersion:2,targetTextOverrides:"not-an-array"},
+  'invalid target override shape'),undefined,'target override replacement must be an array');
+assert.throws(() => valid(schemaDefs.DraftUpdate,{expectedContentVersion:2,targetTextOverrides:[{accountId:"vk_001"}]},
+  'target override missing text'),undefined,'target captions require explicit bodyPlain');
+
 const withoutSchedule = {...richReloaded.response};
 delete withoutSchedule.schedule;
 assert.throws(() => valid(schemaDefs.Post, withoutSchedule, 'reloaded draft missing schedule'),
