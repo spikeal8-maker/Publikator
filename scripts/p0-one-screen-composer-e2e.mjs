@@ -417,6 +417,47 @@ try {
   assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, dedupBefore + 1);
   await closeComposer();
 
+  // A later HTTP 503 after two normalized-equal uploads must not lock out retry.
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').fill('Восстановленный набор из трёх фотографий');
+  await page.locator('#qc-files').setInputFiles([
+    { name: 'original-1.png', mimeType: 'image/png', buffer: image1 },
+    { name: 'original-1-copy.png', mimeType: 'image/png', buffer: image1 },
+    { name: 'original-2.png', mimeType: 'image/png', buffer: image2 }
+  ]);
+  await page.reload();
+  await page.locator('#app:not(.hidden)').waitFor();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').waitFor();
+  assert.match(await page.locator('#qc-missing-media-detail').textContent(), /3 фото/);
+  await page.locator('#qc-files').setInputFiles([
+    { name: 'retry-1.png', mimeType: 'image/png', buffer: image1 },
+    { name: 'retry-1-copy.png', mimeType: 'image/png', buffer: image1 },
+    { name: 'retry-2.png', mimeType: 'image/png', buffer: image2 }
+  ]);
+  let uploadsSeen = 0;
+  await page.route('**/api/posts/*/media', async (route) => {
+    if (route.request().method() === 'POST' && ++uploadsSeen === 3) {
+      await route.fulfill({ status: 503, contentType: 'application/json', body: '{}' });
+      return;
+    }
+    await route.continue();
+  });
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: /HTTP 503/ }).waitFor({ timeout: 30000 });
+  const interruptedMediaPost = db.prepare('SELECT id FROM posts ORDER BY rowid DESC LIMIT 1').get().id;
+  assert.equal(uploadsSeen, 3);
+  assert.equal(await page.locator('.qc-image').count(), 2,
+    'server dedup removes duplicate local card even if a later upload fails');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM media WHERE post_id=?').get(interruptedMediaPost).n, 1);
+  await page.unroute('**/api/posts/*/media');
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM media WHERE post_id=?').get(interruptedMediaPost).n, 2,
+    'retry must complete the original server draft rather than creating a second post');
+  await closeComposer();
+
   // P1: once a server POST starts, session recovery must become uncertain
   // before any server response. Never keep a misleading local-only snapshot.
   await page.locator('#quick-compose-nav').click();
