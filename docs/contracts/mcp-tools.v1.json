@@ -517,6 +517,168 @@
       }
     },
     {
+      "name": "publikator_list_source_files",
+      "title": "Найти файлы в разрешённой папке источника",
+      "description": "Список разрешённых файлов Google Drive/Яндекс Диска по конкретному источнику и относительной папке. Возвращает безопасные root-relative пути, пригодные для последующего импорта, не раскрывая ключи.",
+      "restOperationId": "listAgentSourceFiles",
+      "restMethod": "GET",
+      "restPath": "/api/agent/v1/sources/{sourceConnectorId}/files",
+      "requiredScopes": [
+        "sources:read"
+      ],
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "sources:read"
+          ]
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sourceConnectorId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "folderPath": {
+            "type": "string",
+            "maxLength": 1024,
+            "description": "Folder within granted connector root, never absolute host path."
+          },
+          "search": {
+            "type": "string",
+            "maxLength": 160
+          },
+          "mimeType": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "required": [
+          "sourceConnectorId"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sourceConnectorId",
+          "items",
+          "pagination"
+        ],
+        "properties": {
+          "sourceConnectorId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "sourceConnectorId",
+                "relativePath",
+                "name",
+                "mimeType",
+                "sizeBytes",
+                "isFolder"
+              ],
+              "properties": {
+                "sourceConnectorId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9._:-]+$"
+                },
+                "fileId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9._:-]+$"
+                },
+                "relativePath": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024,
+                  "description": "Connector-root-relative authorized path usable in /media/import after server-side revalidation; never expose host absolute paths."
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 255
+                },
+                "mimeType": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "sizeBytes": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "isFolder": {
+                  "type": "boolean"
+                },
+                "modifiedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "sourceRevision": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              }
+            },
+            "maxItems": 100
+          },
+          "pagination": {
+            "type": "object",
+            "required": [
+              "limit",
+              "nextCursor"
+            ],
+            "properties": {
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
       "name": "publikator_search_media",
       "title": "Найти разрешённые фотографии и видео",
       "description": "Найти разрешённые фотографии и видео. Права и публикационная политика проверяются сервером. Не отправляйте секреты.",
@@ -769,7 +931,13 @@
                 "contentVersion",
                 "status",
                 "targetAccountIds",
-                "mediaAssetIds"
+                "mediaAssetIds",
+                "projectId",
+                "contentFormat",
+                "publicationKind",
+                "bodyPlain",
+                "targetTextOverrides",
+                "schedule"
               ],
               "properties": {
                 "postId": {
@@ -841,6 +1009,106 @@
                   "minLength": 1,
                   "maxLength": 128,
                   "pattern": "^[A-Za-z0-9._:-]+$"
+                },
+                "contentFormat": {
+                  "enum": [
+                    "TEXT_ONLY",
+                    "IMAGE",
+                    "CAROUSEL",
+                    "VIDEO"
+                  ]
+                },
+                "publicationKind": {
+                  "enum": [
+                    "FEED",
+                    "SHORT",
+                    "STORY"
+                  ]
+                },
+                "bodyRich": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "description": "Saved canonical rich text if provided; not compiled platform output."
+                },
+                "targetTextOverrides": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "accountId",
+                      "bodyPlain"
+                    ],
+                    "properties": {
+                      "accountId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                        "pattern": "^[A-Za-z0-9._:-]+$"
+                      },
+                      "bodyPlain": {
+                        "type": "string",
+                        "minLength": 0,
+                        "maxLength": 20000
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "minItems": 0,
+                  "maxItems": 100,
+                  "description": "Saved account-specific text overrides, not platform preview."
+                },
+                "schedule": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "mode"
+                      ],
+                      "properties": {
+                        "mode": {
+                          "enum": [
+                            "MANUAL",
+                            "AT",
+                            "QUEUE"
+                          ]
+                        },
+                        "atUtc": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "timezone": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 100
+                        }
+                      },
+                      "additionalProperties": false,
+                      "allOf": [
+                        {
+                          "if": {
+                            "properties": {
+                              "mode": {
+                                "const": "AT"
+                              }
+                            },
+                            "required": [
+                              "mode"
+                            ]
+                          },
+                          "then": {
+                            "required": [
+                              "atUtc",
+                              "timezone"
+                            ]
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Saved draft schedule, never evidence of owner approval or automatic readiness."
                 }
               },
               "additionalProperties": false
@@ -919,7 +1187,13 @@
           "contentVersion",
           "status",
           "targetAccountIds",
-          "mediaAssetIds"
+          "mediaAssetIds",
+          "projectId",
+          "contentFormat",
+          "publicationKind",
+          "bodyPlain",
+          "targetTextOverrides",
+          "schedule"
         ],
         "properties": {
           "postId": {
@@ -991,6 +1265,106 @@
             "minLength": 1,
             "maxLength": 128,
             "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "contentFormat": {
+            "enum": [
+              "TEXT_ONLY",
+              "IMAGE",
+              "CAROUSEL",
+              "VIDEO"
+            ]
+          },
+          "publicationKind": {
+            "enum": [
+              "FEED",
+              "SHORT",
+              "STORY"
+            ]
+          },
+          "bodyRich": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Saved canonical rich text if provided; not compiled platform output."
+          },
+          "targetTextOverrides": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "accountId",
+                "bodyPlain"
+              ],
+              "properties": {
+                "accountId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9._:-]+$"
+                },
+                "bodyPlain": {
+                  "type": "string",
+                  "minLength": 0,
+                  "maxLength": 20000
+                }
+              },
+              "additionalProperties": false
+            },
+            "minItems": 0,
+            "maxItems": 100,
+            "description": "Saved account-specific text overrides, not platform preview."
+          },
+          "schedule": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "mode"
+                ],
+                "properties": {
+                  "mode": {
+                    "enum": [
+                      "MANUAL",
+                      "AT",
+                      "QUEUE"
+                    ]
+                  },
+                  "atUtc": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "timezone": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  }
+                },
+                "additionalProperties": false,
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "mode": {
+                          "const": "AT"
+                        }
+                      },
+                      "required": [
+                        "mode"
+                      ]
+                    },
+                    "then": {
+                      "required": [
+                        "atUtc",
+                        "timezone"
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Saved draft schedule, never evidence of owner approval or automatic readiness."
           }
         },
         "additionalProperties": false
@@ -1238,7 +1612,13 @@
           "contentVersion",
           "status",
           "targetAccountIds",
-          "mediaAssetIds"
+          "mediaAssetIds",
+          "projectId",
+          "contentFormat",
+          "publicationKind",
+          "bodyPlain",
+          "targetTextOverrides",
+          "schedule"
         ],
         "properties": {
           "postId": {
@@ -1310,6 +1690,106 @@
             "minLength": 1,
             "maxLength": 128,
             "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "contentFormat": {
+            "enum": [
+              "TEXT_ONLY",
+              "IMAGE",
+              "CAROUSEL",
+              "VIDEO"
+            ]
+          },
+          "publicationKind": {
+            "enum": [
+              "FEED",
+              "SHORT",
+              "STORY"
+            ]
+          },
+          "bodyRich": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Saved canonical rich text if provided; not compiled platform output."
+          },
+          "targetTextOverrides": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "accountId",
+                "bodyPlain"
+              ],
+              "properties": {
+                "accountId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9._:-]+$"
+                },
+                "bodyPlain": {
+                  "type": "string",
+                  "minLength": 0,
+                  "maxLength": 20000
+                }
+              },
+              "additionalProperties": false
+            },
+            "minItems": 0,
+            "maxItems": 100,
+            "description": "Saved account-specific text overrides, not platform preview."
+          },
+          "schedule": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "mode"
+                ],
+                "properties": {
+                  "mode": {
+                    "enum": [
+                      "MANUAL",
+                      "AT",
+                      "QUEUE"
+                    ]
+                  },
+                  "atUtc": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "timezone": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  }
+                },
+                "additionalProperties": false,
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "mode": {
+                          "const": "AT"
+                        }
+                      },
+                      "required": [
+                        "mode"
+                      ]
+                    },
+                    "then": {
+                      "required": [
+                        "atUtc",
+                        "timezone"
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Saved draft schedule, never evidence of owner approval or automatic readiness."
           }
         },
         "additionalProperties": false
@@ -1456,7 +1936,13 @@
           "contentVersion",
           "status",
           "targetAccountIds",
-          "mediaAssetIds"
+          "mediaAssetIds",
+          "projectId",
+          "contentFormat",
+          "publicationKind",
+          "bodyPlain",
+          "targetTextOverrides",
+          "schedule"
         ],
         "properties": {
           "postId": {
@@ -1528,6 +2014,106 @@
             "minLength": 1,
             "maxLength": 128,
             "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "contentFormat": {
+            "enum": [
+              "TEXT_ONLY",
+              "IMAGE",
+              "CAROUSEL",
+              "VIDEO"
+            ]
+          },
+          "publicationKind": {
+            "enum": [
+              "FEED",
+              "SHORT",
+              "STORY"
+            ]
+          },
+          "bodyRich": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Saved canonical rich text if provided; not compiled platform output."
+          },
+          "targetTextOverrides": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "accountId",
+                "bodyPlain"
+              ],
+              "properties": {
+                "accountId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9._:-]+$"
+                },
+                "bodyPlain": {
+                  "type": "string",
+                  "minLength": 0,
+                  "maxLength": 20000
+                }
+              },
+              "additionalProperties": false
+            },
+            "minItems": 0,
+            "maxItems": 100,
+            "description": "Saved account-specific text overrides, not platform preview."
+          },
+          "schedule": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "mode"
+                ],
+                "properties": {
+                  "mode": {
+                    "enum": [
+                      "MANUAL",
+                      "AT",
+                      "QUEUE"
+                    ]
+                  },
+                  "atUtc": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "timezone": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  }
+                },
+                "additionalProperties": false,
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "mode": {
+                          "const": "AT"
+                        }
+                      },
+                      "required": [
+                        "mode"
+                      ]
+                    },
+                    "then": {
+                      "required": [
+                        "atUtc",
+                        "timezone"
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Saved draft schedule, never evidence of owner approval or automatic readiness."
           }
         },
         "additionalProperties": false
