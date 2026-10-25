@@ -130,7 +130,24 @@ try {
   assert.deepEqual(reorderedLocal, [...originalLocalOrder].reverse(),
     'local preview follows the operator-specified image order');
   page.off('request', recordPreviewGet);
-  await page.screenshot({ path: 'test-results/p0-composer-desktop.png', fullPage: false });
+
+  // D3a: while no draft exists, a distinct VK account gets its own caption.
+  // The two Telegram targets must continue inheriting canonical base text.
+  await page.locator('#qc-variant-editor summary').click();
+  assert.equal(await page.locator('#qc-variant-choice option').count(), 3);
+  await page.locator('#qc-variant-choice').selectOption(accounts[2].id);
+  await page.locator('#qc-variant-text').fill('Вариант публикации только для VK');
+  assert.match(await page.locator('#qc-variant-status').textContent(), /Отдельный текст подготовлен/);
+  assert.equal(await page.locator('#qc-platform-preview').isVisible(), false);
+  await page.locator('#qc-platform-preview-load').click();
+  await page.locator('#qc-platform-preview-choice').selectOption(vkLocalOption);
+  assert.match(await page.locator('.qc-platform-caption').textContent(), /Вариант публикации только для VK/);
+  await page.locator('#qc-platform-preview-choice').selectOption(telegramLocalOption);
+  assert.match(await page.locator('.qc-platform-caption').textContent(), /Наша новая публикация/);
+  assert.doesNotMatch(await page.locator('.qc-platform-caption').textContent(), /только для VK/);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM posts').get().n, 0,
+    'editing a target variant before Save has no server side effect');
+  await page.screenshot({ path: 'test-results/p0-composer-per-account-text-variant.png', fullPage: false });
   await page.locator('#qc-save').click();
   await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
 
@@ -144,6 +161,12 @@ try {
     .all(post.id).map((row) => row.account_id);
   assert.deepEqual(selected, [accounts[0], accounts[1], accounts[2]].map(x => x.id).sort(),
     'one post selected across 2 Telegram + 1 VK account; other 8 were not selected');
+  assert.equal(db.prepare('SELECT override_text FROM post_targets WHERE post_id=? AND account_id=?')
+    .get(post.id, accounts[2].id).override_text, 'Вариант публикации только для VK');
+  assert.equal(db.prepare('SELECT override_text FROM post_targets WHERE post_id=? AND account_id=?')
+    .get(post.id, accounts[0].id).override_text, null, 'Telegram still inherits canonical base');
+  assert.equal(db.prepare('SELECT override_text FROM post_targets WHERE post_id=? AND account_id=?')
+    .get(post.id, accounts[1].id).override_text, null);
   assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, 1, 'no duplicate post');
   assert.equal(db.prepare("SELECT COUNT(*) n FROM publication_events WHERE event_type LIKE '%publish%'").get().n, 0,
     'saving must not publish outside the application');
@@ -180,6 +203,8 @@ try {
     'Telegram caption is displayed after canonical media order');
   await page.locator('#qc-platform-preview-choice').selectOption(vkTarget);
   assert.match(await page.locator('#qc-platform-preview-card').textContent(), /ВКонтакте · Account 2/);
+  assert.match(await page.locator('.qc-platform-caption').textContent(), /Вариант публикации только для VK/,
+    'server-compiled preview uses the saved VK target override');
   parts = await page.locator('#qc-platform-preview-card > *').evaluateAll((elements) =>
     elements.map((item) => item.className));
   assert.ok(parts.indexOf('qc-platform-caption') < parts.indexOf('qc-platform-media'),
@@ -188,6 +213,22 @@ try {
   assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, 1,
     'opening account previews must not create new posts');
   await page.screenshot({ path: 'test-results/p0-composer-platform-preview-desktop.png', fullPage: false });
+
+  // Explicit reset is a versioned PATCH(null), not a change to the base text.
+  await page.locator('#qc-variant-choice').selectOption(accounts[2].id);
+  await page.locator('#qc-variant-reset').click();
+  assert.match(await page.locator('#qc-variant-status').textContent(), /наследование/);
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  assert.equal(db.prepare('SELECT override_text FROM post_targets WHERE post_id=? AND account_id=?')
+    .get(post.id, accounts[2].id).override_text, null, 'reset returns VK to inherited text');
+  assert.equal(db.prepare('SELECT body FROM posts WHERE id=?').get(post.id).body,
+    'Наша новая публикация\n\nВторой абзац для нескольких площадок.',
+    'changing recipient text never mutates canonical content');
+  await page.locator('#qc-platform-preview-load').click();
+  await page.locator('#qc-platform-preview-choice').selectOption(vkTarget);
+  assert.match(await page.locator('.qc-platform-caption').textContent(), /Наша новая публикация/);
+  await page.screenshot({ path: 'test-results/p0-composer-variant-inherited-again.png', fullPage: false });
 
   // Media order remains editable after the initial save and must reach the server.
   const initialOrder = db.prepare('SELECT id FROM media WHERE post_id=? ORDER BY sort_order,created_at').all(post.id)
@@ -412,6 +453,8 @@ try {
   await page.locator('#quick-compose-nav').click();
   await page.locator('#qc-text').fill('Черновик на телефоне до перезагрузки');
   await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
+  await page.locator('#qc-variant-editor summary').click();
+  await page.locator('#qc-variant-text').fill('Личный вариант перед перезагрузкой');
   await page.locator('.qc-advanced summary').click();
   await page.locator('#qc-project').selectOption(projectId);
   await page.locator('#qc-datetime').fill('2026-11-16T18:30');
@@ -428,6 +471,10 @@ try {
   await page.locator('#qc-text').waitFor();
   assert.equal(await page.locator('#qc-text').inputValue(), 'Черновик на телефоне до перезагрузки');
   assert.equal(await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').isChecked(), true);
+  await page.locator('#qc-variant-editor summary').click();
+  assert.equal(await page.locator('#qc-variant-text').inputValue(),
+    'Личный вариант перед перезагрузкой',
+    'tab-local recovery preserves per-account variant text only for selected accounts');
   await page.locator('.qc-advanced summary').click();
   assert.equal(await page.locator('#qc-datetime').inputValue(), '2026-11-16T18:30');
   assert.match(await page.locator('#qc-timezone-note').textContent(), /Europe\/Moscow/,
@@ -1245,6 +1292,8 @@ try {
       'test-results/p0-composer-video-mobile.png',
       'test-results/p0-composer-local-preview-desktop.png',
       'test-results/p0-composer-local-preview-mobile.png',
+      'test-results/p0-composer-per-account-text-variant.png',
+      'test-results/p0-composer-variant-inherited-again.png',
       'test-results/p0-composer-platform-preview-desktop.png',
       'test-results/p0-composer-platform-preview-mobile.png',
       'test-results/p0-composer-mobile-per-account-ready-errors.png',
