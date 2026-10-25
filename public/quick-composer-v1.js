@@ -181,10 +181,11 @@ export async function openQuickComposer() {
         '<div class="qc-preview"><h4>Предпросмотр текста</h4><p id="qc-preview-text">Текст появится здесь</p>' +
           '<div id="qc-preview-targets" class="qc-muted">Площадки пока не выбраны</div>' +
           '<button id="qc-platform-preview-load" class="qc-platform-preview-load" type="button" disabled>' +
-          'Посмотреть по площадкам</button>' +
+          'Предпросмотр до сохранения</button>' +
           '<div id="qc-platform-preview" class="qc-platform-preview" hidden>' +
           '<label for="qc-platform-preview-choice">Какой аккаунт посмотреть' +
           '<select id="qc-platform-preview-choice"></select></label>' +
+          '<p id="qc-platform-preview-source" class="qc-platform-preview-source"></p>' +
           '<div id="qc-platform-preview-card"></div>' +
           '<p class="qc-muted">Ориентировочный внешний вид. Итоговую публикацию и разрешения проверяет сервер и сама площадка.</p>' +
           '</div></div></section></div>' +
@@ -310,18 +311,28 @@ export async function openQuickComposer() {
         const unavailable = element.matches('input[name="qc-account"]') &&
           !state.accounts.some((account) => account.id === element.value && account.enabled);
         const previewUnavailable = element.id === 'qc-platform-preview-load' &&
-          (!state.savedId || state.dirty || state.previewLoading);
+          (state.previewLoading || !selectedIds().length ||
+            !(text.value.trim() || state.pending.length || state.video));
         element.disabled = busy || (locked && !['qc-close', 'qc-start-new'].includes(element.id)) ||
           unavailable || previewUnavailable ||
           (element.id === 'qc-project' && Boolean(state.savedId));
       });
       redrawPhotos();
       redrawVideo();
+      updatePreviewButton();
     }
     const previewArea = root.querySelector('#qc-platform-preview');
     const previewChoice = root.querySelector('#qc-platform-preview-choice');
     const previewContent = root.querySelector('#qc-platform-preview-card');
     const previewButton = root.querySelector('#qc-platform-preview-load');
+    const previewSource = root.querySelector('#qc-platform-preview-source');
+    function updatePreviewButton() {
+      const hasContent = Boolean(text.value.trim() || state.pending.length || state.video);
+      previewButton.disabled = state.busy || state.finished || state.uncertainPublish ||
+        state.previewLoading || selectedIds().length === 0 || !hasContent;
+      previewButton.textContent = state.savedId && !state.dirty
+        ? 'Посмотреть по площадкам' : 'Предпросмотр до сохранения';
+    }
     const FORMAT_NAMES = {
       TEXT_ONLY: 'Только текст', IMAGE: 'Фотография', CAROUSEL: 'Карусель',
       VIDEO: 'Видео', VERTICAL_VIDEO: 'Вертикальное видео',
@@ -331,6 +342,7 @@ export async function openQuickComposer() {
       state.previewToken += 1;
       state.previewRows = [];
       previewArea.hidden = true;
+      previewSource.textContent = '';
       previewChoice.replaceChildren();
       previewContent.replaceChildren();
     }
@@ -348,7 +360,11 @@ export async function openQuickComposer() {
       mediaGroup.className = 'qc-platform-media';
       const media = Array.isArray(selected.media) ? selected.media.filter((item) => item.role !== 'poster') : [];
       for (const item of media) {
-        if (typeof item.url !== 'string' || !item.url.startsWith('/public-media/')) continue;
+        if (typeof item.url !== 'string') continue;
+        const trustedSource = selected.localDraft === true
+          ? item.url.startsWith('blob:')
+          : item.url.startsWith('/public-media/');
+        if (!trustedSource) continue;
         let element;
         if (item.mimeType === 'video/mp4') {
           element = document.createElement('video');
@@ -385,9 +401,64 @@ export async function openQuickComposer() {
         previewContent.append(warningList);
       }
     }
+    function presentPreviewRows(rows, message) {
+      state.previewRows = rows;
+      previewChoice.replaceChildren();
+      for (const item of state.previewRows) {
+        const option = document.createElement('option');
+        option.value = item.targetId;
+        option.textContent = (PLATFORM_NAMES[item.platform] || item.platform || 'Площадка') +
+          ' · ' + (item.accountName || 'Подключение');
+        previewChoice.append(option);
+      }
+      previewSource.textContent = message;
+      previewArea.hidden = false;
+      if (state.previewRows.length) renderPlatformPreview();
+      else previewContent.textContent = 'Нет выбранных получателей для предпросмотра.';
+      previewArea.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+    }
+    function localPreviewRows() {
+      // This is a visual approximation from operator-selected local files.
+      // Never present it as a server-validated rendition or persist it via API.
+      const images = state.pending.map((item, index) => ({
+        url: item.url,
+        mimeType: item.file.type,
+        role: 'primary',
+        order: index
+      }));
+      const media = state.video
+        ? [{ url: state.video.url, mimeType: 'video/mp4', role: 'primary', order: 0 }]
+        : images;
+      const contentFormat = state.video ? 'VIDEO'
+        : images.length > 1 ? 'CAROUSEL'
+          : images.length ? 'IMAGE' : 'TEXT_ONLY';
+      return checkedAccounts().map((account) => ({
+        targetId: 'local:' + account.id,
+        accountId: account.id,
+        accountName: account.name,
+        platform: account.platform,
+        enabled: true,
+        localDraft: true,
+        captionPlacement: account.platform === 'vk' ? 'above' : 'below',
+        contentFormat,
+        text: text.value.trim(),
+        media,
+        issues: []
+      }));
+    }
     async function loadPlatformPreview() {
-      if (!state.savedId || state.busy || state.dirty || state.finished ||
-          state.uncertainPublish || state.previewLoading) return;
+      if (state.busy || state.finished || state.uncertainPublish ||
+          state.previewLoading || !selectedIds().length ||
+          !(text.value.trim() || state.pending.length || state.video)) return;
+      if (!state.savedId || state.dirty) {
+        clearPlatformPreview();
+        presentPreviewRows(localPreviewRows(),
+          state.savedId
+            ? 'Несохранённые изменения: локальный приблизительный вид. Для серверного предпросмотра сохраните черновик.'
+            : 'До сохранения: локальный приблизительный вид. Сервер ещё не проверил текст, файлы и ограничения площадок.');
+        updatePreviewButton();
+        return;
+      }
       state.previewLoading = true;
       const token = ++state.previewToken;
       previewButton.disabled = true;
@@ -395,31 +466,17 @@ export async function openQuickComposer() {
         const response = await request('/api/posts/' + encodeURIComponent(state.savedId) + '/platform-previews');
         if (token !== state.previewToken || !overlay.isConnected || state.busy) return;
         if (!Array.isArray(response?.previews)) throw new Error('Сервер не вернул данные предпросмотра');
-        state.previewRows = response.previews.filter((item) => item && item.enabled);
-        previewChoice.replaceChildren();
-        for (const item of state.previewRows) {
-          const option = document.createElement('option');
-          option.value = item.targetId;
-          option.textContent = (PLATFORM_NAMES[item.platform] || item.platform || 'Площадка') +
-            ' · ' + (item.accountName || 'Подключение');
-          previewChoice.append(option);
-        }
-        previewContent.replaceChildren();
-        previewArea.hidden = false;
-        if (state.previewRows.length) renderPlatformPreview();
-        else previewContent.textContent = 'В сохранённом черновике нет выбранных получателей.';
-        // Expose the actual result immediately, instead of leaving the preview
-        // hidden below a long target list in the independent scroll pane.
-        previewArea.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+        presentPreviewRows(response.previews.filter((item) => item && item.enabled),
+          'По сохранённой серверной версии. Это не подтверждение готовности к отправке.');
       } catch (error) {
         if (token === state.previewToken && overlay.isConnected) {
           previewArea.hidden = false;
+          previewSource.textContent = '';
           previewContent.textContent = 'Не удалось получить предпросмотр: ' + readableError(error);
         }
       } finally {
         state.previewLoading = false;
-        previewButton.disabled = state.busy || state.dirty || state.finished ||
-          state.uncertainPublish || !state.savedId;
+        updatePreviewButton();
       }
     }
     previewButton.addEventListener('click', loadPlatformPreview);
@@ -429,6 +486,7 @@ export async function openQuickComposer() {
       clearPreflightIssues();
       clearPlatformPreview();
       state.dirty = true;
+      updatePreviewButton();
       if (state.savedId || !recovery) return;
       const stored = recovery.saveLocalDraft({
         body: text.value,
@@ -475,6 +533,7 @@ export async function openQuickComposer() {
       if (status.classList.contains('is-error') && !state.busy) setStatus('Проверьте текст и получателей перед сохранением.');
       root.querySelector('#qc-preview-targets').textContent = labels.length
         ? 'Получатели: ' + labels.join(', ') : 'Площадки пока не выбраны';
+      updatePreviewButton();
     }
     function redrawPhotos() {
       pendingList.replaceChildren();
