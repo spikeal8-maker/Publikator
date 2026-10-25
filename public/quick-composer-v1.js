@@ -828,7 +828,7 @@ export async function openQuickComposer() {
       const host = root.querySelector('#qc-video-preview');
       host.replaceChildren();
       updateMissingFilesNotice();
-      if (!state.video) { syncMediaInputs(); updateCaptionPreview(); return; }
+      if (!state.video) { syncMediaInputs(); updateCaptionPreview(); refreshMediaVariantControls(); return; }
       const item = state.video;
       const card = document.createElement('div');
       card.className = 'qc-video-card';
@@ -880,6 +880,7 @@ export async function openQuickComposer() {
       host.append(card);
       syncMediaInputs();
       updateCaptionPreview();
+      refreshMediaVariantControls();
     }
     root.querySelector('#qc-video-file').addEventListener('change', (event) => {
       const input = event.currentTarget;
