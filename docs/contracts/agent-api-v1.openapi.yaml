@@ -5455,9 +5455,40 @@
               "PAUSED",
               "REVOKED"
             ]
+          },
+          "preapprovedPolicy": {
+            "$ref": "#/components/schemas/OwnerAutoPolicy",
+            "description": "Owner-visible exact effective saved auto-publish rules, including approvedPolicyVersion; only effective in PREAPPROVED_POLICY mode. Never contains credentials."
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "publishMode": {
+                  "const": "PREAPPROVED_POLICY"
+                }
+              },
+              "required": [
+                "publishMode"
+              ]
+            },
+            "then": {
+              "required": [
+                "preapprovedPolicy"
+              ],
+              "properties": {
+                "preapprovedPolicy": {
+                  "type": "object",
+                  "required": [
+                    "approvedPolicyVersion"
+                  ]
+                }
+              }
+            }
+          }
+        ]
       },
       "OwnerGrantUpdate": {
         "type": "object",
@@ -5550,7 +5581,26 @@
             "description": "Required true if effective grants increase; server computes elevation, client cannot override it"
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "publishMode": {
+                  "const": "PREAPPROVED_POLICY"
+                }
+              },
+              "required": [
+                "publishMode"
+              ]
+            },
+            "then": {
+              "required": [
+                "preapprovedPolicy"
+              ]
+            }
+          }
+        ]
       },
       "GrantPreview": {
         "type": "object",
@@ -5858,7 +5908,26 @@
             "description": "Only meaningful for non-default initial grants; owner-only"
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "publishMode": {
+                  "const": "PREAPPROVED_POLICY"
+                }
+              },
+              "required": [
+                "publishMode"
+              ]
+            },
+            "then": {
+              "required": [
+                "preapprovedPolicy"
+              ]
+            }
+          }
+        ]
       },
       "OwnerAgentControl": {
         "type": "object",
