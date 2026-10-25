@@ -1203,6 +1203,35 @@ try {
   assert.equal(await page.locator('#qc-text').isEnabled(), true);
   await closeComposer();
 
+  // A bare READY 409 can mean immutable/PUBLISHED post or version conflict:
+  // unlike a structured preflight failure, it cannot safely clear the guard.
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').waitFor({ state: 'visible', timeout: 30000 });
+  await page.locator('#qc-text').fill('READY 409 без списка ошибок площадок');
+  await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
+  await page.locator('.qc-advanced summary').click();
+  await page.locator('#qc-datetime').fill('2027-03-16T14:30');
+  await page.route('**/api/posts/*/ready', async (route) => {
+    if (route.request().method() === 'POST') {
+      await route.fulfill({ status: 409, contentType: 'application/json',
+        body: JSON.stringify({ error: 'Пост уже начал публикацию' }) });
+    } else await route.continue();
+  });
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#qc-schedule').click();
+  await page.locator('#qc-status').filter({ hasText: /Пост уже начал публикацию/ })
+    .waitFor({ timeout: 30000 });
+  await page.unroute('**/api/posts/*/ready');
+  await closeComposer();
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').waitFor({ state: 'visible', timeout: 30000 });
+  assert.equal(await page.locator('#qc-recovery-warning').isVisible(), true,
+    'bare READY HTTP409 without structured preflight evidence keeps reconciliation guard');
+  assert.equal(await page.locator('#qc-text').isEnabled(), false);
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#qc-start-new').click();
+  await closeComposer();
+
   assert.deepEqual(errors, []);
   await desktop.close();
 
