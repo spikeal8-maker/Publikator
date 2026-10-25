@@ -614,9 +614,18 @@ export async function openQuickComposer() {
         enabled: true,
         localDraft: true,
         captionPlacement: account.platform === 'vk' ? 'above' : 'below',
-        contentFormat,
+        contentFormat: Array.isArray(state.mediaEdits.get(account.id))
+          ? (state.mediaEdits.get(account.id).length === 1 ? 'IMAGE' : 'CAROUSEL')
+          : contentFormat,
         text: state.variantEdits.get(account.id) || text.value.trim(),
-        media,
+        media: Array.isArray(state.mediaEdits.get(account.id)) && !state.video
+          ? state.mediaEdits.get(account.id).map((id, index) => {
+            const source = state.pending.find((item) => item.remoteId === id);
+            return source ? {
+              url: source.url, mimeType: source.file.type, role: 'primary', order: index
+            } : null;
+          }).filter(Boolean)
+          : media,
         issues: []
       }));
     }
@@ -979,6 +988,12 @@ export async function openQuickComposer() {
           .map((account) => Object.freeze({
             accountId: account.id, text: state.variantEdits.get(account.id)
           }))),
+        mediaPlans: Object.freeze(chosen.filter((account) => state.mediaEdits.has(account.id))
+          .map((account) => Object.freeze({
+            accountId: account.id,
+            mediaIds: Array.isArray(state.mediaEdits.get(account.id))
+              ? Object.freeze([...state.mediaEdits.get(account.id)]) : null
+          }))),
         images: Object.freeze([...state.pending]),
         video: state.video
       });
@@ -1161,6 +1176,29 @@ export async function openQuickComposer() {
         state.version = update.contentVersion;
         state.variantApplied.set(variant.accountId, { text: variant.text, targetId: target.id });
       }
+
+      // D3b1b: patch only the exact selected recipient's canonical media IDs.
+      // The endpoint handles content version, READY invalidation and role
+      // validation; unmodified accounts inherit the original order.
+      for (const plan of operation.mediaPlans) {
+        const target = updatedTargets.targets.find((item) =>
+          item.enabled && item.account_id === plan.accountId);
+        if (!target?.id) throw new Error('Не удалось сопоставить аккаунт для медиаплана.');
+        const current = state.mediaApplied.get(plan.accountId);
+        const same = current && current.targetId === target.id &&
+          JSON.stringify(current.mediaIds) === JSON.stringify(plan.mediaIds);
+        if (same || (!current && plan.mediaIds === null)) continue;
+        const result = await request('/api/posts/' + encodeURIComponent(state.savedId) +
+          '/targets/' + encodeURIComponent(target.id) + '/media-plan', {
+          method: 'PATCH', body: JSON.stringify({
+            mediaIds: plan.mediaIds,
+            expectedContentVersion: state.version
+          })
+        });
+        state.version = result.contentVersion;
+        state.mediaApplied.set(plan.accountId, { targetId: target.id,
+          mediaIds: plan.mediaIds === null ? null : [...plan.mediaIds] });
+      }
       return state.savedId;
     }
 
@@ -1168,6 +1206,15 @@ export async function openQuickComposer() {
       if (state.busy || state.uncertainPublish || state.finished) return;
       const chosen = checkedAccounts();
       const operation = snapshotOperation(action, chosen);
+      // Prevent stale plans after a global photo deletion before any mutation.
+      const availableMediaIds = new Set(operation.images.map((item) => item.remoteId).filter(Boolean));
+      for (const plan of operation.mediaPlans) {
+        if (plan.mediaIds !== null &&
+            (!plan.mediaIds.length || plan.mediaIds.some((id) => !availableMediaIds.has(id)))) {
+          setStatus('Для одного из аккаунтов изменился набор фотографий. Уточните его выбор или верните общий порядок.', true);
+          return;
+        }
+      }
       if (state.recoveryRequiredFiles > state.pending.length) {
         updateMissingFilesNotice();
         setStatus('Снова приложите фотографии или подтвердите продолжение без них.', true);
@@ -1250,6 +1297,7 @@ export async function openQuickComposer() {
         root.querySelector('#qc-recovery-note').textContent = '';
         root.querySelector('#qc-close').textContent = '×';
         root.querySelector('#qc-close').setAttribute('aria-label', 'Закрыть редактор');
+        refreshMediaVariantControls();
       } catch (error) {
         // Only an explicit per-account preflight 409 with structured ERROR
         // issues proves READY refused before any external publish attempt.
