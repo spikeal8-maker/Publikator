@@ -81,6 +81,21 @@
 }
 #qc-text:focus { border-color: #5478ff; outline: 2px solid #edf2ff; }
 .qc-muted { font-size: 12px; color: #657186; }
+#qc-recovery-note { display: block; font-size: 11px; margin-top: 6px; }
+.qc-recovery-warning {
+  display: none; flex-direction: column; gap: 8px;
+  margin: 12px 0; padding: 14px; border: 1px solid #e8c995;
+  background: #fffaf0; border-radius: 10px; font-size: 12px;
+}
+.qc-recovery-warning.is-visible { display: flex; }
+.qc-recovery-warning p { margin: 0; color: #694d2e; }
+.qc-recovery-warning a { color: #3151a0; text-decoration: underline; font-weight: 750; }
+#qc-start-new {
+  align-self: flex-start; padding: 9px 12px; border-radius: 8px;
+  background: #fff; color: #634c2b; border: 1px solid #debd87;
+  font-weight: 700; cursor: pointer;
+}
+
 .qc-photo-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 12px; margin: 23px 0 11px; }
 .qc-photo-head strong { font-size: 15px; }
 .qc-drop {
