@@ -255,7 +255,7 @@ const changeMediaPreviewTarget = change => ({
 for (const field of ['effectiveFormat', 'effectiveMedia', 'warnings']) {
   const without = structuredClone(mediaPreview.targets[0]);
   delete without[field];
-  assert.throws(() => valid(schemaDefs.Preview, changeMediaPreviewTarget(without), 'preview missing '+field),
+  assert.throws(() => valid(schemaDefs.Preview, {...mediaPreview, targets:[without, mediaPreview.targets[1]]}, 'preview missing '+field),
     undefined, field + ' is mandatory in per-target preview');
 }
 const invalidOrder = structuredClone(mediaPreview.targets[0].effectiveMedia);
