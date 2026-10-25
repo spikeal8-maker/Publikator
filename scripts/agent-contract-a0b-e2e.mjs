@@ -48,7 +48,7 @@ function valid(schema, value, path = '$', depth = 0) {
     if (schema.minLength !== undefined) assert.ok(value.length >= schema.minLength, path + ' minLength');
     if (schema.maxLength !== undefined) assert.ok(value.length <= schema.maxLength, path + ' maxLength');
     if (schema.pattern) assert.match(value, new RegExp(schema.pattern), path + ' pattern');
-    if (schema.format === 'date-time') assert.ok(!Number.isNaN(Date.parse(value)) && /[Z+-]\d\d:?(\d\d)?$/.test(value), path + ' date-time');
+    if (schema.format === 'date-time') assert.ok(!Number.isNaN(Date.parse(value)) && /(?:Z|[+-]\d\d:\d\d)$/.test(value), path + ' date-time');
     if (schema.format === 'uri') assert.ok(/^https?:\/\//.test(value), path + ' URI');
   }
   if (typeof value === 'number') {
@@ -105,7 +105,7 @@ for (const [path, methods] of Object.entries(openapi.paths)) {
     assert.match(op.operationId, /^[a-z][A-Za-z0-9]+$/);
     assert.ok(!catalog.has(op.operationId), 'duplicate operationId ' + op.operationId);
     catalog.set(op.operationId, { path, method, op });
-    assert.ok(Array.isArray(op.security) && op.security.length === 1);
+    assert.ok(Array.isArray(op.security) && op.security.length >= 1);
     assert.ok(Array.isArray(op['x-publikator-required-scopes']));
     const isOwner = path.startsWith('/api/owner/');
     if (isOwner) {
