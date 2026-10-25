@@ -649,7 +649,7 @@ try {
 
   // A versioned video deletion removes its generated poster as well.
   await page.locator('#qc-video-preview button[aria-label^="Удалить видео"]').click();
-  assert.equal(await page.locator('#qc-video-preview video').count(), 0);
+  await page.locator('#qc-video-preview video').waitFor({ state: 'detached', timeout: 30000 });
   const remainingAfterVideoDelete = db.prepare('SELECT id,mime_type,poster_asset_id FROM media WHERE post_id=?')
     .all(videoPost.id);
   assert.deepEqual(remainingAfterVideoDelete, [],
