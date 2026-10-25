@@ -469,6 +469,52 @@ try {
     'removing the remaining unique image must delete exactly one persisted media');
   await closeComposer();
 
+  // D3b1b/P2: removing ALL canonical photos after an account-specific plan
+  // must not strand a saved draft behind an inaccessible reset action.
+  const beforeNoMediaReset = db.prepare('SELECT COUNT(*) AS n FROM posts').get().n;
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').fill('После удаления фотографий остаётся текст');
+  await page.locator('#qc-files').setInputFiles([
+    { name: 'p2-photo-a.png', mimeType: 'image/png', buffer: image1 },
+    { name: 'p2-photo-b.png', mimeType: 'image/png', buffer: image2 }
+  ]);
+  await page.locator('input[name="qc-account"][value="' + accounts[2].id + '"]').check();
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  const noMediaPost = db.prepare('SELECT id FROM posts ORDER BY rowid DESC LIMIT 1').get().id;
+  const noMediaTarget = db.prepare('SELECT id FROM post_targets WHERE post_id=? AND account_id=?')
+    .get(noMediaPost, accounts[2].id).id;
+  await page.locator('#qc-variant-choice').selectOption(accounts[2].id);
+  await page.locator('.qc-media-variant-row').nth(1)
+    .getByRole('button', { name: /Передвинуть.*раньше для аккаунта/ }).click();
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  const noMediaPlan = () => db.prepare('SELECT media_plan_json FROM target_renditions WHERE target_id=?')
+    .get(noMediaTarget)?.media_plan_json ?? null;
+  assert.ok(noMediaPlan(), 'a target-specific plan must exist before deletion');
+  await page.locator('.qc-image button[aria-label^="Удалить"]').first().click();
+  await page.locator('.qc-image button[aria-label^="Удалить"]').first().click();
+  assert.equal(await page.locator('.qc-image').count(), 0);
+  assert.equal(await page.locator('#qc-media-variant').isVisible(), true,
+    'account-specific media reset must remain accessible after deleting every photo');
+  assert.equal(await page.locator('#qc-media-variant-reset').isEnabled(), true);
+  await page.locator('#qc-save').click();
+  assert.match(await page.locator('#qc-status').textContent(), /изменился набор фотографий/,
+    'stale target IDs must still block a Save before explicit reset');
+  await page.locator('#qc-media-variant-reset').click();
+  assert.match(await page.locator('#qc-media-variant-note').textContent(), /Сброс.*подготовлен/);
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  assert.equal(noMediaPlan(), null, 'target plan reset persists even when canonical media is empty');
+  assert.equal(db.prepare('SELECT content_format FROM posts WHERE id=?').get(noMediaPost).content_format,
+    'TEXT_ONLY', 'same draft is now a valid text-only composition');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM media WHERE post_id=?').get(noMediaPost).n, 0);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM posts').get().n, beforeNoMediaReset + 1,
+    'text-only recovery must update original draft without creating duplicates');
+  assert.equal(await page.locator('#qc-media-variant').isVisible(), false,
+    'obsolete media controls disappear only after target reset is confirmed');
+  await closeComposer();
+
   // Disabled accounts must remain disabled after a save toggles the entire editor busy.
   db.prepare('UPDATE social_accounts SET enabled=0 WHERE id=?').run(accounts[10].id);
   await page.locator('#quick-compose-nav').click();
