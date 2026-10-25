@@ -60,7 +60,10 @@ export function createComposerRecovery(identity) {
       scheduleTimezone: String(draft.scheduleTimezone || '').slice(0, 90),
       ambiguousOffset: ['earlier', 'later'].includes(draft.ambiguousOffset) ? draft.ambiguousOffset : '',
       accountIds: safeAccountIds,
-      photoCount: Math.max(0, Math.min(100, Number(draft.photoCount) || 0))
+      photoCount: Math.max(0, Math.min(100, Number(draft.photoCount) || 0)),
+      // The MP4 File/Blob itself never enters storage; after refresh the
+      // operator must attach it again or explicitly waive it.
+      videoRequired: Boolean(draft.videoRequired)
     });
   }
 

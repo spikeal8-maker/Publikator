@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -595,6 +596,146 @@ try {
   await page.unroute('**/api/posts/*/publish-now');
   await closeComposer();
 
+  // C1: an actual H.264 MP4 must be selectable and previewable before a
+  // server draft exists. The server generates its own poster media.
+  const mp4Path = path.join(dir, 'c1-user-picked.mp4');
+  execFileSync('ffmpeg', [
+    '-hide_banner', '-loglevel', 'error',
+    '-f', 'lavfi', '-i', 'color=c=blue:s=320x240:r=15:d=1',
+    '-an', '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+    '-movflags', '+faststart', '-y', mp4Path
+  ], { timeout: 25000 });
+  const mp4 = await fs.readFile(mp4Path);
+  assert.ok(mp4.length > 1024, 'FFmpeg must produce real H.264 MP4 fixture');
+  const beforeC1 = db.prepare('SELECT COUNT(*) n FROM posts').get().n;
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').fill('Короткое видео для школьного проекта');
+
+  await page.locator('#qc-video-file').setInputFiles([
+    { name: 'unsupported.webm', mimeType: 'video/webm', buffer: mp4 }
+  ]);
+  assert.match(await page.locator('#qc-status').textContent(), /video\/mp4|MP4/);
+  assert.equal(await page.locator('#qc-video-preview video').count(), 0,
+    'WebM is rejected before any server side effect');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, beforeC1);
+
+  await page.locator('#qc-video-file').setInputFiles([
+    { name: 'lesson-clip.mp4', mimeType: 'video/mp4', buffer: mp4 }
+  ]);
+  assert.equal(await page.locator('#qc-video-preview video').count(), 1);
+  assert.match(await page.locator('#qc-video-preview').textContent(), /lesson-clip\.mp4/);
+  assert.match(await page.locator('#qc-video-preview').textContent(), /(?:КБ|МБ)/,
+    'file size must be displayed accurately in KB or MB');
+  assert.equal(await page.locator('#qc-files').isDisabled(), true,
+    'image picker must block mixing photos with MP4');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, beforeC1,
+    'choosing an MP4 must not force an intermediate save');
+  await page.screenshot({ path: 'test-results/p0-composer-video-desktop.png', fullPage: false });
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 45000 });
+  const videoPost = db.prepare('SELECT id,status,content_format FROM posts ORDER BY rowid DESC LIMIT 1').get();
+  assert.equal(videoPost.status, 'DRAFT');
+  assert.equal(videoPost.content_format, 'VIDEO');
+  const persistedMedia = db.prepare('SELECT id,mime_type FROM media WHERE post_id=?').all(videoPost.id);
+  assert.equal(persistedMedia.filter((m) => m.mime_type === 'video/mp4').length, 1);
+  assert.equal(persistedMedia.filter((m) => m.mime_type === 'image/jpeg').length, 1,
+    'server poster must be a generated asset, not a second user image');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, beforeC1 + 1);
+  assert.equal(await page.locator('#qc-video-preview video').count(), 1);
+  assert.match(await page.locator('#qc-video-preview').textContent(), /загружено на сервер/);
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM media WHERE post_id=?').get(videoPost.id).n, 2,
+    'saving MP4 again must not produce a second video or poster');
+
+  // A versioned video deletion removes its generated poster as well.
+  await page.locator('#qc-video-preview button[aria-label^="Удалить видео"]').click();
+  await page.locator('#qc-video-preview video').waitFor({ state: 'detached', timeout: 30000 });
+  const remainingAfterVideoDelete = db.prepare('SELECT id,mime_type,poster_asset_id FROM media WHERE post_id=?')
+    .all(videoPost.id);
+  assert.deepEqual(remainingAfterVideoDelete, [],
+    'deleting saved MP4 must remove both video and generated poster (remaining: ' +
+    JSON.stringify(remainingAfterVideoDelete) + ')');
+  assert.equal(await page.locator('#qc-files').isDisabled(), false);
+  await page.locator('#qc-files').setInputFiles([
+    { name: 'now-a-photo.png', mimeType: 'image/png', buffer: image2 }
+  ]);
+  assert.equal(await page.locator('#qc-video-file').isDisabled(), true,
+    'video picker must block the reverse mixed-media selection');
+  await closeComposer();
+
+  // C1: MP4 bytes cannot survive reload. Recovery must prevent a silent
+  // text-only post until the operator reattaches or explicitly waives it.
+  const beforeMp4Restore = db.prepare('SELECT COUNT(*) n FROM posts').get().n;
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').fill('Восстановление видео после обновления');
+  await page.locator('#qc-video-file').setInputFiles([
+    { name: 'interrupted.mp4', mimeType: 'video/mp4', buffer: mp4 }
+  ]);
+  await page.reload();
+  await page.locator('#app:not(.hidden)').waitFor();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').waitFor();
+  assert.equal(await page.locator('#qc-text').inputValue(), 'Восстановление видео после обновления');
+  assert.equal(await page.locator('#qc-missing-video').isVisible(), true);
+  assert.equal(await page.locator('#qc-video-preview video').count(), 0);
+  assert.equal(await page.locator('#qc-video-file').isDisabled(), false);
+  assert.equal(await page.locator('#qc-files').isDisabled(), true);
+  await page.locator('#qc-save').click();
+  assert.match(await page.locator('#qc-status').textContent(), /Снова выберите MP4/);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, beforeMp4Restore);
+  await page.locator('#qc-video-file').setInputFiles([
+    { name: 'reselected.mp4', mimeType: 'video/mp4', buffer: mp4 }
+  ]);
+  assert.equal(await page.locator('#qc-missing-video').isVisible(), false);
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 45000 });
+  const recoveredVideoPost = db.prepare('SELECT id,content_format FROM posts ORDER BY rowid DESC LIMIT 1').get();
+  assert.equal(recoveredVideoPost.content_format, 'VIDEO');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM media WHERE post_id=?').get(recoveredVideoPost.id).n, 2);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, beforeMp4Restore + 1,
+    'reselect and save must create exactly one draft');
+  await closeComposer();
+
+  // C1/P2: a definitive create validation failure cannot rewrite the
+  // recovery record as text-only and silently forget the selected MP4.
+  const beforeRejectedVideo = db.prepare('SELECT COUNT(*) n FROM posts').get().n;
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').fill('Проверка восстановления MP4 после отказа сервера');
+  await page.locator('#qc-video-file').setInputFiles([
+    { name: 'retry-after-reject.mp4', mimeType: 'video/mp4', buffer: mp4 }
+  ]);
+  await page.route('**/api/posts', async (route) => {
+    if (route.request().method() === 'POST') {
+      await route.fulfill({ status: 400, contentType: 'application/json',
+        body: JSON.stringify({ error: 'Неверное расписание' }) });
+    } else {
+      await route.continue();
+    }
+  });
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: /Неверное расписание/ }).waitFor({ timeout: 30000 });
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, beforeRejectedVideo);
+  await page.unroute('**/api/posts');
+  await page.reload();
+  await page.locator('#app:not(.hidden)').waitFor();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').waitFor();
+  assert.equal(await page.locator('#qc-text').inputValue(),
+    'Проверка восстановления MP4 после отказа сервера');
+  assert.equal(await page.locator('#qc-missing-video').isVisible(), true,
+    'definitive 4xx must retain video-required across refresh');
+  await page.locator('#qc-save').click();
+  assert.match(await page.locator('#qc-status').textContent(), /Снова выберите MP4/);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, beforeRejectedVideo);
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#qc-skip-recovered-video').click();
+  assert.equal(await page.locator('#qc-missing-video').isVisible(), false,
+    'operator can explicitly waive a missing MP4, not implicitly lose it');
+  await closeComposer();
+
   assert.deepEqual(errors, []);
   await desktop.close();
 
@@ -634,6 +775,16 @@ try {
   assert.equal(await mp.locator('#qc-target-toggle').getAttribute('aria-expanded'), 'false');
   assert.match(await mp.locator('#qc-counter').textContent(), /2 выбрано/);
   assert.equal(await mp.locator('#qc-text').inputValue(), 'Новая публикация для всех подключений.');
+  await mp.locator('.qc-image button[aria-label^="Удалить"]').click();
+  assert.equal(await mp.locator('#qc-video-file').isDisabled(), false);
+  await mp.locator('#qc-video-file').setInputFiles([
+    { name: 'mobile-video.mp4', mimeType: 'video/mp4', buffer: mp4 }
+  ]);
+  await mp.locator('#qc-video-preview video').scrollIntoViewIfNeeded();
+  await mp.screenshot({ path: 'test-results/p0-composer-video-mobile.png', fullPage: false });
+  assert.equal(await mp.locator('#qc-video-preview video').count(), 1);
+  assert.equal(await mp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
+    '390px MP4 preview must not overflow');
   assert.deepEqual(errors, []);
   await mobile.close();
 
@@ -664,15 +815,30 @@ try {
     assert.equal(await rp.locator('#qc-text').isVisible(), true,
       'Escape must not dismiss the entire editor');
     assert.equal(await rp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+    if (width === 320) {
+      await rp.locator('#qc-video-file').setInputFiles([
+        { name: 'narrow-mobile.mp4', mimeType: 'video/mp4', buffer: mp4 }
+      ]);
+      await rp.locator('#qc-video-preview video').scrollIntoViewIfNeeded();
+      const videoBounds = await rp.locator('.qc-video-card').boundingBox();
+      assert.ok(videoBounds && videoBounds.x >= -1 && videoBounds.x + videoBounds.width <= width + 1,
+        '320px video preview must fit without clipping');
+      assert.equal(await rp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+      await rp.screenshot({ path: 'test-results/p0-composer-video-responsive-320.png', fullPage: false });
+    }
     await responsive.close();
   }
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({
-    ok: true, oneScreen: true, preSaveImages: true, mediaCount: 2,
+    ok: true, oneScreen: true, preSaveImages: true, mediaCount: 2, mp4BeforeSave: true,
+    mp4Recovery: true, noMixedMedia: true,
     multiAccount: 3, samePlatformAccounts: 2, noRequiredTitle: true,
     textOnly: true, cancelledSend: true, noPublicPost: true, mobile: true,
     mobileRecipientsSheet: true, responsiveViewports: [320, 390, 768, 1440],
     screenshots: [
+      'test-results/p0-composer-video-desktop.png',
+      'test-results/p0-composer-video-mobile.png',
+      'test-results/p0-composer-video-responsive-320.png',
       'test-results/p0-composer-desktop.png',
       'test-results/p0-composer-mobile.png',
       'test-results/p0-composer-mobile-targets.png',
