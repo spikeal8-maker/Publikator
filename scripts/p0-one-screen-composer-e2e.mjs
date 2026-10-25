@@ -88,6 +88,18 @@ try {
   assert.equal(db.prepare("SELECT COUNT(*) n FROM publication_events WHERE event_type LIKE '%publish%'").get().n, 0,
     'saving must not publish outside the application');
 
+  // Media order remains editable after the initial save and must reach the server.
+  const initialOrder = db.prepare('SELECT id FROM media WHERE post_id=? ORDER BY sort_order,created_at').all(post.id)
+    .map((row) => row.id);
+  assert.equal(initialOrder.length, 2);
+  await page.locator('.qc-image').nth(1).getByRole('button', { name: 'Переместить раньше' }).click();
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  assert.deepEqual(
+    db.prepare('SELECT id FROM media WHERE post_id=? ORDER BY sort_order,created_at').all(post.id).map((row) => row.id),
+    [...initialOrder].reverse(), 'editing media order after saving must update persisted order'
+  );
+
   await page.locator('#qc-close').click();
   await page.locator('#quick-compose-nav').click();
   await page.locator('#qc-text').fill('Обычный текст без фотографий.');
@@ -110,6 +122,134 @@ try {
   await page.locator('#qc-send').click();
   assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n,2,
     'cancelled confirmation must never create a post or contact provider');
+
+  // Escape and the close button must protect unpublished/unsaved user input.
+  page.once('dialog', (dialog) => dialog.dismiss());
+  await page.locator('#qc-close').click();
+  assert.equal(await page.locator('#qc-text').isVisible(), true, 'dismissed close preserves unsaved content');
+  page.once('dialog', (dialog) => dialog.dismiss());
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#qc-text').isVisible(), true, 'dismissed Escape preserves unsaved content');
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#qc-close').click();
+
+  // P1 regression: the confirmation for account A must never turn into a send to B,
+  // even if the DOM is changed programmatically during a delayed /api/posts response.
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').fill('Снимок получателей для проверки безопасной публикации');
+  await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
+  let startCreate;
+  const createReached = new Promise((resolve) => { startCreate = resolve; });
+  let resumeCreate;
+  const createGate = new Promise((resolve) => { resumeCreate = resolve; });
+  await page.route('**/api/posts', async (route) => {
+    if (route.request().method() === 'POST') {
+      startCreate();
+      await createGate;
+    }
+    await route.continue();
+  });
+  let interceptedPublish = 0;
+  await page.route('**/api/posts/*/publish-now', async (route) => {
+    interceptedPublish += 1;
+    await route.fulfill({ status: 200, contentType: 'application/json',
+      body: JSON.stringify({ post: { status: 'PUBLISHED' } }) });
+  });
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#qc-send').click();
+  await createReached;
+  assert.equal(await page.locator('input[name="qc-account"][value="' + accounts[1].id + '"]').isDisabled(),
+    true, 'recipient selection is locked while the confirmed operation runs');
+  await page.evaluate((accountId) => {
+    const input = [...document.querySelectorAll('input[name="qc-account"]')]
+      .find((element) => element.value === accountId);
+    input.checked = true; // Explicitly bypass browser disabled behavior to verify snapshot isolation.
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  }, accounts[1].id);
+  resumeCreate();
+  await page.locator('#qc-status').filter({ hasText: /Черновик сохранён:|Публикация обработана/ })
+    .waitFor({ timeout: 30000 });
+  const p1PostId = db.prepare('SELECT id FROM posts ORDER BY rowid DESC LIMIT 1').get().id;
+  assert.deepEqual(db.prepare('SELECT account_id FROM post_targets WHERE post_id=? AND enabled=1')
+    .all(p1PostId).map((row) => row.account_id).sort(), [accounts[0].id],
+    'confirmed account A must be the only persisted recipient');
+  assert.ok(interceptedPublish <= 1, 'publish-now must not be repeated automatically');
+  await page.unroute('**/api/posts');
+  await page.unroute('**/api/posts/*/publish-now');
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#qc-close').click();
+
+  // P2 regression: saved AT draft retry must preserve the project timezone and UTC instant.
+  const projectId = id('prj');
+  db.prepare('INSERT INTO projects(id,name,slug,default_timezone,created_at) VALUES(?,?,?,?,?)')
+    .run(projectId, 'Москва', 'tz-moscow-composer', 'Europe/Moscow', nowIso());
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').fill('Запланированное сообщение Москвы');
+  await page.locator('#qc-project').selectOption(projectId);
+  await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
+  await page.locator('.qc-advanced summary').click();
+  await page.locator('#qc-datetime').fill('2026-11-12T10:00');
+  const imageForRetry = await sharp({ create: { width: 100, height: 100, channels: 3,
+    background: '#99bbdd' } }).png().toBuffer();
+  await page.locator('#qc-files').setInputFiles([
+    { name: 'first-attempt.png', mimeType: 'image/png', buffer: imageForRetry }
+  ]);
+  let failedOnce = false;
+  await page.route('**/api/posts/*/media', async (route) => {
+    if (!failedOnce && route.request().method() === 'POST') {
+      failedOnce = true;
+      await route.fulfill({ status: 503, contentType: 'application/json', body: '{}' });
+    } else {
+      await route.continue();
+    }
+  });
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#qc-schedule').click();
+  await page.locator('#qc-status').filter({ hasText: /HTTP 503/ }).waitFor({ timeout: 30000 });
+  assert.equal(failedOnce, true);
+  const atPost = db.prepare('SELECT id,schedule_mode,schedule_timezone,scheduled_at_utc FROM posts WHERE project_id=?')
+    .get(projectId);
+  assert.equal(atPost.schedule_mode, 'AT');
+  assert.equal(atPost.schedule_timezone, 'Europe/Moscow');
+  assert.equal(atPost.scheduled_at_utc, '2026-11-12T07:00:00.000Z');
+  await page.unroute('**/api/posts/*/media');
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#qc-schedule').click();
+  await page.locator('#qc-status').filter({ hasText: /Черновик сохранён:|Публикация запланирована/ })
+    .waitFor({ timeout: 30000 });
+  const afterRetry = db.prepare('SELECT id,schedule_timezone,scheduled_at_utc FROM posts WHERE project_id=?').get(projectId);
+  assert.deepEqual(afterRetry, {
+    id: atPost.id, schedule_timezone: 'Europe/Moscow',
+    scheduled_at_utc: '2026-11-12T07:00:00.000Z'
+  }, 'retry must patch same draft without UTC drift or duplicate');
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#qc-close').click();
+
+  // DST ambiguity must not silently choose an instant; an explicit user choice is required.
+  const dstProjectId = id('prj');
+  db.prepare('INSERT INTO projects(id,name,slug,default_timezone,created_at) VALUES(?,?,?,?,?)')
+    .run(dstProjectId, 'Нью-Йорк', 'tz-ny-composer', 'America/New_York', nowIso());
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').fill('Проверка неоднозначного времени');
+  await page.locator('#qc-project').selectOption(dstProjectId);
+  await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
+  await page.locator('.qc-advanced summary').click();
+  await page.locator('#qc-datetime').fill('2026-11-01T01:30');
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#qc-schedule').click();
+  await page.locator('#qc-status').filter({ hasText: /ambiguous/ }).waitFor({ timeout: 30000 });
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM posts WHERE project_id=?').get(dstProjectId).n, 0,
+    'ambiguous local time without offset cannot create a post');
+  await page.locator('#qc-ambiguous').selectOption('earlier');
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#qc-schedule').click();
+  await page.locator('#qc-status').filter({ hasText: /Черновик сохранён:|Публикация запланирована/ })
+    .waitFor({ timeout: 30000 });
+  const dstPost = db.prepare('SELECT schedule_timezone,scheduled_at_utc FROM posts WHERE project_id=?').get(dstProjectId);
+  assert.equal(dstPost.schedule_timezone, 'America/New_York');
+  assert.equal(dstPost.scheduled_at_utc, '2026-11-01T05:30:00.000Z');
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#qc-close').click();
 
   assert.deepEqual(errors, []);
   await desktop.close();
