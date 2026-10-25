@@ -53,6 +53,7 @@ export function createComposerRecovery(identity) {
       body: String(draft.body || '').slice(0, 200000),
       projectId: String(draft.projectId || '').slice(0, 200),
       scheduledAtLocal: String(draft.scheduledAtLocal || '').slice(0, 32),
+      scheduleTimezone: String(draft.scheduleTimezone || '').slice(0, 90),
       ambiguousOffset: ['earlier', 'later'].includes(draft.ambiguousOffset) ? draft.ambiguousOffset : '',
       accountIds: safeAccountIds,
       photoCount: Math.max(0, Math.min(100, Number(draft.photoCount) || 0))
