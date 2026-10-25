@@ -46,6 +46,8 @@
 
 **Default для нового бота:** `OBSERVER` + `DRAFT_ONLY` + пустые allowlists (пока владелец не выбрал ресурсы). UI может предложить «Ограниченный», но самостоятельно не включать `publish:request` или автоматизацию. `OWNER_APPROVAL` и `PREAPPROVED_POLICY` не предоставляют scopes, которых нет в пресете.
 
+**MUST:** при `FULL_CONTENT + OWNER_APPROVAL` отдельная отправка допускается **после** индивидуального owner consent на точный intent; `PREAPPROVED_POLICY` нужна для заранее согласованной *автоматической* отправки без подтверждения каждого поста. 
+
 **MUST:** «Полный» не означает «публиковать без спроса». В интерфейсе в одной строке показывать **Уровень: Полный · Отправка: После подтверждения** или **Уровень: Полный · Отправка: По правилам [показать правила]**. Если владелец выбрал `EXTENDED`, переключатель автоматизации недоступен с точным объяснением. Срок/количество действия auto-policy не может быть бесконечным неявно.
 
 ### 2.3 Область доступа к ресурсам
@@ -209,7 +211,7 @@ Owner UI авторизован через existing admin session + origin/CSRF;
 |---|---|
 | `UI-01` | Новый бот получает `OBSERVER + DRAFT_ONLY` и пустые resource allowlists; без grants 0 private posts/media |
 | `UI-02` | Каждый из 5 preset cards показывает корректные «Может / Не может» и ровно тот effective scope snapshot, что проверяет backend |
-| `UI-03` | `FULL_CONTENT` без owner-confirmed `PREAPPROVED_POLICY` не отправляет public POST; auto policy невозможно получить от модели через payload |
+| `UI-03` | `FULL_CONTENT + OWNER_APPROVAL` **без** owner-approved exact `PublicationIntent` → 0 provider POST; **с** индивидуальным действующим подтверждением владелец разрешает одну соответствующую отправку после preflight; `PREAPPROVED_POLICY` нужна только для автоматической отправки **без подтверждения каждого поста** и не получается из payload модели |
 | `UI-04` | Из 11 аккаунтов разрешены ровно 3; остальные не попадают ни в effective grant, ни в draft recipients, ни в publisher target claims |
 | `UI-05` | Перед повышением прав показывается diff; stale `expectedGrantVersion` → 409 без расширения прав; после revoke новые claims denied |
 | `UI-06` | Изменение credential/fingerprint после consent блокирует отправку, история фиксирует конкретный `CAPABILITY_CHANGED` без секретов |
