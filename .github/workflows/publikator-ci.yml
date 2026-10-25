@@ -45,6 +45,9 @@ jobs:
       - name: AGENT-A0b REST OpenAPI and MCP contract parity
         run: node scripts/agent-contract-a0b-e2e.mjs
 
+      - name: AGENT-A0c OAuth route and fault-design contracts
+        run: node scripts/agent-contract-a0c-e2e.mjs
+
       - name: TypeScript strict check
         run: npm run typecheck
 
