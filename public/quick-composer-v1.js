@@ -811,7 +811,7 @@ export async function openQuickComposer() {
         }
         recovery?.clear();
         root.querySelector('#qc-recovery-note').textContent = '';
-        root.querySelector('#qc-close').textContent = 'Закрыть';
+        root.querySelector('#qc-close').textContent = '×';
         root.querySelector('#qc-close').setAttribute('aria-label', 'Закрыть редактор');
       } catch (error) {
         if (state.uncertainPublish && !state.savedId) {
