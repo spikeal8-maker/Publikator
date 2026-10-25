@@ -10,7 +10,7 @@ const css = fs.readFileSync('public/operator-pages-v4.css', 'utf8');
 const requiredNavigation = [
   ['Обзор', '/overview'],
   ['Календарь', '/calendar'],
-  ['Контент', '/content'],
+  ['Публикации', '/content'],
   ['Шаблоны', '/templates'],
   ['Проекты', '/projects'],
   ['Соцсети', '/socials'],

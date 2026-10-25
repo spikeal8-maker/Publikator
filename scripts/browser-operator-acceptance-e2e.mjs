@@ -323,7 +323,7 @@ await app.listen({ host: '127.0.0.1', port: 18087 });
 
 const base = 'http://127.0.0.1:18087';
 const routes = new Map([
-  ['/overview', 'Обзор'], ['/calendar', 'Календарь'], ['/content', 'Контент'],
+  ['/overview', 'Обзор'], ['/calendar', 'Календарь'], ['/content', 'Публикации'],
   ['/library', 'Библиотека'], ['/templates', 'Шаблоны'], ['/projects', 'Проекты'],
   ['/socials', 'Соцсети'], ['/sources', 'Источники / Интеграции'], ['/schedule', 'Расписание'],
   ['/journal', 'Журнал'], ['/backups', 'Резервные копии'], ['/diagnostics', 'Диагностика']
@@ -454,7 +454,7 @@ try {
 
   templateRow = page.locator('#view table.table tbody tr').filter({ hasText: 'Browser Template Snapshot' });
   await templateRow.locator('.operator-template-create-post').click();
-  await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Контент');
+  await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Публикации');
   const postA = db.prepare(`SELECT id,body,content_version,status,editorial_stage FROM posts
     WHERE title=? ORDER BY rowid DESC LIMIT 1`).get('Browser Template Snapshot');
   assert.ok(postA?.id);
@@ -491,7 +491,7 @@ try {
   templateRow = page.locator('#view table.table tbody tr').filter({ hasText: 'Browser Template Snapshot' });
   assert.match(await templateRow.innerText(), /Browser MAX/);
   await templateRow.locator('.operator-template-create-post').click();
-  await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Контент');
+  await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Публикации');
   const postB = db.prepare(`SELECT id,body,content_version,status FROM posts
     WHERE title=? AND id<>? ORDER BY rowid DESC LIMIT 1`).get('Browser Template Snapshot', postA.id);
   assert.ok(postB?.id);
@@ -568,7 +568,7 @@ try {
 
   await page.goto(`${base}/content`, { waitUntil: 'domcontentloaded' });
   await page.locator('#app').waitFor({ state: 'visible' });
-  await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Контент');
+  await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Публикации');
   await page.locator('#ui-content-filter').waitFor({ state: 'visible' });
 
   const contentRow = (title) => page.locator('#view table.table tbody tr').filter({ hasText: title });
@@ -695,7 +695,7 @@ try {
   assert.equal(db.prepare('SELECT status FROM posts WHERE id=?').get(reusablePostA.id).status,'READY');
 
   await page.goto(`${base}/content`, { waitUntil: 'domcontentloaded' });
-  await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Контент');
+  await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Публикации');
   await page.waitForFunction((title)=>[...document.querySelectorAll('#view table.table tbody tr')]
     .some((row)=>row.textContent?.includes(title)),'Browser Reusable Post A');
   await page.locator('#view table.table tbody tr').filter({hasText:'Browser Reusable Post A'}).locator('.open-post').click();
@@ -797,7 +797,7 @@ try {
   assert.equal(db.prepare('SELECT body_rich_json FROM posts WHERE id=?').get(reusablePostA.id).body_rich_json,postARichSnapshot);
 
   await page.goto(`${base}/content`,{waitUntil:'domcontentloaded'});
-  await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Контент');
+  await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Публикации');
   await page.locator('#new-post').click();
   let newReusablePostForm=page.locator('#post-form');
   await newReusablePostForm.waitFor({state:'visible'});
@@ -830,7 +830,7 @@ try {
   assert.equal(db.prepare('SELECT body_rich_json FROM posts WHERE id=?').get(savedReusableB.id).body_rich_json,postBRichSnapshot);
 
   await page.goto(`${base}/content`,{waitUntil:'domcontentloaded'});
-  await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Контент');
+  await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Публикации');
   await page.locator('#new-post').waitFor({state:'visible'});
 
   // EW4-005: new Post inherits project timezone and targets; per-post override stays isolated.
@@ -1917,7 +1917,7 @@ try {
   assert.equal((await page.locator('#page-title').textContent())?.trim(), 'Календарь');
   await page.goForward();
   await page.waitForURL('**/content');
-  assert.equal((await page.locator('#page-title').textContent())?.trim(), 'Контент');
+  assert.equal((await page.locator('#page-title').textContent())?.trim(), 'Публикации');
 
   await page.setViewportSize({ width: 390, height: 844 });
   for (const route of ['/overview','/calendar','/content','/library','/socials','/sources']) {
