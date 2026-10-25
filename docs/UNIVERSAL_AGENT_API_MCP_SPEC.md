@@ -342,7 +342,7 @@ Desktop — плотная читаемая таблица; телефон 390/3
 | T-10 | Текстовый VK group key не выдаётся за право загрузки фото; IP/permission denial виден по target |
 | T-11 | При ambiguous provider result → `RECOVERY_NEEDED`, повторный вызов не дублирует post |
 | T-12 | Разная ошибка двух targets → PARTIAL + точные per-target статусы и ссылки |
-| T-13 | Agent A не может получить ключ/grant/post другого агента при том же owner; пауза/отзыв действует немедленно |
+| T-13 | Agent A не может читать чужой token/grant и посты **за пределами своих allowlist**; посты в общем разрешённом проекте доступны обоим согласно `posts:read`; пауза/отзыв действует немедленно |
 | T-14 | API-key, OAuth bearer, invalid audience, expired/rotated refresh, Origin/Host, CSRF проверены; secrets отсутствуют в output/log |
 | T-15 | `/mcp`: protocol negotiation, discovery, tools/list/call, tool schema, JSON errors, unsupported version fail-closed |
 | T-16 | Реальные клиенты: ChatGPT сканирует tools и вызывает разрешённый read/draft; Codex/Claude либо другой независимый MCP-клиент проходит тот же сценарий |
@@ -368,8 +368,8 @@ GitHub CI должен использовать fake-provider network/no public 
 | A4 — AGENT-COMPOSER | P0 | Google Drive/media + один логический текст/фото/несколько target flow + previews, повторное использование принятого #171 | A2, #171 MERGED |
 | A5 — AGENT-PUBLISH | P0 | owner approval/policy + scheduled/publish intent + statuses + recovery | A1,A4 и credential lane |
 | A6 — AGENT-EVENTS | P1 | durable jobs/polling/webhooks с HMAC/retry | A5 |
-| A7 — AGENT-UI | P1 | Настройки «ИИ и API», onboarding, access control, consent UI | A1,A3,A5 |
-| A8 — AGENT-ACCEPTANCE | P0 release gate | реальная ChatGPT/другие MCP/REST приёмка, live scoped send, backup/restore, release acceptance | A0–A7 (webhooks P1 допускается как явно отделённый post-P0 выпуск) |
+| A7 — AGENT-UI | P0 consent / P1 остальное | Минимальная настройка grants и owner consent обязательна для P0; полный onboarding/журнал/UX — P1 | A1,A3,A5 |
+| A8 — AGENT-ACCEPTANCE | P0 release gate | реальная ChatGPT/другие MCP/REST приёмка, live scoped send, backup/restore, release acceptance | A0–A5 + A7 P0 consent (A6 webhooks и A7 полный onboarding могут выйти позже как P1) |
 
 **Обязательный P0 пользовательский DoD:** бот получает разрешённые материалы из Drive, делает текст и фото, выбирает конкретные аккаунты, показывает предпросмотр, получает owner consent, запланировано публикует в тестовые target и возвращает доказуемые ссылки/ошибки **без дублирующего внешнего POST**.
 
