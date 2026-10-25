@@ -306,6 +306,39 @@ try {
   await closeComposer();
   db.prepare('UPDATE social_accounts SET enabled=1').run();
 
+  // B2A: a tab refresh must restore text, accounts and schedule without
+  // creating a server post. File bytes are deliberately not stored in sessionStorage.
+  const countBeforeRecovery = db.prepare('SELECT COUNT(*) n FROM posts').get().n;
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').fill('Черновик на телефоне до перезагрузки');
+  await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
+  await page.locator('.qc-advanced summary').click();
+  await page.locator('#qc-datetime').fill('2026-11-16T18:30');
+  await page.locator('#qc-files').setInputFiles([
+    { name: 'offline-file.png', mimeType: 'image/png', buffer: image2 }
+  ]);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, countBeforeRecovery,
+    'local recovery must never implicitly create a server draft');
+  await page.reload();
+  await page.locator('#app:not(.hidden)').waitFor();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').waitFor();
+  assert.equal(await page.locator('#qc-text').inputValue(), 'Черновик на телефоне до перезагрузки');
+  assert.equal(await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').isChecked(), true);
+  await page.locator('.qc-advanced summary').click();
+  assert.equal(await page.locator('#qc-datetime').inputValue(), '2026-11-16T18:30');
+  assert.equal(await page.locator('.qc-image').count(), 0,
+    'never pretend an unsaved photo survived a refresh');
+  assert.match(await page.locator('#qc-status').textContent(), /Добавьте фотографии заново/);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, countBeforeRecovery);
+  await closeComposer();
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').waitFor();
+  assert.equal(await page.locator('#qc-text').inputValue(), '',
+    'confirming discard must clear recovery record');
+  await closeComposer();
+
   assert.deepEqual(errors, []);
   await desktop.close();
 
