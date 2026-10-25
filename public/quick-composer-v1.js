@@ -144,7 +144,7 @@ export async function openQuickComposer() {
           '<strong>Видео MP4 из прежней вкладки отсутствует</strong>' +
           '<p>Выберите MP4 снова или явно подтвердите отказ от него.</p>' +
           '<button type="button" id="qc-skip-recovered-video">Продолжить без прежнего видео</button></div>' +
-          '<div class="qc-photo-head"><strong>Фотографии</strong><span class="qc-muted">Можно добавить сразу, до сохранения</span></div>' +
+          '<div class="qc-photo-head"><strong>Фотографии</strong><span class="qc-muted">До сохранения, перетаскиванием или Ctrl+V</span></div>' +
           '<label class="qc-drop" id="qc-drop"><input id="qc-files" type="file" accept="image/*" multiple>' +
           '<span class="qc-drop-icon" aria-hidden="true">+</span><strong>Добавить фото</strong><small>Выберите несколько изображений, перетащите или вставьте из буфера обмена</small></label>' +
           '<div id="qc-images" class="qc-images" aria-live="polite"></div>' +
@@ -508,6 +508,22 @@ export async function openQuickComposer() {
       if (added > 0) {
         setStatus('Из буфера обмена добавлено изображений: ' + added +
           '. Проверьте порядок и сохраните публикацию.');
+      }
+    });
+    root.addEventListener('paste', (event) => {
+      if (state.busy || state.finished || state.uncertainPublish) return;
+      const files = Array.from(event.clipboardData?.items || [])
+        .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+        .map((item) => item.getAsFile()).filter(Boolean);
+      // Ordinary clipboard text must continue to paste into the textarea.
+      if (!files.length) return;
+      event.preventDefault();
+      const before = state.pending.length;
+      addFiles(files);
+      const accepted = state.pending.length - before;
+      if (accepted > 0) {
+        setStatus('Из буфера добавлено фотографий: ' + accepted +
+          '. Проверьте порядок изображений перед сохранением.');
       }
     });
     root.querySelectorAll('input[name="qc-account"]').forEach((input) => input.addEventListener('change', () => {
