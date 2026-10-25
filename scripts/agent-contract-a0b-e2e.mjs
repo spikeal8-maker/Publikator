@@ -271,6 +271,56 @@ invalidWarning.push({code:'UNKNOWN',message:'x'.repeat(501)});
 assert.throws(() => valid(schemaDefs.Preview, changeMediaPreviewTarget({warnings:invalidWarning}), 'unbounded warning'),
   undefined, 'downgrade warning size must be bounded');
 
+// The owner must be able to see the exact saved auto-publishing policy
+// after reload and to compare effective rules before confirming an escalation.
+// Agent tools must never expose owner-only grant configuration.
+const ownerPolicyPreview = cases.find(c => c.id === 'preview-auto-publish-policy');
+const ownerPolicyReload = cases.find(c => c.id === 'reload-saved-auto-publish-policy');
+assert.ok(ownerPolicyPreview && ownerPolicyReload, 'missing owner policy round-trip fixtures');
+const beforeGrant = ownerPolicyPreview.response.before;
+const afterGrant = ownerPolicyPreview.response.after;
+const savedGrant = ownerPolicyReload.response.grant;
+valid(schemaDefs.GrantPreview, ownerPolicyPreview.response, 'owner before/after rules');
+valid(schemaDefs.Agent, ownerPolicyReload.response, 'owner reloaded rules');
+assert.equal(beforeGrant.publishMode, 'OWNER_APPROVAL');
+assert.equal(afterGrant.publishMode, 'PREAPPROVED_POLICY');
+assert.equal(afterGrant.grantVersion, beforeGrant.grantVersion + 1);
+assert.equal(afterGrant.preapprovedPolicy.approvedPolicyVersion, 2, 'policy version must be explicit');
+assert.deepEqual(savedGrant, afterGrant, 'reloaded owner grant must preserve approved rules and policy version');
+assert.deepEqual(afterGrant.preapprovedPolicy.accountIds, afterGrant.accountIds, 'effective accounts must be exact');
+assert.deepEqual(afterGrant.preapprovedPolicy.projectIds, afterGrant.projectIds, 'effective projects must be exact');
+assert.equal(afterGrant.preapprovedPolicy.dailyMax, 2);
+assert.equal(afterGrant.preapprovedPolicy.timezone, 'Europe/Moscow');
+assert.deepEqual(afterGrant.preapprovedPolicy.allowedFormats, ['TEXT_ONLY','IMAGE','CAROUSEL']);
+const withoutApprovedPolicy = structuredClone(afterGrant);
+delete withoutApprovedPolicy.preapprovedPolicy;
+assert.throws(() => valid(schemaDefs.AgentGrant, withoutApprovedPolicy, 'grant missing effective auto policy'),
+  undefined, 'auto policy must be visible in owner grant');
+const withoutPolicyVersion = structuredClone(afterGrant);
+delete withoutPolicyVersion.preapprovedPolicy.approvedPolicyVersion;
+assert.throws(() => valid(schemaDefs.AgentGrant, withoutPolicyVersion, 'grant missing approved policy version'),
+  undefined, 'owner-visible auto policy version must be mandatory');
+const requestWithNoPolicy = structuredClone(ownerPolicyPreview.request.body);
+delete requestWithNoPolicy.preapprovedPolicy;
+assert.throws(() => valid(schemaDefs.OwnerGrantUpdate, requestWithNoPolicy, 'auto grant update missing rules'),
+  undefined, 'auto mode needs exact owner-approved rules');
+const ownerCreate = {
+  name: 'ChatGPT — ASA Lab', clientKind:'chatgpt', presetId:'FULL_CONTENT',
+  publishMode:'PREAPPROVED_POLICY',projectIds:afterGrant.projectIds,accountIds:afterGrant.accountIds,
+  sourceConnectorIds:afterGrant.sourceConnectorIds
+};
+assert.throws(() => valid(schemaDefs.OwnerAgentCreate, ownerCreate, 'auto agent create missing rules'),
+  undefined, 'auto mode cannot be created without explicit owner policy');
+valid(schemaDefs.OwnerAgentCreate, {...ownerCreate,preapprovedPolicy:afterGrant.preapprovedPolicy},
+  'auto agent create with full explicit rules');
+const ownerOps=['getOwnerAgent','previewOwnerAgentGrant','updateOwnerAgentGrant'];
+for (const id of ownerOps) {
+  assert.equal(catalog.get(id).op['x-publikator-auth-kind'], 'OWNER_COOKIE',
+    'effective policy data must not be returned through an agent bearer');
+  assert.ok(!mcp.tools.some(t => t.restOperationId === id),
+    'owner auto-policy must not be exported to the MCP tools');
+}
+
 assert.ok(cases.some(c=>c.id==='create-image-draft'&&!c.request.body.bodyPlain), 'captionless image draft contract required');
 assert.ok(cases.some(c=>c.id==='unknown-provider-outcome'), 'RECOVERY_NEEDED fixture absent');
 assert.ok(cases.some(c=>c.id==='reject-unapproved-send'), 'consent denied fixture absent');
