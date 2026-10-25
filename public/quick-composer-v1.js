@@ -594,6 +594,13 @@ export async function openQuickComposer() {
         setStatus('Сохраняю публикацию…');
         const id = await persistDraft(operation);
         if (action !== 'save') {
+          // A preceding Save clears its old recovery record. Restore the
+          // durable server-draft guard before READY/schedule/publish operations.
+          // A tab refresh or lost /publish-now response cannot silently bypass
+          // reconciliation and cause a duplicate public post.
+          if (!recovery?.saveServerDraft(id)) {
+            throw new Error('Не удалось сохранить защитную запись операции. Публикация остановлена во избежание дублирования.');
+          }
           setStatus('Проверяю права и форматы для выбранных площадок…');
           const ready = await request('/api/posts/' + encodeURIComponent(id) + '/ready', {
             method: 'POST', body: JSON.stringify({ expectedContentVersion: state.version })
