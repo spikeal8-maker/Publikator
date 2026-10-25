@@ -4568,9 +4568,50 @@
             "minLength": 1,
             "maxLength": 128,
             "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "resultMediaAssetIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            },
+            "uniqueItems": true,
+            "maxItems": 100,
+            "description": "Ordered canonical mediaAssetIds, stable and suitable for CreateDraft.mediaAssetIds after successful import."
+          },
+          "resultMediaCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "operationId": {
+                  "const": "importAgentMedia"
+                },
+                "status": {
+                  "const": "SUCCEEDED"
+                }
+              },
+              "required": [
+                "operationId",
+                "status"
+              ]
+            },
+            "then": {
+              "required": [
+                "resultMediaAssetIds",
+                "resultMediaCount"
+              ]
+            }
+          }
+        ]
       },
       "JobList": {
         "type": "object",
