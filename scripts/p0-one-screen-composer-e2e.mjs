@@ -108,6 +108,14 @@ try {
   await page.locator('#qc-platform-preview-load').click();
   await page.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });
   assert.equal(await page.locator('#qc-platform-preview-choice option').count(), 3);
+  const desktopPreviewVisible = await page.evaluate(() => {
+    const card = document.querySelector('#qc-platform-preview-card').getBoundingClientRect();
+    const head = document.querySelector('.qc-head').getBoundingClientRect();
+    const footer = document.querySelector('.qc-footer').getBoundingClientRect();
+    return card.top < footer.top && card.bottom > head.bottom;
+  });
+  assert.equal(desktopPreviewVisible, true,
+    'opening the server preview must reveal the result in the visible desktop scroll pane');
   const telegramTarget = db.prepare('SELECT id FROM post_targets WHERE post_id=? AND account_id=?')
     .get(post.id, accounts[0].id).id;
   const vkTarget = db.prepare('SELECT id FROM post_targets WHERE post_id=? AND account_id=?')
@@ -1059,6 +1067,14 @@ try {
   await mp.locator('#qc-platform-preview-load').click();
   await mp.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });
   assert.equal(await mp.locator('#qc-platform-preview-choice option').count(), 2);
+  const mobilePreviewVisible = await mp.evaluate(() => {
+    const card = document.querySelector('#qc-platform-preview-card').getBoundingClientRect();
+    const head = document.querySelector('.qc-head').getBoundingClientRect();
+    const footer = document.querySelector('.qc-footer').getBoundingClientRect();
+    return card.top < footer.top && card.bottom > head.bottom;
+  });
+  assert.equal(mobilePreviewVisible, true,
+    'opening the server preview must reveal content above the mobile sticky footer');
   assert.equal(await mp.locator('.qc-platform-media video').count(), 1,
     'mobile platform preview uses the actual saved MP4 rather than an invented thumbnail');
   assert.equal(await mp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
