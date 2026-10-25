@@ -130,7 +130,7 @@ export async function openQuickComposer() {
         '<h2 id="qc-title">Создать публикацию</h2></div><button id="qc-close" class="qc-icon-button" type="button" aria-label="Закрыть редактор">×</button></header>' +
       '<div class="qc-main">' +
         '<section class="qc-editor"><label class="qc-label" for="qc-text">Текст публикации</label>' +
-          '<textarea id="qc-text" rows="8" placeholder="Напишите то, что увидят подписчики. Заголовок не нужен." autofocus></textarea>' +
+          '<textarea id="qc-text" rows="8" placeholder="Текст можно оставить пустым для поддерживаемых медиапубликаций. Заголовок не нужен." autofocus></textarea>' +
           '<span id="qc-recovery-note" class="qc-muted" role="status" aria-live="polite"></span>' +
           '<div id="qc-recovery-warning" class="qc-recovery-warning"><strong>Возможен уже сохранённый черновик</strong>' +
           '<p>Предыдущая операция прервалась. Проверьте список публикаций перед повторной отправкой.</p>' +
@@ -149,7 +149,7 @@ export async function openQuickComposer() {
           '<span class="qc-drop-icon" aria-hidden="true">+</span><strong>Добавить фото</strong><small>Выберите несколько изображений, перетащите или вставьте из буфера обмена</small></label>' +
           '<div id="qc-images" class="qc-images" aria-live="polite"></div>' +
           '<div class="qc-video-section"><div class="qc-photo-head"><strong>Видео MP4</strong>' +
-          '<span class="qc-muted">Отдельно от фотографий · требуется текст публикации</span></div>' +
+          '<span class="qc-muted">Отдельно от фотографий · подпись зависит от площадки</span></div>' +
           '<label class="qc-drop qc-video-drop" id="qc-video-drop">' +
           '<input id="qc-video-file" type="file" accept="video/mp4">' +
           '<span class="qc-drop-icon" aria-hidden="true">▶</span><strong>Добавить MP4</strong>' +
@@ -307,7 +307,8 @@ export async function openQuickComposer() {
       root.querySelector('#qc-video-drop').classList.toggle('is-disabled', cannotAddVideo);
     }
     function refreshPreview() {
-      root.querySelector('#qc-preview-text').textContent = text.value.trim() || 'Текст появится здесь';
+      root.querySelector('#qc-preview-text').textContent = text.value.trim() ||
+        (state.pending.length || state.video ? 'Без подписи' : 'Текст появится здесь');
       const labels = checkedAccounts().map(accountLabel);
       root.querySelector('#qc-counter').textContent = labels.length + ' выбрано';
       if (status.classList.contains('is-error') && !state.busy) setStatus('Проверьте текст и получателей перед сохранением.');
@@ -757,7 +758,11 @@ export async function openQuickComposer() {
         setStatus('Смешивание фотографий и видео не поддерживается. Выберите один тип вложений.', true);
         return;
       }
-      if (!operation.body) { setStatus('Напишите текст публикации.', true); text.focus(); return; }
+      if (!operation.body && !operation.images.length && !operation.video) {
+        setStatus('Добавьте текст, фотографии или MP4.', true);
+        text.focus();
+        return;
+      }
       if (action !== 'save' && !operation.accountIds.length) {
         setStatus('Выберите хотя бы одно подключение.', true); return;
       }
