@@ -351,18 +351,33 @@ export async function openQuickComposer() {
       const accountId = variantChoice.value;
       mediaVariantList.replaceChildren();
       const photos = state.pending.filter((item) => item.uploaded && item.remoteId);
-      const relevant = accountId && selectedIds().includes(accountId) &&
-        !state.video && state.pending.length > 0;
+      const stagedPlan = state.mediaEdits.get(accountId);
+      const appliedPlan = state.mediaApplied.get(accountId)?.mediaIds;
+      const hasCustomPlan = Array.isArray(stagedPlan) || Array.isArray(appliedPlan);
+      const locked = state.busy || state.finished || state.uncertainPublish;
+      // A previously saved per-account plan must remain resettable even after
+      // the last global image is deleted or replaced with MP4. Otherwise the
+      // stale IDs block every subsequent Save, Schedule and Publish action.
+      const relevant = Boolean(accountId && selectedIds().includes(accountId)) &&
+        ((!state.video && state.pending.length > 0) || hasCustomPlan);
       mediaVariant.hidden = !relevant;
       if (!relevant) return;
+      if (state.video || !state.pending.length) {
+        mediaVariantNote.textContent = stagedPlan === null
+          ? 'Сброс индивидуального медиаплана подготовлен. Сохраните публикацию.'
+          : 'Общие фотографии удалены или заменены на видео. Сбросьте индивидуальный набор этого аккаунта перед сохранением.';
+        mediaVariantReset.disabled = locked || !hasCustomPlan || stagedPlan === null;
+        return;
+      }
       if (!state.savedId || !photos.length) {
         mediaVariantNote.textContent =
           'Индивидуальный порядок фотографий становится доступен после сохранения черновика. Исходный порядок уже можно менять слева.';
-        mediaVariantReset.disabled = true;
+        // Existing server plans must remain resettable while new photos await upload.
+        mediaVariantReset.disabled = locked || !hasCustomPlan || stagedPlan === null;
         return;
       }
       const all = photos.map((item) => item.remoteId);
-      const raw = state.mediaEdits.get(accountId);
+      const raw = stagedPlan;
       const selected = Array.isArray(raw) ? [...raw] : [...all];
       const missing = selected.filter((id) => !all.includes(id));
       const selectedValid = selected.filter((id) => all.includes(id));
@@ -374,7 +389,6 @@ export async function openQuickComposer() {
         : Array.isArray(raw)
           ? 'Особый порядок для этого аккаунта: ' + selected.length + ' из ' + all.length + '.'
           : 'Используется общий набор из ' + all.length + ' фото.';
-      const locked = state.busy || state.finished || state.uncertainPublish;
       for (const item of ordered) {
         const mediaId = item.remoteId;
         const row = document.createElement('div');
@@ -433,8 +447,7 @@ export async function openQuickComposer() {
         row.append(checkbox, thumbnail, label, earlier, later);
         mediaVariantList.append(row);
       }
-      mediaVariantReset.disabled = locked ||
-        (!state.mediaEdits.has(accountId) && !state.mediaApplied.has(accountId));
+      mediaVariantReset.disabled = locked || !hasCustomPlan || stagedPlan === null;
     }
     mediaVariantReset.addEventListener('click', () => {
       if (state.busy || state.finished || state.uncertainPublish) return;
