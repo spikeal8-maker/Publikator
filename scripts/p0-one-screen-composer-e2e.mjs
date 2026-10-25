@@ -69,6 +69,8 @@ try {
     'project and scheduling are secondary');
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM posts').get().n, 0,
     'opening the composer never creates a draft');
+  assert.equal(await page.locator('#qc-platform-preview-load').isDisabled(), true,
+    'preview requires both content and at least one explicitly selected account');
 
   const image1 = await sharp({ create: { width: 120, height: 110, channels: 3, background: '#ff6600' } }).png().toBuffer();
   const image2 = await sharp({ create: { width: 160, height: 130, channels: 3, background: '#0055ff' } }).png().toBuffer();
@@ -82,7 +84,52 @@ try {
     await page.locator('input[name="qc-account"][value="' + account.id + '"]').check();
   }
   assert.match(await page.locator('#qc-counter').textContent(), /3 выбрано/);
+
+  // D2: preview selected accounts using local browser-owned blobs before the
+  // first server write. It is explicitly labelled unvalidated/approximate.
+  const localPreviewRequests = [];
+  const recordPreviewGet = (request) => {
+    if (request.url().includes('/platform-previews')) localPreviewRequests.push(request.url());
+  };
+  page.on('request', recordPreviewGet);
+  assert.equal(await page.locator('#qc-platform-preview-load').isDisabled(), false);
+  assert.equal(await page.locator('#qc-platform-preview-load').textContent(), 'Предпросмотр до сохранения');
+  await page.locator('#qc-platform-preview-load').click();
+  await page.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });
+  assert.equal(await page.locator('#qc-platform-preview-choice option').count(), 3);
+  assert.match(await page.locator('#qc-platform-preview-source').textContent(), /До сохранения.*локальный/);
+  const telegramLocalOption = 'local:' + accounts[0].id;
+  const vkLocalOption = 'local:' + accounts[2].id;
+  await page.locator('#qc-platform-preview-choice').selectOption(telegramLocalOption);
+  assert.equal(await page.locator('.qc-platform-media img').count(), 2);
+  const originalLocalOrder = await page.locator('.qc-platform-media img').evaluateAll((images) =>
+    images.map((img) => img.getAttribute('src')));
+  assert.ok(originalLocalOrder.every((uri) => uri.startsWith('blob:')),
+    'unsaved preview shows only local object URLs, not invented remote media');
+  let localParts = await page.locator('#qc-platform-preview-card > *').evaluateAll((elements) =>
+    elements.map((el) => el.className));
+  assert.ok(localParts.indexOf('qc-platform-media') < localParts.indexOf('qc-platform-caption'),
+    'local Telegram caption is below local images');
+  await page.locator('#qc-platform-preview-choice').selectOption(vkLocalOption);
+  localParts = await page.locator('#qc-platform-preview-card > *').evaluateAll((elements) =>
+    elements.map((el) => el.className));
+  assert.ok(localParts.indexOf('qc-platform-caption') < localParts.indexOf('qc-platform-media'),
+    'local VK caption is above local images');
+  assert.equal(localPreviewRequests.length, 0, 'pre-save preview must not fetch server renditions');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM posts').get().n, 0,
+    'local preview does not create a draft');
   await fs.mkdir('test-results', { recursive: true });
+  await page.screenshot({ path: 'test-results/p0-composer-local-preview-desktop.png', fullPage: false });
+  await page.locator('.qc-image').nth(1).getByRole('button', { name: 'Переместить раньше' }).click();
+  assert.equal(await page.locator('#qc-platform-preview').isVisible(), false,
+    'changing local media order invalidates the previous approximate view');
+  await page.locator('#qc-platform-preview-load').click();
+  await page.locator('#qc-platform-preview-choice').selectOption(telegramLocalOption);
+  const reorderedLocal = await page.locator('.qc-platform-media img').evaluateAll((images) =>
+    images.map((img) => img.getAttribute('src')));
+  assert.deepEqual(reorderedLocal, [...originalLocalOrder].reverse(),
+    'local preview follows the operator-specified image order');
+  page.off('request', recordPreviewGet);
   await page.screenshot({ path: 'test-results/p0-composer-desktop.png', fullPage: false });
   await page.locator('#qc-save').click();
   await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
@@ -108,6 +155,9 @@ try {
   await page.locator('#qc-platform-preview-load').click();
   await page.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });
   assert.equal(await page.locator('#qc-platform-preview-choice option').count(), 3);
+  assert.match(await page.locator('#qc-platform-preview-source').textContent(), /сохранённой серверной версии/);
+  assert.ok((await page.locator('.qc-platform-media img').first().getAttribute('src')).startsWith('/public-media/'),
+    'server preview after Save uses canonical media URLs rather than old local blobs');
   const desktopPreviewVisible = await page.evaluate(() => {
     const card = document.querySelector('#qc-platform-preview-card').getBoundingClientRect();
     const head = document.querySelector('.qc-head').getBoundingClientRect();
@@ -146,6 +196,12 @@ try {
   await page.locator('.qc-image').nth(1).getByRole('button', { name: 'Переместить раньше' }).click();
   assert.equal(await page.locator('#qc-platform-preview').isVisible(), false,
     'changing media order invalidates previously loaded account-specific preview');
+  assert.equal(await page.locator('#qc-platform-preview-load').isDisabled(), false);
+  await page.locator('#qc-platform-preview-load').click();
+  await page.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });
+  assert.match(await page.locator('#qc-platform-preview-source').textContent(), /Несохранённые изменения/);
+  assert.ok((await page.locator('.qc-platform-media img').first().getAttribute('src')).startsWith('blob:'),
+    'edited saved draft shows local media until the new version is committed');
   await page.locator('#qc-save').click();
   await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
   assert.deepEqual(
@@ -671,8 +727,15 @@ try {
     'file size must be displayed accurately in KB or MB');
   assert.equal(await page.locator('#qc-files').isDisabled(), true,
     'image picker must block mixing photos with MP4');
+  await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
+  await page.locator('#qc-platform-preview-load').click();
+  await page.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });
+  assert.match(await page.locator('#qc-platform-preview-source').textContent(), /До сохранения/);
+  assert.equal(await page.locator('.qc-platform-media video').count(), 1,
+    'operator-selected unsaved MP4 appears in local platform preview');
+  assert.ok((await page.locator('.qc-platform-media video').getAttribute('src')).startsWith('blob:'));
   assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, beforeC1,
-    'choosing an MP4 must not force an intermediate save');
+    'previewing MP4 without saving must not create a draft');
   await page.screenshot({ path: 'test-results/p0-composer-video-desktop.png', fullPage: false });
   await page.locator('#qc-save').click();
   await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 45000 });
@@ -1052,6 +1115,14 @@ try {
   assert.equal(await mp.locator('#qc-target-toggle').getAttribute('aria-expanded'), 'false');
   assert.match(await mp.locator('#qc-counter').textContent(), /2 выбрано/);
   assert.equal(await mp.locator('#qc-text').inputValue(), 'Новая публикация для всех подключений.');
+  await mp.locator('#qc-platform-preview-load').click();
+  await mp.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });
+  assert.equal(await mp.locator('#qc-platform-preview-choice option').count(), 2);
+  assert.equal(await mp.locator('.qc-platform-media img').count(), 1);
+  assert.match(await mp.locator('#qc-platform-preview-source').textContent(), /До сохранения/);
+  assert.equal(await mp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
+    '390px local image preview must not cause horizontal overflow');
+  await mp.screenshot({ path: 'test-results/p0-composer-local-preview-mobile.png', fullPage: false });
   await mp.locator('.qc-image button[aria-label^="Удалить"]').click();
   assert.equal(await mp.locator('#qc-video-file').isDisabled(), false);
   await mp.locator('#qc-video-file').setInputFiles([
@@ -1060,8 +1131,12 @@ try {
   await mp.locator('#qc-video-preview video').scrollIntoViewIfNeeded();
   await mp.screenshot({ path: 'test-results/p0-composer-video-mobile.png', fullPage: false });
   assert.equal(await mp.locator('#qc-video-preview video').count(), 1);
+  await mp.locator('#qc-platform-preview-load').click();
+  await mp.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });
+  assert.equal(await mp.locator('.qc-platform-media video').count(), 1);
+  assert.match(await mp.locator('#qc-platform-preview-source').textContent(), /До сохранения/);
   assert.equal(await mp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
-    '390px MP4 preview must not overflow');
+    '390px local MP4 preview must not overflow');
   await mp.locator('#qc-save').click();
   await mp.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 45000 });
   await mp.locator('#qc-platform-preview-load').click();
@@ -1150,6 +1225,11 @@ try {
         '320px video preview must fit without clipping');
       assert.equal(await rp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
       await rp.screenshot({ path: 'test-results/p0-composer-video-responsive-320.png', fullPage: false });
+      await rp.locator('#qc-platform-preview-load').click();
+      await rp.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });
+      assert.equal(await rp.locator('.qc-platform-media video').count(), 1);
+      assert.equal(await rp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
+        '320px local per-account preview must not overflow horizontally');
     }
     await responsive.close();
   }
@@ -1163,6 +1243,8 @@ try {
     screenshots: [
       'test-results/p0-composer-video-desktop.png',
       'test-results/p0-composer-video-mobile.png',
+      'test-results/p0-composer-local-preview-desktop.png',
+      'test-results/p0-composer-local-preview-mobile.png',
       'test-results/p0-composer-platform-preview-desktop.png',
       'test-results/p0-composer-platform-preview-mobile.png',
       'test-results/p0-composer-mobile-per-account-ready-errors.png',
