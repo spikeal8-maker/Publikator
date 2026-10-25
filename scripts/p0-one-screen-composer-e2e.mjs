@@ -1127,6 +1127,13 @@ try {
   // caption in same-tab recovery across a full browser reload.
   const countBeforeRejectedVariant = db.prepare('SELECT COUNT(*) n FROM posts').get().n;
   await page.locator('#quick-compose-nav').click();
+  // The earlier deliberate READY failure can leave a durable server-draft
+  // recovery marker. Our test already reconciled its exact DRAFT status and
+  // zero provider sends, so explicitly confirm starting a separate material.
+  if (await page.locator('#qc-recovery-warning').isVisible()) {
+    page.once('dialog', (dialog) => dialog.accept());
+    await page.locator('#qc-start-new').click();
+  }
   await page.locator('#qc-text').fill('Отдельный вариант после отклонённого создания');
   await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
   await page.locator('#qc-variant-editor summary').click();
