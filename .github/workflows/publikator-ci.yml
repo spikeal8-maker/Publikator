@@ -69,6 +69,12 @@ jobs:
       - name: Schema v14 administrator backup and restore
         run: node scripts/backup-v14-admin-auth-e2e.mjs
 
+      - name: AGENT-A1a schema 15 owner agents and grants migration
+        run: node scripts/schema-v15-agent-ownership-e2e.mjs
+
+      - name: AGENT-A1a schema 15 canonical agent backup and restore
+        run: node scripts/backup-v15-agent-ownership-e2e.mjs
+
       - name: P0 one-screen cross-platform composer Chrome
         run: node scripts/p0-one-screen-composer-e2e.mjs
 
