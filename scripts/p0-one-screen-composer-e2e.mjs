@@ -484,6 +484,7 @@ try {
   const noMediaPost = db.prepare('SELECT id FROM posts ORDER BY rowid DESC LIMIT 1').get().id;
   const noMediaTarget = db.prepare('SELECT id FROM post_targets WHERE post_id=? AND account_id=?')
     .get(noMediaPost, accounts[2].id).id;
+  await page.locator('#qc-variant-editor summary').click();
   await page.locator('#qc-variant-choice').selectOption(accounts[2].id);
   await page.locator('.qc-media-variant-row').nth(1)
     .getByRole('button', { name: /Передвинуть.*раньше для аккаунта/ }).click();
@@ -866,6 +867,7 @@ try {
   const videoResetPost = db.prepare('SELECT id FROM posts ORDER BY rowid DESC LIMIT 1').get().id;
   const videoResetTarget = db.prepare('SELECT id FROM post_targets WHERE post_id=? AND account_id=?')
     .get(videoResetPost, accounts[2].id).id;
+  await page.locator('#qc-variant-editor summary').click();
   await page.locator('#qc-variant-choice').selectOption(accounts[2].id);
   await page.locator('.qc-media-variant-row input[type="checkbox"]').nth(1).uncheck();
   await page.locator('#qc-save').click();
