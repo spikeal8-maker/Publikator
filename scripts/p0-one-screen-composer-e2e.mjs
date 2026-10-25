@@ -494,7 +494,9 @@ try {
     .get(noMediaTarget)?.media_plan_json ?? null;
   assert.ok(noMediaPlan(), 'a target-specific plan must exist before deletion');
   await page.locator('.qc-image button[aria-label^="Удалить"]').first().click();
+  await page.waitForFunction(() => document.querySelectorAll('.qc-image').length === 1);
   await page.locator('.qc-image button[aria-label^="Удалить"]').first().click();
+  await page.waitForFunction(() => document.querySelectorAll('.qc-image').length === 0);
   assert.equal(await page.locator('.qc-image').count(), 0);
   assert.equal(await page.locator('#qc-media-variant').isVisible(), true,
     'account-specific media reset must remain accessible after deleting every photo');
@@ -876,7 +878,9 @@ try {
     .get(videoResetTarget)?.media_plan_json ?? null;
   assert.ok(videoResetPlan(), 'an individual plan must exist before replacing photos with video');
   await page.locator('.qc-image button[aria-label^="Удалить"]').first().click();
+  await page.waitForFunction(() => document.querySelectorAll('.qc-image').length === 1);
   await page.locator('.qc-image button[aria-label^="Удалить"]').first().click();
+  await page.waitForFunction(() => document.querySelectorAll('.qc-image').length === 0);
   await page.locator('#qc-video-file').setInputFiles([
     { name: 'replacement.mp4', mimeType: 'video/mp4', buffer: mp4 }
   ]);
