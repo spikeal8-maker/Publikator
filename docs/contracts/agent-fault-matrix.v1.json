@@ -1,0 +1,268 @@
+{
+  "contractId": "publikator.agent-fault-matrix",
+  "schemaVersion": 1,
+  "status": "DESIGN_NOT_IMPLEMENTED",
+  "harness": "isolated node process + tmp SQLite & volume + fake VK/TG/MAX adapters; outbound external network denied",
+  "failpointRules": {
+    "eachScenarioRequiresDeterministicCut": true,
+    "replayUsesSameIdempotencyKey": true,
+    "unknownOutcomeNeverAutomaticallyResends": true,
+    "neverUseRealProviderCredentialsInCI": true,
+    "comparePostAndTargetRevisionDigests": true,
+    "requiresBackupRestore": true
+  },
+  "scenarios": [
+    {
+      "id": "F01_BEFORE_OPERATION_RECEIPT",
+      "cutPoint": "before_receipt_commit",
+      "injection": "SIGKILL",
+      "expectedProviderCalls": "0",
+      "expectedState": "not_started",
+      "recovery": "retry permitted as first commit; no phantom job",
+      "gate": "G-06",
+      "p0": true,
+      "proof": [
+        "sqlite_snapshot",
+        "activity_events",
+        "fake_provider_request_log",
+        "canonical_media_checksums",
+        "no_new_unapproved_send_after_restart"
+      ],
+      "assertNoBlindRetry": true
+    },
+    {
+      "id": "F02_AFTER_OPERATION_RECEIPT",
+      "cutPoint": "after_receipt_commit_before_202",
+      "injection": "SIGKILL",
+      "expectedProviderCalls": "0",
+      "expectedState": "same durable jobId after recovery, no duplicate row",
+      "recovery": "idempotent_replay",
+      "gate": "G-06",
+      "p0": true,
+      "proof": [
+        "sqlite_snapshot",
+        "activity_events",
+        "fake_provider_request_log",
+        "canonical_media_checksums",
+        "no_new_unapproved_send_after_restart"
+      ],
+      "assertNoBlindRetry": true
+    },
+    {
+      "id": "F03_DURING_MEDIA_WRITE",
+      "cutPoint": "during_media_persist_hash",
+      "injection": "SIGKILL",
+      "expectedProviderCalls": "0",
+      "expectedState": "tracked partial object cleaned/reused; ordered canonical media IDs unchanged",
+      "recovery": "media_reconcile",
+      "gate": "G-07",
+      "p0": true,
+      "proof": [
+        "sqlite_snapshot",
+        "activity_events",
+        "fake_provider_request_log",
+        "canonical_media_checksums",
+        "no_new_unapproved_send_after_restart"
+      ],
+      "assertNoBlindRetry": true
+    },
+    {
+      "id": "F04_AFTER_OWNER_APPROVAL",
+      "cutPoint": "after_exact_approval_commit",
+      "injection": "SIGKILL",
+      "expectedProviderCalls": "0",
+      "expectedState": "approval digest+intent/audit persistent, not self-approved by agent",
+      "recovery": "resume_only_after_policy_check",
+      "gate": "G-04",
+      "p0": true,
+      "proof": [
+        "sqlite_snapshot",
+        "activity_events",
+        "fake_provider_request_log",
+        "canonical_media_checksums",
+        "no_new_unapproved_send_after_restart"
+      ],
+      "assertNoBlindRetry": true
+    },
+    {
+      "id": "F05_AFTER_SCHEDULER_SELECTION",
+      "cutPoint": "after_due_selected_before_target_claim",
+      "injection": "SIGKILL",
+      "expectedProviderCalls": "0",
+      "expectedState": "scheduled intent remains pending, new claim requires reauthorization",
+      "recovery": "safe_reselect",
+      "gate": "G-05",
+      "p0": true,
+      "proof": [
+        "sqlite_snapshot",
+        "activity_events",
+        "fake_provider_request_log",
+        "canonical_media_checksums",
+        "no_new_unapproved_send_after_restart"
+      ],
+      "assertNoBlindRetry": true
+    },
+    {
+      "id": "F06_AFTER_CLAIM_BEFORE_NETWORK",
+      "cutPoint": "after_claim_and_quota_commit_before_network",
+      "injection": "SIGKILL",
+      "expectedProviderCalls": "0",
+      "expectedState": "claim receipt + quota stored; process restart must not blindly resend",
+      "recovery": "reconcile_before_any_retry",
+      "gate": "G-06",
+      "p0": true,
+      "proof": [
+        "sqlite_snapshot",
+        "activity_events",
+        "fake_provider_request_log",
+        "canonical_media_checksums",
+        "no_new_unapproved_send_after_restart"
+      ],
+      "assertNoBlindRetry": true
+    },
+    {
+      "id": "F07_PROVIDER_ACCEPTED_RESPONSE_LOST",
+      "cutPoint": "provider_accepted_before_http_response",
+      "injection": "DROP_RESPONSE",
+      "expectedProviderCalls": "1",
+      "expectedState": "RECOVERY_NEEDED; no automatic second provider request",
+      "recovery": "manual_provider_reconciliation",
+      "gate": "G-06",
+      "p0": true,
+      "proof": [
+        "sqlite_snapshot",
+        "activity_events",
+        "fake_provider_request_log",
+        "canonical_media_checksums",
+        "no_new_unapproved_send_after_restart"
+      ],
+      "assertNoBlindRetry": true
+    },
+    {
+      "id": "F08_PROVIDER_RETURNED_BEFORE_DB_COMMIT",
+      "cutPoint": "after_provider_success_before_local_published_commit",
+      "injection": "SIGKILL",
+      "expectedProviderCalls": "1",
+      "expectedState": "RECOVERY_NEEDED until verified external ID; no blind POST",
+      "recovery": "reconcile_provider_status",
+      "gate": "G-06",
+      "p0": true,
+      "proof": [
+        "sqlite_snapshot",
+        "activity_events",
+        "fake_provider_request_log",
+        "canonical_media_checksums",
+        "no_new_unapproved_send_after_restart"
+      ],
+      "assertNoBlindRetry": true
+    },
+    {
+      "id": "F09_BETWEEN_TWO_TARGETS",
+      "cutPoint": "first_target_published_second_pending",
+      "injection": "SIGKILL",
+      "expectedProviderCalls": "1",
+      "expectedState": "first target PUBLISHED immutable; second target separately claimable only with valid policy",
+      "recovery": "per_target_resume",
+      "gate": "G-06",
+      "p0": true,
+      "proof": [
+        "sqlite_snapshot",
+        "activity_events",
+        "fake_provider_request_log",
+        "canonical_media_checksums",
+        "no_new_unapproved_send_after_restart"
+      ],
+      "assertNoBlindRetry": true
+    },
+    {
+      "id": "F10_REVOKE_BEFORE_CLAIM",
+      "cutPoint": "revoke_commit_before_target_claim",
+      "injection": "CONCURRENT_REVOKE",
+      "expectedProviderCalls": "0",
+      "expectedState": "no fresh claim after revoke; OWNER revoke audit durable",
+      "recovery": "deny_new_claim",
+      "gate": "G-05",
+      "p0": true,
+      "proof": [
+        "sqlite_snapshot",
+        "activity_events",
+        "fake_provider_request_log",
+        "canonical_media_checksums",
+        "no_new_unapproved_send_after_restart"
+      ],
+      "assertNoBlindRetry": true
+    },
+    {
+      "id": "F11_REVOKE_AFTER_CLAIM",
+      "cutPoint": "revoke_commit_after_target_admission",
+      "injection": "CONCURRENT_REVOKE",
+      "expectedProviderCalls": "0..1",
+      "expectedState": "document in-flight / possible completion; no new claims after revoke",
+      "recovery": "reconcile_inflight",
+      "gate": "G-05",
+      "p0": true,
+      "proof": [
+        "sqlite_snapshot",
+        "activity_events",
+        "fake_provider_request_log",
+        "canonical_media_checksums",
+        "no_new_unapproved_send_after_restart"
+      ],
+      "assertNoBlindRetry": true
+    },
+    {
+      "id": "F12_QUOTA_AT_LOCAL_DAY_BOUNDARY",
+      "cutPoint": "quota_near_iana_day_dst",
+      "injection": "FAKE_CLOCK",
+      "expectedProviderCalls": "0..policy_limit",
+      "expectedState": "atomic limit per target and IANA day, no bypass by two agents",
+      "recovery": "quota_guard",
+      "gate": "G-05",
+      "p0": true,
+      "proof": [
+        "sqlite_snapshot",
+        "activity_events",
+        "fake_provider_request_log",
+        "canonical_media_checksums",
+        "no_new_unapproved_send_after_restart"
+      ],
+      "assertNoBlindRetry": true
+    },
+    {
+      "id": "F13_CHANGED_CREDENTIAL_FINGERPRINT",
+      "cutPoint": "credential_change_after_consent_before_claim",
+      "injection": "MUTATE_CREDENTIAL",
+      "expectedProviderCalls": "0",
+      "expectedState": "CAPABILITY_CHANGED, approval invalidated",
+      "recovery": "require_owner_reapproval",
+      "gate": "G-04",
+      "p0": true,
+      "proof": [
+        "sqlite_snapshot",
+        "activity_events",
+        "fake_provider_request_log",
+        "canonical_media_checksums",
+        "no_new_unapproved_send_after_restart"
+      ],
+      "assertNoBlindRetry": true
+    },
+    {
+      "id": "F14_BACKUP_RESTORE_AGENT_STATE",
+      "cutPoint": "backup_after_claim_before_restore",
+      "injection": "RESTORE",
+      "expectedProviderCalls": "0..1",
+      "expectedState": "agent grants, publication intents, claims, events and media survive consistent restore",
+      "recovery": "restore_with_evidence",
+      "gate": "G-10",
+      "p0": true,
+      "proof": [
+        "sqlite_snapshot",
+        "activity_events",
+        "fake_provider_request_log",
+        "canonical_media_checksums",
+        "no_new_unapproved_send_after_restart"
+      ],
+      "assertNoBlindRetry": true
+    }
+  ]
+}
