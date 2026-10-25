@@ -172,6 +172,31 @@
   border-radius: 11px; padding: 22px; margin-top: 15px; color: #576981;
 }
 .qc-empty a { color: #315ee8; font-weight: 700; }
+.qc-variant-editor {
+  margin-top: 14px; padding: 11px 13px; border: 1px solid #dbe4f1;
+  border-radius: 10px; background: #fff; min-width: 0;
+}
+.qc-variant-editor[hidden] { display: none; }
+.qc-variant-editor summary { cursor: pointer; color: #2549a3; font-size: 12px; font-weight: 750; }
+.qc-variant-editor label {
+  display: flex; flex-direction: column; gap: 5px; margin-top: 11px;
+  color: #485c79; font-size: 12px; font-weight: 650;
+}
+.qc-variant-editor select, .qc-variant-editor textarea {
+  min-width: 0; width: 100%; padding: 9px 10px; border: 1px solid #cfdaeb;
+  border-radius: 8px; font: inherit; color: #1f2f49; background: #fff;
+}
+.qc-variant-editor textarea { min-height: 78px; resize: vertical; line-height: 1.45; }
+.qc-variant-editor textarea:focus-visible, .qc-variant-editor select:focus-visible {
+  outline: 2px solid #5385e8; outline-offset: 1px;
+}
+.qc-variant-status { font-size: 11px; color: #456080; margin: 8px 0; }
+.qc-variant-editor button {
+  padding: 8px 10px; border: 1px solid #c7d5ed; border-radius: 8px;
+  color: #3154a1; background: #f2f6ff; font-size: 12px;
+  font-weight: 700; cursor: pointer;
+}
+.qc-variant-editor button:disabled { opacity: .55; cursor: default; }
 .qc-preview { border-top: 1px solid #dee6f0; margin-top: 20px; padding-top: 18px; }
 .qc-preview h4 { font-size: 12px; margin: 0 0 8px; }
 #qc-preview-text {
