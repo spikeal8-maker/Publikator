@@ -101,11 +101,43 @@ try {
   assert.equal(db.prepare("SELECT COUNT(*) n FROM publication_events WHERE event_type LIKE '%publish%'").get().n, 0,
     'saving must not publish outside the application');
 
+  // D1: canonical account-specific preview should be readable in the same
+  // editor without reopening or sending anything to an external provider.
+  assert.equal(await page.locator('#qc-platform-preview-load').isDisabled(), false,
+    'read-only platform preview is offered after saving the actual server draft');
+  await page.locator('#qc-platform-preview-load').click();
+  await page.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });
+  assert.equal(await page.locator('#qc-platform-preview-choice option').count(), 3);
+  const telegramTarget = db.prepare('SELECT id FROM post_targets WHERE post_id=? AND account_id=?')
+    .get(post.id, accounts[0].id).id;
+  const vkTarget = db.prepare('SELECT id FROM post_targets WHERE post_id=? AND account_id=?')
+    .get(post.id, accounts[2].id).id;
+  await page.locator('#qc-platform-preview-choice').selectOption(telegramTarget);
+  assert.match(await page.locator('#qc-platform-preview-card').textContent(), /Telegram · Account 0/);
+  assert.match(await page.locator('#qc-platform-preview-card').textContent(), /Наша новая публикация/);
+  assert.equal(await page.locator('.qc-platform-media img').count(), 2);
+  let parts = await page.locator('#qc-platform-preview-card > *').evaluateAll((elements) =>
+    elements.map((item) => item.className));
+  assert.ok(parts.indexOf('qc-platform-media') < parts.indexOf('qc-platform-caption'),
+    'Telegram caption is displayed after canonical media order');
+  await page.locator('#qc-platform-preview-choice').selectOption(vkTarget);
+  assert.match(await page.locator('#qc-platform-preview-card').textContent(), /ВКонтакте · Account 2/);
+  parts = await page.locator('#qc-platform-preview-card > *').evaluateAll((elements) =>
+    elements.map((item) => item.className));
+  assert.ok(parts.indexOf('qc-platform-caption') < parts.indexOf('qc-platform-media'),
+    'VK caption is displayed before canonical images');
+  assert.equal(await page.locator('.qc-platform-media img').count(), 2);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, 1,
+    'opening account previews must not create new posts');
+  await page.screenshot({ path: 'test-results/p0-composer-platform-preview-desktop.png', fullPage: false });
+
   // Media order remains editable after the initial save and must reach the server.
   const initialOrder = db.prepare('SELECT id FROM media WHERE post_id=? ORDER BY sort_order,created_at').all(post.id)
     .map((row) => row.id);
   assert.equal(initialOrder.length, 2);
   await page.locator('.qc-image').nth(1).getByRole('button', { name: 'Переместить раньше' }).click();
+  assert.equal(await page.locator('#qc-platform-preview').isVisible(), false,
+    'changing media order invalidates previously loaded account-specific preview');
   await page.locator('#qc-save').click();
   await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
   assert.deepEqual(
@@ -1022,6 +1054,16 @@ try {
   assert.equal(await mp.locator('#qc-video-preview video').count(), 1);
   assert.equal(await mp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
     '390px MP4 preview must not overflow');
+  await mp.locator('#qc-save').click();
+  await mp.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 45000 });
+  await mp.locator('#qc-platform-preview-load').click();
+  await mp.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });
+  assert.equal(await mp.locator('#qc-platform-preview-choice option').count(), 2);
+  assert.equal(await mp.locator('.qc-platform-media video').count(), 1,
+    'mobile platform preview uses the actual saved MP4 rather than an invented thumbnail');
+  assert.equal(await mp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
+    '390px per-account video preview must not introduce horizontal overflow');
+  await mp.screenshot({ path: 'test-results/p0-composer-platform-preview-mobile.png', fullPage: false });
 
   // Mobile C2c: even with the video composer open, the failed readiness
   // explanation must remain available without clipping the action bar.
@@ -1105,6 +1147,8 @@ try {
     screenshots: [
       'test-results/p0-composer-video-desktop.png',
       'test-results/p0-composer-video-mobile.png',
+      'test-results/p0-composer-platform-preview-desktop.png',
+      'test-results/p0-composer-platform-preview-mobile.png',
       'test-results/p0-composer-mobile-per-account-ready-errors.png',
       'test-results/p0-composer-per-account-ready-errors.png',
       'test-results/p0-composer-video-responsive-320.png',
