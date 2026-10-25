@@ -17,7 +17,8 @@ export const SCHEMA_MILESTONES = [
   { version: 11, key: 'project-defaults', migrationRegression: 'scripts/schema-v11-project-defaults-e2e.mjs', backupRegression: 'scripts/backup-v11-project-defaults-e2e.mjs' },
   { version: 12, key: 'templates', migrationRegression: 'scripts/schema-v12-templates-e2e.mjs', backupRegression: 'scripts/backup-v12-templates-e2e.mjs' },
   { version: 13, key: 'social-credential-capability-profile', migrationRegression: 'scripts/schema-v13-social-credential-capability-e2e.mjs', backupRegression: 'scripts/backup-v13-social-credential-capability-e2e.mjs' },
-  { version: 14, key: 'admin-local-accounts', migrationRegression: 'scripts/schema-v14-admin-auth-e2e.mjs', backupRegression: 'scripts/backup-v14-admin-auth-e2e.mjs' }
+  { version: 14, key: 'admin-local-accounts', migrationRegression: 'scripts/schema-v14-admin-auth-e2e.mjs', backupRegression: 'scripts/backup-v14-admin-auth-e2e.mjs' },
+  { version: 15, key: 'agent-ownership-audit', migrationRegression: 'scripts/schema-v15-agent-ownership-e2e.mjs', backupRegression: 'scripts/backup-v15-agent-ownership-e2e.mjs' }
 ] as const satisfies readonly SchemaMilestone[];
 
 export const DATABASE_SCHEMA_VERSION = SCHEMA_MILESTONES[SCHEMA_MILESTONES.length - 1]!.version;
