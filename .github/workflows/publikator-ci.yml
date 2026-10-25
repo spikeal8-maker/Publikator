@@ -39,6 +39,9 @@ jobs:
           ffmpeg -hide_banner -encoders 2>/dev/null | grep -q 'libx264'
           ffmpeg -hide_banner -encoders 2>/dev/null | grep -q 'libx265'
 
+      - name: AGENT-A0a bot permission and activity contract
+        run: node scripts/agent-contract-a0a-e2e.mjs
+
       - name: TypeScript strict check
         run: npm run typecheck
 
