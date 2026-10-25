@@ -52,6 +52,16 @@ export function createComposerRecovery(identity) {
   function saveLocalDraft(draft) {
     const safeAccountIds = Array.isArray(draft.accountIds)
       ? draft.accountIds.filter((value) => typeof value === 'string').slice(0, 100) : [];
+    const safeAccountSet = new Set(safeAccountIds);
+    const safeVariants = Array.isArray(draft.variants)
+      ? draft.variants.filter((variant) =>
+        variant && safeAccountSet.has(variant.accountId) &&
+        (variant.text === null || typeof variant.text === 'string'))
+        .slice(0, 100).map((variant) => ({
+          accountId: variant.accountId,
+          text: variant.text === null ? null : variant.text.slice(0, 20000)
+        }))
+      : [];
     return write({
       kind: 'local',
       body: String(draft.body || '').slice(0, 200000),
@@ -60,6 +70,7 @@ export function createComposerRecovery(identity) {
       scheduleTimezone: String(draft.scheduleTimezone || '').slice(0, 90),
       ambiguousOffset: ['earlier', 'later'].includes(draft.ambiguousOffset) ? draft.ambiguousOffset : '',
       accountIds: safeAccountIds,
+      variants: safeVariants,
       photoCount: Math.max(0, Math.min(100, Number(draft.photoCount) || 0)),
       // The MP4 File/Blob itself never enters storage; after refresh the
       // operator must attach it again or explicitly waive it.

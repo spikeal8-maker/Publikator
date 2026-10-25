@@ -113,7 +113,8 @@ export async function openQuickComposer() {
       scheduleTimezone: null, scheduleMode: 'MANUAL', remoteMediaOrder: [],
       restoredScheduleTimezone: null, recoveryRequiredFiles: 0,
       video: null, recoveryRequiresVideo: false,
-      previewToken: 0, previewLoading: false, previewRows: []
+      previewToken: 0, previewLoading: false, previewRows: [],
+      variantEdits: new Map(), variantApplied: new Map()
     };
     const available = accounts.filter((account) => account.enabled);
     const grouped = ['telegram', 'vk', 'max', 'instagram'].map((platform) => {
@@ -178,6 +179,16 @@ export async function openQuickComposer() {
           '<button type="button" id="qc-select-none">Снять выбор</button></div><div class="qc-accounts">' + grouped + '</div></div>'
           : '<div class="qc-empty">Нет активных подключений. Черновик можно сохранить и без них.' +
             '<a href="/socials" id="qc-connect">Перейти к подключению соцсетей</a></div>') +
+        '<details class="qc-variant-editor" id="qc-variant-editor" hidden>' +
+        '<summary>Отдельный текст для аккаунта</summary>' +
+        '<label for="qc-variant-choice">Аккаунт' +
+        '<select id="qc-variant-choice"></select></label>' +
+        '<label for="qc-variant-text">Текст только для этого аккаунта' +
+        '<textarea id="qc-variant-text" rows="3" maxlength="20000" placeholder="Основной текст"></textarea></label>' +
+        '<p class="qc-variant-status" id="qc-variant-status" role="status" aria-live="polite"></p>' +
+        '<button type="button" id="qc-variant-reset">Использовать основной текст</button>' +
+        '<p class="qc-muted">По умолчанию все аккаунты наследуют основной текст. Отдельный вариант применяется при сохранении материала.</p>' +
+        '</details>' +
         '<div class="qc-preview"><h4>Предпросмотр текста</h4><p id="qc-preview-text">Текст появится здесь</p>' +
           '<div id="qc-preview-targets" class="qc-muted">Площадки пока не выбраны</div>' +
           '<button id="qc-platform-preview-load" class="qc-platform-preview-load" type="button" disabled>' +
@@ -321,6 +332,65 @@ export async function openQuickComposer() {
       redrawVideo();
       updatePreviewButton();
     }
+    const variantPanel = root.querySelector('#qc-variant-editor');
+    const variantChoice = root.querySelector('#qc-variant-choice');
+    const variantText = root.querySelector('#qc-variant-text');
+    const variantStatus = root.querySelector('#qc-variant-status');
+    const variantReset = root.querySelector('#qc-variant-reset');
+    function refreshVariantControls() {
+      const chosen = checkedAccounts();
+      const previousChoice = variantChoice.value;
+      variantChoice.replaceChildren();
+      for (const account of chosen) {
+        const option = document.createElement('option');
+        option.value = account.id;
+        option.textContent = accountLabel(account);
+        variantChoice.append(option);
+      }
+      variantPanel.hidden = chosen.length === 0;
+      if (!chosen.length) {
+        variantText.value = '';
+        variantStatus.textContent = '';
+        variantReset.disabled = true;
+        return;
+      }
+      if (chosen.some((account) => account.id === previousChoice)) variantChoice.value = previousChoice;
+      const targetId = variantChoice.value;
+      const current = state.variantEdits.get(targetId);
+      variantText.value = typeof current === 'string' ? current : '';
+      variantText.placeholder = 'Общий текст: ' + (text.value.trim().slice(0, 140) || 'Без подписи');
+      variantStatus.textContent = typeof current === 'string' && current.trim()
+        ? 'Отдельный текст подготовлен для выбранного аккаунта.'
+        : 'Используется основной текст (наследование).';
+      variantReset.disabled = !state.variantEdits.has(targetId) && !state.variantApplied.has(targetId);
+    }
+    variantChoice.addEventListener('change', refreshVariantControls);
+    variantText.addEventListener('input', () => {
+      if (state.busy || state.finished || state.uncertainPublish) return;
+      const accountId = variantChoice.value;
+      if (!accountId || !selectedIds().includes(accountId)) return;
+      const value = variantText.value.trim();
+      if (value) state.variantEdits.set(accountId, value);
+      else if (state.variantApplied.has(accountId)) state.variantEdits.set(accountId, null);
+      else state.variantEdits.delete(accountId);
+      markDirty();
+      // Do not rewrite the live textarea while the operator types: trimming
+      // here would erase spaces and move the caret on every keystroke.
+      variantStatus.textContent = value
+        ? 'Отдельный текст подготовлен для выбранного аккаунта.'
+        : 'Используется основной текст (наследование).';
+      variantReset.disabled = !state.variantEdits.has(accountId) &&
+        !state.variantApplied.has(accountId);
+    });
+    variantReset.addEventListener('click', () => {
+      if (state.busy || state.finished || state.uncertainPublish) return;
+      const accountId = variantChoice.value;
+      if (!accountId) return;
+      if (state.variantApplied.has(accountId)) state.variantEdits.set(accountId, null);
+      else state.variantEdits.delete(accountId);
+      markDirty();
+      refreshVariantControls();
+    });
     const previewArea = root.querySelector('#qc-platform-preview');
     const previewChoice = root.querySelector('#qc-platform-preview-choice');
     const previewContent = root.querySelector('#qc-platform-preview-card');
@@ -441,7 +511,7 @@ export async function openQuickComposer() {
         localDraft: true,
         captionPlacement: account.platform === 'vk' ? 'above' : 'below',
         contentFormat,
-        text: text.value.trim(),
+        text: state.variantEdits.get(account.id) || text.value.trim(),
         media,
         issues: []
       }));
@@ -495,6 +565,8 @@ export async function openQuickComposer() {
         scheduleTimezone: state.restoredScheduleTimezone || projectTimezone(root.querySelector('#qc-project').value),
         ambiguousOffset: root.querySelector('#qc-ambiguous').value,
         accountIds: selectedIds(),
+        variants: [...state.variantEdits.entries()].filter(([id]) => selectedIds().includes(id))
+          .map(([accountId, value]) => ({ accountId, text: value })),
         // Unattached files from a restored draft remain required across text,
         // target and schedule edits, including another tab refresh.
         photoCount: Math.max(state.pending.length, state.recoveryRequiredFiles),
@@ -533,6 +605,7 @@ export async function openQuickComposer() {
       if (status.classList.contains('is-error') && !state.busy) setStatus('Проверьте текст и получателей перед сохранением.');
       root.querySelector('#qc-preview-targets').textContent = labels.length
         ? 'Получатели: ' + labels.join(', ') : 'Площадки пока не выбраны';
+      refreshVariantControls();
       updatePreviewButton();
     }
     function redrawPhotos() {
@@ -798,6 +871,10 @@ export async function openQuickComposer() {
           : null,
         body: text.value.trim(),
         accountIds: Object.freeze(chosen.map((account) => account.id)),
+        variants: Object.freeze(chosen.filter((account) => state.variantEdits.has(account.id))
+          .map((account) => Object.freeze({
+            accountId: account.id, text: state.variantEdits.get(account.id)
+          }))),
         images: Object.freeze([...state.pending]),
         video: state.video
       });
@@ -857,6 +934,7 @@ export async function openQuickComposer() {
               scheduleTimezone: operation.scheduleTimezone,
               ambiguousOffset: operation.ambiguousOffset,
               accountIds: operation.accountIds, photoCount: operation.images.length,
+              variants: operation.variants,
               videoRequired: Boolean(operation.video || state.recoveryRequiresVideo)
             });
           } else {
@@ -959,6 +1037,26 @@ export async function openQuickComposer() {
       // server deduplication or later explicit deletion must not revive it.
       state.recoveryRequiredFiles = 0;
       updateMissingFilesNotice();
+      // Apply staged target-specific text to the exact selected account IDs.
+      // Only the existing versioned target-override API may change renditions;
+      // the main text remains canonical, other recipients inherit it.
+      for (const variant of operation.variants) {
+        const target = updatedTargets.targets.find((item) =>
+          item.enabled && item.account_id === variant.accountId);
+        if (!target?.id) throw new Error('Не удалось сопоставить аккаунт с целью публикации.');
+        const applied = state.variantApplied.get(variant.accountId);
+        if ((!applied && variant.text === null) ||
+            (applied && applied.targetId === target.id && applied.text === variant.text)) continue;
+        const update = await request('/api/posts/' + encodeURIComponent(state.savedId) +
+          '/targets/' + encodeURIComponent(target.id) + '/text', {
+          method: 'PATCH', body: JSON.stringify({
+            text: variant.text,
+            expectedContentVersion: state.version
+          })
+        });
+        state.version = update.contentVersion;
+        state.variantApplied.set(variant.accountId, { text: variant.text, targetId: target.id });
+      }
       return state.savedId;
     }
 
@@ -1099,6 +1197,15 @@ export async function openQuickComposer() {
         }
         state.recoveryRequiredFiles = Math.max(0, Number(previous.photoCount) || 0);
         state.recoveryRequiresVideo = Boolean(previous.videoRequired);
+        state.variantEdits.clear();
+        if (Array.isArray(previous.variants)) {
+          for (const variant of previous.variants) {
+            if (validIds.has(variant.accountId) &&
+                (variant.text === null || typeof variant.text === 'string')) {
+              state.variantEdits.set(variant.accountId, variant.text);
+            }
+          }
+        }
         updateMissingFilesNotice();
         syncMediaInputs();
         refreshPreview();
