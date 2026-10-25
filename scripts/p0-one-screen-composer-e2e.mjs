@@ -1123,6 +1123,41 @@ try {
   page.off('request', onComposerRequest);
   await closeComposer();
 
+  // D3a/P2: a definitive create failure (400) must retain the per-account
+  // caption in same-tab recovery across a full browser reload.
+  const countBeforeRejectedVariant = db.prepare('SELECT COUNT(*) n FROM posts').get().n;
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').fill('Отдельный вариант после отклонённого создания');
+  await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
+  await page.locator('#qc-variant-editor summary').click();
+  await page.locator('#qc-variant-text').fill('Текст выбранного Telegram после HTTP400');
+  await page.route('**/api/posts', async (route) => {
+    if (route.request().method() === 'POST') {
+      await route.fulfill({
+        status: 400, contentType: 'application/json',
+        body: JSON.stringify({ error: 'Неверные параметры создания' })
+      });
+    } else await route.continue();
+  });
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: /Неверные параметры создания/ })
+    .waitFor({ timeout: 30000 });
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, countBeforeRejectedVariant);
+  await page.unroute('**/api/posts');
+  await page.reload();
+  await page.locator('#app:not(.hidden)').waitFor();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').waitFor();
+  assert.equal(await page.locator('#qc-text').inputValue(),
+    'Отдельный вариант после отклонённого создания');
+  assert.equal(await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').isChecked(), true);
+  await page.locator('#qc-variant-editor summary').click();
+  assert.equal(await page.locator('#qc-variant-text').inputValue(),
+    'Текст выбранного Telegram после HTTP400',
+    'rejected draft creation must not discard recoverable target-specific text');
+  await closeComposer();
+
   assert.deepEqual(errors, []);
   await desktop.close();
 
