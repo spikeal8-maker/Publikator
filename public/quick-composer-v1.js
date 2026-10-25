@@ -134,6 +134,10 @@ export async function openQuickComposer() {
           '<p>Предыдущая операция прервалась. Проверьте список публикаций перед повторной отправкой.</p>' +
           '<a href="/content">Открыть публикации</a>' +
           '<button type="button" id="qc-start-new">Я проверил — начать новый материал</button></div>' +
+          '<div id="qc-missing-media" class="qc-recovery-warning">' +
+          '<strong>Фотографии из прежней вкладки отсутствуют</strong>' +
+          '<p id="qc-missing-media-detail"></p>' +
+          '<button type="button" id="qc-skip-recovered-media">Продолжить без прежних фотографий</button></div>' +
           '<div class="qc-photo-head"><strong>Фотографии</strong><span class="qc-muted">Можно добавить сразу, до сохранения</span></div>' +
           '<label class="qc-drop" id="qc-drop"><input id="qc-files" type="file" accept="image/*" multiple>' +
           '<span class="qc-drop-icon" aria-hidden="true">+</span><strong>Добавить фото</strong><small>Выберите несколько изображений или перетащите сюда</small></label>' +
@@ -267,6 +271,12 @@ export async function openQuickComposer() {
         ? 'Текст и настройки временно сохранены в этой вкладке. Файлы после перезагрузки нужно выбрать заново.'
         : 'Локальное восстановление недоступно: сохраните черновик на сервере.';
     }
+    function updateMissingFilesNotice() {
+      const missing = Math.max(0, state.recoveryRequiredFiles - state.pending.length);
+      root.querySelector('#qc-missing-media').classList.toggle('is-visible', missing > 0);
+      root.querySelector('#qc-missing-media-detail').textContent =
+        'Повторно добавьте ' + missing + ' фото или явно подтвердите отказ от них.';
+    }
     function refreshPreview() {
       root.querySelector('#qc-preview-text').textContent = text.value.trim() || 'Текст появится здесь';
       const labels = checkedAccounts().map(accountLabel);
@@ -277,6 +287,7 @@ export async function openQuickComposer() {
     }
     function redrawPhotos() {
       pendingList.replaceChildren();
+      updateMissingFilesNotice();
       state.pending.forEach((item, index) => {
         const card = document.createElement('div');
         card.className = 'qc-image';
@@ -390,6 +401,14 @@ export async function openQuickComposer() {
     refreshPreview();
     showTimezone();
     root.querySelector('#qc-close').addEventListener('click', dispose);
+    root.querySelector('#qc-skip-recovered-media').addEventListener('click', () => {
+      if (state.busy || state.finished || state.uncertainPublish) return;
+      if (!window.confirm('Вы больше не хотите добавлять прежние фотографии? Публикация будет без них.')) return;
+      state.recoveryRequiredFiles = 0;
+      updateMissingFilesNotice();
+      markDirty();
+      setStatus('Подтверждено: продолжить без фотографий из предыдущей сессии.');
+    });
     root.querySelector('#qc-connect')?.addEventListener('click', (event) => {
       event.preventDefault();
       if (state.busy) return;
@@ -539,6 +558,11 @@ export async function openQuickComposer() {
       if (state.busy || state.uncertainPublish || state.finished) return;
       const chosen = checkedAccounts();
       const operation = snapshotOperation(action, chosen);
+      if (state.recoveryRequiredFiles > state.pending.length) {
+        updateMissingFilesNotice();
+        setStatus('Снова приложите фотографии или подтвердите продолжение без них.', true);
+        return;
+      }
       if (!operation.body) { setStatus('Напишите текст публикации.', true); text.focus(); return; }
       if (action !== 'save' && !operation.accountIds.length) {
         setStatus('Выберите хотя бы одно подключение.', true); return;
@@ -589,6 +613,9 @@ export async function openQuickComposer() {
         root.querySelector('#qc-close').textContent = 'Закрыть';
         root.querySelector('#qc-close').setAttribute('aria-label', 'Закрыть редактор');
       } catch (error) {
+        if (state.uncertainPublish && !state.savedId) {
+          root.querySelector('#qc-recovery-warning').classList.add('is-visible');
+        }
         setStatus(readableError(error) + (state.savedId ? ' Черновик сохранён: откройте список публикаций при необходимости.' : ''), true);
       } finally {
         setBusy(false);
@@ -634,6 +661,7 @@ export async function openQuickComposer() {
           }
         }
         state.recoveryRequiredFiles = Math.max(0, Number(previous.photoCount) || 0);
+        updateMissingFilesNotice();
         refreshPreview();
         showTimezone();
         setStatus(previous.photoCount
