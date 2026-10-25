@@ -73,6 +73,53 @@
       ]
     },
     {
+      "id": "import-media-started",
+      "operationId": "importAgentMedia",
+      "http": 202,
+      "request": {
+        "idempotencyKey": "drive_import_001",
+        "body": {
+          "sourceConnectorId": "source_drive_asa",
+          "relativePaths": [
+            "ASA_Lab/first.jpg",
+            "ASA_Lab/second.jpg"
+          ]
+        }
+      },
+      "response": {
+        "jobId": "job_media_001",
+        "status": "QUEUED"
+      },
+      "expect": [
+        "No external provider POST",
+        "An operation receipt is persisted before 202 response"
+      ]
+    },
+    {
+      "id": "import-media-completed",
+      "operationId": "getAgentJob",
+      "http": 200,
+      "request": {
+        "path": {
+          "jobId": "job_media_001"
+        }
+      },
+      "response": {
+        "jobId": "job_media_001",
+        "operationId": "importAgentMedia",
+        "status": "SUCCEEDED",
+        "resultMediaAssetIds": [
+          "media_01",
+          "media_02"
+        ],
+        "resultMediaCount": 2
+      },
+      "expect": [
+        "The response returns media IDs in source order",
+        "CreateDraft.mediaAssetIds can reuse these IDs without global media list"
+      ]
+    },
+    {
       "id": "create-image-draft",
       "operationId": "createAgentPost",
       "http": 201,
