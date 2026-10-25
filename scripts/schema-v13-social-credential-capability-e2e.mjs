@@ -59,7 +59,7 @@ try {
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM social_account_capability_profiles').get().count, 0);
 
   db.pragma(`user_version = ${DATABASE_SCHEMA_VERSION+1}`);
-  assert.throws(() => migrate(), /новее поддерживаемой 14/);
+  assert.throws(() => migrate(), new RegExp(`новее поддерживаемой ${DATABASE_SCHEMA_VERSION}`));
   db.pragma(`user_version = ${DATABASE_SCHEMA_VERSION}`);
 
   console.log(JSON.stringify({
