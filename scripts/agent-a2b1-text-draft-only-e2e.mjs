@@ -160,6 +160,30 @@ try{
   const restart=await send(reordered,headers(token1));
   assert.equal(restart.statusCode,200,restart.body);
   assert.deepEqual(restart.json(),data);
+  // A single machine identity cannot create unbounded drafts per hour.
+  // Synthetic completed receipts represent 59 other successful operations;
+  // the original create makes exactly 60. Same-key replay still succeeds.
+  const budgetReceipt=db.prepare([
+    'INSERT INTO agent_operation_receipts',
+    '(receipt_id,agent_id,operation_name,idempotency_key_hash,',
+    'canonical_payload_hash,post_id,phase,result_json,created_at,updated_at)',
+    'VALUES (?,?,?,?,?,?,?,?,?,?)'
+  ].join(' '));
+  db.transaction(()=>{
+    for(let i=1;i<=59;i++){
+      budgetReceipt.run(id('arec'),one.agentId,'createAgentPost',
+        i.toString(16).padStart(64,'0'),'f'.repeat(64),data.postId,
+        'COMPLETED',JSON.stringify({postId:data.postId,contentVersion:1,status:'DRAFT'}),
+        nowIso(),nowIso());
+    }
+  }).immediate();
+  const limited=await send({...body,bodyPlain:'New operation blocked by quota'},
+    headers(token1,'hourly-limit'));
+  assert.equal(limited.statusCode,429,limited.body);
+  assert.equal(limited.json().error.code,'RATE_LIMITED');
+  assert.equal(limited.headers['retry-after'],'3600');
+  assert.equal((await send(reordered,headers(token1))).statusCode,200,
+    'exact same-key replay should not consume additional hourly quota');
   const revokeGrant=updateOwnerAgentGrant(one.agentId,{
     expectedGrantVersion:2,presetId:'CUSTOM',publishMode:'DRAFT_ONLY',
     scopeIds:['posts:write'],projectIds:[project.id],accountIds:[a1],
