@@ -146,6 +146,16 @@ try {
   assert.equal((await send('GET', endpoint, undefined, {
     ...readHeaders(firstKey.bearerToken), origin: 'null'
   })).statusCode, 403);
+  for (const malformedOrigin of [
+    owner.origin + '/path',
+    owner.origin + '?query=1',
+    owner.origin + '#fragment',
+    'https://publisher.example.test@evil.example'
+  ]) {
+    assert.equal((await send('GET', endpoint, undefined, {
+      ...readHeaders(firstKey.bearerToken), origin: malformedOrigin
+    })).statusCode, 403, 'malformed Origin cannot be normalized into trust');
+  }
   assert.equal((await send('GET', endpoint, undefined, {
     ...readHeaders(firstKey.bearerToken), origin: owner.origin
   })).statusCode, 200);
