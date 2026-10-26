@@ -8,6 +8,7 @@ import { registerBrowserSecurity } from './http/security.js';
 import { registerMaintenanceGuard } from './http/maintenance.js';
 import { registerLegacyBackupBlocker } from './http/legacy-backups.js';
 import { registerRoutes } from './http/routes.js';
+import { registerOwnerAgentRegistryRoutes } from './http/owner-agent-registry.js';
 import { registerTargetOverrideRoutes } from './http/target-overrides.js';
 import { registerMediaOrderRoutes } from './http/media-order.js';
 import { registerBackupBundleRoutes } from './http/backup-bundles.js';
@@ -57,6 +58,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await registerLegacyBackupBlocker(app);
   registerSocialConnectionObservability(app);
   await registerRoutes(app);
+  await registerOwnerAgentRegistryRoutes(app);
   await registerVkOauthRoutes(app);
   await registerIntegrationApiRoutes(app);
   await registerVideoMediaRoutes(app);
