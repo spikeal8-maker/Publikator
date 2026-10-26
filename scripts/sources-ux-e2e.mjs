@@ -70,8 +70,22 @@ try {
   await page.locator('#login-form button[type=submit]').click();
   await page.locator('#app:not(.hidden)').waitFor();
   await page.locator('[data-route="/sources"]').click();
-  await page.locator('#gs-add-drive').waitFor();
+  await page.locator('#gs-open-connect').waitFor();
+  assert.equal(await page.locator('.operator-connections-panel').count(), 0);
+  assert.equal(await page.locator('.sources-file-panel').getAttribute('open'), null);
+  assert.equal(await page.locator('.sources-api-panel').getAttribute('open'), null);
+  const initialScroll = await page.evaluate(() => window.scrollY);
   assert.ok(await page.locator('.operator-source-layout').evaluate(el => el.getBoundingClientRect().height < 800));
+  await page.locator('#gs-open-connect').click();
+  assert.equal(await page.locator('dialog[open]').count(), 1);
+  assert.equal(await page.evaluate(() => window.scrollY), initialScroll, 'opening setup does not jump page');
+  for (let i = 0; i < 12; i++) {
+    await page.keyboard.press('Tab');
+    assert.ok(await page.locator('dialog').evaluate(el => el.contains(document.activeElement)), 'keyboard stays in dialog');
+  }
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('dialog[open]').count(), 0);
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'gs-open-connect');
   await page.locator('#gs-open-connect').click();
   await page.locator('summary[aria-label="Справка: Один аккаунт для Google"]').press('Enter');
   assert.match(await page.locator('.gs-setup-guide').first().innerText(), /Сервисные аккаунты/);
@@ -108,11 +122,19 @@ try {
   assert.equal(google[0].config.sheetName, 'Второй лист');
   assert.equal(google[0].config.writeBack, true);
   assert.equal(await page.locator('[name=credentials]').count(), 0);
+  assert.match(await page.locator('.gs-state-grid').innerText(), /Автоматически не проверяется[\s\S]*Вручную после проверки[\s\S]*Требует вашей проверки/);
+  assert.equal(await page.locator('.gs-automation').getAttribute('open'), null);
+  await page.locator('.gs-automation > summary').click();
   await page.locator('summary[aria-label="Справка: Автоматическая готовность"]').press('Enter');
   assert.match(await page.locator('.gs-ready-setting').innerText(), /Может привести к реальной отправке/);
   assert.equal(await page.locator('.gs-auto-ready').isChecked(), false);
   assert.equal(await page.locator('.gs-auto-ready').isDisabled(), true);
+  await page.locator('.gs-poll-enabled').check();
+  assert.equal(await page.locator('.gs-unsaved').isVisible(), true);
+  assert.equal(google[0].config.pollingEnabled, false, 'editing settings does not persist before Save');
+  await page.locator('.gs-poll-enabled').uncheck();
 
+  await page.locator('.gs-table-actions > summary').click();
   await page.locator('.gs-add-folder').click();
   await page.locator('#gs-connect-form').waitFor();
   assert.equal(await page.locator('[name=existingConnectorId]').inputValue(), 'fixture-sheet');
@@ -139,6 +161,10 @@ try {
   assert.equal(drive.length, 2);
   assert.equal(saves, 2);
   await page.locator('#gs-add-yandex').click();
+  assert.equal(await page.locator('dialog[open]').count(), 1);
+  assert.match(await page.locator('.gs-yandex-guide').innerText(), /Чтение всего Диска[\s\S]*cloud_api:disk.read[\s\S]*ClientID[\s\S]*access_token/);
+  await page.locator('[name=clientId]').fill('fixtureclient1234567890');
+  assert.equal(await page.locator('.gs-yandex-authorize').getAttribute('href'), 'https://oauth.yandex.ru/authorize?response_type=token&client_id=fixtureclient1234567890');
   const media = page.locator('.gs-media-form');
   await media.locator('[name=name]').fill('Фото Яндекс');
   await media.locator('[name=root]').fill('/Фото');
@@ -151,13 +177,22 @@ try {
   assert.equal(yandex.length, 1);
   assert.equal(db.prepare('SELECT count(*) AS n FROM posts').get().n, 0);
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.locator('#gs-add-drive').click();
+  await page.locator('#gs-open-connect').click();
   await page.locator('#gs-connect-form').waitFor();
   await page.locator('summary[aria-label="Справка: Как подключить папку изображений"]').press('Enter');
   assert.match(await page.locator('#gs-connect-form').innerText(), /Отдельный JSON создавать не нужно/);
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), '390px no horizontal overflow with detailed help');
   await fs.mkdir('artifacts/sources-ux', { recursive: true });
+  assert.ok(await page.locator('dialog').evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'dialog has no horizontal overflow');
   await page.screenshot({ path: 'artifacts/sources-ux/mobile.png', fullPage: true });
+  await page.keyboard.press('Escape');
+  await page.locator('#gs-add-yandex').click();
+  assert.match(await page.locator('dialog').innerText(), /ClientID/);
+  await page.screenshot({ path: 'artifacts/sources-ux/yandex-mobile.png', fullPage: true });
+  assert.ok(await page.locator('dialog').evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'Yandex guide has no horizontal overflow');
+  await page.keyboard.press('Escape');
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.screenshot({ path: 'artifacts/sources-ux/desktop.png', fullPage: true });
   assert.deepEqual(errors, []);
   console.log('SOURCES-UX + GOOGLE-SETUP: single window/key, reuse without readback, separate failures, media and mobile help PASS');
 } finally {
