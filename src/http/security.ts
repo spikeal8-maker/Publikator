@@ -45,6 +45,15 @@ function exactRequestOrigin(request: FastifyRequest, originHeader: string): bool
   return origin.host.toLowerCase() === requestHost;
 }
 
+/**
+ * Owner grant mutations require a browser Origin even when a non-browser
+ * client could otherwise omit it. No cross-origin cookies or bearer fallback.
+ */
+export function ownerMutationOriginMatches(request: FastifyRequest): boolean {
+  const raw = request.headers.origin;
+  return typeof raw === 'string' && exactRequestOrigin(request, raw);
+}
+
 export async function registerBrowserSecurity(app: FastifyInstance): Promise<void> {
   app.addHook('onRequest', async (request, reply) => {
     if (request.url.startsWith('/api/integration/v1/')) return;
