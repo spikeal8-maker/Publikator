@@ -90,6 +90,11 @@ try{
   assert.equal(count('agent_activity_events'),events+1);
   assert.ok(!JSON.stringify(receipt).includes('create-once'));
   assert.ok(!JSON.stringify(receipt).includes(token1));
+  assert.ok(!JSON.stringify(receipt).includes(body.bodyPlain),
+    'receipt should contain only safe immutable post references');
+  assert.deepEqual(JSON.parse(receipt.result_json),{
+    postId:data.postId,contentVersion:1,status:'DRAFT'
+  });
   assert.ok(!first.body.includes('secret-never-return'));
 
   const reordered={mediaAssetIds:[],targetAccountIds:[a1,a2],
