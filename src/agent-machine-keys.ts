@@ -163,9 +163,14 @@ function insertMachineKey(agentId: string, grant: OwnerAgentState,
 /** Only owner read; never return token_hash. */
 export function listOwnerMachineKeys(agentId: string): { items: ReturnType<typeof safeKey>[] } {
   getOwnerAgent(agentId);
-  const rows=db.prepare('SELECT * FROM agent_machine_keys WHERE agent_id=? ORDER BY created_at DESC,id DESC LIMIT 101')
-    .all(agentId) as KeyRow[];
-  return {items:rows.slice(0,100).map(safeKey)};
+  // All live credentials must remain visible despite unbounded historic
+  // revoked/expired records. Issuance caps active keys at 20 (< page size).
+  const rows=db.prepare([
+    'SELECT * FROM agent_machine_keys WHERE agent_id=?',
+    'ORDER BY CASE WHEN revoked_at IS NULL AND expires_at>? THEN 0 ELSE 1 END,',
+    'created_at DESC,id DESC LIMIT 100'
+  ].join(' ')).all(agentId,nowIso()) as KeyRow[];
+  return {items:rows.map(safeKey)};
 }
 /**
  * One-time secret display. A replay has no bearerToken; an owner who lost the
