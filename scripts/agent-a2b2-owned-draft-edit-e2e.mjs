@@ -201,6 +201,33 @@ try {
   assert.equal(afterRestart.statusCode,200,afterRestart.body);
   assert.deepEqual(afterRestart.json(),secondVersion);
 
+  // The hourly edit quota counts only successful new operations, not replays.
+  // Three actual edits plus 117 safe synthetic same-agent completed receipts.
+  const insertBudget=db.prepare([
+    'INSERT INTO agent_operation_receipts',
+    '(receipt_id,agent_id,operation_name,idempotency_key_hash,',
+    'canonical_payload_hash,post_id,phase,result_json,created_at,updated_at)',
+    'VALUES (?,?,?,?,?,?,?,?,?,?)'
+  ].join(' '));
+  const lastRevision=versions()[3];
+  db.transaction(()=>{
+    for(let i=1;i<=117;i++){
+      insertBudget.run(id('arec'),first.agentId,'updateAgentPost',
+        i.toString(16).padStart(64,'0'),'f'.repeat(64),pid,
+        'COMPLETED',JSON.stringify({
+          postId:pid,projectId:main,contentVersion:4,
+          revisionId:lastRevision.id,status:'DRAFT'
+        }),nowIso(),nowIso());
+    }
+  }).immediate();
+  const limited=await call('PATCH',api,{expectedContentVersion:4,bodyPlain:'Blocked by hourly quota'},
+    h(key1,'a2b2-quota-block'));
+  assert.equal(limited.statusCode,429,limited.body);
+  assert.equal(limited.json().error.code,'RATE_LIMITED');
+  assert.equal(limited.headers['retry-after'],'3600');
+  assert.deepEqual((await call('PATCH',api,firstEdit,h(key1))).json(),secondVersion);
+  assert.equal(postRow(pid).content_version,4);
+
   // SQL-level ACL rechecks prohibit editing after an account is disabled.
   db.prepare('UPDATE social_accounts SET enabled=0 WHERE id=?').run(acc2);
   assert.equal((await call('PATCH',api,{expectedContentVersion:4,bodyPlain:'Disabled target'},
@@ -231,7 +258,7 @@ try {
   }
   console.log(JSON.stringify({ok:true,checkpoint:'AGENT-A2b2',
     editedViaCanonicalRevision:true,expectedVersionRequired:true,
-    immutableHistory:true,originalResponseReplay:true,rateGate:false,
+    immutableHistory:true,originalResponseReplay:true,rateGate:true,
     exactPostOwnerAndTargetAcl:true,noMediaNoPublisher:true,
     noSecretsOrPostTextInReceipts:true,disabledTargetDenied:true,
     staleGrantDenied:true,crossAgentDenied:true,restartSafe:true}));
