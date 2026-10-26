@@ -84,6 +84,9 @@ jobs:
       - name: AGENT-A1b1 owner-only agent registry and policy controls
         run: node scripts/agent-a1b1-owner-registry-e2e.mjs
 
+      - name: AGENT-A1b2a owner grants and exact resource ACL
+        run: node scripts/agent-a1b2a-owner-grants-acl-e2e.mjs
+
       - name: P0 one-screen cross-platform composer Chrome
         run: node scripts/p0-one-screen-composer-e2e.mjs
 
