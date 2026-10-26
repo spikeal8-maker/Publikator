@@ -155,19 +155,34 @@ function receipt(operation: string, key: string, payload: unknown) {
   };
 }
 
-function replayAgent(
-  operation: string,
-  requestId: string,
-  fingerprint: string
-): ReturnType<typeof publicAgent> | null {
-  const prior = db.prepare(
-    'SELECT agent_id,correlation_id FROM agent_activity_events WHERE request_id=? AND operation_id=? ORDER BY sequence DESC LIMIT 1'
-  ).get(requestId, operation) as { agent_id: string; correlation_id: string | null } | undefined;
-  if (!prior) return null;
-  if (prior.correlation_id !== fingerprint) {
-    throw new AgentRegistryError('IDEMPOTENCY_CONFLICT', 'Ключ уже использован с другим содержимым.', 409);
+function replayResult<T extends object>(
+  operation: string, requestId: string, fingerprint: string
+): T | null {
+  const previous = db.prepare([
+    'SELECT operation_id,request_hash,response_json',
+    'FROM agent_owner_operation_receipts WHERE request_id=?'
+  ].join(' ')).get(requestId) as {
+    operation_id: string; request_hash: string; response_json: string
+  } | undefined;
+  if (!previous) return null;
+  if (previous.operation_id !== operation || previous.request_hash !== fingerprint) {
+    throw new AgentRegistryError('IDEMPOTENCY_CONFLICT',
+      'Ключ уже использован с другим содержимым.', 409);
   }
-  return getOwnerAgent(prior.agent_id);
+  return JSON.parse(previous.response_json) as T;
+}
+
+function saveReceipt(
+  agentId: string, operation: string, requestId: string,
+  fingerprint: string, response: object
+): void {
+  db.prepare([
+    'INSERT INTO agent_owner_operation_receipts',
+    '(request_id,agent_id,operation_id,request_hash,response_json,created_at)',
+    'VALUES (?,?,?,?,?,?)'
+  ].join(' ')).run(
+    requestId, agentId, operation, fingerprint, JSON.stringify(response), nowIso()
+  );
 }
 
 function audit(
@@ -190,7 +205,7 @@ export function createOwnerAgent(input: unknown, key: string) {
   const operation = 'createOwnerAgent';
   const { requestId, fingerprint } = receipt(operation, key, data);
   return db.transaction(() => {
-    const replay = replayAgent(operation, requestId, fingerprint);
+    const replay = replayResult<ReturnType<typeof getOwnerAgent>>(operation, requestId, fingerprint);
     if (replay) return replay;
     const agentId = id('agent');
     const timestamp = nowIso();
@@ -202,7 +217,9 @@ export function createOwnerAgent(input: unknown, key: string) {
       .run(agentId, timestamp, timestamp);
     audit(agentId, requestId, fingerprint, operation, 'COMPLETED',
       'Владелец создал подключение без разрешённых ресурсов.', 1);
-    return getOwnerAgent(agentId);
+    const response = getOwnerAgent(agentId);
+    saveReceipt(agentId, operation, requestId, fingerprint, response);
+    return response;
   }).immediate();
 }
 
@@ -221,9 +238,9 @@ export function controlOwnerAgent(
       'Необходимы expectedGrantVersion и явное confirm=true.');
   }
   const operation = action === 'pause' ? 'pauseOwnerAgent' : 'revokeOwnerAgent';
-  const { requestId, fingerprint } = receipt(operation, key, { agentId, action, ...data });
+  const { requestId, fingerprint } = receipt(operation, key, { agentId, action, expectedGrantVersion: data.expectedGrantVersion, confirm: true });
   return db.transaction(() => {
-    const replay = replayAgent(operation, requestId, fingerprint);
+    const replay = replayResult<ReturnType<typeof getOwnerAgent>['grant']>(operation, requestId, fingerprint);
     if (replay) return replay.grant;
     const row = db.prepare([
       'SELECT p.status,g.grant_version FROM agent_principals p',
@@ -247,7 +264,9 @@ export function controlOwnerAgent(
     audit(agentId, requestId, fingerprint, operation, status,
       status === 'PAUSED' ? 'Владелец приостановил подключение.' : 'Владелец отозвал подключение.',
       row.grant_version + 1);
-    return getOwnerAgent(agentId).grant;
+    const response = getOwnerAgent(agentId).grant;
+    saveReceipt(agentId, operation, requestId, fingerprint, response);
+    return response;
   }).immediate();
 }
 
