@@ -69,6 +69,9 @@ jobs:
       - name: Schema v14 administrator backup and restore
         run: node scripts/backup-v14-admin-auth-e2e.mjs
 
+      - name: SOURCES-UX-001 guided table and image-source setup
+        run: node scripts/sources-ux-e2e.mjs
+
       - name: P0 one-screen cross-platform composer Chrome
         run: node scripts/p0-one-screen-composer-e2e.mjs
 

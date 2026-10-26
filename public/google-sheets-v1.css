@@ -22,3 +22,41 @@
 .gs-auto-apply-label { flex: 1 1 100%; }
 .gs-auto-ready-label { flex: 1 1 100%; padding-top: 4px; border-top: 1px dashed var(--border, #d7dce4); }
 .gs-auto-ready-label input:disabled + span, .gs-auto-ready:disabled { opacity: .55; }
+
+/* Scope content-aside separately from the application navigation sidebar. */
+html[data-page="sources"] .operator-source-layout { align-items: start; }
+html[data-page="sources"] .operator-source-layout > aside.operator-section {
+  position: static; display: block; width: auto; height: auto; min-height: 0;
+  inset: auto; overflow: visible; align-self: start;
+}
+html[data-page="sources"] .operator-source-layout > section.operator-section { min-height: 0; }
+.gs-polling { display: grid; grid-template-columns: minmax(0,1fr); align-items: start; }
+.gs-setting { position: relative; min-width: 0; padding-right: 36px; }
+.gs-setting > label { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; font-weight: 600; }
+.gs-setting input[type="checkbox"], .gs-connect-form input[type="checkbox"] {
+  width: 18px; height: 18px; min-height: 18px; padding: 0; flex: 0 0 18px; margin: 2px 0;
+}
+.gs-setting select { width: auto; }
+.gs-ready-setting { border-top: 1px solid var(--border); padding-top: 12px; }
+.gs-poll-save { justify-self: start; }
+.gs-help { position: relative; display: inline-block; max-width: 100%; vertical-align: middle; }
+.gs-help > summary { list-style: none; cursor: pointer; border: 1px solid var(--border); border-radius: 50%; width: 26px; height: 26px; display: grid; place-items: center; font-size: 18px; color: var(--accent); background: var(--surface); }
+.gs-help > summary::-webkit-details-marker { display: none; }
+.gs-help > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.gs-help-body { margin-top: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-muted, #f6f7f9); color: var(--text); font-size: 13px; font-weight: 400; line-height: 1.6; overflow-wrap: anywhere; }
+.gs-setting > .gs-help { position: static; }
+.gs-setting > .gs-help > summary { position: absolute; right: 0; top: 0; }
+.gs-setting > .gs-help[open] { display: block; }
+.gs-setup-guide { border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
+.gs-cloud-media { border-top: 1px solid var(--border); margin-top: 20px; padding-top: 18px; min-width: 0; }
+.gs-cloud-media > p { color: var(--text-secondary); line-height: 1.5; }
+.gs-cloud-card { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px; margin-top: 10px; border: 1px solid var(--border); border-radius: 10px; min-width: 0; }
+.gs-cloud-card span, .gs-cloud-result { overflow-wrap: anywhere; }
+.gs-cloud-result { flex-basis: 100%; }
+.gs-media-form { padding: 14px; margin-top: 12px; border: 1px solid var(--border); border-radius: 10px; }
+.gs-media-form h4 { margin: 0; }
+.gs-media-form .full { grid-column: 1/-1; }
+.gs-connect-form input, .gs-connect-form textarea, .gs-media-form input, .gs-media-form textarea { min-width: 0; max-width: 100%; box-sizing: border-box; }
+@media(max-width:620px) { .gs-cloud-media .row-actions { flex-direction: column; } .gs-cloud-card { align-items: flex-start; flex-direction: column; } .gs-help-body { max-width: 100%; } }
+
+.gs-connect-form .full { grid-column: 1/-1; }
