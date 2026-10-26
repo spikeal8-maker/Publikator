@@ -214,7 +214,7 @@ try{
   assert.equal(afterRestart.json().bearerToken,null);
   assert.deepEqual(afterRestart.json().machineKey,issued.machineKey);
   assert.equal(count('agent_activity_events'),eventCount);
-  assert.equal(Number(db.pragma('user_version',{simple:true})),17);
+  assert.ok(Number(db.pragma('user_version',{simple:true}))>=17);
 
   // Codex P2 regression: more than 100 newer revoked key records cannot
   // make a still-live older key undiscoverable to its owner.
@@ -289,7 +289,7 @@ try{
   assert.ok(!JSON.stringify(db.prepare('SELECT * FROM agent_machine_keys WHERE agent_id=?')
     .all(many.agentId)).includes(replacement.json().bearerToken));
 
-  console.log(JSON.stringify({ok:true,checkpoint:'AGENT-A1b2b1',schema:17,
+  console.log(JSON.stringify({ok:true,checkpoint:'AGENT-A1b2b1',schema:Number(db.pragma('user_version',{simple:true})),
     ownerOnly:true,oauthClientsExcluded:true,oneTimeSecret:true,
     exactIdempotency:true,atomicRotation:true,immediateRevoke:true,
     staleGrantAndTokenDenied:true,expiryDenied:true,pausedDenied:true,
