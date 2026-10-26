@@ -70,6 +70,27 @@ export function assertEffectiveAgentGrant(claim: AuthenticatedAgentClaim): {
   const accounts = JSON.parse(p.account_ids_json) as string[];
   const sources = JSON.parse(p.source_connector_ids_json) as string[];
   if (!scopes.includes(claim.requiredScope)) denied();
+  // Scope existence alone is never sufficient for an unbounded list/lookup.
+  // Request handlers must provide a specific selected resource, or explicitly
+  // filter lists using separate SQL queries scoped by these exact allowlists.
+  if (claim.requiredScope === 'projects:read' && !claim.projectId) denied();
+  if (claim.requiredScope === 'accounts:read' && !claim.accountId) denied();
+  if (claim.requiredScope === 'sources:read' && !claim.sourceConnectorId) denied();
+  if (claim.requiredScope === 'media:read'
+    && !claim.mediaId && !claim.postId) denied();
+  if (claim.requiredScope === 'media:import'
+    && (!claim.sourceConnectorId || !claim.projectId)) denied();
+  if (claim.requiredScope === 'posts:read'
+    && !claim.postId && !claim.projectId && !claim.targetId) denied();
+  if (claim.requiredScope === 'posts:write'
+    && !claim.postId && !(claim.projectId && claim.accountId)) denied();
+  if (claim.requiredScope === 'posts:preview' && !claim.postId) denied();
+  if (claim.requiredScope === 'approval:request' && !claim.postId) denied();
+  // Jobs and events need an actor-scoped identifier model from A2; do not
+  // allow their current broad scopes to expose unrelated agent activity.
+  if (claim.requiredScope === 'jobs:read'
+    || claim.requiredScope === 'events:read') denied();
+
   // This stage has no immutable owner consent, scheduler quota or provider
   // execution claim. Never advertise publish/schedule as executable here.
   // A5b must replace this deny with its separate server-side consent+claim
