@@ -78,6 +78,16 @@ export function migrateAgentDraftProvenance(db: Database.Database): void {
         SELECT RAISE(ABORT, 'AGENT_DRAFT_ONLY');
       END;
 
+      CREATE TRIGGER IF NOT EXISTS trg_agent_receipt_exact_owner
+      BEFORE INSERT ON agent_operation_receipts
+      WHEN NEW.post_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM agent_draft_ownership o
+        WHERE o.post_id=NEW.post_id AND o.agent_id=NEW.agent_id
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'AGENT_RECEIPT_FOREIGN_POST');
+      END;
+
       CREATE TRIGGER IF NOT EXISTS trg_agent_draft_ownership_immutable
       BEFORE UPDATE ON agent_draft_ownership
       BEGIN
@@ -89,11 +99,26 @@ export function migrateAgentDraftProvenance(db: Database.Database): void {
         SELECT RAISE(ABORT, 'AGENT_OWNER_IMMUTABLE');
       END;
 
+      CREATE TRIGGER IF NOT EXISTS trg_agent_draft_initial_no_publish
+      BEFORE INSERT ON posts
+      WHEN NEW.source_type='agent-api' AND (
+        NEW.status!='DRAFT'
+        OR NEW.schedule_mode!='MANUAL'
+        OR NEW.scheduled_at IS NOT NULL
+        OR NEW.scheduled_at_utc IS NOT NULL
+        OR NEW.editorial_stage NOT IN ('IDEA','DRAFT','IN_REVIEW')
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'AGENT_OWNER_CONSENT_REQUIRED');
+      END;
+
       CREATE TRIGGER IF NOT EXISTS trg_agent_draft_no_external_publish
       BEFORE UPDATE OF status,editorial_stage,schedule_mode,scheduled_at,
         scheduled_at_utc,source_type ON posts
-      WHEN EXISTS (
-        SELECT 1 FROM agent_draft_ownership o WHERE o.post_id=OLD.id
+      WHEN (
+        OLD.source_type='agent-api'
+        OR NEW.source_type='agent-api'
+        OR EXISTS (SELECT 1 FROM agent_draft_ownership o WHERE o.post_id=OLD.id)
       ) AND (
         NEW.status!='DRAFT'
         OR NEW.schedule_mode!='MANUAL'
