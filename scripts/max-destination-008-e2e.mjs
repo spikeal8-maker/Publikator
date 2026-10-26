@@ -96,6 +96,17 @@ try {
   await form.locator('[name="name"]').fill('Changed chat');
   await form.locator('[name="chatId"]').fill('-222');
   await form.getByRole('button', { name: 'Сохранить и проверить', exact: true }).click();
+  await form.locator('.operator-max-destination-result [role="alert"]').waitFor();
+  assert.match(await form.innerText(), /сначала завершите готовые и незавершённые публикации/);
+  let unchanged = db.prepare('SELECT * FROM social_accounts WHERE id=?').get(originalId);
+  assert.equal(unchanged.credential_version, originalVersion);
+  assert.equal(decryptJson(unchanged.credentials_encrypted).chatId, '-111');
+  assert.equal(writes, 0);
+  // Completing the already approved post continues to use the original destination.
+  await app.inject({ method: 'POST', url: '/api/posts/' + postId + '/publish-now', headers });
+  assert.deepEqual(publicDestinations, ['-111']);
+  const approvedOldIntentWrites = writes;
+  await form.getByRole('button', { name: 'Сохранить и проверить', exact: true }).click();
   await form.waitFor({ state: 'detached' });
   row = page.locator('.operator-connection[data-account-id="' + originalId + '"]');
   assert.match(await row.innerText(), /Changed chat/);
@@ -108,12 +119,6 @@ try {
   const listed = await app.inject({ method: 'GET', url: '/api/accounts', headers });
   assert.equal(listed.body.includes(secret), false);
   assert.notEqual(listed.json().find((item) => item.id === originalId).capabilityProfile.profileFingerprint, originalFingerprint);
-  assert.equal(writes, 0, 'editing a destination must not publish');
-  await app.inject({ method: 'POST', url: '/api/posts/' + postId + '/publish-now', headers });
-  // The canonical publisher may retain immutable approval for the OLD chat.
-  // It must either block the old READY intent or send exclusively to -111.
-  assert.ok(publicDestinations.every((chatId) => chatId === '-111'), JSON.stringify(publicDestinations));
-  const approvedOldIntentWrites = writes;
   await row.getByRole('button', { name: 'Добавить чат', exact: true }).click();
   form = row.locator('.operator-max-destination-form');
   await form.locator('[name="name"]').fill('Second chat');

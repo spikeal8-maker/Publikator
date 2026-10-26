@@ -817,7 +817,7 @@ POST /api/accounts/:id/recheck
 
 UI MUST NOT implement Save-and-check by first calling an unsaved test endpoint and only then deciding whether saving is allowed. Persist-first/inspect-second semantics are owned by the backend contract.
 
-Для MAX карточка содержит **Изменить чат** и **Добавить чат**. Эти действия используют уже сохранённый ключ только на сервере; повторный ввод и возврат ключа в браузер запрещены. У каждого чата отдельные имя, signed chat_id, CapabilityProfile и результат проверки. Смена чата инвалидирует прежнее разрешение публикации; новый чат включается только после серверного подтверждения прав. Добавление чата сохраняет прежнее подключение.
+Для MAX карточка содержит **Изменить чат** и **Добавить чат**. Эти действия используют уже сохранённый ключ только на сервере; повторный ввод и возврат ключа в браузер запрещены. У каждого чата отдельные имя, signed chat_id, CapabilityProfile и результат проверки. Смена чата блокируется, пока есть готовые или незавершённые публикации для прежнего назначения; в это время можно добавить отдельный чат. Смена инвалидирует прежнее разрешение публикации; новый чат включается только после серверного подтверждения прав. Добавление чата сохраняет прежнее подключение.
 
 `enabled` is an operator master switch, not a capability summary. A valid limited account may remain enabled while blocked formats stay unavailable; the UI must render the per-format matrix.
 
