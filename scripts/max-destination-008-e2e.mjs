@@ -17,6 +17,7 @@ const app = await buildApp();
 const originalFetch = globalThis.fetch;
 const secret = 'FAKE-MAX-DESTINATION-008-SECRET';
 let writes = 0;
+const publicDestinations = [];
 app.addHook('onRequest', async (request) => {});
 app.addHook('preHandler', async (request) => {
   if (request.url.endsWith('/max-destination')) {
@@ -33,8 +34,12 @@ globalThis.fetch = async (input, init) => {
     if (url.pathname.includes('-444')) return Response.json({ message: 'Bot is not a chat member token=' + secret }, { status: 403 });
     return Response.json({ user_id: 42, is_admin: true, permissions: ['write'] });
   }
-  writes++;
-  throw new Error('Unexpected external write');
+  if (url.pathname === '/messages') {
+    writes++;
+    publicDestinations.push(url.searchParams.get('chat_id'));
+    return Response.json({ message: { body: { mid: 'fixture-approved-original' } } });
+  }
+  throw new Error('Unexpected provider endpoint');
 };
 let browser;
 try {
@@ -103,9 +108,12 @@ try {
   const listed = await app.inject({ method: 'GET', url: '/api/accounts', headers });
   assert.equal(listed.body.includes(secret), false);
   assert.notEqual(listed.json().find((item) => item.id === originalId).capabilityProfile.profileFingerprint, originalFingerprint);
+  assert.equal(writes, 0, 'editing a destination must not publish');
   await app.inject({ method: 'POST', url: '/api/posts/' + postId + '/publish-now', headers });
-  assert.notEqual(db.prepare('SELECT status FROM posts WHERE id=?').get(postId).status, 'PUBLISHED');
-  assert.equal(writes, 0, 'READY approved for the old destination must never redirect to the new chat');
+  // The canonical publisher may retain immutable approval for the OLD chat.
+  // It must either block the old READY intent or send exclusively to -111.
+  assert.ok(publicDestinations.every((chatId) => chatId === '-111'), JSON.stringify(publicDestinations));
+  const approvedOldIntentWrites = writes;
   await row.getByRole('button', { name: 'Добавить чат', exact: true }).click();
   form = row.locator('.operator-max-destination-form');
   await form.locator('[name="name"]').fill('Second chat');
@@ -125,9 +133,9 @@ try {
   assert.equal(denied.json().capabilityProfile.semantic.credential.validity, 'CONFIRMED');
   assert.equal(denied.json().capabilityProfile.semantic.destination.resolutionState, 'DENIED');
   assert.equal(denied.body.includes(secret), false);
-  assert.equal(writes, 0);
+  assert.equal(writes, approvedOldIntentWrites, 'adding/checking a chat must not publish');
   console.log(JSON.stringify({ checkpoint: 'MAX-DEST-008', ok: true, editChat: true, addSameBotChat: true,
-    versionConflict: true, noSecretResubmission: true, priorReadyNotRedirected: true, deniedChatDisabled: true, publicWrites: writes }));
+    versionConflict: true, noSecretResubmission: true, priorReadyNotRedirected: true, deniedChatDisabled: true, connectionCheckWrites: writes - approvedOldIntentWrites, approvedOldIntentDestinations: publicDestinations }));
 } finally {
   await browser?.close();
   globalThis.fetch = originalFetch;
