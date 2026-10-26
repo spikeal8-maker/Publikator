@@ -60,3 +60,10 @@ html[data-page="sources"] .operator-source-layout > section.operator-section { m
 @media(max-width:620px) { .gs-cloud-media .row-actions { flex-direction: column; } .gs-cloud-card { align-items: flex-start; flex-direction: column; } .gs-help-body { max-width: 100%; } }
 
 .gs-connect-form .full { grid-column: 1/-1; }
+
+.gs-connect-form #gs-share-hint code { display: block; font-size: 14px; font-weight: 700; overflow-wrap: anywhere; }
+.gs-connect-form .gs-help { margin-left: 8px; }
+.gs-connect-form .gs-help[open] { display: block; margin-left: 0; }
+.gs-connect-form .gs-help-body ol { padding-left: 22px; }
+.gs-connect-form .gs-help-body li { margin-bottom: 8px; }
+.gs-connect-form [readonly] { background: var(--surface-muted); color: var(--text-secondary); }
