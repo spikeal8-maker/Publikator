@@ -43,6 +43,7 @@ Publikator uses monotonic, one-step schema milestones. Current ledger:
 | 15 | AGENT-A1a (#175) | owner-scoped AgentPrincipal/AgentGrant and server activity records; no live API or auto-publishing |
 | 16 | AGENT-A1b1 (#175) | immutable owner-operation response receipts with hashed idempotency identity; no agent bearer or publishing authority |
 | 17 | AGENT-A1b2b1 (#175) | keyed machine identities with hashed opaque tokens, scoped versions, expiry, revoke and rotation; no external agent route |
+| 18 | AGENT-A2b0 (#175) | immutable agent-created draft attribution, safe durable operation receipts, DB trigger blocking READY/queue/publish before owner-consent gate |
 
 A feature PR MUST NOT combine several unrelated future data-model milestones into one schema jump.
 A new schema version must represent one coherent data ownership/invariant change and migrate from the immediately previous version.
@@ -63,6 +64,8 @@ Schema 15 `agent-ownership-audit` is AGENT-A1a (#175), adding inactive-by-defaul
 Schema 16 `agent-owner-idempotency-receipts` is the additive AGENT-A1b1 milestone that atomically persists original, server-sanitized REST response DTOs and canonical request fingerprints so a retry after later grant changes, restart, or backup returns the **original response**, never a new state. No raw idempotency keys, bearer tokens or provider credentials are stored. Focused regressions: `scripts/schema-v16-agent-owner-receipts-e2e.mjs` and `scripts/backup-v16-agent-owner-receipts-e2e.mjs`.
 
 Schema 17 `agent-machine-key-digests` adds bounded owner-issued machine keys with SHA-256 digests of cryptographically random 256-bit bearer secrets, explicit token/grant version snapshots, expiry/revoke and safe metadata. Secrets are returned **once** and never persisted, audited, logged or backed up. Replays of issue/rotate only return metadata; lost tokens must be reissued after revocation. Machine keys are restricted to server bots (`n8n`, `telegram_bot`, `max_bot`, `rest_client`) and are not OAuth credentials for ChatGPT. Dedicated migration and backup regressions: `scripts/schema-v17-agent-machine-keys-e2e.mjs`, `scripts/backup-v17-agent-machine-keys-e2e.mjs`. No live API/MCP transport or external publishing in this milestone.
+
+Schema 18 `agent-draft-provenance-receipts` introduces an immutable agent-owned provenance row only for posts with source_type=`agent-api`, status=`DRAFT` and schedule_mode=`MANUAL`. SQLite triggers block direct changes to READY/queued/approved states and removal of ownership; existing manual posts are unaffected. Durable operation receipts store only agent ID, canonical request hashes, safe result references and phase, not request bodies, provider credentials or token plaintext. No active draft write endpoint exists in A2b0. Dedicated tests: `scripts/schema-v18-agent-draft-provenance-e2e.mjs` and `scripts/backup-v18-agent-draft-provenance-e2e.mjs`; both wired into canonical CI. A2b1 will use the existing content operation layer, not a second publisher.
 
 Every schema `N` after the V1 baseline MUST add all of the following in the same checkpoint PR:
 1. explicit migration code from `N-1` to `N`;
