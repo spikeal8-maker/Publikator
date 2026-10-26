@@ -210,12 +210,55 @@ try{
   assert.deepEqual(afterRestart.json().machineKey,issued.machineKey);
   assert.equal(count('agent_activity_events'),eventCount);
   assert.equal(Number(db.pragma('user_version',{simple:true})),17);
+
+  // Codex P2 regression: more than 100 newer revoked key records cannot
+  // make a still-live older key undiscoverable to its owner.
+  const many=createOwnerAgent({name:'Historic key churn agent',clientKind:'n8n'},
+    'owner-create-history');
+  updateOwnerAgentGrant(many.agentId,{
+    expectedGrantVersion:1,presetId:'CUSTOM',publishMode:'DRAFT_ONLY',
+    scopeIds:['projects:read'],projectIds:[prj],accountIds:[],sourceConnectorIds:[],
+    confirmElevation:true
+  },'owner-grant-history');
+  const historyPath='/api/owner/agents/'+many.agentId+'/machine-keys';
+  const validIssued=await send('POST',historyPath,{
+    expectedGrantVersion:2,scopeIds:['projects:read'],ttlHours:24
+  },headers('issue-original-live'));
+  assert.equal(validIssued.statusCode,201,validIssued.body);
+  const keeper=validIssued.json();
+  assert.equal(authenticateAgentMachineKey(keeper.bearerToken).agentId,many.agentId);
+  const historical=db.prepare([
+    'INSERT INTO agent_machine_keys',
+    '(id,agent_id,token_hash,prefix,scope_ids_json,token_version,grant_version,',
+    'expires_at,revoked_at,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)'
+  ].join(' '));
+  const newFuture=new Date(Date.now()+7200000).toISOString();
+  const revokedAt=new Date().toISOString();
+  db.transaction(()=>{
+    for(let i=1;i<=130;i++){
+      historical.run(id('amk'),many.agentId,i.toString(16).padStart(64,'0'),
+        'pak1_old'+String(i).padStart(4,'0'),'["projects:read"]',2,2,
+        newFuture,revokedAt,new Date(Date.now()+i*60000).toISOString());
+    }
+  }).immediate();
+  const visible=await send('GET',historyPath,undefined,{cookie});
+  assert.equal(visible.statusCode,200,visible.body);
+  assert.equal(visible.json().items.length,100);
+  assert.equal(visible.json().items[0].keyId,keeper.machineKey.keyId,
+    'all live keys must sort ahead of the churn history');
+  assert.ok(visible.json().items.some(x=>x.keyId===keeper.machineKey.keyId));
+  assert.ok(!visible.body.includes(keeper.bearerToken));
+  const stop=await send('POST',historyPath+'/'+keeper.machineKey.keyId+'/revoke',
+    {confirm:true},headers('revoke-after-history'));
+  assert.equal(stop.statusCode,200,stop.body);
+  denied(()=>authenticateAgentMachineKey(keeper.bearerToken));
+
   console.log(JSON.stringify({ok:true,checkpoint:'AGENT-A1b2b1',schema:17,
     ownerOnly:true,oauthClientsExcluded:true,oneTimeSecret:true,
     exactIdempotency:true,atomicRotation:true,immediateRevoke:true,
     staleGrantAndTokenDenied:true,expiryDenied:true,pausedDenied:true,
     crossAgentACL:true,legacyIsolation:true,noExternalRoute:true,
-    noSecretsPersisted:true,restartSafe:true}));
+    noSecretsPersisted:true,restartSafe:true,activeKeysAlwaysDiscoverable:true}));
 }finally{
   await app.close();
   db.close();
