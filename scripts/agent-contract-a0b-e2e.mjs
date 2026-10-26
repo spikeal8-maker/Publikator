@@ -139,8 +139,8 @@ for (const [path, methods] of Object.entries(openapi.paths)) {
   }
 }
 assert.equal(agentRoutes, 22);
-assert.equal(ownerRoutes, 11);
-assert.equal(catalog.size, 33);
+assert.equal(ownerRoutes, 15);
+assert.equal(catalog.size, 37);
 assert.equal(mcp.tools.length, agentRoutes);
 assert.equal(new Set(mcp.tools.map(t => t.name)).size, mcp.tools.length, 'duplicate MCP tools');
 const names = new Set();
