@@ -104,3 +104,7 @@ html[data-page="sources"] .operator-source-layout { display:block; min-width:0; 
 .gs-yandex-guide-body { margin-top:14px; }
 #sources-help { margin-left:auto; font-size:17px; }
 #sources-help-panel h4 { margin-top:20px; }
+
+.gs-yandex-authorize[aria-disabled="true"] { opacity:.5; pointer-events:none; }
+.gs-settings-body > .gs-media-form { padding:14px 0 0; }
+.gs-yandex-guide input { width:100%; box-sizing:border-box; }

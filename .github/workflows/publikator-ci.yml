@@ -32,6 +32,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Azure package mirror throttled two UI acceptance runners before tests.
+          # Keep Ubuntu archive/signature verification and the same package set.
+          if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
+            sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources
+          fi
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ffmpeg
           command -v ffmpeg
@@ -72,7 +77,7 @@ jobs:
       - name: GOOGLE-SETUP-001 atomic shared service-account setup
         run: node scripts/google-source-setup-e2e.mjs
 
-      - name: SOURCES-COMPACT-003 measured compact workspace and guided setup
+      - name: SOURCES-COMPACT + YANDEX-SETUP-004 guidance and precise diagnostics
         run: node scripts/sources-ux-e2e.mjs
 
       - name: Preserve sources desktop and mobile screenshots
