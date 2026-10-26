@@ -684,11 +684,11 @@ async function renderSourcesPage() {
           <div class="operator-actions" style="margin-top:14px"><button id="operator-source-preview" class="primary" type="button" disabled>1. Проверить таблицу</button><button id="operator-source-apply" class="secondary" type="button" disabled>2. Импортировать</button></div>
           <div id="operator-source-result"></div>
         </section>
-        <aside class="operator-section"><h3>Подключения</h3><p>Здесь показаны доступные способы загрузки контента и внешних медиа.</p>
+        <div class="operator-section operator-connections-panel"><h3>Подключения</h3><p>Здесь показаны доступные способы загрузки контента и внешних медиа.</p>
           <div class="operator-connector-card"><strong>Excel / CSV</strong><span>Работает. Повторная загрузка обновляет существующие строки без дублей.</span></div>
           <div class="operator-connector-card" style="margin-top:10px"><strong>Google Sheets</strong><span>Подключение и автоматизация доступны ниже на этой странице.</span></div>
-          <div class="operator-connector-card" style="margin-top:10px"><strong>Google Drive / Яндекс Диск</strong><span>Поддерживаются как источники изображений для Google Sheets; файлы после импорта сохраняются локально в Publikator.</span></div>
-        </aside>
+          <div class="operator-connector-card" style="margin-top:10px"><strong>Google Drive / Яндекс Диск</strong><span>Подключите папку кнопками в разделе «Откуда брать изображения» ниже. В таблице укажите название подключения и имя файла. Изображения сохраняются внутри Publikator.</span></div>
+        </div>
       </div>
       <section class="operator-section" id="operator-integration-api" style="min-width:0">
         <div class="operator-page-head"><div><h3>Integration API</h3><p>Создайте Bearer API key для бота или AI. Полный token показывается только один раз.</p></div><button id="operator-new-api-key" class="primary" type="button">+ Новый API-ключ</button></div>
