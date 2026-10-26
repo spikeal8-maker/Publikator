@@ -342,9 +342,8 @@ async function mountGoogleSheets() {
     host.className = 'operator-section gs-live-section';
     host.innerHTML = `<div class="operator-page-head"><div><h3>Google Sheets</h3><p>Publikator читает лист «Публикации», показывает изменения до импорта и сохраняет канонические данные внутри Publikator.</p></div><a class="button-link secondary" href="/api/content-plan/v3/template.xlsx" download>Скачать XLSX шаблон</a></div><div id="gs-connect-form-host"></div><div id="gs-connectors-list"><div class="muted">Загрузка connectors…</div></div>`;
     layout.after(host);
-    await mountCloudMedia(host);
     card?.querySelector('#gs-open-connect')?.addEventListener('click', () => renderGoogleConnectForm(host));
-    await loadGoogleConnectors(host);
+    await Promise.all([loadGoogleConnectors(host), mountCloudMedia(host)]);
   } catch (error) {
     const host = document.querySelector('#operator-google-sheets-live');
     if (host) host.innerHTML = `<div class="operator-result error">${gsEsc(gsActionableError(error))}</div>`;
