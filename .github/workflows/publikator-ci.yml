@@ -113,6 +113,9 @@ jobs:
       - name: AGENT-A2a3 scoped sources without connector secrets
         run: node scripts/agent-a2a3-scoped-sources-e2e.mjs
 
+      - name: AGENT-A2b1 text-only scoped drafts and durable receipts
+        run: node scripts/agent-a2b1-text-draft-only-e2e.mjs
+
       - name: P0 one-screen cross-platform composer Chrome
         run: node scripts/p0-one-screen-composer-e2e.mjs
 
@@ -590,3 +593,6 @@ jobs:
 
       - name: AGENT-A2a3 scoped sources without connector secrets
         run: node scripts/agent-a2a3-scoped-sources-e2e.mjs
+
+      - name: AGENT-A2b1 text-only scoped drafts and durable receipts
+        run: node scripts/agent-a2b1-text-draft-only-e2e.mjs
