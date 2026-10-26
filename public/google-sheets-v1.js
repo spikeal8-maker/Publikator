@@ -170,9 +170,16 @@ function connectorCard(connector) {
 }
 
 async function loadGoogleConnectors(host) {
-  const data = await googleSheetsApi('/api/google-sheets/connectors');
-  const connectors = data.connectors || [];
   const list = host.querySelector('#gs-connectors-list');
+  let data;
+  try { data = await googleSheetsApi('/api/google-sheets/connectors'); }
+  catch (error) {
+    host.querySelector('#sources-google-count').textContent = '?';
+    list.innerHTML = '<div class="operator-result error" role="alert">' + gsEsc(gsActionableError(error)) + '</div><button type="button" class="secondary gs-retry">Повторить загрузку таблиц</button>';
+    list.querySelector('.gs-retry').onclick = () => loadGoogleConnectors(host);
+    return;
+  }
+  const connectors = data.connectors || [];
   host.querySelector('#sources-google-count').textContent = String(connectors.length);
   list.innerHTML = connectors.length ? connectors.map(connectorCard).join('') : '<div class="operator-empty">Таблиц пока нет. Подключите Google, чтобы получать план публикаций автоматически.</div>';
   list.querySelectorAll('.gs-add-folder').forEach(button => button.addEventListener('click', () => renderGoogleConnectForm(host, button.closest('.gs-connector').dataset.gsId)));
@@ -273,7 +280,13 @@ async function renderGoogleConnectForm(host, existingId = '') {
   formHost.innerHTML = '<p role="status">Загружаю сохранённые подключения Google…</p>';
   let saved;
   try { saved = (await googleSheetsApi('/api/google-sheets/connectors')).connectors.filter(item => item.enabled); }
-  catch (error) { formHost.textContent = gsActionableError(error); return; }
+  catch (error) {
+    formHost.innerHTML = '<div class="gs-dialog-error"><p role="alert">' + gsEsc(gsActionableError(error)) + '</p><button type="button">Закрыть</button></div>';
+    formHost.querySelector('button').onclick = () => gsCloseDialog(formHost);
+    formHost.closest('dialog').addEventListener('cancel', event => { event.preventDefault(); gsCloseDialog(formHost); });
+    formHost.querySelector('button').focus();
+    return;
+  }
   formHost.innerHTML = '<div class="gs-connect-form operator-section"><div class="operator-page-head"><div><h3>Google: таблица и папка изображений</h3><p>Один сервисный аккаунт для плана публикаций и фотографий. Доступ выдаётся отдельно к таблице и папке.</p></div><button id="gs-close-connect" class="secondary" type="button">Закрыть</button></div>' +
     '<form id="gs-connect-form" class="operator-form">' +
     '<div class="full gs-setup-guide"><strong>1. Выберите сервисный аккаунт</strong>' + gsHelp('Один аккаунт для Google', '<p>JSON — удостоверение сервисного аккаунта, а не доступ ко всему Google Диску. Для таблицы и папки подходит один JSON. API-ключ самого n8n, пароль Google и OAuth Client ID сюда не подходят. Если имя сервисного аккаунта содержит n8n, его Google JSON подходит: название аккаунта не ограничивает использование.</p>' + gsJsonGuide) + '</div>' +

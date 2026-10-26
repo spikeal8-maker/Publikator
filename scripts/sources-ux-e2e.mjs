@@ -79,6 +79,10 @@ try {
   await page.locator('#gs-open-connect').click();
   assert.equal(await page.locator('dialog[open]').count(), 1);
   assert.equal(await page.evaluate(() => window.scrollY), initialScroll, 'opening setup does not jump page');
+  for (let i = 0; i < 12; i++) {
+    await page.keyboard.press('Tab');
+    assert.ok(await page.locator('dialog').evaluate(el => el.contains(document.activeElement)), 'keyboard stays in dialog');
+  }
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('dialog[open]').count(), 0);
   assert.equal(await page.evaluate(() => document.activeElement.id), 'gs-open-connect');
@@ -125,6 +129,10 @@ try {
   assert.match(await page.locator('.gs-ready-setting').innerText(), /Может привести к реальной отправке/);
   assert.equal(await page.locator('.gs-auto-ready').isChecked(), false);
   assert.equal(await page.locator('.gs-auto-ready').isDisabled(), true);
+  await page.locator('.gs-poll-enabled').check();
+  assert.equal(await page.locator('.gs-unsaved').isVisible(), true);
+  assert.equal(google[0].config.pollingEnabled, false, 'editing settings does not persist before Save');
+  await page.locator('.gs-poll-enabled').uncheck();
 
   await page.locator('.gs-add-folder').click();
   await page.locator('#gs-connect-form').waitFor();

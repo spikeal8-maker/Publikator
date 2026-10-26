@@ -143,3 +143,6 @@ html[data-page="sources"] .operator-source-layout { display:block; }
   .gs-dialog .row-actions > button { width:100%; }
   .gs-dialog .operator-page-head { flex-direction:column; }
 }
+
+.gs-account-choices select[hidden] { display:none !important; }
+.gs-dialog-error { padding:24px; }
