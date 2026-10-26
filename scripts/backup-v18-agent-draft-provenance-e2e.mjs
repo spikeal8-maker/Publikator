@@ -13,6 +13,7 @@ process.env.PUBLIC_BASE_URL='http://127.0.0.1:8080';
 
 const {db,migrate,id,nowIso}=await import('../dist/db.js');
 const {config}=await import('../dist/config.js');
+const {canonicalPlainRichJson}=await import('../dist/rich-text.js');
 const {DATABASE_SCHEMA_VERSION}=await import('../dist/schema.js');
 const {encryptJson,decryptJson}=await import('../dist/crypto.js');
 const {createAdminSetupGrant,createOrRecoverAdmin}=await import('../dist/admin-auth.js');
@@ -79,6 +80,11 @@ db.close();
 const applied=await applyPendingRestore();
 assert.equal(applied.applied,true);
 const restored=new Database(config.dbPath,{readonly:false,fileMustExist:true});
+// Production db.ts registers the same deterministic SQL function before any
+// post INSERT/UPDATE. Restore verification must reproduce that environment.
+restored.function('publikator_plain_rich_json',{deterministic:true},
+  (value)=>canonicalPlainRichJson(String(value ?? '')));
+restored.pragma('foreign_keys = ON');
 try{
   assert.equal(restored.pragma('integrity_check',{simple:true}),'ok');
   assert.equal(Number(restored.pragma('user_version',{simple:true})),18);
