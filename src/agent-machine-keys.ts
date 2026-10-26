@@ -144,8 +144,9 @@ function insertMachineKey(agentId: string, grant: OwnerAgentState,
   validateKeyScopes(scopes,grant);
   const active=db.prepare([
     'SELECT COUNT(*) AS n FROM agent_machine_keys',
-    'WHERE agent_id=? AND revoked_at IS NULL AND expires_at>?'
-  ].join(' ')).get(agentId,nowIso()) as {n:number};
+    'WHERE agent_id=? AND revoked_at IS NULL AND expires_at>?',
+    'AND token_version=? AND grant_version=?'
+  ].join(' ')).get(agentId,nowIso(),grant.token_version,grant.grant_version) as {n:number};
   if (active.n>=MAX_ACTIVE_KEYS) throw new AgentRegistryError(
     'MACHINE_KEY_LIMIT','Достигнут лимит действующих ключей.',429);
   const token='pak1_'+crypto.randomBytes(32).toString('base64url');
@@ -163,12 +164,17 @@ function insertMachineKey(agentId: string, grant: OwnerAgentState,
 /** Only owner read; never return token_hash. */
 export function listOwnerMachineKeys(agentId: string): { items: ReturnType<typeof safeKey>[] } {
   getOwnerAgent(agentId);
-  // All live credentials must remain visible despite unbounded historic
-  // revoked/expired records. Issuance caps active keys at 20 (< page size).
+  // All currently valid key versions remain discoverable despite unbounded
+  // revoked, expired or grant-invalidated historic records. The active cap
+  // applies to current versions only, so a grant edit cannot block reissuing.
   const rows=db.prepare([
-    'SELECT * FROM agent_machine_keys WHERE agent_id=?',
-    'ORDER BY CASE WHEN revoked_at IS NULL AND expires_at>? THEN 0 ELSE 1 END,',
-    'created_at DESC,id DESC LIMIT 100'
+    'SELECT k.* FROM agent_machine_keys k',
+    'JOIN agent_principals p ON p.id=k.agent_id',
+    'JOIN agent_grants g ON g.agent_id=k.agent_id',
+    'WHERE k.agent_id=?',
+    'ORDER BY CASE WHEN k.revoked_at IS NULL AND k.expires_at>?',
+    'AND k.token_version=p.token_version AND k.grant_version=g.grant_version',
+    'THEN 0 ELSE 1 END, k.created_at DESC,k.id DESC LIMIT 100'
   ].join(' ')).all(agentId,nowIso()) as KeyRow[];
   return {items:rows.map(safeKey)};
 }
