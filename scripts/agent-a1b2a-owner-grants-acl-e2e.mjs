@@ -170,10 +170,17 @@ try {
   assertEffectiveAgentGrant({...claim,projectId:project1});
   assertEffectiveAgentGrant({...claim,postId:post1,mediaId:media1});
   assertEffectiveAgentGrant({...claim,targetId:target1,postId:post1});
-  assertEffectiveAgentGrant({...claim,accountId:acc1});
+  assertEffectiveAgentGrant({...claim,accountId:acc1,requiredScope:'accounts:read'});
+  assertEffectiveAgentGrant({...claim,mediaId:media1,requiredScope:'media:read'});
+  denied({...claim});
+  denied({...claim,accountId:acc1});
+  denied({...claim,requiredScope:'projects:read',tokenScopes:['projects:read']});
+  denied({...claim,requiredScope:'accounts:read',tokenScopes:['accounts:read']});
+  denied({...claim,requiredScope:'sources:read',tokenScopes:['sources:read']});
+  denied({...claim,requiredScope:'media:read',tokenScopes:['media:read']});
   assertEffectiveAgentGrant({...claim,sourceConnectorId:source1,requiredScope:'sources:read'});
   denied({...claim,postId:post2});
-  denied({...claim,accountId:acc2});
+  denied({...claim,accountId:acc2,requiredScope:'accounts:read'});
   denied({...claim,sourceConnectorId:source2,requiredScope:'sources:read'});
   denied({...claim,projectId:project2});
   denied({...claim,mediaId:media2});
@@ -184,7 +191,7 @@ try {
   denied({...claim,grantVersion:1});
   denied({...claim,tokenScopes:[]});
   denied({...claim,requiredScope:'posts:write'});
-  denied({...claim,agentId:other.agentId,tokenVersion:1,grantVersion:1});
+  denied({...claim,agentId:other.agentId,tokenVersion:1,grantVersion:1,postId:post1});
   denied({...claim,requiredScope:'publish:request',tokenScopes:['publish:request']});
 
   // Mixed-recipient posts fail closed, even if their project is allowed.
@@ -218,6 +225,18 @@ try {
   assert.equal(upgraded.statusCode,200,upgraded.body);
   assert.equal(upgraded.json().grantVersion,3);
   assert.equal(upgraded.json().publishMode,'OWNER_APPROVAL');
+  const upgradedClaim={...claim,tokenVersion:3,grantVersion:3,
+    tokenScopes:[...AGENT_PRESETS.EXTENDED]};
+  assertEffectiveAgentGrant({...upgradedClaim,projectId:project1,accountId:acc1,
+    requiredScope:'posts:write'});
+  assertEffectiveAgentGrant({...upgradedClaim,projectId:project1,
+    sourceConnectorId:source1,requiredScope:'media:import'});
+  denied({...upgradedClaim,projectId:project1,requiredScope:'posts:write'});
+  denied({...upgradedClaim,sourceConnectorId:source1,requiredScope:'media:import'});
+  denied({...upgradedClaim,projectId:project1,sourceConnectorId:source2,
+    requiredScope:'media:import'});
+  denied({...upgradedClaim,requiredScope:'events:read'});
+  denied({...upgradedClaim,requiredScope:'jobs:read'});
   assert.deepEqual(upgraded.json().scopeIds,[...AGENT_PRESETS.EXTENDED].sort());
   assert.equal(db.prepare('SELECT token_version FROM agent_principals WHERE id=?').get(bot.agentId).token_version,3);
   denied({...claim,tokenVersion:2,grantVersion:2});
