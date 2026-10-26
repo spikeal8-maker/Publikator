@@ -241,7 +241,7 @@ export function controlOwnerAgent(
   const { requestId, fingerprint } = receipt(operation, key, { agentId, action, expectedGrantVersion: data.expectedGrantVersion, confirm: true });
   return db.transaction(() => {
     const replay = replayResult<ReturnType<typeof getOwnerAgent>['grant']>(operation, requestId, fingerprint);
-    if (replay) return replay.grant;
+    if (replay) return replay;
     const row = db.prepare([
       'SELECT p.status,g.grant_version FROM agent_principals p',
       'JOIN agent_grants g ON g.agent_id=p.id WHERE p.id=?'
