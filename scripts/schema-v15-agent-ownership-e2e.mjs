@@ -40,7 +40,7 @@ try {
     targets:db.prepare('SELECT * FROM post_targets').all()
   };
   // Rehearse a true v14 -> v15 migration, preserving all older data.
-  db.exec('DROP TRIGGER IF EXISTS trg_agent_draft_no_external_publish; DROP TABLE IF EXISTS agent_operation_receipts; DROP TABLE IF EXISTS agent_draft_ownership; DROP TABLE agent_machine_keys; DROP TABLE agent_owner_operation_receipts; DROP TABLE agent_activity_events; DROP TABLE agent_grants; DROP TABLE agent_principals;');
+  db.exec('DROP TRIGGER IF EXISTS trg_agent_draft_initial_no_publish; DROP TRIGGER IF EXISTS trg_agent_receipt_exact_owner; DROP TRIGGER IF EXISTS trg_agent_draft_no_external_publish; DROP TABLE IF EXISTS agent_operation_receipts; DROP TABLE IF EXISTS agent_draft_ownership; DROP TABLE agent_machine_keys; DROP TABLE agent_owner_operation_receipts; DROP TABLE agent_activity_events; DROP TABLE agent_grants; DROP TABLE agent_principals;');
   db.pragma('user_version = 14');
   migrate();
   assert.equal(Number(db.pragma('user_version',{simple:true})),DATABASE_SCHEMA_VERSION);
