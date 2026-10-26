@@ -301,13 +301,28 @@ try {
   assert.equal(db.prepare('SELECT grant_version FROM agent_grants WHERE agent_id=?')
     .get(bot.agentId).grant_version,6);
 
+  // An owner scope change must never silently revive an expired grant.
+  const expiredAt='2000-01-01T00:00:00.000Z';
+  db.prepare('UPDATE agent_grants SET expires_at=? WHERE agent_id=?')
+    .run(expiredAt,other.agentId);
+  const expiredUpdate=await send('PUT','/api/owner/agents/'+other.agentId+'/grant',{
+    expectedGrantVersion:1,presetId:'CUSTOM',publishMode:'DRAFT_ONLY',
+    scopeIds:['projects:read'],projectIds:[project1],
+    accountIds:[],sourceConnectorIds:[],confirmElevation:true
+  },withKey('expired-grant-must-stay-expired'));
+  assert.equal(expiredUpdate.statusCode,200,expiredUpdate.body);
+  assert.equal(db.prepare('SELECT expires_at FROM agent_grants WHERE agent_id=?')
+    .get(other.agentId).expires_at,expiredAt);
+  denied({agentId:other.agentId,tokenVersion:2,grantVersion:2,
+    tokenScopes:['projects:read'],requiredScope:'projects:read',projectId:project1});
+
   console.log(JSON.stringify({
     ok:true,checkpoint:'AGENT-A1b2a',
     contractPresets:presets.presets.length,scopes:AGENT_SCOPES.length,
     ownerOnly:true,defaultDeny:true,grantPreviewPure:true,
     confirmsEscalation:true,versionedACL:true,postMediaTargetIsolation:true,
     staleTokenRejected:true,revocationRejected:true,
-    autoPublishDisabled:true,immutableReplay:true,restartSafe:true
+    autoPublishDisabled:true,expiryPreserved:true,immutableReplay:true,restartSafe:true
   }));
 } finally {
   await app.close();
