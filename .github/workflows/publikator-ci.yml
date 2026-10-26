@@ -92,6 +92,12 @@ jobs:
       - name: AGENT-A1b2b1 schema 17 machine token canonical backup
         run: node scripts/backup-v17-agent-machine-keys-e2e.mjs
 
+      - name: AGENT-A2b0 schema 18 agent draft ownership and deny triggers
+        run: node scripts/schema-v18-agent-draft-provenance-e2e.mjs
+
+      - name: AGENT-A2b0 schema 18 canonical backup and restore
+        run: node scripts/backup-v18-agent-draft-provenance-e2e.mjs
+
       - name: AGENT-A1b2b1 machine keys owner API and auth security
         run: node scripts/agent-a1b2b1-machine-key-security-e2e.mjs
 
@@ -559,6 +565,11 @@ jobs:
         run: |
           node scripts/schema-v17-agent-machine-keys-e2e.mjs
           node scripts/backup-v17-agent-machine-keys-e2e.mjs
+
+      - name: Schema v18 agent draft provenance and canonical backup
+        run: |
+          node scripts/schema-v18-agent-draft-provenance-e2e.mjs
+          node scripts/backup-v18-agent-draft-provenance-e2e.mjs
 
       - name: Owner principal and exact grant guards
         run: |
