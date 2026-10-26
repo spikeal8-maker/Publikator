@@ -150,7 +150,15 @@ function buildSafeDraft(req:FastifyRequest,raw:unknown,idem:string) {
         'WHERE o.post_id=? AND o.agent_id=? AND p.source_type=?'
       ].join(' ')).get(earlier.post_id,principal.agentId,'agent-api');
       if(!owner)error('RESOURCE_DENIED','Черновик больше недоступен.',403);
-      return {replay:true,data:JSON.parse(earlier.result_json) as object};
+      const original=JSON.parse(earlier.result_json) as {
+        postId?:unknown; contentVersion?:unknown; status?:unknown
+      };
+      if(original.postId!==earlier.post_id||!Number.isSafeInteger(original.contentVersion)
+        ||Number(original.contentVersion)<1||original.status!=='DRAFT') {
+        error('RECOVERY_NEEDED','Исходная квитанция повреждена.',409);
+      }
+      return {replay:true,
+        data:safeResponse(earlier.post_id,input,Number(original.contentVersion))};
     }
     const project=db.prepare('SELECT id,slug FROM projects WHERE id=?')
       .get(input.projectId) as {id:string;slug:string}|undefined;
@@ -210,7 +218,9 @@ function buildSafeDraft(req:FastifyRequest,raw:unknown,idem:string) {
       'canonical_payload_hash,post_id,phase,result_json,created_at,updated_at)',
       'VALUES (?,?,?,?,?,?,?,?,?,?)'
     ].join(' ')).run(id('arec'),principal.agentId,OPERATION,keyHash,
-      normalizedHash,postId,'COMPLETED',JSON.stringify(data),nowIso(),nowIso());
+      normalizedHash,postId,'COMPLETED',
+      JSON.stringify({postId,contentVersion:post.content_version,status:'DRAFT'}),
+      nowIso(),nowIso());
     db.prepare([
       'INSERT INTO agent_activity_events',
       '(event_id,agent_id,actor_type,origin,request_id,operation_id,',
