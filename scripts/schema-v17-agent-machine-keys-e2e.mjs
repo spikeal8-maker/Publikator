@@ -38,7 +38,7 @@ try{
     accounts:db.prepare('SELECT * FROM social_accounts ORDER BY id').all(),
     posts:db.prepare('SELECT * FROM posts ORDER BY id').all()
   };
-  db.exec('DROP TRIGGER IF EXISTS trg_agent_draft_no_external_publish; DROP TABLE IF EXISTS agent_operation_receipts; DROP TABLE IF EXISTS agent_draft_ownership; DROP TABLE agent_machine_keys;');
+  db.exec('DROP TRIGGER IF EXISTS trg_agent_draft_initial_no_publish; DROP TRIGGER IF EXISTS trg_agent_receipt_exact_owner; DROP TRIGGER IF EXISTS trg_agent_draft_no_external_publish; DROP TABLE IF EXISTS agent_operation_receipts; DROP TABLE IF EXISTS agent_draft_ownership; DROP TABLE agent_machine_keys;');
   db.pragma('user_version = 16');
   migrate();
   assert.equal(Number(db.pragma('user_version',{simple:true})),DATABASE_SCHEMA_VERSION);
