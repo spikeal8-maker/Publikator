@@ -72,8 +72,9 @@ try {
   await page.locator('[data-route="/sources"]').click();
   await page.locator('#gs-open-connect').waitFor();
   assert.equal(await page.locator('.operator-connections-panel').count(), 0);
-  assert.equal(await page.locator('.sources-file-panel').getAttribute('open'), null);
-  assert.equal(await page.locator('.sources-api-panel').getAttribute('open'), null);
+  assert.equal(await page.locator('#operator-source-file').isVisible(), true);
+  assert.equal(await page.locator('.sources-compact > details').count(), 0);
+  assert.equal(await page.locator('#sources-open-api').isVisible(), true);
   const initialScroll = await page.evaluate(() => window.scrollY);
   assert.ok(await page.locator('.operator-source-layout').evaluate(el => el.getBoundingClientRect().height < 800));
   await page.locator('#gs-open-connect').click();
@@ -81,7 +82,7 @@ try {
   assert.equal(await page.evaluate(() => window.scrollY), initialScroll, 'opening setup does not jump page');
   for (let i = 0; i < 12; i++) {
     await page.keyboard.press('Tab');
-    assert.ok(await page.locator('dialog').evaluate(el => el.contains(document.activeElement)), 'keyboard stays in dialog');
+    assert.ok(await page.locator('dialog[open]').evaluate(el => el.contains(document.activeElement)), 'keyboard stays in dialog');
   }
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('dialog[open]').count(), 0);
@@ -124,7 +125,7 @@ try {
   assert.equal(await page.locator('[name=credentials]').count(), 0);
   assert.match(await page.locator('.gs-state-grid').innerText(), /Автоматически не проверяется[\s\S]*Вручную после проверки[\s\S]*Требует вашей проверки/);
   assert.equal(await page.locator('.gs-automation').getAttribute('open'), null);
-  await page.locator('.gs-automation > summary').click();
+  await page.locator('.gs-settings').click();
   await page.locator('summary[aria-label="Справка: Автоматическая готовность"]').press('Enter');
   assert.match(await page.locator('.gs-ready-setting').innerText(), /Может привести к реальной отправке/);
   assert.equal(await page.locator('.gs-auto-ready').isChecked(), false);
@@ -134,7 +135,7 @@ try {
   assert.equal(google[0].config.pollingEnabled, false, 'editing settings does not persist before Save');
   await page.locator('.gs-poll-enabled').uncheck();
 
-  await page.locator('.gs-table-actions > summary').click();
+  await page.locator('.gs-settings-close').click();
   await page.locator('.gs-add-folder').click();
   await page.locator('#gs-connect-form').waitFor();
   assert.equal(await page.locator('[name=existingConnectorId]').inputValue(), 'fixture-sheet');
@@ -183,15 +184,19 @@ try {
   assert.match(await page.locator('#gs-connect-form').innerText(), /Отдельный JSON создавать не нужно/);
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), '390px no horizontal overflow with detailed help');
   await fs.mkdir('artifacts/sources-ux', { recursive: true });
-  assert.ok(await page.locator('dialog').evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'dialog has no horizontal overflow');
+  assert.ok(await page.locator('dialog[open]').evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'dialog has no horizontal overflow');
   await page.screenshot({ path: 'artifacts/sources-ux/mobile.png', fullPage: true });
   await page.keyboard.press('Escape');
   await page.locator('#gs-add-yandex').click();
-  assert.match(await page.locator('dialog').innerText(), /ClientID/);
+  assert.match(await page.locator('dialog[open]').innerText(), /ClientID/);
   await page.screenshot({ path: 'artifacts/sources-ux/yandex-mobile.png', fullPage: true });
-  assert.ok(await page.locator('dialog').evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'Yandex guide has no horizontal overflow');
+  assert.ok(await page.locator('dialog[open]').evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'Yandex guide has no horizontal overflow');
   await page.keyboard.press('Escape');
   await page.setViewportSize({ width: 1440, height: 1000 });
+  const workspace = await page.locator('.sources-compact').boundingBox();
+  assert.ok(workspace.height <= 650, 'realistic source list + file import must fit compact desktop height: ' + workspace.height);
+  assert.ok((await page.locator('#view').innerText()).length < 1800, 'working page must not contain instruction walls');
+  assert.equal(await page.locator('#operator-source-file').isVisible(), true);
   await page.screenshot({ path: 'artifacts/sources-ux/desktop.png', fullPage: true });
   assert.deepEqual(errors, []);
   console.log('SOURCES-UX + GOOGLE-SETUP: single window/key, reuse without readback, separate failures, media and mobile help PASS');

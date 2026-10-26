@@ -115,9 +115,9 @@ function gsPollingMeta(polling = {}) {
 
 
 function gsDialog(host, id, title) {
-  host.querySelector('dialog.gs-dialog')?.remove();
+  host.querySelector('dialog.gs-setup-dialog')?.remove();
   const dialog = document.createElement('dialog');
-  dialog.className = 'gs-dialog';
+  dialog.className = 'gs-dialog gs-setup-dialog';
   dialog.setAttribute('aria-label', title);
   dialog.innerHTML = '<div id="' + id + '"></div>';
   host.append(dialog);
@@ -143,31 +143,29 @@ function connectorCard(connector) {
   const preview = googlePreviewByConnector.get(connector.id);
   return `<article class="gs-connector" data-gs-id="${gsEsc(connector.id)}">
     <div class="gs-connector-head">
-      <div><strong>${gsEsc(connector.name)}</strong><span>Google Таблица · лист «${gsEsc(connector.config.sheetName)}»</span></div>
-      <span class="badge">${connector.enabled === false ? 'Отключено' : 'Подключено'} · ${connector.config.writeBack ? 'Импорт + статусы публикаций' : 'Только импорт'}</span>
+      <div><strong><a href="https://docs.google.com/spreadsheets/d/${encodeURIComponent(connector.config.spreadsheetId)}/edit" target="_blank" rel="noopener noreferrer">${gsEsc(connector.name)} ↗</a></strong><span>Google Таблица · лист «${gsEsc(connector.config.sheetName)}»</span></div>
+      <span class="gs-enabled">${connector.enabled === false ? 'Отключено' : connector.polling?.lastResult === 'failed' ? 'Ошибка проверки' : 'Подключено'}</span>
     </div>
     ${gsAutomationSummary(connector)}
-    <p class="gs-poll-meta">${gsPollingMeta(connector.polling)}</p>
-    <div class="gs-resource-link"><a href="https://docs.google.com/spreadsheets/d/${encodeURIComponent(connector.config.spreadsheetId)}/edit" target="_blank" rel="noopener noreferrer">Открыть таблицу ↗</a></div>
-    <details class="gs-automation"><summary>Настроить автоматизацию</summary><p>Сначала включите проверку, затем выберите, что делать с найденными строками. Изменения вступят в силу после сохранения.</p>
+    <dialog class="gs-dialog gs-automation" aria-label="Автоматизация таблицы"><div class="gs-settings-body"><div class="operator-page-head"><h3>Автоматизация</h3><button class="secondary gs-settings-close" type="button">Закрыть</button></div>
     <div class="gs-connector-meta">Сервисный аккаунт: <code>${gsEsc(connector.config.serviceAccountEmail)}</code></div>
     <div class="gs-polling">
-      <div class="gs-setting"><label><input class="gs-poll-enabled" type="checkbox" ${connector.config.pollingEnabled ? 'checked' : ''}> Проверять таблицу автоматически</label>${gsHelp('Автопроверка', 'Publikator периодически читает таблицу. Сама проверка не создаёт публикаций и ничего не отправляет в соцсети.')}</div>
+      <div class="gs-setting"><label><input class="gs-poll-enabled" type="checkbox" ${connector.config.pollingEnabled ? 'checked' : ''}> Проверять по таймеру</label>${gsHelp('Автопроверка', 'Publikator периодически читает таблицу. Сама проверка не создаёт публикаций и ничего не отправляет в соцсети.')}</div>
       <div class="gs-setting"><label>Как часто <select class="gs-poll-interval">${[5,15,30,60].map(value => '<option value="' + value + '" ' + (Number(connector.config.pollIntervalMinutes || 15) === value ? 'selected' : '') + '>' + value + ' мин</option>').join('')}</select></label>${gsHelp('Интервал проверки', 'Это частота чтения таблицы, а не время отправки. Время публикации задаётся в строке таблицы или календаре. Изменения обнаружатся при следующей проверке.')}</div>
-      <div class="gs-setting"><label><input class="gs-auto-apply" type="checkbox" ${connector.config.autoApplyEnabled ? 'checked' : ''}> Импортировать новые и изменённые строки в черновики</label>${gsHelp('Автоимпорт', 'После проверки Publikator сохраняет корректные строки как черновики. Ошибки и конфликты не перезаписываются автоматически. Для изменения строки увеличивайте source_revision; сохраняйте external_id, чтобы не создавать дубликаты.')}</div>
-      <div class="gs-setting gs-ready-setting"><label><input class="gs-auto-ready" type="checkbox" ${connector.config.autoReadyEnabled ? 'checked' : ''} ${connector.config.autoApplyEnabled ? '' : 'disabled'}> Разрешить автоматическую готовность к публикации</label>${gsHelp('Автоматическая готовность', '<strong>Может привести к реальной отправке.</strong> После автоимпорта приложение проверяет текст, изображения, получателей и ограничения площадок. Успешно проверенный материал становится готовым. Режим AT отправит его в назначенное время, QUEUE — по очереди; MANUAL сам не отправится. Включайте только для таблицы, содержимое и получатели которой проверены. Требуется автоимпорт.')}<p class="operator-field-help">Выключено — материалы ждут вашей проверки. Включено — проверенные материалы могут отправляться по своему расписанию.</p></div>
+      <div class="gs-setting"><label><input class="gs-auto-apply" type="checkbox" ${connector.config.autoApplyEnabled ? 'checked' : ''}> Импортировать в черновики</label>${gsHelp('Автоимпорт', 'После проверки Publikator сохраняет корректные строки как черновики. Ошибки и конфликты не перезаписываются автоматически. Для изменения строки увеличивайте source_revision; сохраняйте external_id, чтобы не создавать дубликаты.')}</div>
+      <div class="gs-setting gs-ready-setting"><label><input class="gs-auto-ready" type="checkbox" ${connector.config.autoReadyEnabled ? 'checked' : ''} ${connector.config.autoApplyEnabled ? '' : 'disabled'}> Готовить к отправке автоматически</label>${gsHelp('Автоматическая готовность', '<strong>Может привести к реальной отправке.</strong> После автоимпорта приложение проверяет текст, изображения, получателей и ограничения площадок. Успешно проверенный материал становится готовым. Режим AT отправит его в назначенное время, QUEUE — по очереди; MANUAL сам не отправится. Включайте только для таблицы, содержимое и получатели которой проверены. Требуется автоимпорт.')}</div>
       <button class="secondary gs-poll-save" type="button">Сохранить автоматизацию</button>
       <span class="gs-poll-meta">${gsPollingMeta(connector.polling)}</span>
-    </div><p class="gs-unsaved hidden" role="status">Есть несохранённые изменения</p></details>
-    <div class="row-actions">
-      <button class="primary gs-preview" type="button">Посмотреть изменения</button>
-      <button class="secondary gs-apply" type="button" ${preview?.canApply ? '' : 'disabled'}>Импортировать изменения</button>
-    </div>
-    <details class="gs-table-actions"><summary>Действия с таблицей</summary><div class="row-actions">
-      <button class="secondary gs-test" type="button">Проверить доступ</button>
-      <button class="secondary gs-add-folder" type="button">Добавить папку Google</button>
+    </div><p class="gs-unsaved hidden" role="status">Есть несохранённые изменения</p>
       ${connector.config.writeBack ? '<button class="secondary gs-publication-writeback" type="button">Записать статусы сейчас</button>' : ''}
-    </div></details>
+    </div></dialog>
+    <div class="row-actions gs-main-actions">
+      <button class="primary gs-preview" type="button">Изменения</button>
+      <button class="secondary gs-apply ${preview ? '' : 'hidden'}" type="button" ${preview?.canApply ? '' : 'disabled'}>Импортировать</button>
+      <button class="secondary gs-test" type="button">Проверить</button>
+      <button class="secondary gs-add-folder" type="button">Папка +</button>
+      <button class="secondary gs-settings" type="button">Настройки</button>
+    </div>
     <div class="gs-result">${preview ? `<div class="operator-result ${preview.canApply ? 'ok' : 'error'}"><strong>${preview.canApply ? 'Предпросмотр готов.' : 'Импорт заблокирован.'}</strong> ${gsHelp("Технические сведения проверки", "<code>" + gsEsc(preview.sourceSnapshotSha256) + "</code>")}</div>${gsSummary(preview.summary)}${gsPreviewRows(preview)}` : ''}</div>
   </article>`;
 }
@@ -184,9 +182,12 @@ async function loadGoogleConnectors(host) {
   }
   const connectors = data.connectors || [];
   host.querySelector('#sources-google-count').textContent = String(connectors.length);
-  list.innerHTML = connectors.length ? connectors.map(connectorCard).join('') : '<div class="operator-empty">Таблиц пока нет. Подключите Google, чтобы получать план публикаций автоматически.</div>';
+  list.innerHTML = connectors.length ? connectors.map(connectorCard).join('') : '<p class="muted">Нет подключённых таблиц</p>';
   list.querySelectorAll('.gs-add-folder').forEach(button => button.addEventListener('click', () => renderGoogleConnectForm(host, button.closest('.gs-connector').dataset.gsId)));
   list.querySelectorAll('.gs-connector').forEach(card => {
+    const settings = card.querySelector('.gs-automation');
+    card.querySelector('.gs-settings').onclick = () => settings.showModal();
+    card.querySelector('.gs-settings-close').onclick = () => settings.close();
     card.querySelectorAll('.gs-polling input, .gs-polling select').forEach(input => input.addEventListener('change', () => {
       card.querySelector('.gs-unsaved').classList.remove('hidden');
     }));
@@ -403,13 +404,8 @@ async function mountGoogleSheets() {
     const host = document.createElement('section');
     host.id = 'operator-google-sheets-live';
     host.className = 'gs-live-section';
-    host.innerHTML = '<div class="sources-heading"><div><h3>Ваши подключения</h3><p>Таблицы и папки сохранены отдельно. Подключённая папка сама не создаёт публикации.</p></div><span class="sources-note">Импорт → проверка → публикация по расписанию</span></div>' +
-      '<div id="sources-notice" role="status"></div>' +
-      '<section class="sources-group"><h3>Планы публикаций <span id="sources-google-count" class="sources-count">…</span></h3><div id="gs-connectors-list"><p role="status">Загружаю таблицы…</p></div></section>' +
-      '<div id="sources-media-slot"></div>' +
-      '<section class="sources-add"><h3>Добавить источник</h3><p>Выберите, откуда Publikator будет брать материалы.</p><div class="sources-add-grid">' +
-      '<article><span class="sources-provider">G</span><strong>Google</strong><p>Таблица с текстами и планом + папка изображений. Один технический аккаунт.</p><button id="gs-open-connect" type="button" class="primary">Подключить Google</button></article>' +
-      '<article><span class="sources-provider sources-yandex">Я</span><strong>Яндекс Диск</strong><p>Папка изображений. Внутри — инструкция получения токена и проверка доступа.</p><button id="gs-add-yandex" type="button" class="secondary">Подключить Яндекс Диск</button></article></div></section>';
+    host.innerHTML = '<div class="sources-toolbar"><button id="gs-open-connect" type="button" class="primary">+ Google</button><button id="gs-add-yandex" type="button" class="secondary">+ Яндекс Диск</button></div><div id="sources-notice" role="status"></div>' +
+      '<section class="sources-group"><h3>Таблицы <span id="sources-google-count" class="sources-count">…</span></h3><div id="gs-connectors-list"><p role="status">Загрузка…</p></div></section><div id="sources-media-slot"></div>';
     document.querySelector('#operator-source-connected-slot').append(host);
     host.querySelector('#gs-open-connect').addEventListener('click', () => renderGoogleConnectForm(host));
     await Promise.all([loadGoogleConnectors(host), mountCloudMedia(host)]);
@@ -430,7 +426,7 @@ async function mountCloudMedia(host) {
   const section = document.createElement('section');
   section.className = 'gs-cloud-media';
   section.id = 'cloud-media-sources';
-  section.innerHTML = '<h3>Папки изображений</h3><p>Файлы из этих папок загружаются при импорте строк таблицы. JPEG/PNG поддерживаются; облачный импорт видео пока недоступен.</p>' +
+  section.innerHTML = '<h3>Папки изображений</h3>' +
     gsHelp('Как связать изображение со строкой', '<p>В колонке media укажите массив: <code>[{"source":"Фото проекта","path":"post-01.jpg"}]</code>. source — название подключения ниже, path — имя файла или путь внутри выбранной папки. Например, фото в подпапке: <code>Обложки/post-01.png</code>. Publikator сохраняет свою копию изображения. Подключение папки само ничего не импортирует и не публикует.') +
     '<div id="gs-cloud-list"><p role="status">Загружаю папки…</p></div>';
   host.querySelector('#sources-media-slot').append(section);
@@ -443,15 +439,15 @@ async function mountCloudMedia(host) {
     list.innerHTML = results.map((item, index) => {
       const platform = index === 0 ? 'Google Drive' : 'Яндекс Диск';
       if (item.status !== 'fulfilled') return '<p role="alert">' + gsEsc(platform) + ': ' + gsEsc(gsActionableError(item.reason)) + '</p>';
-      return item.value.connectors.map(connector => '<article class="gs-cloud-card"><div class="gs-cloud-card-info"><strong>' + gsEsc(connector.name) + '</strong><span>' + platform + ' · ' + gsEsc(connector.config.rootFolderName || connector.config.rootFolderId || connector.config.rootPath) + '</span><small>' + (connector.enabled === false ? 'Отключено' : 'Подключено · доступ проверяется кнопкой справа') + '</small></div><button type="button" class="gs-cloud-test" data-kind="' + item.value.kind + '" data-id="' + gsEsc(connector.id) + '">Проверить папку</button><div class="gs-cloud-result" role="status"></div></article>').join('');
-    }).join('') || '<p class="operator-field-help">Папки изображений ещё не подключены.</p>';
+      return item.value.connectors.map(connector => '<article class="gs-cloud-card"><div class="gs-cloud-card-info"><strong>' + gsEsc(connector.name) + '</strong><span>' + platform + ' · ' + gsEsc(connector.config.rootFolderName || connector.config.rootFolderId || connector.config.rootPath) + '</span><small>' + (connector.enabled === false ? 'Отключено' : 'Подключено') + '</small></div><button type="button" class="secondary gs-cloud-test" data-kind="' + item.value.kind + '" data-id="' + gsEsc(connector.id) + '">Проверить папку</button><div class="gs-cloud-result" role="status"></div></article>').join('');
+    }).join('') || '<p class="muted">Нет подключённых папок</p>';
     list.querySelectorAll('.gs-cloud-test').forEach(button => button.addEventListener('click', async () => {
       const out = button.parentElement.querySelector('.gs-cloud-result');
       button.disabled = true;
       out.textContent = 'Проверяю доступ к папке…';
       try {
         await googleSheetsApi('/api/' + button.dataset.kind + '/connectors/' + encodeURIComponent(button.dataset.id) + '/test', { method: 'POST', body: '{}' });
-        out.textContent = 'Папка доступна. Проверка не загружает и не публикует материалы.';
+        out.textContent = 'Папка доступна.';
       } catch (error) { out.textContent = gsActionableError(error, '', button.dataset.kind); }
       finally { button.disabled = false; }
     }));
