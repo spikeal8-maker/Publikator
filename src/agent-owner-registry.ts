@@ -183,7 +183,7 @@ function saveReceipt(
 
 function audit(
   agentId: string, requestId: string, fingerprint: string, operation: string,
-  stage: 'COMPLETED' | 'PAUSED' | 'REVOKED', summary: string, grantVersion: number
+  stage: 'COMPLETED' | 'PAUSED' | 'REVOKED' | 'POLICY_CHANGED', summary: string, grantVersion: number
 ) {
   db.prepare([
     'INSERT INTO agent_activity_events',
@@ -302,3 +302,11 @@ export function listOwnerAgentActivity(agentId: string, limit: number, cursor?: 
     }
   };
 }
+
+/** Internal helpers for owner-only grant mutations; never expose these as agent routes. */
+export {
+  receipt as ownerReceiptIdentity,
+  replayResult as replayOwnerResponse,
+  saveReceipt as persistOwnerResponse,
+  audit as recordOwnerAudit
+};
