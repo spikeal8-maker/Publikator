@@ -8,6 +8,7 @@ import { registerBrowserSecurity } from './http/security.js';
 import { registerAgentBearerBoundary } from './http/agent-bearer-boundary.js';
 import { registerAgentMachineReadRoutes } from './http/agent-machine-capabilities.js';
 import { registerAgentProjectReadRoutes } from './http/agent-projects.js';
+import { registerAgentAccountReadRoutes } from './http/agent-accounts.js';
 import { registerMaintenanceGuard } from './http/maintenance.js';
 import { registerLegacyBackupBlocker } from './http/legacy-backups.js';
 import { registerRoutes } from './http/routes.js';
@@ -65,6 +66,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await registerRoutes(app);
   await registerAgentMachineReadRoutes(app);
   await registerAgentProjectReadRoutes(app);
+  await registerAgentAccountReadRoutes(app);
   await registerOwnerAgentRegistryRoutes(app);
   await registerVkOauthRoutes(app);
   await registerIntegrationApiRoutes(app);
