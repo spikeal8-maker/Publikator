@@ -95,6 +95,9 @@ jobs:
       - name: AGENT-A1b2b1 machine keys owner API and auth security
         run: node scripts/agent-a1b2b1-machine-key-security-e2e.mjs
 
+      - name: AGENT-A1b2b2 machine Bearer security boundary and scoped capabilities
+        run: node scripts/agent-a1b2b2-bearer-boundary-e2e.mjs
+
       - name: P0 one-screen cross-platform composer Chrome
         run: node scripts/p0-one-screen-composer-e2e.mjs
 
