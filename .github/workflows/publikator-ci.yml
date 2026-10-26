@@ -72,7 +72,7 @@ jobs:
       - name: GOOGLE-SETUP-001 atomic shared service-account setup
         run: node scripts/google-source-setup-e2e.mjs
 
-      - name: SOURCES-UX-001 guided table and image-source setup
+      - name: SOURCES-LAYOUT-002 sources workspace, dialogs and guided setup
         run: node scripts/sources-ux-e2e.mjs
 
       - name: P0 one-screen cross-platform composer Chrome

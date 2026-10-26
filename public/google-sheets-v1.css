@@ -67,3 +67,79 @@ html[data-page="sources"] .operator-source-layout > section.operator-section { m
 .gs-connect-form .gs-help-body ol { padding-left: 22px; }
 .gs-connect-form .gs-help-body li { margin-bottom: 8px; }
 .gs-connect-form [readonly] { background: var(--surface-muted); color: var(--text-secondary); }
+
+/* SOURCES-LAYOUT-002: a single workspace, explicit saved states, focused setup dialogs. */
+#operator-source-connected-slot, .gs-live-section, .sources-group { min-width: 0; }
+.gs-live-section { margin: 0 0 22px; }
+.sources-heading { display:flex; justify-content:space-between; gap:20px; align-items:start; margin:0 0 20px; }
+.sources-heading h3 { margin:0 0 6px; font-size:22px; }
+.sources-heading p, .sources-add > p { margin:0; color:var(--text-secondary); line-height:1.6; }
+.sources-note { font-size:12px; line-height:1.6; padding:10px 14px; border-radius:10px; background:var(--surface); max-width:230px; }
+.sources-group > h3, .gs-cloud-media > h3 { font-size:16px; margin:20px 0 10px; }
+.sources-count { font-size:12px; padding:3px 8px; border-radius:20px; background:var(--surface-muted,#eef2f6); }
+.gs-connector { padding:22px; margin:12px 0; }
+.gs-connector-head strong { font-size:18px; }
+.gs-state-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:20px 0 12px; }
+.gs-state-grid > div { padding:14px; border-radius:10px; background:var(--surface-muted,#f3f5f8); display:grid; gap:7px; }
+.gs-state-grid span { font-size:12px; color:var(--text-secondary); }
+.gs-state-grid strong { font-size:14px; line-height:1.5; }
+.gs-resource-link { margin:12px 0; font-size:13px; }
+.gs-automation { margin:16px 0; border-top:1px solid var(--border); border-bottom:1px solid var(--border); padding:14px 0; }
+.gs-automation > summary { cursor:pointer; font-weight:600; }
+.gs-automation > p { font-size:13px; line-height:1.6; color:var(--text-secondary); }
+.gs-polling { margin-top:16px; padding:16px; gap:16px; }
+.gs-setting label { line-height:1.6; }
+.gs-unsaved { color:var(--accent); font-size:13px; }
+.gs-cloud-media { border:0; margin:0; padding:0; }
+.gs-cloud-card { padding:18px 22px; background:var(--surface); justify-content:space-between; }
+.gs-cloud-card-info { display:grid; gap:6px; min-width:0; }
+.gs-cloud-card-info span, .gs-cloud-card-info small { color:var(--text-secondary); font-size:13px; }
+.sources-add { border:1px dashed var(--border); border-radius:14px; padding:22px; margin-top:24px; }
+.sources-add h3 { margin:0 0 6px; }
+.sources-add-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; margin-top:18px; }
+.sources-add-grid article { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:18px; display:grid; grid-template-columns:36px 1fr; gap:12px; align-items:center; min-width:0; }
+.sources-add-grid article > p, .sources-add-grid article > button { grid-column:1/-1; margin:0; }
+.sources-add-grid p { color:var(--text-secondary); font-size:13px; line-height:1.6; }
+.sources-provider { font-weight:700; font-size:20px; width:34px; height:34px; display:grid; place-items:center; border-radius:10px; background:#e8f0fe; color:#245bb7; }
+.sources-yandex { color:#b92b23; background:#fff0e8; }
+html[data-page="sources"] .operator-source-layout { display:block; }
+.sources-file-panel, .sources-api-panel { padding:0; min-width:0; }
+.sources-file-panel > summary, .sources-api-panel > summary { cursor:pointer; padding:20px; line-height:1.6; }
+.sources-file-panel > summary span, .sources-api-panel > summary span { display:block; color:var(--text-secondary); font-size:13px; margin-left:16px; }
+.sources-secondary-body { padding:0 20px 20px; min-width:0; }
+.sources-secondary-body h3 { margin-top:0; }
+.gs-dialog { width:min(760px,calc(100vw - 40px)); max-width:calc(100vw - 24px); max-height:calc(100dvh - 40px); margin:auto; padding:0; border:1px solid var(--border); border-radius:18px; background:var(--surface,#fff); color:var(--text); box-shadow:0 24px 80px #0004; overflow:auto; }
+.gs-dialog::backdrop { background:#16243899; }
+.gs-dialog .gs-connect-form, .gs-dialog .gs-media-form { border:0; margin:0; padding:24px; border-radius:0; }
+.gs-dialog .operator-form { grid-template-columns:minmax(0,1fr); }
+.gs-dialog .operator-page-head { align-items:start; }
+.gs-dialog h3 { font-size:20px; }
+.gs-dialog h4 { font-size:16px; }
+.gs-dialog p, .gs-dialog li { line-height:1.65; }
+.gs-dialog label { min-width:0; }
+.gs-dialog .gs-setup-guide { background:var(--surface-muted,#f6f8fa); }
+.gs-dialog .gs-help-body, .gs-yandex-guide { overflow-wrap:anywhere; }
+.gs-dialog .gs-media-form input[type=password] { font-family:ui-monospace,monospace; }
+.gs-dialog .gs-media-form input { width:100%; box-sizing:border-box; }
+.gs-dialog code { overflow-wrap:anywhere; }
+.gs-dialog .gs-account-choices { display:grid; gap:10px; }
+.gs-account-choices > label { display:flex; align-items:start; gap:10px; border:1px solid var(--border); border-radius:10px; padding:14px; cursor:pointer; }
+.gs-account-choices > label:has(input:checked) { border-color:var(--accent); background:var(--surface-muted,#f3f6fb); }
+.gs-account-choices input[type=radio] { width:18px; min-height:18px; height:18px; margin:2px 0; flex:0 0 18px; }
+.gs-account-choices span, .gs-account-choices small { display:block; line-height:1.6; overflow-wrap:anywhere; }
+.gs-account-choices small { font-size:12px; color:var(--text-secondary); margin-top:4px; }
+.gs-yandex-guide { padding:16px; border:1px solid var(--border); border-radius:12px; background:var(--surface-muted,#f6f8fa); font-size:13px; }
+.gs-yandex-guide ol { padding-left:20px; }
+.gs-yandex-guide li { margin:12px 0; }
+.gs-yandex-guide label { display:grid; gap:8px; }
+.gs-dialog .row-actions { display:flex; flex-wrap:wrap; gap:10px; }
+@media(max-width:700px) {
+  .sources-heading { flex-direction:column; gap:12px; }
+  .sources-note { max-width:none; }
+  .gs-state-grid, .sources-add-grid { grid-template-columns:minmax(0,1fr); }
+  .gs-connector, .sources-add { padding:16px; }
+  .gs-dialog { width:calc(100vw - 24px); max-height:calc(100dvh - 24px); }
+  .gs-dialog .gs-connect-form, .gs-dialog .gs-media-form { padding:16px; }
+  .gs-dialog .row-actions > button { width:100%; }
+  .gs-dialog .operator-page-head { flex-direction:column; }
+}
