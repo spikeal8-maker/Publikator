@@ -74,6 +74,11 @@ try {
   assert.equal(response.json().mediaConnector.id, driveId);
   assert.equal(count(), 2, 'retry reuses exact connections');
 
+  const replacement = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+  response = await request('save', { ...input, credentials: { ...credentials, private_key: replacement } });
+  assert.equal(response.statusCode, 400, 'retry with a different key must not silently reuse the older secret');
+  assert.equal(count(), 2);
+
   const reuse = { existingConnectorId: sheetId, rootFolder: input.rootFolder, mediaName: input.mediaName };
   response = await request('inspect', reuse);
   assert.equal(response.statusCode, 200);

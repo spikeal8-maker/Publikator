@@ -86,6 +86,7 @@ export async function saveGoogleSourceSetup(input: SetupInput) {
       if (prior && (prior.name !== sheet.name.trim() || prior.config.serviceAccountEmail !== sheet.config.serviceAccountEmail || prior.config.writeBack !== sheet.config.writeBack)) {
         throw new Error('Этот лист уже подключён. Выберите существующее подключение Google.');
       }
+      if (prior && normalizeGoogleServiceAccount(readIngestionConnectorCredentials(prior.id)).private_key !== sheet.credentials.private_key) throw new Error('Этот лист уже подключён с другим ключом. Выберите сохранённый аккаунт; новый ключ не был применён.');
       sheetConnector = prior ?? { ...createIngestionConnector({ type: 'google_sheets', ...sheet }), config: sheet.config };
     }
     let mediaConnector: ReturnType<typeof listGoogleDriveMediaConnectors>[number] | null = null;
@@ -94,6 +95,7 @@ export async function saveGoogleSourceSetup(input: SetupInput) {
       const prior = listGoogleDriveMediaConnectors().find(item => item.enabled && item.name === folder.name.trim() &&
         item.config.rootFolderId === folder.config.rootFolderId && item.config.serviceAccountEmail === folder.config.serviceAccountEmail);
       if (sameName.length && (sameName.length !== 1 || sameName[0]!.id !== prior?.id)) throw new Error('Название папки уже используется другим подключением. Выберите другое название для колонки media.');
+      if (prior && normalizeGoogleServiceAccount(readIngestionConnectorCredentials(prior.id)).private_key !== folder.credentials.private_key) throw new Error('Папка уже подключена с другим ключом. Новый ключ не был применён.');
       mediaConnector = prior ?? { ...createIngestionConnector({ type: 'google_drive', ...folder }), config: folder.config };
     }
     return { sheetConnector, mediaConnector };
