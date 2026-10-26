@@ -72,7 +72,7 @@ jobs:
       - name: GOOGLE-SETUP-001 atomic shared service-account setup
         run: node scripts/google-source-setup-e2e.mjs
 
-      - name: SOURCES-COMPACT-003 measured compact workspace and guided setup
+      - name: SOURCES-COMPACT + YANDEX-SETUP-004 guidance and precise diagnostics
         run: node scripts/sources-ux-e2e.mjs
 
       - name: Preserve sources desktop and mobile screenshots

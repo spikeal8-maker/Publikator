@@ -75,7 +75,13 @@ function gsActionableError(error, email = '', service = 'sheets') {
   const message = error instanceof Error ? error.message : String(error);
   const who = email ? ' ' + email : ' email из JSON';
   if (/HTTP 403/.test(message) && service === 'google-drive') return 'Нет доступа к папке Google Drive (403). Откройте «Настройки доступа» папки и добавьте' + who + ' как «Читатель». Если доступ выдан, проверьте Google Drive API в проекте сервисного аккаунта.';
-  if (/HTTP 401|HTTP 403/.test(message) && service === 'yandex-disk') return 'Яндекс Диск не разрешил чтение папки. Проверьте OAuth-токен и его права чтения файлов; пароль и публичная ссылка не подходят.';
+  if (service === 'yandex-disk') {
+    if (/HTTP 401/.test(message)) return 'Яндекс не принял токен (401). Получите новый access_token для своего приложения и замените поле «Токен». ClientID и Client secret сюда не подходят.';
+    if (/HTTP 403/.test(message)) return 'Яндекс отклонил доступ к папке (403). В приложении откройте «Запрашиваемые права → Яндекс.Диск REST API» и проверьте «Чтение всего Диска». Если права добавлены после выдачи токена — получите новый токен. По этому ответу нельзя подтвердить, что токен правильный.';
+    if (/HTTP 404/.test(message)) return 'Папка не найдена или недоступна (404). Откройте Диск того аккаунта, который выдал токен. Проверьте точный путь, например /Публикатор.';
+    if (/timed out|Failed to fetch|fetch failed/.test(message)) return 'Яндекс не ответил вовремя. Повторите проверку. Это не подтверждает ошибку токена или прав.';
+    if (/OAuth token is invalid/.test(message)) return 'Вставьте access_token целиком, без пробелов, OAuth и кавычек. Это код со страницы получения токена, не ClientID и не Client secret.';
+  }
   if (/HTTP 403|SHEETS_ACCESS_DENIED/.test(message)) return 'Нет доступа к таблице (403). Откройте «Настройки доступа» в Google Таблице и добавьте' + who + '. Для чтения выберите «Читатель», для записи статусов — «Редактор». Если доступ уже выдан, проверьте Google Sheets API в проекте сервисного аккаунта.';
   if (/SHEETS_API_DISABLED/.test(message)) return 'Google Sheets API выключен в проекте сервисного аккаунта. В Google Cloud откройте «API и сервисы → Библиотека → Google Sheets API» и включите API.';
   if (/HTTP 404/.test(message)) return 'Таблица или папка не найдена либо недоступна сервисному аккаунту. Проверьте ссылку и общий доступ.';
@@ -467,23 +473,28 @@ async function mountCloudMedia(host) {
   function open(kind) {
     const drive = kind === 'google-drive';
     const formHost = gsDialog(host, 'gs-cloud-form', 'Подключение Яндекс Диска');
-    formHost.innerHTML = '<form class="operator-form gs-media-form"><div class="full operator-page-head"><h4>Яндекс Диск: папка изображений</h4><button type="button" class="secondary gs-media-close">Закрыть</button></div><p class="full">Три шага: получите токен, укажите папку, проверьте и сохраните. Подключение не публикует материалы.</p>' +
-      '<details class="full gs-yandex-guide"><summary>ⓘ Как получить токен Яндекс Диска — пошагово</summary><div class="gs-yandex-guide-body"><h4>Получение токена</h4><p>Если токен уже есть, вставьте его ниже. Если нет — выполните шаги. Google JSON здесь не нужен.</p><ol>' +
-        '<li>Откройте <a href="https://oauth.yandex.ru/" target="_blank" rel="noopener noreferrer">Яндекс OAuth — мои приложения ↗</a> под владельцем папки и создайте приложение для личного подключения. Назовите его «Publikator».</li>' +
-        '<li>В платформах укажите веб-сервис и Redirect URI <code>https://oauth.yandex.ru/verification_code</code>.</li>' +
-        '<li>В доступе к данным найдите «Яндекс Диск REST API» и выберите <strong>Чтение всего Диска</strong> (<code>cloud_api:disk.read</code>). Право записи не требуется. Это право чтения всего Диска; указанный ниже путь ограничивает папку, используемую Publikator, а не права токена.</li>' +
-        '<li>Сохраните приложение. Скопируйте его <strong>ClientID</strong> (идентификатор приложения, не Client secret) и вставьте сюда, чтобы открыть страницу получения токена.</li></ol>' +
-        '<label>ClientID приложения — только для получения токена<input name="clientId" autocomplete="off" placeholder="Идентификатор из настроек Яндекс OAuth"></label><a class="button-link secondary gs-yandex-authorize hidden" target="_blank" rel="noopener noreferrer">Открыть получение токена в Яндексе ↗</a><p class="gs-yandex-client-hint">После ввода ClientID здесь появится кнопка перехода.</p>' +
-        '<p>Разрешите доступ в Яндексе. Скопируйте только значение <code>access_token</code> с открывшейся страницы, без <code>OAuth</code>, кавычек и остального адреса. Вернитесь в это окно и вставьте в поле ниже. <a href="https://yandex.ru/dev/id/doc/ru/tokens/debug-token" target="_blank" rel="noopener noreferrer">Официальная инструкция ↗</a>.</p></div></details>' +
-        '<label class="full">OAuth-токен Яндекс Диска<input name="secret" type="password" required autocomplete="off"><span class="operator-field-help">Токен — секретный код доступа. Пароль Яндекса, ClientID и публичная ссылка не подходят. Хранится зашифрованно.</span></label>' +
-      '<div class="full gs-setup-guide"><strong>Папка изображений</strong><p>Только JPEG/PNG. Файлы копируются внутрь Publikator при импорте строк таблицы.</p></div>' +
-      '<label class="full">Название подключения<input name="name" required placeholder="Фото проекта"><span class="operator-field-help">Придумайте понятное название: оно используется в колонке media таблицы.</span></label>' +
-      '<label class="full">Путь папки на Яндекс Диске<input name="root" required placeholder="/Фото проекта"><span class="operator-field-help">Например: /Фото проекта или /Публикации/Обложки. Путь от корня Диска, не имя аккаунта и не ссылка браузера.</span></label>' +
-      '<div class="row-actions full"><button type="button" class="secondary gs-media-inspect">1. Проверить папку</button><button type="submit" class="primary gs-media-save" disabled>2. Сохранить папку</button></div><div class="full gs-media-result" role="status"></div></form>';
+    formHost.innerHTML = '<div class="gs-settings-body"><div class="operator-page-head"><h4>Подключить Яндекс Диск</h4><button type="button" class="secondary gs-media-close">Закрыть</button></div>' +
+      '<details class="gs-yandex-guide"><summary>Нет токена? Получить за 3 шага ⓘ</summary><div class="gs-yandex-guide-body"><ol>' +
+      '<li>Откройте <a href="https://oauth.yandex.ru/" target="_blank" rel="noopener noreferrer">своё приложение в Яндекс OAuth ↗</a>. В разделе <strong>«Запрашиваемые права»</strong> раскройте <strong>«Яндекс.Диск REST API»</strong>: нужно <strong>«Чтение всего Диска»</strong> (<code>cloud_api:disk.read</code>). Изменения делаются через «Настройки» приложения.</li>' +
+      '<li>На той же странице нажмите значок копирования возле <strong>ClientID</strong> и вставьте сюда. Это длинный код приложения, не логин и не Client secret.</li></ol>' +
+      '<label>ClientID из Яндекс OAuth<input name="clientId" type="search" autocomplete="off" data-lpignore="true" data-1p-ignore placeholder="Например: 0123456789abcdef0123456789abcdef" aria-describedby="yandex-client-hint"></label><p id="yandex-client-hint" class="gs-yandex-client-hint" role="status">Скопируйте ClientID кнопкой рядом с кодом. Свой логин сюда вводить не нужно.</p><a class="button-link secondary gs-yandex-authorize" aria-disabled="true" target="_blank" rel="noopener noreferrer">Получить токен в Яндексе ↗</a>' +
+      '<ol start="3"><li>Нажмите «Получить токен», подтвердите доступ в Яндексе. Скопируйте выданный <strong>access_token</strong> и вставьте в поле «Токен» ниже. После изменения прав получите токен заново.</li></ol>' +
+      '<details class="gs-help"><summary aria-label="Справка: Настройки приложения Яндекса">ⓘ</summary><div class="gs-help-body">Если приложения ещё нет, создайте его в Яндекс OAuth. Платформа — веб-сервис, Redirect URI: <code>https://oauth.yandex.ru/verification_code</code>. Client secret для Publikator не требуется. Токен разрешает чтение всего Диска; путь папки ниже ограничивает использование в Publikator, а не права токена. <a href="https://yandex.ru/dev/id/doc/ru/tokens/debug-token" target="_blank" rel="noopener noreferrer">Официальная инструкция ↗</a>.</div></details></div></details>' +
+      '<form class="operator-form gs-media-form" autocomplete="off"><label class="full">Токен<input name="secret" type="password" required autocomplete="new-password" data-lpignore="true" data-1p-ignore placeholder="Вставьте access_token"><span class="operator-field-help">Уже есть токен — инструкцию выше можно пропустить.</span></label>' +
+      '<label class="full">Папка на вашем Диске<input name="root" required placeholder="/Публикатор"><span class="operator-field-help">Точный путь папки, например /Публикатор. Не ссылка браузера.</span></label>' +
+      '<label class="full">Название в Publikator<input name="name" required placeholder="Фото для публикаций"></label>' +
+      '<div class="row-actions full"><button type="button" class="secondary gs-media-inspect">Проверить доступ</button><button type="submit" class="primary gs-media-save" disabled>Сохранить</button></div><div class="full gs-media-result" role="status"></div></form></div>';
     const form = formHost.querySelector('form'), out = form.querySelector('.gs-media-result'), save = form.querySelector('.gs-media-save');
     let verified = '', busy = false;
     function payload() {
-      const secret = form.elements.secret.value;
+      let secret = form.elements.secret.value.trim();
+      const clientId = formHost.querySelector('[name=clientId]').value.trim();
+      if (/^https:\/\//i.test(secret)) {
+        try { secret = new URLSearchParams(new URL(secret).hash.slice(1)).get('access_token') || ''; } catch { secret = ''; }
+        if (!secret) throw new Error('В ссылке нет access_token. Скопируйте токен со страницы после подтверждения доступа в Яндексе.');
+      }
+      if (clientId && secret === clientId) throw new Error('В поле «Токен» вставлен ClientID. Нажмите «Получить токен в Яндексе» и вставьте выданный access_token.');
+      if (secret.length < 20 || /\s/.test(secret) || /^OAuth\s|^Bearer\s/i.test(secret)) throw new Error('Вставьте access_token целиком, без пробелов и слова OAuth. Логин, ClientID и Client secret не являются токеном.');
       return { name: form.elements.name.value.trim(), ...(drive ? { rootFolder: form.elements.root.value.trim(), credentials: gsCredentials(secret) } : { rootPath: form.elements.root.value.trim(), credentials: { oauthToken: secret.trim() } }) };
     }
     form.addEventListener('input', () => {
@@ -493,17 +504,17 @@ async function mountCloudMedia(host) {
         form.querySelector('.gs-drive-email').textContent = email ? 'Откройте папку Google Drive → «Настройки доступа» → добавьте ' + email + ' как «Читатель». В проекте аккаунта должен быть включён Google Drive API.' : 'Вставьте JSON целиком, чтобы увидеть email для доступа к папке.';
       }
     });
-    form.querySelector('.gs-media-close').onclick = () => { if (!busy) gsCloseDialog(formHost); };
+    formHost.querySelector('.gs-media-close').onclick = () => { if (!busy) gsCloseDialog(formHost); };
     formHost.closest('dialog').addEventListener('cancel', event => { event.preventDefault(); if (!busy) gsCloseDialog(formHost); });
-    form.querySelector('[name=clientId]')?.addEventListener('input', event => {
-      const id = event.target.value.trim(), valid = /^[a-zA-Z0-9_-]{10,128}$/.test(id);
-      const link = form.querySelector('.gs-yandex-authorize');
-      link.classList.toggle('hidden', !valid);
+    formHost.querySelector('[name=clientId]')?.addEventListener('input', event => {
+      const id = event.target.value.trim(), valid = /^[a-zA-Z0-9_-]{20,128}$/.test(id);
+      const link = formHost.querySelector('.gs-yandex-authorize');
+      link.setAttribute('aria-disabled', String(!valid));
       if (valid) link.href = 'https://oauth.yandex.ru/authorize?response_type=token&client_id=' + encodeURIComponent(id);
       else link.removeAttribute('href');
-      form.querySelector('.gs-yandex-client-hint').textContent = valid ? 'Кнопка откроет Яндекс в новой вкладке. Это ещё не токен.' : 'Введите ClientID из настроек приложения, чтобы открыть получение токена.';
+      formHost.querySelector('.gs-yandex-client-hint').textContent = valid ? 'ClientID указан. Теперь нажмите «Получить токен в Яндексе».' : id ? 'Это не похоже на ClientID. Скопируйте длинный код из поля ClientID в Яндекс OAuth, а не логин.' : 'Скопируйте ClientID кнопкой рядом с кодом. Свой логин сюда вводить не нужно.';
     });
-    form.querySelector('.gs-media-close').focus();
+    formHost.querySelector('.gs-media-close').focus();
     const inspect = form.querySelector('.gs-media-inspect');
     inspect.onclick = async () => {
       if (busy) return;

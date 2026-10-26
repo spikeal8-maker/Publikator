@@ -16,7 +16,7 @@ await app.listen({ port: 18892, host: '127.0.0.1' });
 let browser;
 const key = { type: 'service_account', client_email: 'fixture@source-test.iam.gserviceaccount.com', private_key: '-----BEGIN PRIVATE KEY-----\nSYNTHETIC_NOT_A_REAL_KEY\n-----END PRIVATE KEY-----' };
 const google = [], drive = [], yandex = [];
-let denySheet = true, denyDrive = false, inspectCalls = 0, saves = 0;
+let denySheet = true, denyDrive = false, inspectCalls = 0, saves = 0, yandexStatus = 0, yandexInspects = 0;
 const errors = [];
 try {
   browser = await chromium.launch({ channel: 'chrome', headless: true });
@@ -55,9 +55,11 @@ try {
       }
       result = { sheetConnector: connector, mediaConnector: folder };
     } else if (pathname.endsWith('/inspect') && kind === 'yandex-disk') {
+      yandexInspects++;
       assert.equal(body.credentials.oauthToken, 'synthetic-yandex-token-for-tests-only');
       assert.equal(body.rootPath, '/Фото');
-      result = { rootPath: 'disk:/Фото', rootFolderName: 'Фото' };
+      if (yandexStatus) { status = 400; result = { error: 'Yandex Disk API failed (HTTP ' + yandexStatus + ')' }; }
+      else result = { rootPath: 'disk:/Фото', rootFolderName: 'Фото' };
     } else if (pathname.endsWith('/connectors') && method === 'POST' && kind === 'yandex-disk') {
       const connector = { id: 'fixture-yandex', name: body.name, config: { rootPath: 'disk:/Фото', rootFolderName: 'Фото' } };
       yandex.push(connector); status = 201; result = { connector };
@@ -168,12 +170,29 @@ try {
   assert.equal(await page.locator('dialog[open]').count(), 1);
   await page.locator('.gs-yandex-guide > summary').click();
   assert.match(await page.locator('.gs-yandex-guide').innerText(), /Чтение всего Диска[\s\S]*cloud_api:disk.read[\s\S]*ClientID[\s\S]*access_token/);
+  await page.locator('[name=clientId]').fill('spikeal');
+  assert.equal(await page.locator('.gs-yandex-authorize').getAttribute('href'), null);
+  assert.match(await page.locator('.gs-yandex-client-hint').innerText(), /не похоже на ClientID/);
   await page.locator('[name=clientId]').fill('fixtureclient1234567890');
   assert.equal(await page.locator('.gs-yandex-authorize').getAttribute('href'), 'https://oauth.yandex.ru/authorize?response_type=token&client_id=fixtureclient1234567890');
   const media = page.locator('.gs-media-form');
   await media.locator('[name=name]').fill('Фото Яндекс');
   await media.locator('[name=root]').fill('/Фото');
+  await media.locator('[name=secret]').fill('fixtureclient1234567890');
+  await media.locator('.gs-media-inspect').click();
+  assert.match(await media.locator('.gs-media-result').innerText(), /вставлен ClientID/);
+  assert.equal(yandexInspects, 0);
   await media.locator('[name=secret]').fill('synthetic-yandex-token-for-tests-only');
+  assert.equal(await media.locator('[name=secret]').getAttribute('autocomplete'), 'new-password');
+  for (const [code, expected] of [[401, /не принял токен/], [403, /отклонил доступ/], [404, /не найдена/]]) {
+    yandexStatus = code;
+    await media.locator('.gs-media-inspect').click();
+    await page.waitForFunction(code => document.querySelector('.gs-media-result').textContent.includes('(' + code + ')'), code);
+    assert.match(await media.locator('.gs-media-result').innerText(), expected);
+    assert.equal(await media.locator('.gs-media-save').isDisabled(), true);
+  }
+  yandexStatus = 0;
+  await media.locator('[name=secret]').fill('https://oauth.yandex.ru/verification_code#access_token=synthetic-yandex-token-for-tests-only&expires_in=3600');
   assert.equal(await media.locator('[name=secret]').getAttribute('type'), 'password');
   await media.locator('.gs-media-inspect').click();
   await page.waitForFunction(() => !document.querySelector('.gs-media-save').disabled);
