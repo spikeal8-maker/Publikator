@@ -20,7 +20,7 @@ const {createBackupBundle,resolveBackupBundle,stageRestoreBundle}=await import('
 const {applyPendingRestore}=await import('../dist/restore-bootstrap.js');
 
 migrate();
-assert.equal(DATABASE_SCHEMA_VERSION,15);
+assert.ok(DATABASE_SCHEMA_VERSION >= 15);
 const setup=createAdminSetupGrant('INITIAL');
 assert.ok(createOrRecoverAdmin('INITIAL',setup,'owner','a1a-backup-owner-password-2026','a1a-backup-owner-password-2026'));
 const projectId=db.prepare('SELECT id FROM projects ORDER BY created_at LIMIT 1').get().id;
@@ -79,14 +79,14 @@ db.prepare("UPDATE posts SET status='DRAFT' WHERE id=?").run(postId);
 db.prepare('UPDATE social_accounts SET credentials_encrypted=? WHERE id=?')
   .run(encryptJson({botToken:'mutated-secret'}),accountId);
 const staged=await stageRestoreBundle(file);
-assert.equal(staged.manifest.schemaVersion,15);
+assert.equal(staged.manifest.schemaVersion,DATABASE_SCHEMA_VERSION);
 db.close();
 const applied=await applyPendingRestore();
 assert.equal(applied.applied,true);
 const restored=new Database(config.dbPath,{readonly:true,fileMustExist:true});
 try {
   assert.equal(restored.pragma('integrity_check',{simple:true}),'ok');
-  assert.equal(Number(restored.pragma('user_version',{simple:true})),15);
+  assert.equal(Number(restored.pragma('user_version',{simple:true})),DATABASE_SCHEMA_VERSION);
   for(const [field,table,order]of [
     ['principals','agent_principals','id'],['grants','agent_grants','agent_id'],
     ['events','agent_activity_events','sequence'],['admin','admin_users','id'],
