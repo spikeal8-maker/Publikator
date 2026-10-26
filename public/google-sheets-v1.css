@@ -58,3 +58,5 @@ html[data-page="sources"] .operator-source-layout > section.operator-section { m
 .gs-media-form .full { grid-column: 1/-1; }
 .gs-connect-form input, .gs-connect-form textarea, .gs-media-form input, .gs-media-form textarea { min-width: 0; max-width: 100%; box-sizing: border-box; }
 @media(max-width:620px) { .gs-cloud-media .row-actions { flex-direction: column; } .gs-cloud-card { align-items: flex-start; flex-direction: column; } .gs-help-body { max-width: 100%; } }
+
+.gs-connect-form .full { grid-column: 1/-1; }

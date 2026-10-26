@@ -69,7 +69,7 @@ try {
   await page.locator('#gs-add-drive').waitFor();
   assert.ok(await page.locator('.operator-source-layout').evaluate(el => el.getBoundingClientRect().height < 800), 'no navigation-sidebar styling on Sources content panel');
   await page.locator('#gs-open-connect').click();
-  await page.getByRole('button', { name: 'Справка: Где найти JSON', exact: true }).press('Enter');
+  await page.locator('summary[aria-label="Справка: Где найти JSON"]').press('Enter');
   assert.match(await page.locator('.gs-setup-guide').innerText(), /Сервисные аккаунты/);
   await page.locator('[name=name]').fill('Fixture plan');
   await page.locator('[name=spreadsheetId]').fill('https://docs.google.com/spreadsheets/d/fixture_sheet_12345/edit');
@@ -98,7 +98,7 @@ try {
   await page.locator('.gs-connector').waitFor();
   assert.equal(google[0].config.sheetName, 'Второй лист');
   assert.equal(google[0].config.writeBack, true);
-  await page.getByRole('button', { name: 'Справка: Автоматическая готовность', exact: true }).press('Enter');
+  await page.locator('summary[aria-label="Справка: Автоматическая готовность"]').press('Enter');
   assert.match(await page.locator('.gs-ready-setting').innerText(), /Может привести к реальной отправке/);
   assert.equal(await page.locator('.gs-auto-ready').isChecked(), false);
   assert.equal(await page.locator('.gs-auto-ready').isDisabled(), true);
