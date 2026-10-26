@@ -131,6 +131,8 @@ jobs:
       - name: TG-MAX-FEED-PUBLISH-001 text and local-image operator journey
         run: node scripts/telegram-max-feed-publish-e2e.mjs
 
+      - name: MAX-CONNECT-007 persist-first MAX connection and safe diagnostics
+        run: node scripts/max-connect-007-e2e.mjs
       - name: SOCIAL-ERROR-VISIBILITY-001 secret-safe social connection diagnostics
         run: node scripts/social-connection-output-guard-e2e.mjs
 
