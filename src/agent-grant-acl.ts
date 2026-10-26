@@ -70,16 +70,12 @@ export function assertEffectiveAgentGrant(claim: AuthenticatedAgentClaim): {
   const accounts = JSON.parse(p.account_ids_json) as string[];
   const sources = JSON.parse(p.source_connector_ids_json) as string[];
   if (!scopes.includes(claim.requiredScope)) denied();
-  // DRAFT_ONLY permits read/edit/preflight and editorial review, NEVER a
-  // request to schedule or actually publish, even with an obsolete scope.
-  if (p.publish_mode === 'DRAFT_ONLY'
-    && (claim.requiredScope === 'publish:request'
-      || claim.requiredScope === 'schedule:write')) denied();
-  // Automatic publishing is not implemented in this slice, even for dormant
-  // historical PREAPPROVED_POLICY rows.
-  if (p.publish_mode === 'PREAPPROVED_POLICY'
-    && (claim.requiredScope === 'publish:request'
-      || claim.requiredScope === 'schedule:write')) denied();
+  // This stage has no immutable owner consent, scheduler quota or provider
+  // execution claim. Never advertise publish/schedule as executable here.
+  // A5b must replace this deny with its separate server-side consent+claim
+  // gate; storing such scopes is NOT authority for a real provider POST.
+  if (claim.requiredScope === 'publish:request'
+    || claim.requiredScope === 'schedule:write') denied();
 
   function exists(table: 'projects' | 'social_accounts' | 'ingestion_connectors', id: string): boolean {
     return Boolean(db.prepare('SELECT 1 FROM ' + table + ' WHERE id=?').get(id));
