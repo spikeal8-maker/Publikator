@@ -101,6 +101,9 @@ jobs:
       - name: AGENT-A2a1 exact project SQL allowlist and pagination
         run: node scripts/agent-a2a1-scoped-projects-e2e.mjs
 
+      - name: AGENT-A2a2 scoped account metadata and verified capability
+        run: node scripts/agent-a2a2-scoped-accounts-e2e.mjs
+
       - name: P0 one-screen cross-platform composer Chrome
         run: node scripts/p0-one-screen-composer-e2e.mjs
 
@@ -567,3 +570,6 @@ jobs:
 
       - name: AGENT-A2a1 exact project SQL allowlist and pagination
         run: node scripts/agent-a2a1-scoped-projects-e2e.mjs
+
+      - name: AGENT-A2a2 scoped account metadata and verified capability
+        run: node scripts/agent-a2a2-scoped-accounts-e2e.mjs
