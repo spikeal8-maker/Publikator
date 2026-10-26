@@ -160,6 +160,17 @@ function buildSafeDraft(req:FastifyRequest,raw:unknown,idem:string) {
       return {replay:true,
         data:safeResponse(earlier.post_id,input,Number(original.contentVersion))};
     }
+    // Durable per-agent/per-operation budget, evaluated under BEGIN IMMEDIATE.
+    // Same-key idempotent replay above is exempt and never repeats side effects.
+    const hourAgo=new Date(Date.now()-60*60*1000).toISOString();
+    const budget=db.prepare([
+      "SELECT COUNT(*) AS n FROM agent_operation_receipts",
+      "WHERE agent_id=? AND operation_name=? AND phase='COMPLETED'",
+      "AND created_at>=?"
+    ].join(' ')).get(principal.agentId,OPERATION,hourAgo) as {n:number};
+    if(budget.n>=60) {
+      error('RATE_LIMITED','Лимит 60 новых черновиков в час для этого бота.',429);
+    }
     const project=db.prepare('SELECT id,slug FROM projects WHERE id=?')
       .get(input.projectId) as {id:string;slug:string}|undefined;
     if(!project)error('RESOURCE_DENIED','Недоступный проект.',403);
@@ -236,9 +247,13 @@ function failure(reply:FastifyReply,e:unknown) {
     const safe = e.code==='RESOURCE_DENIED'||e.code==='VALIDATION_ERROR'||
       e.code==='IDEMPOTENCY_CONFLICT'||e.code==='FEATURE_NOT_ENABLED'||
       e.code==='FORBIDDEN_SCOPE'||e.code==='POLICY_DENIED'||e.code==='RECOVERY_NEEDED';
-    if(safe)return reply.code(e.status).send({
-      error:{code:e.code,message:e.message},requestId:id('req'),retryable:false
-    });
+    if(safe||e.code==='RATE_LIMITED'){
+      if(e.code==='RATE_LIMITED')reply.header('retry-after','3600');
+      return reply.code(e.status).send({
+        error:{code:e.code,message:e.message},requestId:id('req'),
+        retryable:e.code==='RATE_LIMITED'
+      });
+    }
   }
   if(e instanceof EditorialDraftContractError) {
     return reply.code(400).send({
