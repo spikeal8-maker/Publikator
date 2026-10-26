@@ -34,7 +34,7 @@ function count(table) {
 }
 
 try {
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 15);
+  assert.equal(Number(db.pragma('user_version', { simple: true })), 16);
   const initial = count('agent_principals');
   assert.equal(initial, 0);
   assert.equal((await send('GET', '/api/owner/agents')).statusCode, 401);
@@ -149,6 +149,16 @@ try {
   assert.equal(revoked.json().status, 'REVOKED');
   assert.equal(revoked.json().grantVersion, 3);
   assert.equal(db.prepare('SELECT token_version FROM agent_principals WHERE id=?').get(a.agentId).token_version, 3);
+  const oldPauseReplay = await send('POST', pauseUrl,
+    { confirm: true, expectedGrantVersion: 1 }, pauseHeaders);
+  assert.equal(oldPauseReplay.statusCode, 200, oldPauseReplay.body);
+  assert.deepEqual(oldPauseReplay.json(), paused.json());
+  const originalCreateReplay = await send('POST', endpoint,
+    { clientKind: 'chatgpt', name: 'School content assistant' },
+    { ...safeAuth, 'idempotency-key': 'a1b1-create-001' });
+  assert.equal(originalCreateReplay.statusCode, 201, originalCreateReplay.body);
+  assert.deepEqual(originalCreateReplay.json(), a);
+  assert.equal(count('agent_owner_operation_receipts'), 4);
   assert.equal((await send('POST', pauseUrl, {
     expectedGrantVersion: 3, confirm: true
   }, { ...safeAuth, 'idempotency-key': 'a1b1-pause-revoked' })).statusCode, 409);
@@ -184,9 +194,13 @@ try {
   assert.equal(reread.json().status, 'REVOKED');
   assert.equal(reread.json().grant.grantVersion, 3);
   assert.equal(count('agent_activity_events'), 4);
+  const persistedReplay = await send('POST', pauseUrl,
+    { confirm: true, expectedGrantVersion: 1 }, pauseHeaders);
+  assert.equal(persistedReplay.statusCode, 200, persistedReplay.body);
+  assert.deepEqual(persistedReplay.json(), paused.json());
 
   console.log(JSON.stringify({
-    ok: true, checkpoint: 'AGENT-A1b1', schema: 15, defaultDeny: true,
+    ok: true, checkpoint: 'AGENT-A1b1', schema: 16, defaultDeny: true,
     ownerSessionOnly: true, strictOrigin: true, noMachineKeysOrOAuth: true,
     idempotency: true, persistentAudit: true, restartSafe: true
   }));
