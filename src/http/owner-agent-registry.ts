@@ -6,6 +6,7 @@ import {
   listOwnerAgentActivity, listOwnerAgents
 } from '../agent-owner-registry.js';
 import { ownerMutationOriginMatches } from './security.js';
+import { previewOwnerAgentGrant, updateOwnerAgentGrant } from '../agent-owner-grants.js';
 
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -82,6 +83,29 @@ export async function registerOwnerAgentRegistryRoutes(app: FastifyInstance): Pr
   app.get('/api/owner/agents/:agentId', auth, async (request, reply) => {
     try {
       return getOwnerAgent((request.params as { agentId: string }).agentId);
+    } catch (error) { return fail(reply, error); }
+  });
+
+
+  // Preview is POST for parity with the published OpenAPI operation; it is
+  // side-effect free but still requires the owner's actual session + Origin.
+  app.post('/api/owner/agents/:agentId/grant-preview', auth, async (request, reply) => {
+    const key = requiredKey(request, reply);
+    if (key === null) return;
+    try {
+      return previewOwnerAgentGrant(
+        (request.params as { agentId: string }).agentId, request.body
+      );
+    } catch (error) { return fail(reply, error); }
+  });
+
+  app.put('/api/owner/agents/:agentId/grant', auth, async (request, reply) => {
+    const key = requiredKey(request, reply);
+    if (key === null) return;
+    try {
+      return updateOwnerAgentGrant(
+        (request.params as { agentId: string }).agentId, request.body, key
+      );
     } catch (error) { return fail(reply, error); }
   });
 
