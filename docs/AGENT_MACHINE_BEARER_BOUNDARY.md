@@ -18,7 +18,7 @@ Machine HTTP requests must use exactly one `Authorization: Bearer pak1_...` head
 
 ## Implemented operation
 
-**`GET /api/agent/v1/capabilities`** is the only implemented Agent namespace operation in this milestone. It returns a **sanitized effective view** derived from a freshly authenticated principal and the current grant in one SQLite transaction:
+**`GET /api/agent/v1/capabilities`** was the first implemented Agent namespace operation in A1b2b2; A2a1 adds SQL-filtered `GET /api/agent/v1/projects` separately. It returns a **sanitized effective view** derived from a freshly authenticated principal and the current grant in one SQLite transaction:
 
 - `agentId`, preset, current grant version and the **effective** token/grant scope intersection.
 - Exact existing project/account/source connector IDs only when the machine token independently has the corresponding read scope.
