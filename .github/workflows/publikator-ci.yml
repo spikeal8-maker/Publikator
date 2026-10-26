@@ -98,6 +98,9 @@ jobs:
       - name: AGENT-A1b2b2 machine Bearer security boundary and scoped capabilities
         run: node scripts/agent-a1b2b2-bearer-boundary-e2e.mjs
 
+      - name: AGENT-A2a1 exact project SQL allowlist and pagination
+        run: node scripts/agent-a2a1-scoped-projects-e2e.mjs
+
       - name: P0 one-screen cross-platform composer Chrome
         run: node scripts/p0-one-screen-composer-e2e.mjs
 
@@ -561,3 +564,6 @@ jobs:
 
       - name: Mandatory machine Bearer and capabilities E2E
         run: node scripts/agent-a1b2b2-bearer-boundary-e2e.mjs
+
+      - name: AGENT-A2a1 exact project SQL allowlist and pagination
+        run: node scripts/agent-a2a1-scoped-projects-e2e.mjs
