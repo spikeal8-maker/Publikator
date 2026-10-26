@@ -1844,6 +1844,7 @@ try {
     assert.equal((await page.locator('body').textContent()).includes(token), false);
   }
 
+  await page.locator('#sources-close-api').click();
   const editorialSheetCard = page.locator(`.gs-connector[data-gs-id="${browserSheetConnector.id}"]`);
   await editorialSheetCard.waitFor({ state: 'visible', timeout: 5000 });
   await editorialSheetCard.locator('.gs-preview').click();
