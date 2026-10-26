@@ -75,6 +75,9 @@ try {
   assert.equal(await page.locator('#operator-source-file').isVisible(), true);
   assert.equal(await page.locator('.sources-compact > details').count(), 0);
   assert.equal(await page.locator('#sources-open-api').isVisible(), true);
+  await page.locator('#sources-help').click();
+  assert.match(await page.locator('#sources-help-panel').innerText(), /source_revision[\s\S]*403/);
+  await page.keyboard.press('Escape');
   const initialScroll = await page.evaluate(() => window.scrollY);
   assert.ok(await page.locator('.operator-source-layout').evaluate(el => el.getBoundingClientRect().height < 800));
   await page.locator('#gs-open-connect').click();
@@ -163,6 +166,7 @@ try {
   assert.equal(saves, 2);
   await page.locator('#gs-add-yandex').click();
   assert.equal(await page.locator('dialog[open]').count(), 1);
+  await page.locator('.gs-yandex-guide > summary').click();
   assert.match(await page.locator('.gs-yandex-guide').innerText(), /Чтение всего Диска[\s\S]*cloud_api:disk.read[\s\S]*ClientID[\s\S]*access_token/);
   await page.locator('[name=clientId]').fill('fixtureclient1234567890');
   assert.equal(await page.locator('.gs-yandex-authorize').getAttribute('href'), 'https://oauth.yandex.ru/authorize?response_type=token&client_id=fixtureclient1234567890');
@@ -188,6 +192,7 @@ try {
   await page.screenshot({ path: 'artifacts/sources-ux/mobile.png', fullPage: true });
   await page.keyboard.press('Escape');
   await page.locator('#gs-add-yandex').click();
+  await page.locator('.gs-yandex-guide > summary').click();
   assert.match(await page.locator('dialog[open]').innerText(), /ClientID/);
   await page.screenshot({ path: 'artifacts/sources-ux/yandex-mobile.png', fullPage: true });
   assert.ok(await page.locator('dialog[open]').evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'Yandex guide has no horizontal overflow');

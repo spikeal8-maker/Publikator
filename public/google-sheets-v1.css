@@ -99,3 +99,8 @@ html[data-page="sources"] .operator-source-layout { display:block; min-width:0; 
   .gs-dialog .operator-page-head { flex-wrap:wrap; }
   .gs-dialog .row-actions > button { width:100%; }
 }
+
+.gs-yandex-guide > summary { cursor:pointer; font-weight:600; }
+.gs-yandex-guide-body { margin-top:14px; }
+#sources-help { margin-left:auto; font-size:17px; }
+#sources-help-panel h4 { margin-top:20px; }
