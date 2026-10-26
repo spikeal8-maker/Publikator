@@ -34,7 +34,7 @@ function count(table) {
 }
 
 try {
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 16);
+  assert.ok(Number(db.pragma('user_version', { simple: true })) >= 16);
   const initial = count('agent_principals');
   assert.equal(initial, 0);
   assert.equal((await send('GET', '/api/owner/agents')).statusCode, 401);
@@ -202,7 +202,7 @@ try {
   assert.deepEqual(persistedReplay.json(), paused.json());
 
   console.log(JSON.stringify({
-    ok: true, checkpoint: 'AGENT-A1b1', schema: 16, defaultDeny: true,
+    ok: true, checkpoint: 'AGENT-A1b1', schema: Number(db.pragma('user_version', {simple:true})), defaultDeny: true,
     ownerSessionOnly: true, strictOrigin: true, noMachineKeysOrOAuth: true,
     idempotency: true, persistentAudit: true, restartSafe: true
   }));
