@@ -325,7 +325,7 @@ async function renderGoogleConnectForm(host, existingId = '') {
       if (!body.rootFolder && form.elements.mediaName.value.trim()) throw new Error('Укажите адрес папки или очистите её название.');
       await googleSheetsApi('/api/google-sheets/setup/save', { method: 'POST', body: JSON.stringify({ ...body, name: form.elements.name.value.trim(), sheetName: form.elements.sheetName.value, writeBack: form.elements.writeBack.checked, mediaName: form.elements.mediaName.value.trim() }) });
       credentialsInput.value = '';
-      formHost.innerHTML = '<p class="operator-result ok" role="status">Google-подключение сохранено. Таблица и папка проверены; материалы не публиковались.</p>';
+      formHost.innerHTML = '<p class="operator-result ok" role="status">Google-подключение сохранено. Выбранные ресурсы проверены; материалы не публиковались.</p>';
       await loadGoogleConnectors(host);
       host.querySelector('.gs-cloud-media')?.remove();
       await mountCloudMedia(host);
@@ -374,7 +374,7 @@ async function mountCloudMedia(host) {
   const section = document.createElement('section');
   section.className = 'gs-cloud-media';
   section.id = 'cloud-media-sources';
-  section.innerHTML = '<h3>Откуда брать изображения</h3><p>Подключите папку отдельно от таблицы. Publikator скачивает JPEG/PNG и сохраняет проверенную копию внутри приложения. Подключение папки само ничего не публикует.</p><div class="row-actions"><button type="button" id="gs-add-drive" class="secondary">Таблица и папка Google</button><button type="button" id="gs-add-yandex" class="secondary">Подключить Яндекс Диск</button></div>' +
+  section.innerHTML = '<h3>Откуда брать изображения</h3><p>Для Google выберите таблицу и папку в одном окне с одним сервисным аккаунтом. Publikator скачивает JPEG/PNG и сохраняет проверенную копию внутри приложения. Подключение папки само ничего не публикует.</p><div class="row-actions"><button type="button" id="gs-add-drive" class="secondary">Таблица и папка Google</button><button type="button" id="gs-add-yandex" class="secondary">Подключить Яндекс Диск</button></div>' +
     gsHelp('Как связать изображение со строкой', '<p>В колонке media укажите название подключения и путь файла относительно выбранной папки. Например:</p><code>[{"source":"Фото проекта","path":"post-01.jpg"}]</code><p>Для нескольких изображений добавьте объекты в нужном порядке. Не указывайте путь Windows или ссылку страницы файла. Поддерживаются изображения; облачный импорт MP4 здесь не включён.</p>') +
     '<div id="gs-cloud-form"></div><div id="gs-cloud-list"></div>';
   host.append(section);
