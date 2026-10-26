@@ -563,7 +563,7 @@ function integrationTokenModal(token) {
   };
   overlay.querySelector('.integration-token-close').onclick = close;
   overlay.addEventListener('click', (event) => { if (event.target === overlay) close(); });
-  document.body.append(overlay);
+  (document.querySelector('.sources-api-modal[open]') || document.body).append(overlay);
 }
 
 function integrationKeyForm() {
@@ -607,7 +607,7 @@ function integrationKeyForm() {
       error.textContent = failure instanceof Error ? failure.message : String(failure);
     }
   };
-  document.body.append(overlay);
+  (document.querySelector('.sources-api-modal[open]') || document.body).append(overlay);
 }
 
 function integrationKeyRows(keys) {
@@ -674,28 +674,30 @@ async function renderSourcesPage() {
     operatorSourceFile = null;
     operatorSourcePreview = null;
     operatorSourcePreviewId = '';
-    operatorView.innerHTML = `<div class="operator-page">
-      <div class="operator-page-head"><div><h2>Источники / Интеграции</h2><p>Загружайте контент пачками из Excel/CSV или подключайте Google Sheets. Повторная версия одного набора обновляет строки вместо создания дублей.</p></div></div>
-      <div class="operator-source-layout">
-        <section class="operator-section"><h3>Таблица Excel / CSV</h3><p>Скачайте русский шаблон, заполните лист «Публикации», затем сначала проверьте файл. Импорт станет доступен только после успешной проверки этой же версии.</p>
-          <div class="operator-form"><label class="full">Название набора<input id="operator-source-id" value="${operatorEsc(savedSourceId)}" pattern="[A-Za-z0-9._:-]{1,128}" required><span class="operator-field-help">Например: social-plan. Используйте одно название для повторных версий одной и той же таблицы.</span></label></div>
-          <div class="operator-actions" style="margin:14px 0"><a class="button-link secondary" href="/api/content-plan/v3/template.xlsx" download>Скачать шаблон XLSX</a></div>
-          <label class="operator-drop"><input id="operator-source-file" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"><strong>Выбрать CSV / XLSX</strong><span id="operator-source-file-name">Файл не выбран</span></label>
-          <div class="operator-actions" style="margin-top:14px"><button id="operator-source-preview" class="primary" type="button" disabled>1. Проверить таблицу</button><button id="operator-source-apply" class="secondary" type="button" disabled>2. Импортировать</button></div>
-          <div id="operator-source-result"></div>
-        </section>
-        <aside class="operator-section"><h3>Подключения</h3><p>Здесь показаны доступные способы загрузки контента и внешних медиа.</p>
-          <div class="operator-connector-card"><strong>Excel / CSV</strong><span>Работает. Повторная загрузка обновляет существующие строки без дублей.</span></div>
-          <div class="operator-connector-card" style="margin-top:10px"><strong>Google Sheets</strong><span>Подключение и автоматизация доступны ниже на этой странице.</span></div>
-          <div class="operator-connector-card" style="margin-top:10px"><strong>Google Drive / Яндекс Диск</strong><span>Поддерживаются как источники изображений для Google Sheets; файлы после импорта сохраняются локально в Publikator.</span></div>
-        </aside>
-      </div>
-      <section class="operator-section" id="operator-integration-api" style="min-width:0">
-        <div class="operator-page-head"><div><h3>Integration API</h3><p>Создайте Bearer API key для бота или AI. Полный token показывается только один раз.</p></div><button id="operator-new-api-key" class="primary" type="button">+ Новый API-ключ</button></div>
+    operatorView.innerHTML = `<div class="operator-page sources-compact">
+      <div id="operator-source-connected-slot"></div>
+      <section class="operator-source-layout sources-file-panel" aria-label="Импорт файла">
+        <div class="sources-file-head"><h3>Импорт файла</h3><a href="/api/content-plan/v3/template.xlsx" download>Шаблон XLSX ↓</a></div>
+        <div class="sources-file-tools">
+          <label>Набор<input id="operator-source-id" value="${operatorEsc(savedSourceId)}" pattern="[A-Za-z0-9._:-]{1,128}" required aria-label="Название набора"></label>
+          <label class="sources-file-pick"><input id="operator-source-file" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"><span id="operator-source-file-name">CSV / XLSX</span></label>
+          <button id="operator-source-preview" class="primary" type="button" disabled>Проверить файл</button><button id="operator-source-apply" class="secondary" type="button" disabled>Импортировать</button>
+        </div><div id="operator-source-result"></div>
+      </section>
+      <div class="sources-api-entry"><button id="sources-open-api" class="secondary" type="button">Ключи для ботов / API</button></div>
+      <dialog class="gs-dialog sources-api-modal" aria-label="Ключи для ботов и API"><section id="operator-integration-api">
+        <div class="operator-page-head"><h3>Ключи для ботов / API</h3><button type="button" id="sources-close-api" class="secondary">Закрыть</button></div>
+        <button id="operator-new-api-key" class="primary" type="button">+ Новый API-ключ</button>
         <div class="operator-preview-table"><table class="table"><thead><tr><th>Название</th><th>Prefix</th><th>Scopes</th><th>Создан</th><th>Последнее использование</th><th>Статус</th><th>Действия</th></tr></thead><tbody><tr><td colspan="7">Загрузка…</td></tr></tbody></table></div>
         <div class="integration-api-result error"></div>
-      </section>
+      </section></dialog>
     </div>`;
+    const apiDialog = document.querySelector('.sources-api-modal');
+    document.querySelector('#sources-open-api').onclick = () => apiDialog.showModal();
+    document.querySelector('#sources-close-api').onclick = () => apiDialog.close();
+    apiDialog.addEventListener('cancel', event => {
+      if (apiDialog.querySelector('.integration-key-form-modal,.integration-token-modal')) event.preventDefault();
+    });
     const file = document.querySelector('#operator-source-file');
     const preview = document.querySelector('#operator-source-preview');
     const apply = document.querySelector('#operator-source-apply');
