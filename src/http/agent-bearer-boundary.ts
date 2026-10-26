@@ -43,7 +43,20 @@ export function verifiedAgentBearer(request: FastifyRequest): VerifiedMachineKey
       'Машинные ключи и административные сессии не смешиваются.');
   }
   const origin = request.headers.origin;
-  if (origin !== undefined && !ownerMutationOriginMatches(request)) {
+  // Origin is a serialized origin, never a URL with path, query, fragment,
+  // userinfo or a normalization-dependent spelling.
+  let originSyntaxValid = origin === undefined;
+  if (typeof origin === 'string') {
+    try {
+      const parsed = new URL(origin);
+      originSyntaxValid = ['http:', 'https:'].includes(parsed.protocol)
+        && origin === parsed.origin && !parsed.username && !parsed.password;
+    } catch {
+      originSyntaxValid = false;
+    }
+  }
+  if (!originSyntaxValid
+    || (origin !== undefined && !ownerMutationOriginMatches(request))) {
     throw new AgentBearerFailure(403, 'INVALID_ORIGIN',
       'Недопустимый Origin для запроса агента.');
   }
