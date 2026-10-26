@@ -17,7 +17,7 @@ const { encryptJson, decryptJson } = await import('../dist/crypto.js');
 
 migrate();
 try {
-  assert.equal(DATABASE_SCHEMA_VERSION, 15, 'A1a owns schema milestone 15');
+  assert.ok(DATABASE_SCHEMA_VERSION >= 15, 'A1a milestone 15 must be included in latest schema');
   const setup = createAdminSetupGrant('INITIAL');
   assert.ok(createOrRecoverAdmin('INITIAL', setup, 'owner',
     'agent-a1a-owner-password-2026', 'agent-a1a-owner-password-2026'));
@@ -40,10 +40,10 @@ try {
     targets:db.prepare('SELECT * FROM post_targets').all()
   };
   // Rehearse a true v14 -> v15 migration, preserving all older data.
-  db.exec('DROP TABLE agent_activity_events; DROP TABLE agent_grants; DROP TABLE agent_principals;');
+  db.exec('DROP TABLE agent_owner_operation_receipts; DROP TABLE agent_activity_events; DROP TABLE agent_grants; DROP TABLE agent_principals;');
   db.pragma('user_version = 14');
   migrate();
-  assert.equal(Number(db.pragma('user_version',{simple:true})),15);
+  assert.equal(Number(db.pragma('user_version',{simple:true})),DATABASE_SCHEMA_VERSION);
   for(const table of ['agent_principals','agent_grants','agent_activity_events']) {
     assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table));
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM '+table).get().n,0,
@@ -124,9 +124,9 @@ try {
   assert.deepEqual(db.prepare('SELECT * FROM agent_principals WHERE id=?').get(agentId),snapshot.principal);
   assert.deepEqual(db.prepare('SELECT * FROM agent_grants WHERE agent_id=?').get(agentId),snapshot.grant);
   assert.deepEqual(db.prepare('SELECT * FROM agent_activity_events WHERE event_id=?').get('evt_a1a_001'),snapshot.event);
-  db.pragma('user_version = 16');
-  assert.throws(()=>migrate(),/новее поддерживаемой 15/);
-  db.pragma('user_version = 15');
+  db.pragma(`user_version = ${DATABASE_SCHEMA_VERSION+1}`);
+  assert.throws(()=>migrate(),new RegExp(`новее поддерживаемой ${DATABASE_SCHEMA_VERSION}`));
+  db.pragma(`user_version = ${DATABASE_SCHEMA_VERSION}`);
   console.log(JSON.stringify({ok:true,checkpoint:'AGENT-A1a',from:14,to:15,
     defaultDeny:true,legacyReadyAndCredentialsPreserved:true,boundedAudit:true,
     rerunSafe:true,futureSchemaRefused:true}));
