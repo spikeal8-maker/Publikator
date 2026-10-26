@@ -173,8 +173,8 @@ try {
   assert.equal((await send('GET', '/api/integration/v1/drafts', undefined,
     readHeaders(firstKey.bearerToken))).statusCode, 401);
   assert.equal((await send('GET', '/mcp', undefined,
-    readHeaders(firstKey.bearerToken))).statusCode, 200,
-    'static SPA fallback remains a legacy non-MCP route until a secured MCP endpoint exists');
+    readHeaders(firstKey.bearerToken))).statusCode, 404,
+    'reserved MCP URL must not pretend to be an active transport');
   assert.equal(eventCount(), originalAuditCount, 'machine capability and deny paths must have no write effects');
 
   await app.close();
