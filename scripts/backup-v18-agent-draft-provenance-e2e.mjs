@@ -95,6 +95,13 @@ try{
     /AGENT_OWNER_CONSENT_REQUIRED/,'restored safety trigger must remain active');
   assert.throws(()=>restored.prepare('DELETE FROM agent_draft_ownership WHERE post_id=?').run(draft),
     /AGENT_OWNER_IMMUTABLE/);
+  assert.throws(()=>restored.prepare("INSERT INTO posts(id,project_id,title,body,status,editorial_stage,schedule_mode,source_type,created_at,updated_at) VALUES (?,?,'invalid agent','bad','READY','APPROVED','MANUAL','agent-api',?,?)")
+    .run(id('post'),prj,now,now),/AGENT_OWNER_CONSENT_REQUIRED/,
+    'no unowned agent-api READY post may be inserted after restore');
+  assert.throws(()=>restored.prepare('INSERT INTO agent_operation_receipts(receipt_id,agent_id,operation_name,idempotency_key_hash,canonical_payload_hash,post_id,phase,result_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
+    .run(id('arec'),agent,'createAgentPost','d'.repeat(64),'e'.repeat(64),
+      legacy,'COMPLETED',JSON.stringify({postId:legacy}),now,now),
+    /AGENT_RECEIPT_FOREIGN_POST/,'receipts cannot borrow a manual owner post');
   assert.deepEqual(restored.pragma('foreign_key_check'),[]);
   console.log(JSON.stringify({ok:true,checkpoint:'AGENT-A2b0',schema:18,
     immutableOriginRestored:true,durableReceiptsRestored:true,
