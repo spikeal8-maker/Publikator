@@ -34,8 +34,14 @@ jobs:
           set -euo pipefail
           # Azure package mirror throttled two UI acceptance runners before tests.
           # Keep Ubuntu archive/signature verification and the same package set.
-          if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
-            sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources
+          # Runner images may also use mirror+file lists; replace the actual
+          # Ubuntu mirror URI wherever apt stores it rather than guessing a filename.
+          while IFS= read -r -d '' publikator_apt_source; do
+            sudo sed -i -E 's|https?://azure[.]archive[.]ubuntu[.]com/ubuntu|http://archive.ubuntu.com/ubuntu|g' "$publikator_apt_source"
+          done < <(sudo grep -rlZ 'azure[.]archive[.]ubuntu[.]com/ubuntu' /etc/apt || true)
+          if sudo grep -rq 'azure[.]archive[.]ubuntu[.]com/ubuntu' /etc/apt; then
+            echo "Azure mirror replacement failed in apt configuration" >&2
+            exit 1
           fi
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ffmpeg
