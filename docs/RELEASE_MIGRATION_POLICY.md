@@ -41,6 +41,7 @@ Publikator uses monotonic, one-step schema milestones. Current ledger:
 | 13 | CRED-01A | social credential capability profile persistence + credential_version |
 | 14 | P0 admin auth (#167) | local owner sessions and installer setup grants |
 | 15 | AGENT-A1a (#175) | owner-scoped AgentPrincipal/AgentGrant and server activity records; no live API or auto-publishing |
+| 16 | AGENT-A1b1 (#175) | immutable owner-operation response receipts with hashed idempotency identity; no agent bearer or publishing authority |
 
 A feature PR MUST NOT combine several unrelated future data-model milestones into one schema jump.
 A new schema version must represent one coherent data ownership/invariant change and migrate from the immediately previous version.
@@ -57,6 +58,8 @@ Schema 13 `social-credential-capability-profile` is owned only by CRED-01A. Evid
 Schema 14 `admin-local-accounts` is an additive P0 owner-auth migration (#167) with installer-issued, single-use bootstrap grants; it preserves existing projects, posts, credentials and release data. Its dedicated regressions are `scripts/schema-v14-admin-auth-e2e.mjs` and `scripts/backup-v14-admin-auth-e2e.mjs`.
 
 Schema 15 `agent-ownership-audit` is AGENT-A1a (#175), adding inactive-by-default agent principal/grant storage and bounded safe server-observed audit events. No bot is granted accounts or publication rights during migration; no `/mcp` or Agent API endpoints are exposed. Dedicated regressions: `scripts/schema-v15-agent-ownership-e2e.mjs` and `scripts/backup-v15-agent-ownership-e2e.mjs`. Real A1b owner-authenticated permission mutations and A2 safe event writers require separate accepted checkpoints.
+
+Schema 16 `agent-owner-idempotency-receipts` is the additive AGENT-A1b1 milestone that atomically persists original, server-sanitized REST response DTOs and canonical request fingerprints so a retry after later grant changes, restart, or backup returns the **original response**, never a new state. No raw idempotency keys, bearer tokens or provider credentials are stored. Focused regressions: `scripts/schema-v16-agent-owner-receipts-e2e.mjs` and `scripts/backup-v16-agent-owner-receipts-e2e.mjs`.
 
 Every schema `N` after the V1 baseline MUST add all of the following in the same checkpoint PR:
 1. explicit migration code from `N-1` to `N`;
