@@ -85,7 +85,7 @@ export function updateOwnerAgentGrant(agentId: string, input: unknown, key: stri
         'UPDATE agent_grants SET preset_id=?,preset_version=?,',
         'grant_version=grant_version+1,scope_ids_json=?,project_ids_json=?,',
         'account_ids_json=?,source_connector_ids_json=?,publish_mode=?,',
-        'preapproved_policy_json=NULL,expires_at=NULL,updated_at=?',
+        'preapproved_policy_json=NULL,updated_at=?',
         'WHERE agent_id=? AND grant_version=?'
       ].join(' ')).run(
         after.presetId, after.presetVersion,
