@@ -393,7 +393,7 @@ async function renderSocialsPage() {
           const credentialOnly = account.platform === 'vk' && account.credential_only === true;
           const pendingKey = account.platform === 'vk' && account.verification_status === 'PENDING';
           const canAddVkCommunity = account.platform === 'vk' && !pendingKey && !credentialOnly && account.destination_kind === 'PERSONAL';
-          return `<div class="operator-connection" data-account-id="${operatorEsc(account.id)}" data-platform="${operatorEsc(account.platform)}"><span class="operator-platform-badge">${operatorEsc(account.platform)}</span><div class="operator-connection-main"><strong>${operatorEsc(account.name)}</strong><span>${pendingKey ? 'Ключ сохранён · проверка не завершена · публикация выключена' : credentialOnly ? `Ключ сообщества · текст: ${account.enabled && account.text_publish_ready ? 'включён' : 'выключен'} · фото: ${account.photo_publish_ready ? 'доступны' : account.photo_key_present ? 'проверка ключа загрузки не пройдена' : 'добавьте пользовательский ключ загрузки'}` : account.enabled ? 'Включено · назначение можно подтвердить кнопкой «Проверить»' : 'Отключено · назначение можно подтвердить кнопкой «Проверить»'}</span>${credentialOnly && account.capabilityProfile?.profileCurrent ? `<div class="small">Доступ: ${account.capabilityProfile.accessLevel === 'FULL' ? 'полный' : account.capabilityProfile.accessLevel === 'PARTIAL' ? 'частичный' : 'ограниченный'} · текст: ${account.capabilityProfile.semantic?.publicationReadiness?.TEXT?.state === 'READY' ? 'доступен' : 'не подтверждён'} · фото и карусель: ${account.capabilityProfile.semantic?.publicationReadiness?.IMAGE?.state === 'READY' ? 'доступны' : 'нужен рабочий ключ загрузки'}</div>${account.photo_setup_error ? `<div class="small error">${operatorEsc(account.photo_setup_error)}</div>` : ''}` : ''}<div class="operator-account-result">${account.platform === 'max' ? maxCapabilityCard(account.capabilityProfile) : ''}</div></div><div class="operator-connection-actions"><button class="secondary operator-test-account" type="button">Проверить</button>${canAddVkCommunity ? '<button class="secondary operator-add-vk-community" type="button">Добавить сообщество</button>' : ''}${pendingKey ? '<button class="secondary operator-activate-account" type="button">Завершить проверку</button>' : ''}${pendingKey ? '' : `<button class="secondary operator-toggle-account" type="button" data-enabled="${account.enabled ? '1' : '0'}">${account.enabled ? 'Отключить' : 'Включить'}</button>`}</div></div>`;
+          return `<div class="operator-connection" data-account-id="${operatorEsc(account.id)}" data-platform="${operatorEsc(account.platform)}" data-credential-version="${operatorEsc(account.capabilityProfile?.credentialVersion || '')}"><span class="operator-platform-badge">${operatorEsc(account.platform)}</span><div class="operator-connection-main"><strong>${operatorEsc(account.name)}</strong><span>${pendingKey ? 'Ключ сохранён · проверка не завершена · публикация выключена' : credentialOnly ? `Ключ сообщества · текст: ${account.enabled && account.text_publish_ready ? 'включён' : 'выключен'} · фото: ${account.photo_publish_ready ? 'доступны' : account.photo_key_present ? 'проверка ключа загрузки не пройдена' : 'добавьте пользовательский ключ загрузки'}` : account.enabled ? 'Включено · назначение можно подтвердить кнопкой «Проверить»' : 'Отключено · назначение можно подтвердить кнопкой «Проверить»'}</span>${credentialOnly && account.capabilityProfile?.profileCurrent ? `<div class="small">Доступ: ${account.capabilityProfile.accessLevel === 'FULL' ? 'полный' : account.capabilityProfile.accessLevel === 'PARTIAL' ? 'частичный' : 'ограниченный'} · текст: ${account.capabilityProfile.semantic?.publicationReadiness?.TEXT?.state === 'READY' ? 'доступен' : 'не подтверждён'} · фото и карусель: ${account.capabilityProfile.semantic?.publicationReadiness?.IMAGE?.state === 'READY' ? 'доступны' : 'нужен рабочий ключ загрузки'}</div>${account.photo_setup_error ? `<div class="small error">${operatorEsc(account.photo_setup_error)}</div>` : ''}` : ''}<div class="operator-account-result">${account.platform === 'max' ? maxCapabilityCard(account.capabilityProfile) : ''}</div></div><div class="operator-connection-actions"><button class="secondary operator-test-account" type="button">Проверить</button>${account.platform === 'max' ? '<button class="secondary operator-max-destination" type="button" data-mode="replace">Изменить чат</button><button class="secondary operator-max-destination" type="button" data-mode="add">Добавить чат</button>' : ''}${canAddVkCommunity ? '<button class="secondary operator-add-vk-community" type="button">Добавить сообщество</button>' : ''}${pendingKey ? '<button class="secondary operator-activate-account" type="button">Завершить проверку</button>' : ''}${pendingKey ? '' : `<button class="secondary operator-toggle-account" type="button" data-enabled="${account.enabled ? '1' : '0'}">${account.enabled ? 'Отключить' : 'Включить'}</button>`}</div></div>`;
         }).join('') : '<div class="operator-empty">Пока нет ни одного подключения. Выберите площадку выше.</div>'}</div>
       </section>
     </div>`;
@@ -426,6 +426,48 @@ async function renderSocialsPage() {
       } catch (error) {
         showSocialConnectionError(out, error, row.dataset.platform || 'unknown', 'проверку сохранённого подключения');
       }
+    }));
+    operatorView.querySelectorAll('.operator-max-destination').forEach((button) => button.addEventListener('click', () => {
+      const row = button.closest('.operator-connection');
+      const account = accounts.find((item) => item.id === row.dataset.accountId);
+      const mode = button.dataset.mode;
+      const out = row.querySelector('.operator-account-result');
+      out.innerHTML = `<form class="operator-max-destination-form operator-form">
+        <h4>${mode === 'add' ? 'Добавить чат этого бота' : 'Изменить чат'}</h4>
+        <p class="full">Используется сохранённый ключ бота. Доступ к чату проверяется отдельно.</p>
+        <label class="full">Название<input name="name" autocomplete="off" required value="${operatorEsc(account.name)}"></label>
+        <label class="full">ID чата MAX<input name="chatId" required inputmode="text" placeholder="-123456789" value="${mode === 'replace' ? operatorEsc(account.capabilityProfile?.semantic?.destination?.id || '') : ''}"><span class="operator-field-help">Числовой ID из MAX. Знак минус — часть ID.</span></label>
+        <div class="row-actions full"><button class="primary" type="submit">Сохранить и проверить</button><button class="secondary operator-cancel-max-destination" type="button">Отмена</button></div>
+        <div class="operator-max-destination-result full"></div>
+      </form>`;
+      const form = out.querySelector('form');
+      form.querySelector('.operator-cancel-max-destination').onclick = () => { out.innerHTML = maxCapabilityCard(account.capabilityProfile); };
+      form.onsubmit = async (event) => {
+        event.preventDefault();
+        const submit = form.querySelector('button[type="submit"]');
+        const result = form.querySelector('.operator-max-destination-result');
+        submit.disabled = true;
+        try {
+          const data = new FormData(form);
+          const saved = await operatorApi(`/api/accounts/${encodeURIComponent(account.id)}/max-destination`, {
+            method: 'POST', body: JSON.stringify({
+              mode, name: String(data.get('name') || '').trim(),
+              chatId: String(data.get('chatId') || '').trim(),
+              expectedCredentialVersion: account.capabilityProfile?.credentialVersion
+            })
+          });
+          await renderSocialsPage();
+          const changed = [...operatorView.querySelectorAll('.operator-connection')]
+            .find((item) => item.dataset.accountId === saved.account.id);
+          if (changed) {
+            changed.querySelector('.operator-account-result').innerHTML = maxCapabilityCard(saved.capabilityProfile);
+            changed.scrollIntoView({ block: 'nearest' });
+          }
+        } catch (error) {
+          showSocialConnectionError(result, error, 'max', mode === 'add' ? 'добавление чата' : 'смену чата');
+          submit.disabled = false;
+        }
+      };
     }));
     operatorView.querySelectorAll('.operator-activate-account').forEach((button) => button.addEventListener('click', async () => {
       const row = button.closest('.operator-connection');
