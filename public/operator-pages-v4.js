@@ -177,7 +177,7 @@ function renderSocialConnectForm(platform) {
   host.innerHTML = `<div class="operator-section">
     <div class="operator-page-head"><div><h3>Подключить ${meta.label}</h3><p>${meta.note}</p></div><button id="operator-close-connect" class="secondary" type="button">Закрыть</button></div>
     <form id="operator-social-form" class="operator-form">
-      <label class="full">Название подключения<input name="name" required placeholder="Например: Основной канал"><span class="operator-field-help">Это название будет видно при выборе площадки у публикации.</span></label>
+      <label class="full">Название подключения<input name="name" autocomplete="off" required placeholder="Например: Основной канал"><span class="operator-field-help">Это название будет видно при выборе площадки у публикации.</span></label>
       ${socialCredentialFields(platform)}
       <div class="operator-secret-note">Секреты вводятся только здесь, на вашем Publikator. В интерфейсе они обратно не показываются.</div>
       <div id="operator-connect-result" class="operator-test-result"></div>

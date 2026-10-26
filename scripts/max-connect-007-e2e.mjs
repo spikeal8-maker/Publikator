@@ -44,6 +44,7 @@ try {
   await page.locator('.operator-add-platform[data-platform="max"]').click();
   let form = page.locator('#operator-social-form');
   assert.equal(await form.locator('#operator-test-connect').isVisible(), false);
+  assert.equal(await form.locator('[name="accessToken"]').getAttribute('autocomplete'), 'new-password');
   await form.locator('[name="name"]').fill('MAX denied fixture');
   await form.locator('[name="accessToken"]').fill(secret);
   await form.locator('[name="chatId"]').fill('-12345');
