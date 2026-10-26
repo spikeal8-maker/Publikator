@@ -88,7 +88,12 @@ export async function buildApp(): Promise<FastifyInstance> {
   await registerReleaseGateRoutes(app);
 
   app.setNotFoundHandler((request, reply) => {
-    if (request.url.startsWith('/api/') || request.url.startsWith('/public-media/')) return reply.code(404).send({ error: 'Not found' });
+    const pathname=request.url.split(/[?#]/, 1)[0] ?? '';
+    // No MCP transport is deployed: never serve the SPA at the reserved /mcp.
+    if (pathname === '/mcp' || pathname.startsWith('/mcp/')
+      || request.url.startsWith('/api/') || request.url.startsWith('/public-media/')) {
+      return reply.code(404).send({ error: 'Not found' });
+    }
     return reply.type('text/html').send(fs.createReadStream(`${config.publicDir}/index.html`));
   });
 
