@@ -116,6 +116,9 @@ jobs:
       - name: AGENT-A2b1 text-only scoped drafts and durable receipts
         run: node scripts/agent-a2b1-text-draft-only-e2e.mjs
 
+      - name: AGENT-A2b2 safe owner-bound draft text revisions and replay
+        run: node scripts/agent-a2b2-owned-draft-edit-e2e.mjs
+
       - name: P0 one-screen cross-platform composer Chrome
         run: node scripts/p0-one-screen-composer-e2e.mjs
 
@@ -596,3 +599,6 @@ jobs:
 
       - name: AGENT-A2b1 text-only scoped drafts and durable receipts
         run: node scripts/agent-a2b1-text-draft-only-e2e.mjs
+
+      - name: AGENT-A2b2 safe owner-bound draft text revisions and replay
+        run: node scripts/agent-a2b2-owned-draft-edit-e2e.mjs
