@@ -10,6 +10,7 @@ export type RevisionActorSource =
   | 'content_plan'
   | 'google_sheets'
   | 'integration_api'
+  | 'agent_api'
   | 'system'
   | 'migration';
 
