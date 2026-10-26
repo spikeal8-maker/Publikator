@@ -54,7 +54,7 @@ function gsHelp(title, body) {
 function gsCredentials(text) {
   let value;
   try { value = JSON.parse(String(text || '')); }
-  catch { throw new Error('Вставьте JSON-файл целиком: от первой { до последней }. Отдельный private_key или ключ n8n сюда не подходит.'); }
+  catch { throw new Error('Вставьте JSON-файл целиком: от первой { до последней }. Отдельный private_key или API-ключ самого n8n сюда не подходит.'); }
   if (value?.type !== 'service_account' || typeof value.client_email !== 'string' ||
       !/^[^\s@]+@[^\s@]+\.gserviceaccount\.com$/.test(value.client_email) ||
       typeof value.private_key !== 'string' || !value.private_key.includes('BEGIN PRIVATE KEY')) {
@@ -240,7 +240,7 @@ async function renderGoogleConnectForm(host, existingId = '') {
   catch (error) { formHost.textContent = gsActionableError(error); return; }
   formHost.innerHTML = '<div class="gs-connect-form operator-section"><div class="operator-page-head"><div><h3>Google: таблица и папка изображений</h3><p>Один сервисный аккаунт для плана публикаций и фотографий. Доступ выдаётся отдельно к таблице и папке.</p></div><button id="gs-close-connect" class="secondary" type="button">Закрыть</button></div>' +
     '<form id="gs-connect-form" class="operator-form">' +
-    '<div class="full gs-setup-guide"><strong>1. Выберите сервисный аккаунт</strong>' + gsHelp('Один аккаунт для Google', '<p>JSON — удостоверение сервисного аккаунта, а не доступ ко всему Google Диску. Для таблицы и папки подходит один JSON. Ключ n8n, пароль Google и OAuth Client ID сюда не подходят.</p>' + gsJsonGuide) + '</div>' +
+    '<div class="full gs-setup-guide"><strong>1. Выберите сервисный аккаунт</strong>' + gsHelp('Один аккаунт для Google', '<p>JSON — удостоверение сервисного аккаунта, а не доступ ко всему Google Диску. Для таблицы и папки подходит один JSON. API-ключ самого n8n, пароль Google и OAuth Client ID сюда не подходят. Если имя сервисного аккаунта содержит n8n, его Google JSON подходит: название аккаунта не ограничивает использование.</p>' + gsJsonGuide) + '</div>' +
     '<label class="full">Аккаунт Google<select name="existingConnectorId"><option value="">Новый аккаунт — выбрать или вставить JSON</option>' + saved.map(item => '<option value="' + gsEsc(item.id) + '">' + gsEsc(item.name + ' · ' + item.config.serviceAccountEmail) + '</option>').join('') + '</select></label>' +
     '<div class="full" id="gs-new-key"><label>JSON сервисного аккаунта Google<textarea name="credentials" rows="6" autocomplete="off" placeholder=\'{"type":"service_account", …}\'></textarea></label><label>Или выберите файл JSON<input id="gs-json-file" type="file" accept=".json,application/json"></label><p class="operator-field-help">Вставьте весь файл от первой { до последней }. Ключ хранится зашифрованно. При выборе сохранённого аккаунта он остаётся на сервере и не запрашивается снова.</p></div>' +
     '<div id="gs-share-hint" class="operator-secret-note"></div>' +
