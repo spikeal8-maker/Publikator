@@ -40,6 +40,8 @@ try {
     'DROP TRIGGER IF EXISTS trg_agent_draft_ownership_immutable;',
     'DROP TRIGGER IF EXISTS trg_agent_draft_ownership_no_delete;',
     'DROP TRIGGER IF EXISTS trg_agent_draft_no_external_publish;',
+    'DROP TRIGGER IF EXISTS trg_agent_draft_initial_no_publish;',
+    'DROP TRIGGER IF EXISTS trg_agent_receipt_exact_owner;',
     'DROP TABLE agent_operation_receipts;',
     'DROP TABLE agent_draft_ownership;'
   ].join('\n'));
@@ -100,14 +102,19 @@ try {
   db.prepare("UPDATE posts SET title='Still manual READY' WHERE id=?").run(oldPost);
   assert.equal(db.prepare('SELECT status FROM posts WHERE id=?').get(oldPost).status,'READY');
 
-  const badReady=id('post'),badManual=id('post');
-  db.prepare("INSERT INTO posts(id,project_id,title,body,status,editorial_stage,schedule_mode,source_type,created_at,updated_at) VALUES (?,?,'bad','x','READY','APPROVED','MANUAL','agent-api',?,?)")
-    .run(badReady,prj,time,time);
+  const badReady=id('post'),badManual=id('post'),orphan=id('post');
+  // Even before an immutable ownership row is attached, a NEW agent-api post
+  // cannot be inserted in a publisher-visible status (no gap in the DB guard).
+  assert.throws(()=>db.prepare("INSERT INTO posts(id,project_id,title,body,status,editorial_stage,schedule_mode,source_type,created_at,updated_at) VALUES (?,?,'bad','x','READY','APPROVED','MANUAL','agent-api',?,?)")
+    .run(badReady,prj,time,time),/AGENT_OWNER_CONSENT_REQUIRED/);
+  db.prepare("INSERT INTO posts(id,project_id,title,body,status,editorial_stage,schedule_mode,source_type,created_at,updated_at) VALUES (?,?,'safe','x','DRAFT','DRAFT','MANUAL','agent-api',?,?)")
+    .run(orphan,prj,time,time);
+  assert.throws(()=>db.prepare("UPDATE posts SET status='READY' WHERE id=?").run(orphan),
+    /AGENT_OWNER_CONSENT_REQUIRED/,'agent-api must be protected before ownership attach');
   db.prepare("INSERT INTO posts(id,project_id,title,body,status,editorial_stage,schedule_mode,source_type,created_at,updated_at) VALUES (?,?,'bad','x','DRAFT','DRAFT','MANUAL','manual',?,?)")
     .run(badManual,prj,time,time);
-  for(const p of [badReady,badManual]){
-    assert.throws(()=>provenance.run(p,agent,1,'createAgentPost',time),/AGENT_DRAFT_ONLY/);
-  }
+  assert.throws(()=>provenance.run(badManual,agent,1,'createAgentPost',time),
+    /AGENT_DRAFT_ONLY/);
   assert.throws(()=>provenance.run(draft,agent,99,'createAgentPost',time),
     /AGENT_DRAFT_ONLY|UNIQUE constraint/);
 
@@ -123,6 +130,10 @@ try {
     JSON.stringify({postId:draft,contentVersion:2,status:'DRAFT'}),time,time);
   assert.equal(db.prepare('SELECT phase FROM agent_operation_receipts WHERE receipt_id=?')
     .get(receiptId).phase,'COMPLETED');
+  assert.throws(()=>receipt.run(id('arec'),wrongAgent,'createAgentPost',
+    'e'.repeat(64),'f'.repeat(64),draft,'COMPLETED',
+    JSON.stringify({postId:draft,status:'DRAFT'}),time,time),
+    /AGENT_RECEIPT_FOREIGN_POST/,'a foreign agent cannot claim the draft receipt');
   assert.throws(()=>receipt.run(id('arec'),agent,'createAgentPost','a'.repeat(64),
     'c'.repeat(64),draft,'COMPLETED','{"postId":"different"}',time,time),/UNIQUE constraint/);
   assert.throws(()=>receipt.run(id('arec'),agent,'createAgentPost','not-a-hash',
