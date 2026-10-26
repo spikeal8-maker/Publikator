@@ -253,12 +253,43 @@ try{
   assert.equal(stop.statusCode,200,stop.body);
   denied(()=>authenticateAgentMachineKey(keeper.bearerToken));
 
+  // When owner changes grants, all 20 old bearer versions become unusable.
+  // Those obsolete, unrevoked records must NOT exhaust the new version's cap.
+  const currentTokens=[];
+  for(let i=0;i<20;i++){
+    const rr=await send('POST',historyPath,{
+      expectedGrantVersion:2,scopeIds:['projects:read'],ttlHours:24
+    },headers('active-cap-'+i));
+    assert.equal(rr.statusCode,201,rr.body);
+    currentTokens.push(rr.json().bearerToken);
+  }
+  assert.equal((await send('POST',historyPath,{
+    expectedGrantVersion:2,scopeIds:['projects:read'],ttlHours:24
+  },headers('active-cap-overflow'))).statusCode,429);
+  const changedGrant=updateOwnerAgentGrant(many.agentId,{
+    expectedGrantVersion:2,presetId:'CUSTOM',publishMode:'DRAFT_ONLY',
+    scopeIds:['projects:read','posts:read'],projectIds:[prj],accountIds:[],
+    sourceConnectorIds:[],confirmElevation:true
+  },'change-version-after-cap');
+  assert.equal(changedGrant.grantVersion,3);
+  denied(()=>authenticateAgentMachineKey(currentTokens[0]));
+  const replacement=await send('POST',historyPath,{
+    expectedGrantVersion:3,scopeIds:['projects:read'],ttlHours:24
+  },headers('new-version-after-cap'));
+  assert.equal(replacement.statusCode,201,replacement.body);
+  assert.equal(authenticateAgentMachineKey(replacement.json().bearerToken).agentId,many.agentId);
+  const replacementList=await send('GET',historyPath,undefined,{cookie});
+  assert.equal(replacementList.statusCode,200,replacementList.body);
+  assert.equal(replacementList.json().items[0].keyId,replacement.json().machineKey.keyId);
+  assert.ok(!JSON.stringify(db.prepare('SELECT * FROM agent_machine_keys WHERE agent_id=?')
+    .all(many.agentId)).includes(replacement.json().bearerToken));
+
   console.log(JSON.stringify({ok:true,checkpoint:'AGENT-A1b2b1',schema:17,
     ownerOnly:true,oauthClientsExcluded:true,oneTimeSecret:true,
     exactIdempotency:true,atomicRotation:true,immediateRevoke:true,
     staleGrantAndTokenDenied:true,expiryDenied:true,pausedDenied:true,
     crossAgentACL:true,legacyIsolation:true,noExternalRoute:true,
-    noSecretsPersisted:true,restartSafe:true,activeKeysAlwaysDiscoverable:true}));
+    noSecretsPersisted:true,restartSafe:true,activeKeysAlwaysDiscoverable:true,staleKeyQuotaSafe:true}));
 }finally{
   await app.close();
   db.close();
