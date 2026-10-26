@@ -6,7 +6,7 @@
  * PREAPPROVED_POLICY is deliberately not activated here. A5b's persisted
  * per-target quotas and execution-time policy/consent gates are prerequisites.
  */
-import { AgentRegistryError } from './agent-owner-registry.js';
+import { AgentRegistryError } from './agent-registry-error.js';
 
 export const AGENT_PRESET_VERSION = 1;
 export const AGENT_SCOPES = [
