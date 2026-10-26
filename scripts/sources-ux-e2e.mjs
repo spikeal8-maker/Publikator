@@ -170,6 +170,11 @@ try {
   assert.equal(await page.locator('dialog[open]').count(), 1);
   await page.locator('.gs-yandex-guide > summary').click();
   assert.match(await page.locator('.gs-yandex-guide').innerText(), /Чтение всего Диска[\s\S]*cloud_api:disk.read[\s\S]*ClientID[\s\S]*access_token/);
+  const yandexGuide = await page.locator('.gs-yandex-guide').innerText();
+  assert.match(yandexGuide, /Настройки.*Доступ к данным/);
+  assert.match(yandexGuide, /Да, сохранить/);
+  assert.match(yandexGuide, /Доступ к папке приложения на Диске.*другое право/);
+  assert.match(yandexGuide, /Старый токен не получает новые права/);
   await page.locator('[name=clientId]').fill('spikeal');
   assert.equal(await page.locator('.gs-yandex-authorize').getAttribute('href'), null);
   assert.match(await page.locator('.gs-yandex-client-hint').innerText(), /не похоже на ClientID/);
