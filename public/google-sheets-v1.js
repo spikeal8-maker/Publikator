@@ -160,11 +160,14 @@ function connectorCard(connector) {
       <span class="gs-poll-meta">${gsPollingMeta(connector.polling)}</span>
     </div><p class="gs-unsaved hidden" role="status">Есть несохранённые изменения</p></details>
     <div class="row-actions">
-      <button class="secondary gs-test" type="button">Проверить доступ</button><button class="secondary gs-add-folder" type="button">Добавить папку Google</button>
       <button class="primary gs-preview" type="button">Посмотреть изменения</button>
       <button class="secondary gs-apply" type="button" ${preview?.canApply ? '' : 'disabled'}>Импортировать изменения</button>
-      ${connector.config.writeBack ? '<button class="secondary gs-publication-writeback" type="button">Записать статусы сейчас</button>' : ''}
     </div>
+    <details class="gs-table-actions"><summary>Действия с таблицей</summary><div class="row-actions">
+      <button class="secondary gs-test" type="button">Проверить доступ</button>
+      <button class="secondary gs-add-folder" type="button">Добавить папку Google</button>
+      ${connector.config.writeBack ? '<button class="secondary gs-publication-writeback" type="button">Записать статусы сейчас</button>' : ''}
+    </div></details>
     <div class="gs-result">${preview ? `<div class="operator-result ${preview.canApply ? 'ok' : 'error'}"><strong>${preview.canApply ? 'Предпросмотр готов.' : 'Импорт заблокирован.'}</strong> ${gsHelp("Технические сведения проверки", "<code>" + gsEsc(preview.sourceSnapshotSha256) + "</code>")}</div>${gsSummary(preview.summary)}${gsPreviewRows(preview)}` : ''}</div>
   </article>`;
 }
@@ -456,20 +459,19 @@ async function mountCloudMedia(host) {
   function open(kind) {
     const drive = kind === 'google-drive';
     const formHost = gsDialog(host, 'gs-cloud-form', 'Подключение Яндекс Диска');
-    formHost.innerHTML = '<form class="operator-form gs-media-form"><h4 class="full">' + (drive ? 'Google Drive' : 'Яндекс Диск') + ': папка изображений</h4>' +
-      '<p class="full">Подключите папку JPEG/PNG. Сначала проверьте доступ, затем сохраните подключение. Это не публикует материалы.</p>' +
-      '<label class="full">Название подключения<input name="name" required placeholder="Фото проекта"><span class="operator-field-help">Это название используется в колонке media таблицы.</span></label>' +
-      '<label class="full">' + (drive ? 'Ссылка на папку Google Drive или её ID' : 'Путь папки на Яндекс Диске') + '<input name="root" required placeholder="' + (drive ? 'https://drive.google.com/drive/folders/…' : '/Фото проекта') + '"><span class="operator-field-help">Путь от корня вашего Диска: /Фото проекта или /Публикации/Обложки. Не имя аккаунта и не ссылка браузера. Файлы будут искаться внутри этой папки.</span></label>' +
-      (drive ? '<label class="full">JSON сервисного аккаунта Google<textarea name="secret" required rows="5" autocomplete="off"></textarea></label>' + gsHelp('JSON для Google Drive', gsJsonGuide) + '<p class="full operator-field-help gs-drive-email">После вставки JSON здесь появится email. Выдайте ему доступ «Читатель» к папке и включите Google Drive API.</p>' :
-        '<div class="full gs-yandex-guide"><h4>1. Получите доступ к своим изображениям</h4><p>Если токен уже есть, вставьте его ниже. Если нет — выполните шаги. Google JSON здесь не нужен.</p><ol>' +
+    formHost.innerHTML = '<form class="operator-form gs-media-form"><div class="full operator-page-head"><h4>Яндекс Диск: папка изображений</h4><button type="button" class="secondary gs-media-close">Закрыть</button></div><p class="full">Три шага: получите токен, укажите папку, проверьте и сохраните. Подключение не публикует материалы.</p>' +
+      '<div class="full gs-yandex-guide"><h4>1. Получите доступ к своим изображениям</h4><p>Если токен уже есть, вставьте его ниже. Если нет — выполните шаги. Google JSON здесь не нужен.</p><ol>' +
         '<li>Откройте <a href="https://oauth.yandex.ru/" target="_blank" rel="noopener noreferrer">Яндекс OAuth — мои приложения ↗</a> под владельцем папки и создайте приложение для личного подключения. Назовите его «Publikator».</li>' +
         '<li>В платформах укажите веб-сервис и Redirect URI <code>https://oauth.yandex.ru/verification_code</code>.</li>' +
         '<li>В доступе к данным найдите «Яндекс Диск REST API» и выберите <strong>Чтение всего Диска</strong> (<code>cloud_api:disk.read</code>). Право записи не требуется. Это право чтения всего Диска; указанный ниже путь ограничивает папку, используемую Publikator, а не права токена.</li>' +
         '<li>Сохраните приложение. Скопируйте его <strong>ClientID</strong> (идентификатор приложения, не Client secret) и вставьте сюда, чтобы открыть страницу получения токена.</li></ol>' +
         '<label>ClientID приложения — только для получения токена<input name="clientId" autocomplete="off" placeholder="Идентификатор из настроек Яндекс OAuth"></label><a class="button-link secondary gs-yandex-authorize hidden" target="_blank" rel="noopener noreferrer">Открыть получение токена в Яндексе ↗</a><p class="gs-yandex-client-hint">После ввода ClientID здесь появится кнопка перехода.</p>' +
         '<p>Разрешите доступ в Яндексе. Скопируйте только значение <code>access_token</code> с открывшейся страницы, без <code>OAuth</code>, кавычек и остального адреса. Вернитесь в это окно и вставьте в поле ниже. <a href="https://yandex.ru/dev/id/doc/ru/tokens/debug-token" target="_blank" rel="noopener noreferrer">Официальная инструкция ↗</a>.</p></div>' +
-        '<label class="full">2. OAuth-токен Яндекс Диска<input name="secret" type="password" required autocomplete="off"><span class="operator-field-help">Токен — секретный код доступа. Пароль Яндекса, ClientID и публичная ссылка не подходят. Хранится зашифрованно.</span></label>') +
-      '<div class="row-actions full"><button type="button" class="gs-media-inspect">1. Проверить папку</button><button type="submit" class="gs-media-save" disabled>2. Сохранить папку</button><button type="button" class="gs-media-close">Закрыть</button></div><div class="full gs-media-result" role="status"></div></form>';
+        '<label class="full">2. OAuth-токен Яндекс Диска<input name="secret" type="password" required autocomplete="off"><span class="operator-field-help">Токен — секретный код доступа. Пароль Яндекса, ClientID и публичная ссылка не подходят. Хранится зашифрованно.</span></label>' +
+      '<div class="full gs-setup-guide"><strong>3. Выберите папку изображений</strong><p>Только JPEG/PNG. Файлы копируются внутрь Publikator при импорте строк таблицы.</p></div>' +
+      '<label class="full">Название подключения<input name="name" required placeholder="Фото проекта"><span class="operator-field-help">Придумайте понятное название: оно используется в колонке media таблицы.</span></label>' +
+      '<label class="full">Путь папки на Яндекс Диске<input name="root" required placeholder="/Фото проекта"><span class="operator-field-help">Например: /Фото проекта или /Публикации/Обложки. Путь от корня Диска, не имя аккаунта и не ссылка браузера.</span></label>' +
+      '<div class="row-actions full"><button type="button" class="secondary gs-media-inspect">1. Проверить папку</button><button type="submit" class="primary gs-media-save" disabled>2. Сохранить папку</button></div><div class="full gs-media-result" role="status"></div></form>';
     const form = formHost.querySelector('form'), out = form.querySelector('.gs-media-result'), save = form.querySelector('.gs-media-save');
     let verified = '', busy = false;
     function payload() {

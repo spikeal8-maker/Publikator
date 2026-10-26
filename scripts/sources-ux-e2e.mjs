@@ -134,6 +134,7 @@ try {
   assert.equal(google[0].config.pollingEnabled, false, 'editing settings does not persist before Save');
   await page.locator('.gs-poll-enabled').uncheck();
 
+  await page.locator('.gs-table-actions > summary').click();
   await page.locator('.gs-add-folder').click();
   await page.locator('#gs-connect-form').waitFor();
   assert.equal(await page.locator('[name=existingConnectorId]').inputValue(), 'fixture-sheet');

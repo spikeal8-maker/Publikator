@@ -146,3 +146,7 @@ html[data-page="sources"] .operator-source-layout { display:block; }
 
 .gs-account-choices select[hidden] { display:none !important; }
 .gs-dialog-error { padding:24px; }
+
+.gs-table-actions { margin-top:16px; font-size:13px; }
+.gs-table-actions summary { cursor:pointer; color:var(--text-secondary); }
+.gs-table-actions .row-actions { margin-top:12px; }
