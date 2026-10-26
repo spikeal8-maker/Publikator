@@ -102,6 +102,14 @@ try {
   assert.equal(unchanged.credential_version, originalVersion);
   assert.equal(decryptJson(unchanged.credentials_encrypted).chatId, '-111');
   assert.equal(writes, 0);
+  const addedWhileReady = await app.inject({
+    method: 'POST', url: '/api/accounts/' + originalId + '/max-destination', headers,
+    payload: { mode: 'add', name: 'Other chat while READY', chatId: '-555', expectedCredentialVersion: originalVersion }
+  });
+  assert.equal(addedWhileReady.statusCode, 200, addedWhileReady.body);
+  assert.notEqual(addedWhileReady.json().account.id, originalId);
+  assert.equal(decryptJson(db.prepare('SELECT credentials_encrypted FROM social_accounts WHERE id=?').get(originalId).credentials_encrypted).chatId, '-111');
+  assert.equal(writes, 0, 'adding another chat during READY must not publish');
   // Completing the already approved post continues to use the original destination.
   await app.inject({ method: 'POST', url: '/api/posts/' + postId + '/publish-now', headers });
   assert.deepEqual(publicDestinations, ['-111']);
