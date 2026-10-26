@@ -5,7 +5,7 @@
  * its SQLite operation claim before any side effect.
  */
 import { db } from './db.js';
-import { AgentRegistryError } from './agent-owner-registry.js';
+import { AgentRegistryError } from './agent-registry-error.js';
 import type { AgentScope } from './agent-grant-policy.js';
 
 export type AuthenticatedAgentClaim = {
