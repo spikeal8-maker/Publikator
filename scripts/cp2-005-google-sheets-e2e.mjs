@@ -274,7 +274,7 @@ try {
   const ui = await fs.readFile(path.join(process.cwd(), 'public', 'google-sheets-v1.js'), 'utf8');
   const index = await fs.readFile(path.join(process.cwd(), 'public', 'index.html'), 'utf8');
   assert.match(ui, /Посмотреть изменения/);
-  assert.match(ui, /Service Account JSON/);
+  assert.match(ui, /JSON сервисного аккаунта Google/);
   assert.match(ui, /Импортировать изменения/);
   assert.match(ui, /row deletion never deletes|Удаление строк/i);
   assert.match(index, /google-sheets-v1\.js/);
