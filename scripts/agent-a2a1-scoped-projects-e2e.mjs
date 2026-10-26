@@ -141,7 +141,8 @@ try {
     assert.equal((await get(endpoint,headers)).statusCode,expected);
   }
   assert.equal((await get(endpoint,{...bearer(tokenA),origin:process.env.PUBLIC_BASE_URL})).statusCode,200);
-  assert.equal((await get('/api/agent/v1/accounts',bearer(tokenA))).statusCode,404);
+  assert.equal((await get('/api/agent/v1/accounts',bearer(tokenA))).statusCode,403,
+    'account route exists but project-only token lacks accounts:read');
   assert.equal((await get('/api/agent/v1/posts',bearer(tokenA))).statusCode,404);
   assert.equal((await get('/api/projects',bearer(tokenA))).statusCode,401);
   assert.equal(count('agent_activity_events'),eventsBefore,
