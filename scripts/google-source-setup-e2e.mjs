@@ -53,7 +53,10 @@ try {
   assert.equal(response.json().folder.ok, false);
   assert.equal(response.json().canSave, false);
   assert.equal(count(), 0);
-  assert.equal((await request('save', input)).statusCode, 400);
+  response = await request('save', input);
+  assert.equal(response.statusCode, 400);
+  assert.match(response.json().error, /папке/);
+  assert.ok(!response.body.includes('PRIVATE KEY'));
   assert.equal(count(), 0, 'failed Drive validation leaves no Sheet source');
   denyDrive = false;
   assert.equal((await request('save', { ...input, mediaName: '' })).statusCode, 400);

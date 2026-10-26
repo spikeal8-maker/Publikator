@@ -69,14 +69,14 @@ export async function saveGoogleSourceSetup(input: SetupInput) {
   const sheet = resolved.existing ? null : await prepareGoogleSheetsConnector({
     name: String(input.name ?? ''), spreadsheetId: resolved.spreadsheetId, sheetName: input.sheetName,
     writeBack: input.writeBack === true, credentials: resolved.credentials
-  });
+  }).catch(error => { throw new Error(safeFailure(error, 'sheet')); });
   if (resolved.existing) {
-    const checked = await inspectGoogleSpreadsheet(resolved.credentials, resolved.spreadsheetId);
+    const checked = await inspectGoogleSpreadsheet(resolved.credentials, resolved.spreadsheetId).catch(error => { throw new Error(safeFailure(error, 'sheet')); });
     if (!checked.sheets.includes(resolved.existing.config.sheetName)) throw new Error('Сохранённый лист не найден. Верните лист в таблицу перед подключением папки.');
   }
   const folder = root ? await prepareGoogleDriveMediaConnector({
     name: String(input.mediaName ?? ''), rootFolder: root, credentials: resolved.credentials
-  }) : null;
+  }).catch(error => { throw new Error(safeFailure(error, 'folder')); }) : null;
   return db.transaction(() => {
     assertUnchanged(resolved.row);
     let sheetConnector = resolved.existing;
