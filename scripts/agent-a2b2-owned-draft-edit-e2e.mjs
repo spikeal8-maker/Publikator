@@ -95,8 +95,7 @@ try {
   const receipt=db.prepare('SELECT * FROM agent_operation_receipts WHERE post_id=? AND operation_name=?')
     .get(pid,'updateAgentPost');
   assert.deepEqual(JSON.parse(receipt.result_json),{
-    postId:pid,projectId:main,contentVersion:2,
-    revisionId:versions()[1].id,status:'DRAFT'
+    postId:pid,contentVersion:2,status:'DRAFT'
   });
   assert.ok(!JSON.stringify(receipt).includes('Second body'));
   assert.ok(!JSON.stringify(receipt).includes(key1));
@@ -209,14 +208,12 @@ try {
     'canonical_payload_hash,post_id,phase,result_json,created_at,updated_at)',
     'VALUES (?,?,?,?,?,?,?,?,?,?)'
   ].join(' '));
-  const lastRevision=versions()[3];
   db.transaction(()=>{
     for(let i=1;i<=117;i++){
       insertBudget.run(id('arec'),first.agentId,'updateAgentPost',
         i.toString(16).padStart(64,'0'),'f'.repeat(64),pid,
         'COMPLETED',JSON.stringify({
-          postId:pid,projectId:main,contentVersion:4,
-          revisionId:lastRevision.id,status:'DRAFT'
+          postId:pid,contentVersion:4,status:'DRAFT'
         }),nowIso(),nowIso());
     }
   }).immediate();
