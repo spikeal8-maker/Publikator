@@ -15,7 +15,7 @@ export function socialCredentialFields(platform) {
     <label class="full hidden" data-vk-upload-field>Пользовательский ключ для загрузки фото (необязательно)<input name="uploadAccessToken" type="password" autocomplete="off"><span class="operator-field-help">Если основной ключ принадлежит сообществу, добавьте сюда пользовательский ключ с доступом к фото сообщества. Фото загружается этим ключом, пост отправляется основным. Без него ключ сообщества может публиковать текст.</span></label>
     <label>API version<input name="apiVersion" required value="5.199"></label>`;
   if (platform === 'max') return `
-    <label class="full">Токен бота<input name="accessToken" type="password" autocomplete="off" required></label>
+    <label class="full">Токен бота<input name="accessToken" type="password" autocomplete="new-password" spellcheck="false" required></label>
     <label class="full">Куда публиковать<input name="chatId" required placeholder="Числовой chat_id из события MAX"><span class="operator-field-help">Нужен точный числовой chat_id из обновления бота MAX, не ссылка приглашения. Бот должен быть администратором с правом write.</span></label>`;
   return `
     <label class="full">Access token<input name="accessToken" type="password" autocomplete="off" required></label>

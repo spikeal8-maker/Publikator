@@ -113,7 +113,7 @@ try {
     await form.locator('input[name="name"]').fill('Browser ' + platform);
     await form.locator('input[name="' + (platform === 'telegram' ? 'botToken' : 'accessToken') + '"]').fill(secret);
     await form.locator('input[name="chatId"]').fill(destination);
-    await form.locator('#operator-test-connect').click();
+    if (platform !== 'max') await form.locator('#operator-test-connect').click();
     await page.waitForFunction(() => document.querySelector('#operator-save-connect')?.disabled === false);
     await form.locator('#operator-save-connect').click();
     await form.waitFor({ state: 'detached' });

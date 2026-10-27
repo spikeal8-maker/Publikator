@@ -32,6 +32,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Azure package mirror throttled two UI acceptance runners before tests.
+          # Keep Ubuntu archive/signature verification and the same package set.
+          # Runner images may also use mirror+file lists; replace the actual
+          # Ubuntu mirror URI wherever apt stores it rather than guessing a filename.
+          while IFS= read -r -d '' publikator_apt_source; do
+            sudo sed -i -E 's|https?://azure[.]archive[.]ubuntu[.]com/ubuntu|http://archive.ubuntu.com/ubuntu|g' "$publikator_apt_source"
+          done < <(sudo grep -rlZ 'azure[.]archive[.]ubuntu[.]com/ubuntu' /etc/apt || true)
+          if sudo grep -rq 'azure[.]archive[.]ubuntu[.]com/ubuntu' /etc/apt; then
+            echo "Azure mirror replacement failed in apt configuration" >&2
+            exit 1
+          fi
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ffmpeg
           command -v ffmpeg
@@ -86,6 +97,7 @@ jobs:
 
       - name: AGENT-A1b2a owner grants and exact resource ACL
         run: node scripts/agent-a1b2a-owner-grants-acl-e2e.mjs
+
       - name: AGENT-A1b2b1 schema 17 machine token migration
         run: node scripts/schema-v17-agent-machine-keys-e2e.mjs
 
@@ -112,6 +124,21 @@ jobs:
 
       - name: AGENT-A2a3 scoped sources without connector secrets
         run: node scripts/agent-a2a3-scoped-sources-e2e.mjs
+
+      - name: GOOGLE-SETUP-001 atomic shared service-account setup
+        run: node scripts/google-source-setup-e2e.mjs
+
+      - name: SOURCES-COMPACT + YANDEX-SETUP-004 guidance and precise diagnostics
+        run: node scripts/sources-ux-e2e.mjs
+
+      - name: Preserve sources desktop and mobile screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: publikator-sources-layout-screenshots
+          path: artifacts/sources-ux/*.png
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: P0 one-screen cross-platform composer Chrome
         run: node scripts/p0-one-screen-composer-e2e.mjs
@@ -149,6 +176,10 @@ jobs:
       - name: TG-MAX-FEED-PUBLISH-001 text and local-image operator journey
         run: node scripts/telegram-max-feed-publish-e2e.mjs
 
+      - name: MAX-DEST-008 edit and add MAX chat using saved bot key
+        run: node scripts/max-destination-008-e2e.mjs
+      - name: MAX-CONNECT-007 persist-first MAX connection and safe diagnostics
+        run: node scripts/max-connect-007-e2e.mjs
       - name: SOCIAL-ERROR-VISIBILITY-001 secret-safe social connection diagnostics
         run: node scripts/social-connection-output-guard-e2e.mjs
 
@@ -281,6 +312,9 @@ jobs:
 
       - name: CX3-006 platform previews v2
         run: node scripts/cx3-006-platform-previews-e2e.mjs
+
+      - name: D3b1a immutable per-target media plan, preview and fake publisher
+        run: node scripts/d3b1a-target-media-plan-e2e.mjs
 
       - name: CX3-PREVIEW-RACE-001 inspector event lifecycle after delayed load
         run: node scripts/cx3-preview-open-race-e2e.mjs
@@ -522,7 +556,6 @@ jobs:
 
       - name: Acceptance passed
         run: echo 'Publikator acceptance passed'
-
   agent_security_fast:
     name: Agent auth security (focused, no video provisioning)
     runs-on: ubuntu-24.04

@@ -52,9 +52,9 @@ for (const text of [
   'Проверить подключение',
   'Подключённые площадки',
   'Название набора',
-  'Проверить таблицу',
+  'Проверить файл',
   'Импортировать',
-  'Скачать шаблон XLSX',
+  'Шаблон XLSX',
   'Источники / Интеграции'
 ]) assert.ok(operatorContract.includes(text), `required operator text missing: ${text}`);
 
