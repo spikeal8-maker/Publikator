@@ -181,7 +181,8 @@ try {
     JSON.stringify({postId:draft,status:'DRAFT'}),time,time),
     /AGENT_RECEIPT_FOREIGN_POST/,'a foreign agent cannot claim the draft receipt');
   assert.throws(()=>receipt.run(id('arec'),agent,'createAgentPost','a'.repeat(64),
-    'c'.repeat(64),draft,'COMPLETED','{"postId":"different"}',time,time),/UNIQUE constraint/);
+    'c'.repeat(64),draft,'COMPLETED',
+    JSON.stringify({postId:draft,status:'DRAFT'}),time,time),/UNIQUE constraint/);
   assert.throws(()=>receipt.run(id('arec'),agent,'createAgentPost','not-a-hash',
     'c'.repeat(64),draft,'COMPLETED','{"safe":true}',time,time),/CHECK constraint/);
   assert.throws(()=>receipt.run(id('arec'),agent,'editAgentPost','c'.repeat(64),
