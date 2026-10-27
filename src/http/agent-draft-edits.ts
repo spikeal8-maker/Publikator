@@ -34,8 +34,10 @@ type StoredPost = {
   scheduled_at_utc: string | null; ready_revision_id: string | null;
 };
 type ReceiptResult = {
-  postId: string; projectId: string; contentVersion: number;
-  revisionId: string; status: 'DRAFT';
+  // SQLite 18 only permits this minimal safe receipt DTO.
+  // Project and revision ID are derived from the immutable post/revision
+  // during replay; never add arbitrary fields to durable result_json.
+  postId: string; contentVersion: number; status: 'DRAFT';
 };
 type Target = { account_id: string; enabled: number; active: number;
   override_text: string | null; rendition_id: string | null };
@@ -82,12 +84,14 @@ function normalizeBody(raw: unknown): Patch {
   }
   return out;
 }
-function readRevision(revisionId: string, postId: string, version: number): ContentRevisionRow {
+function readRevision(postId: string, version: number): ContentRevisionRow {
+  // UNIQUE(post_id,content_version) identifies the original immutable
+  // revision without persisting a revisionId in the schema-18 receipt.
   const row = db.prepare([
     'SELECT * FROM content_revisions',
-    'WHERE id=? AND post_id=? AND content_version=?'
-  ].join(' ')).get(revisionId, postId, version) as ContentRevisionRow | undefined;
-  if (!row || row.editorial_stage !== 'DRAFT'
+    'WHERE post_id=? AND content_version=?'
+  ].join(' ')).get(postId, version) as ContentRevisionRow | undefined;
+  if (!row || row.actor_source !== 'agent_api' || row.editorial_stage !== 'DRAFT'
     || row.schedule_mode !== 'MANUAL'
     || row.scheduled_at !== null || row.scheduled_at_utc !== null
     || row.content_format !== 'TEXT_ONLY' || row.publication_kind !== 'FEED') {
@@ -105,10 +109,12 @@ function getTargets(postId: string): Target[] {
   ].join(' ')).all(postId) as Target[];
 }
 
-function revisionResponse(revision: ContentRevisionRow, stored: ReceiptResult, targets: Target[]) {
+function revisionResponse(
+  revision: ContentRevisionRow, stored: ReceiptResult, targets: Target[], projectId: string
+) {
   return {
     postId: stored.postId,
-    projectId: stored.projectId,
+    projectId,
     contentVersion: stored.contentVersion,
     status: 'DRAFT' as const,
     editorialStage: 'DRAFT' as const,
@@ -179,13 +185,13 @@ function applyPatch(req: FastifyRequest, postId: string, raw: unknown, idem: str
       let original: ReceiptResult;
       try { original = JSON.parse(previous.result_json) as ReceiptResult; }
       catch { deny('RECOVERY_NEEDED', 409, 'Повреждена квитанция предыдущего изменения.'); }
-      if (original.postId !== postId || original.projectId !== post.project_id
+      if (original.postId !== postId
         || !Number.isSafeInteger(original.contentVersion)
         || original.contentVersion !== patch.expectedContentVersion + 1
-        || original.status !== 'DRAFT' || !IDENTIFIER.test(original.revisionId)) {
+        || original.status !== 'DRAFT') {
         deny('RECOVERY_NEEDED', 409, 'Не удалось подтвердить квитанцию.');
       }
-      const revision = readRevision(original.revisionId, postId, original.contentVersion);
+      const revision = readRevision(postId, original.contentVersion);
       const originalTargets = JSON.parse(revision.targets_json) as Array<{ accountId?: string }>;
       const currentIds = targets.map(t => t.account_id);
       const historicIds = originalTargets.map(t => t.accountId).sort();
@@ -193,7 +199,7 @@ function applyPatch(req: FastifyRequest, postId: string, raw: unknown, idem: str
         || historicIds.some((x, i) => x !== currentIds[i])) {
         deny('RECOVERY_NEEDED', 409, 'Набор получателей черновика изменён.');
       }
-      return { replay: true, data: revisionResponse(revision, original, targets) };
+      return { replay: true, data: revisionResponse(revision, original, targets, post.project_id) };
     }
     if (post.content_version !== patch.expectedContentVersion) {
       deny('CONTENT_VERSION_CONFLICT', 409, 'Версия содержимого изменилась.');
@@ -228,11 +234,12 @@ function applyPatch(req: FastifyRequest, postId: string, raw: unknown, idem: str
       ].join(' ')).run(resolved.title, resolved.body, resolved.bodyRichJson,
         postId, patch.expectedContentVersion, 'agent-api');
     }, { status: 'DRAFT', editorialStage: 'DRAFT' });
-    const revision = readRevision(saved.revision.id, postId, saved.contentVersion);
+    const revision = readRevision(postId, saved.contentVersion);
+    if (revision.id !== saved.revision.id) {
+      deny('RECOVERY_NEEDED', 409, 'Не удалось подтвердить новую ревизию.');
+    }
     const result: ReceiptResult = {
-      postId, projectId: post.project_id,
-      contentVersion: saved.contentVersion,
-      revisionId: revision.id, status: 'DRAFT'
+      postId, contentVersion: saved.contentVersion, status: 'DRAFT'
     };
     db.prepare([
       'INSERT INTO agent_operation_receipts',
@@ -249,7 +256,7 @@ function applyPatch(req: FastifyRequest, postId: string, raw: unknown, idem: str
     ].join(' ')).run(id('evt'), principal.agentId, 'req_' + keyHash,
       OPERATION, postId, principal.grantVersion,
       'Агент изменил только текст собственного черновика.', nowIso());
-    return { replay: false, data: revisionResponse(revision, result, targets) };
+    return { replay: false, data: revisionResponse(revision, result, targets, post.project_id) };
   }).immediate();
 }
 function safeError(reply: FastifyReply, e: unknown) {

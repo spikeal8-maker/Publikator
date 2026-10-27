@@ -66,7 +66,9 @@ for(const key of ['agents','grants','events','owner','receipts']){
 const result=await createBackupBundle('agent-schema18-draft-provenance');
 const archive=resolveBackupBundle(result.name);
 assert.ok((await fs.stat(archive)).size>0);
-db.prepare('DELETE FROM agent_operation_receipts').run();
+assert.throws(()=>db.prepare('DELETE FROM agent_operation_receipts').run(),
+  /AGENT_RECEIPT_IMMUTABLE/);
+db.exec('DROP TABLE agent_operation_receipts;');
 db.prepare('DELETE FROM agent_activity_events').run();
 db.prepare("UPDATE posts SET body='mutated after backup' WHERE id=?").run(draft);
 db.prepare("UPDATE posts SET status='DRAFT' WHERE id=?").run(legacy);
@@ -108,6 +110,16 @@ try{
     .run(id('arec'),agent,'createAgentPost','d'.repeat(64),'e'.repeat(64),
       legacy,'COMPLETED',JSON.stringify({postId:legacy}),now,now),
     /AGENT_RECEIPT_FOREIGN_POST/,'receipts cannot borrow a manual owner post');
+  assert.throws(()=>restored.prepare('DELETE FROM agent_operation_receipts').run(),
+    /AGENT_RECEIPT_IMMUTABLE/,'restored receipt delete guard must remain active');
+  const receiptId=before.receipts[0].receipt_id;
+  assert.throws(()=>restored.prepare('UPDATE agent_operation_receipts SET agent_id=? WHERE receipt_id=?')
+    .run('foreign-agent',receiptId),/AGENT_RECEIPT_IMMUTABLE|AGENT_RECEIPT_FOREIGN_POST/,
+    'restored receipt identity must remain immutable');
+  assert.throws(()=>restored.prepare('INSERT INTO agent_operation_receipts(receipt_id,agent_id,operation_name,idempotency_key_hash,canonical_payload_hash,post_id,phase,result_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
+    .run(id('arec'),agent,'createAgentPost','6'.repeat(64),'7'.repeat(64),
+      draft,'COMPLETED',JSON.stringify({postId:draft,status:'DRAFT',botToken:sensitive.botToken}),now,now),
+    /CHECK constraint/,'restored receipt must reject secret-bearing JSON');
   assert.deepEqual(restored.pragma('foreign_key_check'),[]);
   console.log(JSON.stringify({ok:true,checkpoint:'AGENT-A2b0',schema:18,
     immutableOriginRestored:true,durableReceiptsRestored:true,

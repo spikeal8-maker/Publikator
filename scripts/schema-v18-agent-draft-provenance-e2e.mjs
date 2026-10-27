@@ -83,6 +83,13 @@ try {
   ]){
     assert.throws(()=>db.prepare(sql).run(draft),/AGENT_OWNER_CONSENT_REQUIRED/);
   }
+  for(const [sql,values] of [
+    ['UPDATE agent_draft_ownership SET post_id=? WHERE post_id=?',[id('post'),draft]],
+    ['UPDATE agent_draft_ownership SET creation_grant_version=2 WHERE post_id=?',[draft]],
+    ["UPDATE agent_draft_ownership SET creation_operation_id='other' WHERE post_id=?",[draft]]
+  ]){
+    assert.throws(()=>db.prepare(sql).run(...values),/AGENT_OWNER_IMMUTABLE/);
+  }
   assert.throws(()=>db.prepare('DELETE FROM agent_draft_ownership WHERE post_id=?')
     .run(draft),/AGENT_OWNER_IMMUTABLE/);
   assert.throws(()=>db.prepare('UPDATE agent_draft_ownership SET agent_id=? WHERE post_id=?')
@@ -130,12 +137,52 @@ try {
     JSON.stringify({postId:draft,contentVersion:2,status:'DRAFT'}),time,time);
   assert.equal(db.prepare('SELECT phase FROM agent_operation_receipts WHERE receipt_id=?')
     .get(receiptId).phase,'COMPLETED');
+  const otherOwnedDraft=id('post');
+  db.prepare("INSERT INTO posts(id,project_id,title,body,status,editorial_stage,schedule_mode,source_type,created_at,updated_at) VALUES (?,?,'Other agent draft','Safe','DRAFT','DRAFT','MANUAL','agent-api',?,?)")
+    .run(otherOwnedDraft,prj,time,time);
+  provenance.run(otherOwnedDraft,wrongAgent,1,'createAgentPost',time);
+  assert.throws(()=>db.prepare('UPDATE agent_operation_receipts SET post_id=? WHERE receipt_id=?')
+    .run(otherOwnedDraft,receiptId),/AGENT_RECEIPT_FOREIGN_POST|AGENT_RECEIPT_IMMUTABLE/);
+  assert.throws(()=>db.prepare('UPDATE agent_operation_receipts SET agent_id=? WHERE receipt_id=?')
+    .run(wrongAgent,receiptId),/AGENT_RECEIPT_FOREIGN_POST|AGENT_RECEIPT_IMMUTABLE/);
+  assert.throws(()=>db.prepare('UPDATE agent_operation_receipts SET idempotency_key_hash=? WHERE receipt_id=?')
+    .run('0'.repeat(64),receiptId),/AGENT_RECEIPT_IMMUTABLE/);
+  assert.throws(()=>db.prepare('UPDATE agent_operation_receipts SET result_json=? WHERE receipt_id=?')
+    .run(JSON.stringify({postId:otherOwnedDraft,status:'DRAFT'}),receiptId),
+    /AGENT_RECEIPT_IMMUTABLE|CHECK constraint/);
+  assert.throws(()=>db.prepare('DELETE FROM agent_operation_receipts WHERE receipt_id=?')
+    .run(receiptId),/AGENT_RECEIPT_IMMUTABLE/);
+  assert.throws(()=>receipt.run(id('arec'),agent,'createAgentPost',
+    '5'.repeat(64),'6'.repeat(64),draft,'COMPLETED',
+    JSON.stringify({postId:draft,status:'DRAFT',botToken:secret.botToken}),time,time),
+    /CHECK constraint/,'secret-bearing response must not be stored');
+  assert.throws(()=>receipt.run(id('arec'),agent,'createAgentPost',
+    '7'.repeat(64),'8'.repeat(64),draft,'COMPLETED',
+    JSON.stringify({postId:otherOwnedDraft,status:'DRAFT'}),time,time),
+    /CHECK constraint/,'result postId must match the owned post');
+  assert.throws(()=>receipt.run(id('arec'),agent,'createAgentPost',
+    '9'.repeat(64),'0'.repeat(64),draft,'COMPLETED',
+    JSON.stringify({status:'DRAFT'}),time,time),
+    /CHECK constraint/,'completed response requires postId');
+  const pendingReceipt=id('arec');
+  receipt.run(pendingReceipt,agent,'createAgentPost','2'.repeat(64),
+    '3'.repeat(64),null,'CLAIMED',null,time,time);
+  assert.throws(()=>db.prepare("UPDATE agent_operation_receipts SET phase='COMPLETED',post_id=?,result_json=? WHERE receipt_id=?")
+    .run(otherOwnedDraft,JSON.stringify({postId:otherOwnedDraft,status:'DRAFT'}),
+      pendingReceipt),/AGENT_RECEIPT_FOREIGN_POST/,
+    'a pending receipt cannot be reassigned to another agent post');
+  db.prepare("UPDATE agent_operation_receipts SET phase='COMPLETED',post_id=?,result_json=? WHERE receipt_id=?")
+    .run(draft,JSON.stringify({postId:draft,status:'DRAFT',contentVersion:2}),
+      pendingReceipt);
+  assert.equal(db.prepare('SELECT phase FROM agent_operation_receipts WHERE receipt_id=?')
+    .get(pendingReceipt).phase,'COMPLETED');
   assert.throws(()=>receipt.run(id('arec'),wrongAgent,'createAgentPost',
     'e'.repeat(64),'f'.repeat(64),draft,'COMPLETED',
     JSON.stringify({postId:draft,status:'DRAFT'}),time,time),
     /AGENT_RECEIPT_FOREIGN_POST/,'a foreign agent cannot claim the draft receipt');
   assert.throws(()=>receipt.run(id('arec'),agent,'createAgentPost','a'.repeat(64),
-    'c'.repeat(64),draft,'COMPLETED','{"postId":"different"}',time,time),/UNIQUE constraint/);
+    'c'.repeat(64),draft,'COMPLETED',
+    JSON.stringify({postId:draft,status:'DRAFT'}),time,time),/UNIQUE constraint/);
   assert.throws(()=>receipt.run(id('arec'),agent,'createAgentPost','not-a-hash',
     'c'.repeat(64),draft,'COMPLETED','{"safe":true}',time,time),/CHECK constraint/);
   assert.throws(()=>receipt.run(id('arec'),agent,'editAgentPost','c'.repeat(64),

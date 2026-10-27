@@ -3,6 +3,7 @@ import { db, nowIso } from '../db.js';
 import { commitContentEdit } from '../content-versioning.js';
 import { contentMutationError, expectedContentVersion } from './content-version.js';
 import { parseRichTextJson, richTextToPlain, serializeRichText } from '../rich-text.js';
+import { saveTargetMediaPlan } from '../delivery-foundation.js';
 
 const IMMUTABLE_POST_STATUSES = new Set(['PUBLISHING', 'PUBLISHED', 'PARTIAL']);
 const MAX_OVERRIDE_LENGTH = 20_000;
@@ -108,5 +109,47 @@ export async function registerTargetOverrideRoutes(app: FastifyInstance): Promis
         resolvedText: richPlain ?? overrideText ?? row.base_text
       }
     };
+  });
+
+  // D3b1a: real, versioned per-recipient order and exclusion of canonical
+  // FEED photos. No file duplication, no arbitrary media paths or provider POST.
+  app.patch('/api/posts/:postId/targets/:targetId/media-plan', async (request, reply) => {
+    const params = request.params as { postId: string; targetId: string };
+    const target = db.prepare('SELECT post_id FROM post_targets WHERE id=?')
+      .get(params.targetId) as { post_id: string } | undefined;
+    if (!target || target.post_id !== params.postId) {
+      return reply.code(404).send({ error: 'Цель публикации не найдена' });
+    }
+    let body: Record<string, unknown>;
+    try {
+      body = bodyObject(request.body);
+      if (!Object.prototype.hasOwnProperty.call(body, 'mediaIds') ||
+          (body.mediaIds !== null &&
+           (!Array.isArray(body.mediaIds) ||
+            body.mediaIds.some((value) => typeof value !== 'string')))) {
+        throw new Error('mediaIds должен быть массивом ID изображений или null для наследования');
+      }
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+
+    try {
+      const version = expectedContentVersion(request, body);
+      const committed = saveTargetMediaPlan(
+        params.targetId,
+        body.mediaIds as string[] | null,
+        version
+      );
+      return {
+        ok: true,
+        contentVersion: committed.contentVersion,
+        targetId: params.targetId,
+        mediaIds: committed.mediaPlanJson
+          ? (JSON.parse(committed.mediaPlanJson) as { mediaIds: string[] }).mediaIds
+          : null
+      };
+    } catch (error) {
+      return contentMutationError(reply, error);
+    }
   });
 }
