@@ -119,6 +119,9 @@ jobs:
       - name: AGENT-A2b2 safe owner-bound draft text revisions and replay
         run: node scripts/agent-a2b2-owned-draft-edit-e2e.mjs
 
+      - name: AGENT-A2b3 exact owned draft listing and safe detail ACL
+        run: node scripts/agent-a2b3-own-drafts-read-e2e.mjs
+
       - name: P0 one-screen cross-platform composer Chrome
         run: node scripts/p0-one-screen-composer-e2e.mjs
 
@@ -602,3 +605,6 @@ jobs:
 
       - name: AGENT-A2b2 safe owner-bound draft text revisions and replay
         run: node scripts/agent-a2b2-owned-draft-edit-e2e.mjs
+
+      - name: AGENT-A2b3 exact owned draft listing and safe detail ACL
+        run: node scripts/agent-a2b3-own-drafts-read-e2e.mjs
