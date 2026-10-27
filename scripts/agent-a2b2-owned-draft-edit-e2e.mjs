@@ -186,7 +186,7 @@ try {
     {expectedContentVersion:4,bodyPlain:'query'},h(key1,'query'))).statusCode,400);
   assert.equal((await call('PATCH',api,{expectedContentVersion:4,bodyPlain:'no-key'},
     {authorization:'Bearer '+key1})).statusCode,400);
-  assert.equal((await call('GET',api,undefined,h(key1,'no-read-route'))).statusCode,404);
+  assert.equal((await call('GET',api,undefined,h(key1,'no-read-route'))).statusCode,403);
 
   // The existing agent provenance remains immutable; no external provider claim.
   assert.throws(()=>db.prepare("UPDATE posts SET status='READY' WHERE id=?").run(pid),
