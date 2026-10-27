@@ -62,6 +62,30 @@ try{
   const body={projectId:project.id,contentFormat:'TEXT_ONLY',publicationKind:'FEED',
     internalTitle:'Test draft',bodyPlain:'Text that must stay a draft',
     targetAccountIds:[a2,a1],mediaAssetIds:[],schedule:null};
+  // A post, its targets, revision, immutable owner, receipt and audit must
+  // share a single transaction. Inject failures at the two last write stages
+  // and verify every earlier write rolls back (including import events).
+  const stateCounts=()=>Object.fromEntries([
+    'posts','post_targets','content_revisions','agent_draft_ownership',
+    'agent_operation_receipts','agent_activity_events','publication_events'
+  ].map(table=>[table,count(table)]));
+  const beforeRollback=stateCounts();
+  for (const [table, condition] of [
+    ['agent_operation_receipts', "NEW.operation_name='createAgentPost'"],
+    ['agent_activity_events', "NEW.operation_id='createAgentPost'"]
+  ]) {
+    db.exec(`CREATE TEMP TRIGGER a2b1_injected_failure BEFORE INSERT ON ${table}
+      WHEN ${condition} BEGIN SELECT RAISE(ABORT,'A2B1_FORCED_ROLLBACK'); END;`);
+    try {
+      const failed=await send(body,headers(token1));
+      assert.equal(failed.statusCode,500,failed.body);
+      assert.equal(failed.json().error.code,'INTERNAL_ERROR');
+      assert.deepEqual(stateCounts(),beforeRollback,
+        'failing '+table+' must roll back the entire draft operation');
+    } finally {
+      db.exec('DROP TRIGGER a2b1_injected_failure;');
+    }
+  }
   const first=await send(body,headers(token1));
   assert.equal(first.statusCode,201,first.body);
   const data=first.json();
@@ -160,9 +184,10 @@ try{
   const restart=await send(reordered,headers(token1));
   assert.equal(restart.statusCode,200,restart.body);
   assert.deepEqual(restart.json(),data);
-  // A single machine identity cannot create unbounded drafts per hour.
-  // Synthetic completed receipts represent 59 other successful operations;
-  // the original create makes exactly 60. Same-key replay still succeeds.
+  // Exercise the hourly quota at its boundary with concurrent HTTP
+  // submissions, plus replay and restart. The 58 synthetic completed receipts
+  // represent older successful operations; the original create brings the
+  // count to 59, so exactly one of five new requests can be admitted.
   const budgetReceipt=db.prepare([
     'INSERT INTO agent_operation_receipts',
     '(receipt_id,agent_id,operation_name,idempotency_key_hash,',
@@ -170,20 +195,54 @@ try{
     'VALUES (?,?,?,?,?,?,?,?,?,?)'
   ].join(' '));
   db.transaction(()=>{
-    for(let i=1;i<=59;i++){
+    for(let i=1;i<=58;i++){
       budgetReceipt.run(id('arec'),one.agentId,'createAgentPost',
         i.toString(16).padStart(64,'0'),'f'.repeat(64),data.postId,
         'COMPLETED',JSON.stringify({postId:data.postId,contentVersion:1,status:'DRAFT'}),
         nowIso(),nowIso());
     }
   }).immediate();
-  const limited=await send({...body,bodyPlain:'New operation blocked by quota'},
-    headers(token1,'hourly-limit'));
+  const atBoundary=stateCounts();
+  const racingPayloads=Array.from({length:5},(_,index)=>({
+    ...body,internalTitle:'Concurrent '+index,
+    bodyPlain:'Only one concurrent draft may pass the hourly boundary '+index
+  }));
+  const racing=await Promise.all(racingPayloads.map((payload,index)=>
+    send(payload,headers(token1,'hourly-race-'+index))));
+  const winners=racing.flatMap((response,index)=>response.statusCode===201?[index]:[]);
+  const denied=racing.filter(response=>response.statusCode===429);
+  assert.equal(winners.length,1,'exactly one of five concurrent requests can create the 60th draft');
+  assert.equal(denied.length,4,'remaining requests must receive HTTP 429');
+  for (const response of denied) {
+    assert.equal(response.json().error.code,'RATE_LIMITED');
+    assert.equal(response.headers['retry-after'],'3600');
+  }
+  const afterBoundary=stateCounts();
+  assert.equal(afterBoundary.posts,atBoundary.posts+1);
+  assert.equal(afterBoundary.post_targets,atBoundary.post_targets+2);
+  assert.equal(afterBoundary.content_revisions,atBoundary.content_revisions+1);
+  assert.equal(afterBoundary.agent_draft_ownership,atBoundary.agent_draft_ownership+1);
+  assert.equal(afterBoundary.agent_operation_receipts,atBoundary.agent_operation_receipts+1);
+  assert.equal(afterBoundary.agent_activity_events,atBoundary.agent_activity_events+1);
+  const winner=winners[0];
+  const originalRace=await send(racingPayloads[winner],headers(token1,'hourly-race-'+winner));
+  assert.equal(originalRace.statusCode,200,'replay after quota must not create another post');
+  assert.deepEqual(originalRace.json(),racing[winner].json());
+  assert.deepEqual(stateCounts(),afterBoundary,'same-key replay has no side effects');
+  assert.equal((await send(reordered,headers(token1))).statusCode,200,
+    'older same-key replay should remain exempt from the quota');
+  await app.close();
+  app=await buildApp();
+  const limited=await send({...body,bodyPlain:'New operation blocked after restart'},
+    headers(token1,'hourly-after-restart'));
   assert.equal(limited.statusCode,429,limited.body);
   assert.equal(limited.json().error.code,'RATE_LIMITED');
   assert.equal(limited.headers['retry-after'],'3600');
-  assert.equal((await send(reordered,headers(token1))).statusCode,200,
-    'exact same-key replay should not consume additional hourly quota');
+  assert.equal((await send(racingPayloads[winner],
+    headers(token1,'hourly-race-'+winner))).statusCode,200);
+  assert.deepEqual(stateCounts(),afterBoundary,'quota and replay survive restart');
+  const independent=await send(otherBody,headers(token2,'independent-quota'));
+  assert.equal(independent.statusCode,201,independent.body);
   const revokeGrant=updateOwnerAgentGrant(one.agentId,{
     expectedGrantVersion:2,presetId:'CUSTOM',publishMode:'DRAFT_ONLY',
     scopeIds:['posts:write'],projectIds:[project.id],accountIds:[a1],

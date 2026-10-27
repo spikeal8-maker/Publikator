@@ -1,3 +1,4 @@
+import { inspectGoogleSourceSetup, saveGoogleSourceSetup } from '../google-source-setup.js';
 import type { FastifyInstance } from 'fastify';
 import {
   createGoogleSheetsConnector,
@@ -20,6 +21,15 @@ function bodyObject(body: unknown): Record<string, unknown> {
 }
 
 export async function registerGoogleSheetsRoutes(app: FastifyInstance): Promise<void> {
+  app.post('/api/google-sheets/setup/inspect', async (request, reply) => {
+    try { return await inspectGoogleSourceSetup(bodyObject(request.body)); }
+    catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : 'Не удалось проверить подключение Google.' }); }
+  });
+  app.post('/api/google-sheets/setup/save', async (request, reply) => {
+    try { return await saveGoogleSourceSetup(bodyObject(request.body)); }
+    catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : 'Не удалось сохранить подключение Google.' }); }
+  });
+
   app.get('/api/google-sheets/connectors', async () => ({
     connectors: listGoogleSheetsConnectors().map((connector) => ({ ...connector, polling: googleSheetsPollingStatus(connector) }))
   }));

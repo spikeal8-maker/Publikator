@@ -42,14 +42,42 @@ export function migrateAgentDraftProvenance(db: Database.Database): void {
           result_json IS NULL OR (
             json_valid(result_json)
             AND json_type(result_json)='object'
-            AND length(result_json) BETWEEN 2 AND 32768
+            AND length(result_json) BETWEEN 2 AND 4096
+            AND json_remove(result_json,'$.postId','$.contentVersion','$.status')='{}'
+            AND (
+              json_type(result_json,'$.postId') IS NULL
+              OR json_type(result_json,'$.postId')='text'
+            )
+            AND (
+              json_type(result_json,'$.contentVersion') IS NULL
+              OR (
+                json_type(result_json,'$.contentVersion')='integer'
+                AND json_extract(result_json,'$.contentVersion') >= 1
+              )
+            )
+            AND (
+              json_type(result_json,'$.status') IS NULL
+              OR json_extract(result_json,'$.status')='DRAFT'
+            )
+            AND (
+              json_type(result_json,'$.postId') IS NULL
+              OR (
+                post_id IS NOT NULL
+                AND COALESCE(json_extract(result_json,'$.postId'),'')=post_id
+              )
+            )
           )
         ),
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         UNIQUE(agent_id,operation_name,idempotency_key_hash),
         CHECK(
-          phase!='COMPLETED' OR (post_id IS NOT NULL AND result_json IS NOT NULL)
+          phase!='COMPLETED' OR (
+            post_id IS NOT NULL
+            AND result_json IS NOT NULL
+            AND COALESCE(json_extract(result_json,'$.postId'),'')=post_id
+            AND COALESCE(json_extract(result_json,'$.status'),'')='DRAFT'
+          )
         )
       );
       CREATE INDEX IF NOT EXISTS idx_agent_operation_receipts_agent
@@ -86,6 +114,40 @@ export function migrateAgentDraftProvenance(db: Database.Database): void {
       )
       BEGIN
         SELECT RAISE(ABORT, 'AGENT_RECEIPT_FOREIGN_POST');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_agent_receipt_owner_on_update
+      BEFORE UPDATE ON agent_operation_receipts
+      WHEN NEW.post_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM agent_draft_ownership o
+        WHERE o.post_id=NEW.post_id AND o.agent_id=NEW.agent_id
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'AGENT_RECEIPT_FOREIGN_POST');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_agent_receipt_immutable_identity
+      BEFORE UPDATE ON agent_operation_receipts
+      WHEN NEW.receipt_id IS NOT OLD.receipt_id
+        OR NEW.agent_id IS NOT OLD.agent_id
+        OR NEW.operation_name IS NOT OLD.operation_name
+        OR NEW.idempotency_key_hash IS NOT OLD.idempotency_key_hash
+        OR NEW.canonical_payload_hash IS NOT OLD.canonical_payload_hash
+        OR NEW.created_at IS NOT OLD.created_at
+        OR (OLD.post_id IS NOT NULL AND NEW.post_id IS NOT OLD.post_id)
+        OR (OLD.phase IN ('COMPLETED','FAILED') AND (
+          NEW.phase IS NOT OLD.phase
+          OR NEW.result_json IS NOT OLD.result_json
+          OR NEW.post_id IS NOT OLD.post_id
+        ))
+      BEGIN
+        SELECT RAISE(ABORT, 'AGENT_RECEIPT_IMMUTABLE');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_agent_receipt_no_delete
+      BEFORE DELETE ON agent_operation_receipts
+      BEGIN
+        SELECT RAISE(ABORT, 'AGENT_RECEIPT_IMMUTABLE');
       END;
 
       CREATE TRIGGER IF NOT EXISTS trg_agent_draft_ownership_immutable
