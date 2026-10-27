@@ -21,6 +21,7 @@ import { readCapabilityProfile, replaceSocialAccountCredentials } from '../socia
 import { checkVkConnection, inspectVkToken, testConnection } from '../platforms/connection-test.js';
 import {
   activatePendingVkAccount,
+  configureMaxDestination,
   isVerifiedAccountPublishReady,
   normalizeSocialCredentialInput,
   recheckSocialAccount,
@@ -428,6 +429,21 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       if (error instanceof SocialCredentialRequestError) {
         return reply.code(400).send({ error: error.message });
       }
+      throw error;
+    }
+  });
+  app.post('/api/accounts/:id/max-destination', async (request, reply) => {
+    const params = request.params as { id: string };
+    try {
+      const body = bodyObject(request.body);
+      return await configureMaxDestination({
+        accountId: params.id, name: body.name, chatId: body.chatId,
+        mode: body.mode, expectedCredentialVersion: body.expectedCredentialVersion
+      });
+    } catch (error) {
+      if (error instanceof SocialAccountNotFoundError) return reply.code(404).send({ error: 'Аккаунт не найден' });
+      if (error instanceof SocialCredentialVersionConflictError) return reply.code(409).send({ error: error.message });
+      if (error instanceof SocialCredentialRequestError) return reply.code(400).send({ error: error.message });
       throw error;
     }
   });
