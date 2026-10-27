@@ -230,6 +230,57 @@ try {
   assert.match(await page.locator('.qc-platform-caption').textContent(), /Наша новая публикация/);
   await page.screenshot({ path: 'test-results/p0-composer-variant-inherited-again.png', fullPage: false });
 
+  // D3b1b: selected VK recipient can use its own image order/subset without
+  // editing canonical attachments or the inherited two Telegram accounts.
+  await page.locator('#qc-variant-choice').selectOption(accounts[2].id);
+  assert.equal(await page.locator('#qc-media-variant').isVisible(), true,
+    'media variant controls appear for selected account after the first Save');
+  assert.equal(await page.locator('.qc-media-variant-row').count(), 2);
+  const baseImageOrder = db.prepare('SELECT id FROM media WHERE post_id=? ORDER BY sort_order,created_at')
+    .all(post.id).map((row) => row.id);
+  await page.locator('.qc-media-variant-row').nth(1)
+    .getByRole('button', { name: /Передвинуть.*раньше для аккаунта/ }).click();
+  assert.match(await page.locator('#qc-media-variant-note').textContent(), /Особый порядок/);
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  const mediaPlanRow = () => db.prepare('SELECT media_plan_json FROM target_renditions WHERE target_id=?')
+    .get(vkTarget)?.media_plan_json;
+  assert.deepEqual(JSON.parse(mediaPlanRow()), { version: 1,
+    mediaIds: [...baseImageOrder].reverse() },
+    'VK media plan stores target-only reversed media order');
+  let targetViews = (await page.evaluate(async (id) =>
+    (await (await fetch('/api/posts/' + encodeURIComponent(id) + '/platform-previews')).json()).previews,
+  post.id));
+  assert.deepEqual(targetViews.find((x) => x.accountId === accounts[2].id).media
+    .filter((x) => x.role !== 'poster').map((x) => x.id), [...baseImageOrder].reverse());
+  assert.deepEqual(targetViews.find((x) => x.accountId === accounts[0].id).media
+    .filter((x) => x.role !== 'poster').map((x) => x.id), baseImageOrder,
+    'other accounts still inherit canonical media');
+  await page.locator('#qc-platform-preview-load').click();
+  await page.locator('#qc-platform-preview-choice').selectOption(vkTarget);
+  await page.screenshot({ path: 'test-results/p0-composer-target-photo-order.png', fullPage: false });
+
+  await page.locator('.qc-media-variant-row input[type="checkbox"]').nth(1).uncheck();
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  assert.deepEqual(JSON.parse(mediaPlanRow()).mediaIds, [baseImageOrder[1]],
+    'excluding one photo uses exact chosen VK media ID');
+  targetViews = (await page.evaluate(async (id) =>
+    (await (await fetch('/api/posts/' + encodeURIComponent(id) + '/platform-previews')).json()).previews,
+  post.id));
+  assert.equal(targetViews.find((x) => x.accountId === accounts[2].id).contentFormat, 'IMAGE');
+  assert.equal(targetViews.find((x) => x.accountId === accounts[0].id).mediaCount, 2);
+
+  await page.locator('#qc-media-variant-reset').click();
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  assert.equal(mediaPlanRow(), null, 'reset removes custom media plan and restores inheritance');
+  assert.deepEqual(db.prepare('SELECT id FROM media WHERE post_id=? ORDER BY sort_order,created_at')
+    .all(post.id).map((row) => row.id), baseImageOrder,
+    'per-recipient photo order changes must never reorder canonical photos');
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM publication_events WHERE post_id=? AND event_type LIKE '%publish%'")
+    .get(post.id).n, 0, 'recipient media controls and Save never dispatch provider POSTs');
+
   // Media order remains editable after the initial save and must reach the server.
   const initialOrder = db.prepare('SELECT id FROM media WHERE post_id=? ORDER BY sort_order,created_at').all(post.id)
     .map((row) => row.id);
@@ -416,6 +467,55 @@ try {
   await page.locator('.qc-image button[aria-label^="Удалить"]').click();
   assert.equal(db.prepare('SELECT COUNT(*) n FROM media WHERE post_id=?').get(dedupPostId).n, 0,
     'removing the remaining unique image must delete exactly one persisted media');
+  await closeComposer();
+
+  // D3b1b/P2: removing ALL canonical photos after an account-specific plan
+  // must not strand a saved draft behind an inaccessible reset action.
+  const beforeNoMediaReset = db.prepare('SELECT COUNT(*) AS n FROM posts').get().n;
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').fill('После удаления фотографий остаётся текст');
+  await page.locator('#qc-files').setInputFiles([
+    { name: 'p2-photo-a.png', mimeType: 'image/png', buffer: image1 },
+    { name: 'p2-photo-b.png', mimeType: 'image/png', buffer: image2 }
+  ]);
+  await page.locator('input[name="qc-account"][value="' + accounts[2].id + '"]').check();
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  const noMediaPost = db.prepare('SELECT id FROM posts ORDER BY rowid DESC LIMIT 1').get().id;
+  const noMediaTarget = db.prepare('SELECT id FROM post_targets WHERE post_id=? AND account_id=?')
+    .get(noMediaPost, accounts[2].id).id;
+  await page.locator('#qc-variant-editor summary').click();
+  await page.locator('#qc-variant-choice').selectOption(accounts[2].id);
+  await page.locator('.qc-media-variant-row').nth(1)
+    .getByRole('button', { name: /Передвинуть.*раньше для аккаунта/ }).click();
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  const noMediaPlan = () => db.prepare('SELECT media_plan_json FROM target_renditions WHERE target_id=?')
+    .get(noMediaTarget)?.media_plan_json ?? null;
+  assert.ok(noMediaPlan(), 'a target-specific plan must exist before deletion');
+  await page.locator('.qc-image button[aria-label^="Удалить"]').first().click();
+  await page.waitForFunction(() => document.querySelectorAll('.qc-image').length === 1);
+  await page.locator('.qc-image button[aria-label^="Удалить"]').first().click();
+  await page.waitForFunction(() => document.querySelectorAll('.qc-image').length === 0);
+  assert.equal(await page.locator('.qc-image').count(), 0);
+  assert.equal(await page.locator('#qc-media-variant').isVisible(), true,
+    'account-specific media reset must remain accessible after deleting every photo');
+  assert.equal(await page.locator('#qc-media-variant-reset').isEnabled(), true);
+  await page.locator('#qc-save').click();
+  assert.match(await page.locator('#qc-status').textContent(), /изменился набор фотографий/,
+    'stale target IDs must still block a Save before explicit reset');
+  await page.locator('#qc-media-variant-reset').click();
+  assert.match(await page.locator('#qc-media-variant-note').textContent(), /Сброс.*подготовлен/);
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  assert.equal(noMediaPlan(), null, 'target plan reset persists even when canonical media is empty');
+  assert.equal(db.prepare('SELECT content_format FROM posts WHERE id=?').get(noMediaPost).content_format,
+    'TEXT_ONLY', 'same draft is now a valid text-only composition');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM media WHERE post_id=?').get(noMediaPost).n, 0);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM posts').get().n, beforeNoMediaReset + 1,
+    'text-only recovery must update original draft without creating duplicates');
+  assert.equal(await page.locator('#qc-media-variant').isVisible(), false,
+    'obsolete media controls disappear only after target reset is confirmed');
   await closeComposer();
 
   // Disabled accounts must remain disabled after a save toggles the entire editor busy.
@@ -753,6 +853,55 @@ try {
   ], { timeout: 25000 });
   const mp4 = await fs.readFile(mp4Path);
   assert.ok(mp4.length > 1024, 'FFmpeg must produce real H.264 MP4 fixture');
+
+  // D3b1b/P2: a saved recipient-specific photo plan must also be resettable
+  // AFTER removing the photos and picking MP4, before a video Save is allowed.
+  const beforeVideoReset = db.prepare('SELECT COUNT(*) AS n FROM posts').get().n;
+  await page.locator('#quick-compose-nav').click();
+  await page.locator('#qc-text').fill('Вместо фотографий отправляем видео');
+  await page.locator('#qc-files').setInputFiles([
+    { name: 'old-cover.png', mimeType: 'image/png', buffer: image1 },
+    { name: 'old-photo.png', mimeType: 'image/png', buffer: image2 }
+  ]);
+  await page.locator('input[name="qc-account"][value="' + accounts[2].id + '"]').check();
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  const videoResetPost = db.prepare('SELECT id FROM posts ORDER BY rowid DESC LIMIT 1').get().id;
+  const videoResetTarget = db.prepare('SELECT id FROM post_targets WHERE post_id=? AND account_id=?')
+    .get(videoResetPost, accounts[2].id).id;
+  await page.locator('#qc-variant-editor summary').click();
+  await page.locator('#qc-variant-choice').selectOption(accounts[2].id);
+  await page.locator('.qc-media-variant-row input[type="checkbox"]').nth(1).uncheck();
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
+  const videoResetPlan = () => db.prepare('SELECT media_plan_json FROM target_renditions WHERE target_id=?')
+    .get(videoResetTarget)?.media_plan_json ?? null;
+  assert.ok(videoResetPlan(), 'an individual plan must exist before replacing photos with video');
+  await page.locator('.qc-image button[aria-label^="Удалить"]').first().click();
+  await page.waitForFunction(() => document.querySelectorAll('.qc-image').length === 1);
+  await page.locator('.qc-image button[aria-label^="Удалить"]').first().click();
+  await page.waitForFunction(() => document.querySelectorAll('.qc-image').length === 0);
+  await page.locator('#qc-video-file').setInputFiles([
+    { name: 'replacement.mp4', mimeType: 'video/mp4', buffer: mp4 }
+  ]);
+  assert.equal(await page.locator('#qc-media-variant').isVisible(), true,
+    'media-plan reset remains available with MP4 selected');
+  assert.equal(await page.locator('#qc-media-variant-reset').isEnabled(), true);
+  assert.match(await page.locator('#qc-media-variant-note').textContent(), /видео/);
+  await page.locator('#qc-media-variant-reset').click();
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 45000 });
+  assert.equal(videoResetPlan(), null, 'MP4 switch clears stale recipient photo plan through explicit reset');
+  assert.equal(db.prepare('SELECT content_format FROM posts WHERE id=?').get(videoResetPost).content_format,
+    'VIDEO', 'same saved draft transitions safely from photos to MP4');
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM media WHERE post_id=? AND mime_type='video/mp4'")
+    .get(videoResetPost).n, 1, 'new video is stored once');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM posts').get().n, beforeVideoReset + 1,
+    'switching to video must not create a duplicate post');
+  assert.equal(await page.locator('#qc-media-variant').isVisible(), false,
+    'after reset, video has no active photo-specific controls');
+  await closeComposer();
+
   const beforeC1 = db.prepare('SELECT COUNT(*) n FROM posts').get().n;
   await page.locator('#quick-compose-nav').click();
   await page.locator('#qc-text').fill('Короткое видео для школьного проекта');
@@ -1401,6 +1550,7 @@ try {
       'test-results/p0-composer-video-mobile.png',
       'test-results/p0-composer-local-preview-desktop.png',
       'test-results/p0-composer-local-preview-mobile.png',
+      'test-results/p0-composer-target-photo-order.png',
       'test-results/p0-composer-per-account-text-variant.png',
       'test-results/p0-composer-variant-inherited-again.png',
       'test-results/p0-composer-platform-preview-desktop.png',

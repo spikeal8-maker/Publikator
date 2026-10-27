@@ -2,6 +2,9 @@ import { db, id, nowIso } from './db.js';
 import type { ContentFormat, PublicationKind } from './domain/content-domain.js';
 import { commitContentEdit } from './content-versioning.js';
 import { parseRichTextJson, richTextToPlain, serializeRichText } from './rich-text.js';
+import { listMedia } from './media.js';
+import { listContentMedia } from './rich-media.js';
+import { serializeTargetMediaPlan } from './target-media-plan.js';
 
 export type CanonicalRendition = {
   textRichJson: string | null;
@@ -70,6 +73,45 @@ export function saveTargetRendition(targetId: string, override: TargetRenditionO
         override.contentFormat ?? null, media, options, nowIso());
   });
   return { contentVersion: committed.contentVersion };
+}
+
+/**
+ * Update only the media-plan delta; all existing caption/rendition overrides
+ * remain untouched. Every successful change invalidates READY via versioning.
+ */
+export function saveTargetMediaPlan(
+  targetId: string,
+  mediaIds: string[] | null,
+  expectedContentVersion: number
+): { contentVersion: number; mediaPlanJson: string | null } {
+  const target = db.prepare(`SELECT pt.post_id,pt.enabled,p.publication_kind,p.content_format
+    FROM post_targets pt JOIN posts p ON p.id=pt.post_id WHERE pt.id=?`).get(targetId) as
+    { post_id: string; enabled: number; publication_kind: PublicationKind; content_format: ContentFormat } | undefined;
+  if (!target) throw new Error('Target not found');
+  if (!target.enabled) throw new Error('Target not selected');
+  const canonicalMedia = listMedia(target.post_id);
+  const relation = listContentMedia(target.post_id);
+  // Match the publishable image set consumed by revisionMedia() and
+  // platformPreviews(). Posters may be owned by the post without being part
+  // of what the recipient actually publishes.
+  const byId = new Map(canonicalMedia.map((item) => [item.id, item]));
+  const publishableMedia = relation.length
+    ? relation.filter((item) => item.role !== 'poster' && typeof item.media_id === 'string')
+        .sort((left, right) => left.sort_order - right.sort_order)
+        .map((item) => byId.get(item.media_id))
+        .filter((item): item is typeof canonicalMedia[number] => Boolean(item))
+    : canonicalMedia;
+  const mediaPlanJson = mediaIds === null ? null : serializeTargetMediaPlan(
+    mediaIds, publishableMedia, target.publication_kind, target.content_format
+  );
+  const committed = commitContentEdit(target.post_id, expectedContentVersion, 'manual', () => {
+    db.prepare(`INSERT INTO target_renditions(target_id,media_plan_json,updated_at)
+      VALUES(?,?,?)
+      ON CONFLICT(target_id) DO UPDATE SET
+        media_plan_json=excluded.media_plan_json,updated_at=excluded.updated_at`)
+      .run(targetId, mediaPlanJson, nowIso());
+  });
+  return { contentVersion: committed.contentVersion, mediaPlanJson };
 }
 
 export function getTargetRendition(targetId: string): TargetRenditionOverride | null {
