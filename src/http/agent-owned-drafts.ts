@@ -58,7 +58,10 @@ function encodeCursor(principal: VerifiedReader, postId: string): string {
 }
 function decodeCursor(principal: VerifiedReader, cursor: string | null): string {
   if (cursor === null) return '';
-  const [encoded,mac] = cursor.split('.');
+  const parts = cursor.split('.');
+  if (parts.length !== 2) invalidCursor();
+  const encoded = parts[0] ?? '';
+  const mac = parts[1] ?? '';
   const postId = Buffer.from(encoded,'base64url').toString('utf8');
   if (!IDENTIFIER.test(postId)
     || Buffer.from(postId,'utf8').toString('base64url') !== encoded) invalidCursor();
