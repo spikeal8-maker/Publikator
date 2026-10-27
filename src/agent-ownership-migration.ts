@@ -85,7 +85,8 @@ export function migrateAgentOwnership(db: Database.Database): void {
         project_id TEXT,
         target_account_ids_json TEXT NOT NULL DEFAULT '[]'
           CHECK(json_valid(target_account_ids_json)
-            AND json_type(target_account_ids_json)='array'),
+            AND json_type(target_account_ids_json)='array'
+            AND length(CAST(target_account_ids_json AS BLOB)) BETWEEN 2 AND 4096),
         publication_intent_id TEXT,
         grant_version INTEGER CHECK(grant_version>=1),
         stage TEXT NOT NULL CHECK(stage IN (
@@ -96,7 +97,11 @@ export function migrateAgentOwnership(db: Database.Database): void {
         outcome TEXT CHECK(outcome IN (
           'PENDING','SUCCEEDED','PARTIAL','FAILED','DENIED','UNKNOWN'
         )),
-        safe_summary TEXT NOT NULL CHECK(length(safe_summary) BETWEEN 1 AND 240),
+        safe_summary TEXT NOT NULL CHECK(
+          length(safe_summary) BETWEEN 1 AND 240
+          AND length(CAST(safe_summary AS BLOB)) BETWEEN 1 AND 960
+          AND instr(safe_summary, char(0))=0
+        ),
         error_code TEXT CHECK(length(error_code) BETWEEN 1 AND 80),
         remediation_code TEXT CHECK(length(remediation_code) BETWEEN 1 AND 80),
         progress_completed INTEGER,
@@ -124,5 +129,50 @@ export function migrateAgentOwnership(db: Database.Database): void {
         ON agent_activity_events(post_id, sequence DESC)
         WHERE post_id IS NOT NULL;
     `);
+    ensureAgentAuditGuards(db);
   }).immediate();
+}
+
+/**
+ * Install the same safe append/update guards on freshly migrated schema 15
+ * and pre-existing schema 15 without rebuilding or deleting audit events.
+ * Historical rows are intentionally not rewritten by this storage checkpoint.
+ */
+export function ensureAgentAuditGuards(db: Database.Database): void {
+  // sqlite CHECK cannot contain SELECT subqueries; verify every json_each
+  // element with schema-owned triggers. IDs match Agent API's 20 x 128
+  // ASCII [A-Za-z0-9._:-] limit. Fail closed for malformed JSON.
+  const validate = `
+    SELECT RAISE(ABORT, 'AGENT_AUDIT_INVALID_TARGET_IDS')
+    WHERE CASE
+      WHEN COALESCE(json_valid(NEW.target_account_ids_json),0)<>1 THEN 1
+      WHEN json_type(NEW.target_account_ids_json)<>'array' THEN 1
+      WHEN length(CAST(NEW.target_account_ids_json AS BLOB))>4096 THEN 1
+      WHEN (SELECT COUNT(*) FROM json_each(NEW.target_account_ids_json))>20 THEN 1
+      WHEN EXISTS (
+        SELECT 1 FROM json_each(NEW.target_account_ids_json) AS item
+        WHERE item.type<>'text'
+          OR length(item.value) NOT BETWEEN 1 AND 128
+          OR instr(item.value, char(0))<>0
+          OR item.value GLOB '*[^A-Za-z0-9._:-]*'
+      ) THEN 1
+      ELSE 0
+    END;
+    SELECT RAISE(ABORT, 'AGENT_AUDIT_INVALID_SUMMARY')
+    WHERE length(NEW.safe_summary) NOT BETWEEN 1 AND 240
+      OR length(CAST(NEW.safe_summary AS BLOB)) NOT BETWEEN 1 AND 960
+      OR instr(NEW.safe_summary, char(0))<>0;
+  `;
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS trg_agent_audit_payload_insert
+    BEFORE INSERT ON agent_activity_events
+    BEGIN
+      ${validate}
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_agent_audit_payload_update
+    BEFORE UPDATE ON agent_activity_events
+    BEGIN
+      ${validate}
+    END;
+  `);
 }

@@ -83,7 +83,7 @@ assert.equal(staged.manifest.schemaVersion,15);
 db.close();
 const applied=await applyPendingRestore();
 assert.equal(applied.applied,true);
-const restored=new Database(config.dbPath,{readonly:true,fileMustExist:true});
+const restored=new Database(config.dbPath,{fileMustExist:true});
 try {
   assert.equal(restored.pragma('integrity_check',{simple:true}),'ok');
   assert.equal(Number(restored.pragma('user_version',{simple:true})),15);
@@ -102,9 +102,56 @@ try {
     .get(agentId).publish_mode,'PREAPPROVED_POLICY');
   assert.equal(restored.prepare('SELECT status FROM posts WHERE id=?').get(postId).status,'READY');
   assert.deepEqual(restored.pragma('foreign_key_check'),[]);
+  const ddl=restored.prepare(
+    "SELECT sql FROM sqlite_master WHERE type='table' AND name='agent_activity_events'"
+  ).get().sql;
+  assert.match(ddl,/length\(CAST\(target_account_ids_json AS BLOB\)\)/);
+  assert.match(ddl,/length\(CAST\(safe_summary AS BLOB\)\)/);
+  assert.match(ddl,/instr\(safe_summary, char\(0\)\)/);
+  const triggers=restored.prepare([
+    "SELECT name FROM sqlite_master WHERE type='trigger'",
+    "AND name IN ('trg_agent_audit_payload_insert','trg_agent_audit_payload_update')",
+    "ORDER BY name"
+  ].join(' ')).all().map(row=>row.name);
+  assert.deepEqual(triggers,[
+    'trg_agent_audit_payload_insert','trg_agent_audit_payload_update'
+  ],'canonical backup must preserve both SQL audit guards');
+  const beforeAudit=restored.prepare('SELECT * FROM agent_activity_events ORDER BY sequence').all();
+  const invalidInsert=restored.prepare([
+    'INSERT INTO agent_activity_events',
+    '(event_id,agent_id,actor_type,origin,request_id,operation_id,stage,outcome,',
+    'target_account_ids_json,safe_summary,occurred_at)',
+    "VALUES (? ,?,'OWNER','UI','req_restore','agent.backup.restore',",
+    "'COMPLETED','SUCCEEDED',?,?,?)"
+  ].join(' '));
+  const invalidUpdate=restored.prepare([
+    'UPDATE agent_activity_events SET target_account_ids_json=?,safe_summary=?',
+    'WHERE event_id=?'
+  ].join(' '));
+  // Bypass CHECK to prove triggers independently defend both INSERT and
+  // UPDATE, including on a restored file and not only on a fresh migration.
+  restored.pragma('ignore_check_constraints = ON');
+  try {
+    assert.throws(()=>invalidInsert.run('evt_bad_json_restore',agentId,
+      '[false]','Нормальное событие',timestamp),/AGENT_AUDIT_INVALID_TARGET_IDS/);
+    assert.throws(()=>invalidInsert.run('evt_bad_summary_restore',agentId,
+      '[]','ok'+String.fromCharCode(0)+'x'.repeat(300000),timestamp),
+      /AGENT_AUDIT_INVALID_SUMMARY/);
+    assert.throws(()=>invalidUpdate.run('[42]','safe','evt_a1a_backup_policy'),
+      /AGENT_AUDIT_INVALID_TARGET_IDS/);
+    assert.throws(()=>invalidUpdate.run('[]','begin'+String.fromCharCode(0)+'tail',
+      'evt_a1a_backup_policy'),/AGENT_AUDIT_INVALID_SUMMARY/);
+  } finally {
+    restored.pragma('ignore_check_constraints = OFF');
+  }
+  assert.deepEqual(restored.prepare('SELECT * FROM agent_activity_events ORDER BY sequence').all(),
+    beforeAudit,'invalid changes after restore must leave audit untouched');
+  assert.equal(restored.pragma('integrity_check',{simple:true}),'ok');
+  assert.deepEqual(restored.pragma('foreign_key_check'),[]);
   console.log(JSON.stringify({ok:true,checkpoint:'AGENT-A1a',schema:15,
     grantAndPolicyRestored:true,agentAuditRestored:true,ownerPreserved:true,
-    readyPostPreserved:true,encryptedCredentialsRestored:true,canonicalBackupRestore:true}));
+    readyPostPreserved:true,encryptedCredentialsRestored:true,canonicalBackupRestore:true,
+    auditTriggersRestored:true,restoredDirectSqlGuards:true}));
 } finally {
   restored.close();
   await fs.rm(dataDir,{recursive:true,force:true});

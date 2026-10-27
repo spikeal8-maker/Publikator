@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import Database from 'better-sqlite3';
 
 const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'publikator-schema15-agent-'));
 process.env.NODE_ENV = 'test';
@@ -14,6 +15,7 @@ const { db, migrate, id, nowIso } = await import('../dist/db.js');
 const { DATABASE_SCHEMA_VERSION } = await import('../dist/schema.js');
 const { createAdminSetupGrant, createOrRecoverAdmin } = await import('../dist/admin-auth.js');
 const { encryptJson, decryptJson } = await import('../dist/crypto.js');
+const { ensureAgentAuditGuards } = await import('../dist/agent-ownership-migration.js');
 
 migrate();
 try {
@@ -78,10 +80,11 @@ try {
     '{"approvedPolicyVersion":0}',
     '{"approvedPolicyVersion":-2}',
     '{"approvedPolicyVersion":"2"}',
-    '{"approvedPolicyVersion":1.5}'
+    '{"approvedPolicyVersion":1.5}',
+    '{'
   ]) {
     assert.throws(() => attemptAuto.run('PREAPPROVED_POLICY',invalid,agentId),
-      /CHECK constraint/, 'auto grants require a positive integer owner policy version: '+invalid);
+      /CHECK constraint|malformed JSON/, 'auto grants require a positive integer owner policy version: '+invalid);
   }
   assert.equal(db.prepare('SELECT publish_mode FROM agent_grants WHERE agent_id=?')
     .get(agentId).publish_mode,'DRAFT_ONLY','invalid auto attempts must not elevate permission');
@@ -108,11 +111,138 @@ try {
   assert.equal(event.safe_summary,'Разрешения просмотрены');
   assert.deepEqual(JSON.parse(event.target_account_ids_json),[]);
   assert.throws(() => insert.run('evt_a1a_bad',agentId,'AGENT','REST','req_002',
-    'agent.grant.read','COMPLETED','SUCCEEDED','x'.repeat(241),now),/CHECK constraint/);
+    'agent.grant.read','COMPLETED','SUCCEEDED','x'.repeat(241),now),
+    /AGENT_AUDIT_INVALID_SUMMARY|CHECK constraint/);
   assert.throws(() => db.prepare(`INSERT INTO agent_activity_events(
     event_id,agent_id,actor_type,origin,request_id,operation_id,stage,safe_summary,occurred_at)
     VALUES (?,?,'AGENT','REST','req_003','media.import','PROGRESS','No job',?)`)
     .run('evt_bad_progress',agentId,now),/CHECK constraint/);
+  assert.deepEqual(db.pragma('foreign_key_check'),[]);
+
+  // Direct SQL tests: INSERT and UPDATE must reject invalid JSON/summary
+  // even if SQLite CHECK enforcement is disabled. Canonical IDs are the
+  // 1..128 ASCII [A-Za-z0-9._:-] used by Agent API; max recipients is 20.
+  const auditInsert=db.prepare([
+    'INSERT INTO agent_activity_events',
+    '(event_id,agent_id,actor_type,origin,request_id,operation_id,',
+    'stage,outcome,target_account_ids_json,safe_summary,occurred_at)',
+    "VALUES (?,?,?,'REST','req_audit_constraints','agent.audit.validate',",
+    "'COMPLETED','SUCCEEDED',?,?,?)"
+  ].join(' '));
+  const auditUpdate=db.prepare([
+    'UPDATE agent_activity_events',
+    'SET target_account_ids_json=?,safe_summary=? WHERE event_id=?'
+  ].join(' '));
+  const auditCount=()=>db.prepare(
+    'SELECT COUNT(*) AS n FROM agent_activity_events'
+  ).get().n;
+  function auditWrite(targets,summary,actor='AGENT') {
+    return auditInsert.run(id('evt'),actor==='SYSTEM'?null:agentId,actor,
+      targets,summary,now);
+  }
+  function rejectedAudit(fn,label) {
+    const beforeCount=auditCount();
+    assert.throws(fn,/AGENT_AUDIT_INVALID_TARGET_IDS|AGENT_AUDIT_INVALID_SUMMARY|CHECK constraint|malformed JSON/,
+      label);
+    assert.equal(auditCount(),beforeCount,'rejected audit operation must not create rows: '+label);
+  }
+  assert.equal(db.prepare(
+    "SELECT COUNT(*) AS n FROM sqlite_master WHERE type='trigger' AND name IN ('trg_agent_audit_payload_insert','trg_agent_audit_payload_update')"
+  ).get().n,2);
+  const allowedIds=JSON.stringify(Array.from({length:20},(_,i)=>'acc_'+i+':ok-.'));
+  auditWrite('[]','Нормальное событие','OWNER');
+  auditWrite(allowedIds,'Пример безопасной записи','AGENT');
+  auditWrite('[]','😀'.repeat(240),'SYSTEM');
+  auditWrite('[]','Т'.repeat(240),'OWNER');
+  assert.equal(db.prepare('SELECT length(CAST(safe_summary AS BLOB)) AS n FROM agent_activity_events WHERE safe_summary=?')
+    .get('😀'.repeat(240)).n,960,'240 four-byte Unicode codepoints must be accepted');
+  const badJson=[
+    ['invalid JSON','{'],['JSON null','null'],['JSON number','3'],['JSON object','{}'],
+    ['null element','["acc1",null]'],['boolean element','[false]'],
+    ['number element','[42]'],['object element','[{"id":"acc1"}]'],
+    ['empty id','[""]'],['overlong id',JSON.stringify(['a'.repeat(129)])],
+    ['21 ids',JSON.stringify(Array.from({length:21},(_,i)=>'account_'+i))],
+    ['oversized JSON',JSON.stringify(['x'.repeat(300000)])],
+    ['invalid whitespace id','["account / escaped"]'],
+    ['invalid Unicode id',JSON.stringify(['не-ascii'])],
+    ['embedded NUL id',JSON.stringify(['a'+String.fromCharCode(0)+'b'])]
+  ];
+  for(const [name,bad] of badJson) {
+    rejectedAudit(()=>auditWrite(bad,'Нормальный аудит'),'INSERT '+name);
+  }
+  const badSummaries=[
+    ['empty',''],['241 characters','x'.repeat(241)],
+    ['NUL first',String.fromCharCode(0)+'ok'],
+    ['NUL middle','ok'+String.fromCharCode(0)+'after'],
+    ['NUL last','ok'+String.fromCharCode(0)],
+    ['NUL with 300KB tail','ok'+String.fromCharCode(0)+'x'.repeat(300000)],
+    ['300KB text','x'.repeat(300000)]
+  ];
+  for(const [name,bad] of badSummaries) {
+    rejectedAudit(()=>auditWrite('[]',bad),'INSERT '+name);
+  }
+  const originalEvent=()=>db.prepare(
+    "SELECT * FROM agent_activity_events WHERE event_id='evt_a1a_001'"
+  ).get();
+  const originalAuditEvent=originalEvent();
+  rejectedAudit(()=>auditUpdate.run('[true]','Изменённый аудит','evt_a1a_001'),
+    'UPDATE invalid element');
+  rejectedAudit(()=>auditUpdate.run('[]','x'+String.fromCharCode(0)+'y','evt_a1a_001'),
+    'UPDATE NUL summary');
+  rejectedAudit(()=>auditUpdate.run(JSON.stringify(['x'.repeat(300000)]),'OK','evt_a1a_001'),
+    'UPDATE oversized JSON');
+  assert.deepEqual(originalEvent(),originalAuditEvent,'invalid UPDATE must be atomic');
+  auditUpdate.run('["acc_valid"]','Обновление допустимо','evt_a1a_001');
+  auditUpdate.run('[]','Разрешения просмотрены','evt_a1a_001');
+  assert.deepEqual(originalEvent(),originalAuditEvent,'valid UPDATE then restore remains identical');
+
+  db.pragma('ignore_check_constraints = ON');
+  try {
+    rejectedAudit(()=>auditWrite('[null]','safe'),'triggers reject JSON without CHECK');
+    rejectedAudit(()=>auditWrite('[]','a'+String.fromCharCode(0)+'b'),
+      'triggers reject NUL without CHECK');
+  } finally {
+    db.pragma('ignore_check_constraints = OFF');
+  }
+
+  // Existing version-15 DBs retain the original table CHECK. Startup adds
+  // the idempotent triggers; it neither rebuilds tables nor deletes history.
+  const legacy=new Database(':memory:');
+  try {
+    legacy.exec(
+      "CREATE TABLE agent_activity_events ("+
+      "event_id TEXT PRIMARY KEY, "+
+      "target_account_ids_json TEXT NOT NULL DEFAULT '[]' "+
+      "CHECK(json_valid(target_account_ids_json) AND json_type(target_account_ids_json)='array'), "+
+      "safe_summary TEXT NOT NULL CHECK(length(safe_summary) BETWEEN 1 AND 240));"
+    );
+    legacy.pragma('user_version = 15');
+    legacy.prepare('INSERT INTO agent_activity_events VALUES (?,?,?)')
+      .run('legacy_good','[]','Историческое сообщение');
+    ensureAgentAuditGuards(legacy);
+    assert.throws(()=>legacy.prepare('INSERT INTO agent_activity_events VALUES (?,?,?)')
+      .run('legacy_bad','[null]','safe'),/AGENT_AUDIT_INVALID_TARGET_IDS/);
+    assert.throws(()=>legacy.prepare('UPDATE agent_activity_events SET safe_summary=? WHERE event_id=?')
+      .run('x'+String.fromCharCode(0)+'hidden','legacy_good'),
+      /AGENT_AUDIT_INVALID_SUMMARY/);
+    assert.equal(legacy.prepare('SELECT safe_summary FROM agent_activity_events WHERE event_id=?')
+      .get('legacy_good').safe_summary,'Историческое сообщение');
+    assert.equal(Number(legacy.pragma('user_version',{simple:true})),15);
+  } finally {
+    legacy.close();
+  }
+  // Runtime migrate() repairs dropped guards on an already v15 DB.
+  db.exec('DROP TRIGGER trg_agent_audit_payload_insert; DROP TRIGGER trg_agent_audit_payload_update;');
+  const retainedCount=auditCount();
+  migrate();
+  assert.equal(auditCount(),retainedCount);
+  assert.equal(db.prepare(
+    "SELECT COUNT(*) AS n FROM sqlite_master WHERE type='trigger' AND name IN ('trg_agent_audit_payload_insert','trg_agent_audit_payload_update')"
+  ).get().n,2,'existing v15 migration must restore both triggers');
+  rejectedAudit(()=>auditWrite('[""]','safe'),'reinstalled insert trigger');
+  rejectedAudit(()=>auditUpdate.run('[]',String.fromCharCode(0)+'unsafe','evt_a1a_001'),
+    'reinstalled update trigger');
+  assert.equal(db.pragma('integrity_check',{simple:true}),'ok');
   assert.deepEqual(db.pragma('foreign_key_check'),[]);
 
   const snapshot={
@@ -129,6 +259,8 @@ try {
   db.pragma('user_version = 15');
   console.log(JSON.stringify({ok:true,checkpoint:'AGENT-A1a',from:14,to:15,
     defaultDeny:true,legacyReadyAndCredentialsPreserved:true,boundedAudit:true,
+    boundedAuditIds:true,unicodeSummaryAndNulProtected:true,
+    existingV15TriggersInstalled:true,corruptPolicyJsonRejected:true,
     rerunSafe:true,futureSchemaRefused:true}));
 } finally {
   db.close();
