@@ -151,7 +151,7 @@ try {
   assert.equal((await read(endpoint,{...bearer(firstToken),origin:process.env.PUBLIC_BASE_URL})).statusCode,200);
   assert.equal((await read('/api/agent/v1/sources/'+s1+'/files',bearer(firstToken))).statusCode,404,
     'source-file browsing/import is not implemented by metadata access');
-  assert.equal((await read('/api/agent/v1/posts',bearer(firstToken))).statusCode,404);
+  assert.equal((await read('/api/agent/v1/posts',bearer(firstToken))).statusCode,403);
 
   await app.close();
   app=await buildApp();
