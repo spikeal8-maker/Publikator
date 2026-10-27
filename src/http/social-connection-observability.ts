@@ -16,6 +16,7 @@ const SAFE_REASONS: Record<string, string> = {
   CREDENTIAL_REJECTED: 'Площадка отклонила ключ: ключ недействителен или срок его действия истёк. Проверьте разрешения.',
   IP_RESTRICTED: 'VK отклонил ключ: он привязан к другому IP-адресу. Проверьте разрешённый IP для этого ключа.',
   MAX_ME_BAD_REQUEST: 'MAX: GET /me отклонён (HTTP 400). Причина ошибки запроса не установлена; это не доказывает, что токен недействителен.',
+  MAX_PENDING_PUBLICATIONS: 'Для смены чата сначала завершите готовые и незавершённые публикации этого подключения. Можно добавить новый чат.',
   MAX_CHAT_MEMBER_BAD_REQUEST: 'MAX: GET /chats/{chatId}/members/me отклонён (HTTP 400). Проверьте chat_id из обновления бота, его членство, роль администратора и право write.',
   PERMISSIONS_DENIED: 'Не подтверждено право публикации. Проверьте роль бота или владельца ключа.',
   DESTINATION_NOT_CONFIRMED: 'Назначение не подтверждено. Проверьте ID канала или сообщества и права доступа.',
@@ -36,6 +37,7 @@ function operationFor(method: string, path: string): TrackedOperation | null {
   if (method === 'POST' && path === '/api/accounts/save-and-check') return { route: 'accounts.save-and-check', operation: 'save' };
   if (method === 'POST' && path === '/api/accounts') return { route: 'accounts.create', operation: 'save' };
   if (method === 'PATCH' && /^\/api\/accounts\/[^/]+$/.test(path)) return { route: 'accounts.update', operation: 'update' };
+  if (method === 'POST' && /^\/api\/accounts\/[^/]+\/max-destination$/.test(path)) return { route: 'accounts.max-destination', operation: 'update' };
   if (method === 'POST' && /^\/api\/accounts\/[^/]+\/recheck$/.test(path)) return { route: 'accounts.recheck', operation: 'recheck' };
   if (method === 'POST' && /^\/api\/accounts\/[^/]+\/test$/.test(path)) return { route: 'accounts.saved-test', operation: 'check' };
   if (method === 'POST' && /^\/api\/accounts\/[^/]+\/activate$/.test(path)) return { route: 'accounts.activate', operation: 'activate' };
@@ -140,6 +142,7 @@ function classifyFailure(message: string, status: number): string {
   if (status === 409) return 'STATE_CONFLICT';
   // Only the exact MAX operation is retained. Ignore provider JSON bodies:
   // they can contain tokens, identifiers, and other untrusted text.
+  if (/MAX: для смены чата сначала завершите готовые и незавершённые публикации/i.test(message)) return 'MAX_PENDING_PUBLICATIONS';
   if (/MAX GET \/me:\s*HTTP 400\b/i.test(message)) return 'MAX_ME_BAD_REQUEST';
   if (/MAX GET \/chats\/\{chatId\}\/members\/me:\s*HTTP 400\b/i.test(message)) return 'MAX_CHAT_MEMBER_BAD_REQUEST';
   if (/another ip address|other ip address|привязан к другому ip|привязк.*ip/i.test(message)) return 'IP_RESTRICTED';

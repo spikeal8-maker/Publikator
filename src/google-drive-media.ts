@@ -138,20 +138,20 @@ export function listGoogleDriveMediaConnectors(): Array<ConnectorMetadata & { co
     WHERE type='google_drive' ORDER BY created_at,id`).all() as ConnectorRow[]).map(connectorMetadata);
 }
 
-export async function createGoogleDriveMediaConnector(params: {
+export async function prepareGoogleDriveMediaConnector(params: {
   name: string;
   rootFolder: unknown;
   credentials: unknown;
-}): Promise<ConnectorMetadata & { config: GoogleDriveMediaConfig }> {
+}) {
   const inspection = await inspectRoot(params.credentials, params.rootFolder);
   const credentials = normalizeGoogleServiceAccount(params.credentials);
-  const created = createIngestionConnector({
-    type: 'google_drive',
-    name: params.name,
-    config: inspection,
-    credentials
-  });
-  return { ...created, config: inspection };
+  return { name: params.name, credentials, config: inspection };
+}
+
+export async function createGoogleDriveMediaConnector(params: Parameters<typeof prepareGoogleDriveMediaConnector>[0]): Promise<ConnectorMetadata & { config: GoogleDriveMediaConfig }> {
+  const prepared = await prepareGoogleDriveMediaConnector(params);
+  const created = createIngestionConnector({ type: 'google_drive', ...prepared });
+  return { ...created, config: prepared.config };
 }
 
 export async function testGoogleDriveMediaConnector(connectorId: string): Promise<{ rootFolderId: string; rootFolderName: string; serviceAccountEmail: string }> {

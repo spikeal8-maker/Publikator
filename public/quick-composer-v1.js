@@ -114,7 +114,8 @@ export async function openQuickComposer() {
       restoredScheduleTimezone: null, recoveryRequiredFiles: 0,
       video: null, recoveryRequiresVideo: false,
       previewToken: 0, previewLoading: false, previewRows: [],
-      variantEdits: new Map(), variantApplied: new Map()
+      variantEdits: new Map(), variantApplied: new Map(),
+      mediaEdits: new Map(), mediaApplied: new Map()
     };
     const available = accounts.filter((account) => account.enabled);
     const grouped = ['telegram', 'vk', 'max', 'instagram'].map((platform) => {
@@ -187,7 +188,11 @@ export async function openQuickComposer() {
         '<textarea id="qc-variant-text" rows="3" maxlength="20000" placeholder="Основной текст"></textarea></label>' +
         '<p class="qc-variant-status" id="qc-variant-status" role="status" aria-live="polite"></p>' +
         '<button type="button" id="qc-variant-reset">Использовать основной текст</button>' +
-        '<p class="qc-muted">По умолчанию все аккаунты наследуют основной текст. Отдельный вариант применяется при сохранении материала.</p>' +
+        '<div class="qc-media-variant" id="qc-media-variant"><h4>Фотографии для этого аккаунта</h4>' +
+        '<p id="qc-media-variant-note" role="status" aria-live="polite"></p>' +
+        '<div id="qc-media-variant-list" class="qc-media-variant-list"></div>' +
+        '<button type="button" id="qc-media-variant-reset">Общий набор и порядок фото</button></div>' +
+        '<p class="qc-muted">Все аккаунты наследуют основной текст и общий набор фото, пока вы явно не измените их вариант.</p>' +
         '</details>' +
         '<div class="qc-preview"><h4>Предпросмотр текста</h4><p id="qc-preview-text">Текст появится здесь</p>' +
           '<div id="qc-preview-targets" class="qc-muted">Площадки пока не выбраны</div>' +
@@ -330,6 +335,7 @@ export async function openQuickComposer() {
       });
       redrawPhotos();
       redrawVideo();
+      refreshMediaVariantControls();
       updatePreviewButton();
     }
     const variantPanel = root.querySelector('#qc-variant-editor');
@@ -337,6 +343,121 @@ export async function openQuickComposer() {
     const variantText = root.querySelector('#qc-variant-text');
     const variantStatus = root.querySelector('#qc-variant-status');
     const variantReset = root.querySelector('#qc-variant-reset');
+    const mediaVariant = root.querySelector('#qc-media-variant');
+    const mediaVariantList = root.querySelector('#qc-media-variant-list');
+    const mediaVariantNote = root.querySelector('#qc-media-variant-note');
+    const mediaVariantReset = root.querySelector('#qc-media-variant-reset');
+    function refreshMediaVariantControls() {
+      const accountId = variantChoice.value;
+      mediaVariantList.replaceChildren();
+      const photos = state.pending.filter((item) => item.uploaded && item.remoteId);
+      const stagedPlan = state.mediaEdits.get(accountId);
+      const appliedPlan = state.mediaApplied.get(accountId)?.mediaIds;
+      const hasCustomPlan = Array.isArray(stagedPlan) || Array.isArray(appliedPlan);
+      const locked = state.busy || state.finished || state.uncertainPublish;
+      // A previously saved per-account plan must remain resettable even after
+      // the last global image is deleted or replaced with MP4. Otherwise the
+      // stale IDs block every subsequent Save, Schedule and Publish action.
+      const relevant = Boolean(accountId && selectedIds().includes(accountId)) &&
+        ((!state.video && state.pending.length > 0) || hasCustomPlan);
+      mediaVariant.hidden = !relevant;
+      if (!relevant) return;
+      if (state.video || !state.pending.length) {
+        mediaVariantNote.textContent = stagedPlan === null
+          ? 'Сброс индивидуального медиаплана подготовлен. Сохраните публикацию.'
+          : 'Общие фотографии удалены или заменены на видео. Сбросьте индивидуальный набор этого аккаунта перед сохранением.';
+        mediaVariantReset.disabled = locked || !hasCustomPlan || stagedPlan === null;
+        return;
+      }
+      if (!state.savedId || !photos.length) {
+        mediaVariantNote.textContent =
+          'Индивидуальный порядок фотографий становится доступен после сохранения черновика. Исходный порядок уже можно менять слева.';
+        // Existing server plans must remain resettable while new photos await upload.
+        mediaVariantReset.disabled = locked || !hasCustomPlan || stagedPlan === null;
+        return;
+      }
+      const all = photos.map((item) => item.remoteId);
+      const raw = stagedPlan;
+      const selected = Array.isArray(raw) ? [...raw] : [...all];
+      const missing = selected.filter((id) => !all.includes(id));
+      const selectedValid = selected.filter((id) => all.includes(id));
+      const current = selectedValid.map((id) => photos.find((item) => item.remoteId === id));
+      const excluded = photos.filter((item) => !selectedValid.includes(item.remoteId));
+      const ordered = [...current, ...excluded];
+      mediaVariantNote.textContent = missing.length
+        ? 'Часть фотографий была удалена из материала. Выберите новый набор или верните общий порядок перед сохранением.'
+        : Array.isArray(raw)
+          ? 'Особый порядок для этого аккаунта: ' + selected.length + ' из ' + all.length + '.'
+          : 'Используется общий набор из ' + all.length + ' фото.';
+      for (const item of ordered) {
+        const mediaId = item.remoteId;
+        const row = document.createElement('div');
+        row.className = 'qc-media-variant-row';
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = selectedValid.includes(mediaId);
+        checkbox.disabled = locked;
+        checkbox.setAttribute('aria-label', 'Включить ' + item.file.name + ' для выбранного аккаунта');
+        checkbox.addEventListener('change', () => {
+          if (locked) return;
+          const next = checkbox.checked
+            ? [...selectedValid, mediaId]
+            : selectedValid.filter((id) => id !== mediaId);
+          if (!next.length) {
+            setStatus('Для этого аккаунта должна остаться хотя бы одна фотография.', true);
+            checkbox.checked = true;
+            return;
+          }
+          state.mediaEdits.set(accountId, next);
+          markDirty();
+          refreshMediaVariantControls();
+        });
+        const thumbnail = document.createElement('img');
+        thumbnail.src = item.url;
+        thumbnail.alt = '';
+        const label = document.createElement('span');
+        label.textContent = item.file.name;
+        const earlier = document.createElement('button');
+        earlier.type = 'button';
+        earlier.textContent = '↑';
+        earlier.setAttribute('aria-label', 'Передвинуть ' + item.file.name + ' раньше для аккаунта');
+        const index = selectedValid.indexOf(mediaId);
+        earlier.disabled = locked || index <= 0;
+        earlier.addEventListener('click', () => {
+          if (locked || index <= 0) return;
+          const next = [...selectedValid];
+          [next[index - 1], next[index]] = [next[index], next[index - 1]];
+          state.mediaEdits.set(accountId, next);
+          markDirty();
+          refreshMediaVariantControls();
+        });
+        const later = document.createElement('button');
+        later.type = 'button';
+        later.textContent = '↓';
+        later.setAttribute('aria-label', 'Передвинуть ' + item.file.name + ' позже для аккаунта');
+        later.disabled = locked || index < 0 || index >= selectedValid.length - 1;
+        later.addEventListener('click', () => {
+          if (locked || index < 0 || index >= selectedValid.length - 1) return;
+          const next = [...selectedValid];
+          [next[index + 1], next[index]] = [next[index], next[index + 1]];
+          state.mediaEdits.set(accountId, next);
+          markDirty();
+          refreshMediaVariantControls();
+        });
+        row.append(checkbox, thumbnail, label, earlier, later);
+        mediaVariantList.append(row);
+      }
+      mediaVariantReset.disabled = locked || !hasCustomPlan || stagedPlan === null;
+    }
+    mediaVariantReset.addEventListener('click', () => {
+      if (state.busy || state.finished || state.uncertainPublish) return;
+      const accountId = variantChoice.value;
+      if (!accountId) return;
+      if (state.mediaApplied.has(accountId)) state.mediaEdits.set(accountId, null);
+      else state.mediaEdits.delete(accountId);
+      markDirty();
+      refreshMediaVariantControls();
+    });
     function refreshVariantControls() {
       const chosen = checkedAccounts();
       const previousChoice = variantChoice.value;
@@ -352,6 +473,7 @@ export async function openQuickComposer() {
         variantText.value = '';
         variantStatus.textContent = '';
         variantReset.disabled = true;
+        refreshMediaVariantControls();
         return;
       }
       if (chosen.some((account) => account.id === previousChoice)) variantChoice.value = previousChoice;
@@ -363,6 +485,7 @@ export async function openQuickComposer() {
         ? 'Отдельный текст подготовлен для выбранного аккаунта.'
         : 'Используется основной текст (наследование).';
       variantReset.disabled = !state.variantEdits.has(targetId) && !state.variantApplied.has(targetId);
+      refreshMediaVariantControls();
     }
     variantChoice.addEventListener('change', refreshVariantControls);
     variantText.addEventListener('input', () => {
@@ -510,9 +633,18 @@ export async function openQuickComposer() {
         enabled: true,
         localDraft: true,
         captionPlacement: account.platform === 'vk' ? 'above' : 'below',
-        contentFormat,
+        contentFormat: Array.isArray(state.mediaEdits.get(account.id))
+          ? (state.mediaEdits.get(account.id).length === 1 ? 'IMAGE' : 'CAROUSEL')
+          : contentFormat,
         text: state.variantEdits.get(account.id) || text.value.trim(),
-        media,
+        media: Array.isArray(state.mediaEdits.get(account.id)) && !state.video
+          ? state.mediaEdits.get(account.id).map((id, index) => {
+            const source = state.pending.find((item) => item.remoteId === id);
+            return source ? {
+              url: source.url, mimeType: source.file.type, role: 'primary', order: index
+            } : null;
+          }).filter(Boolean)
+          : media,
         issues: []
       }));
     }
@@ -672,6 +804,7 @@ export async function openQuickComposer() {
       });
       syncMediaInputs();
       updateCaptionPreview();
+      refreshMediaVariantControls();
     }
     function addFiles(files) {
       if (state.busy || state.finished || state.uncertainPublish) return;
@@ -695,7 +828,7 @@ export async function openQuickComposer() {
       const host = root.querySelector('#qc-video-preview');
       host.replaceChildren();
       updateMissingFilesNotice();
-      if (!state.video) { syncMediaInputs(); updateCaptionPreview(); return; }
+      if (!state.video) { syncMediaInputs(); updateCaptionPreview(); refreshMediaVariantControls(); return; }
       const item = state.video;
       const card = document.createElement('div');
       card.className = 'qc-video-card';
@@ -747,6 +880,7 @@ export async function openQuickComposer() {
       host.append(card);
       syncMediaInputs();
       updateCaptionPreview();
+      refreshMediaVariantControls();
     }
     root.querySelector('#qc-video-file').addEventListener('change', (event) => {
       const input = event.currentTarget;
@@ -874,6 +1008,12 @@ export async function openQuickComposer() {
         variants: Object.freeze(chosen.filter((account) => state.variantEdits.has(account.id))
           .map((account) => Object.freeze({
             accountId: account.id, text: state.variantEdits.get(account.id)
+          }))),
+        mediaPlans: Object.freeze(chosen.filter((account) => state.mediaEdits.has(account.id))
+          .map((account) => Object.freeze({
+            accountId: account.id,
+            mediaIds: Array.isArray(state.mediaEdits.get(account.id))
+              ? Object.freeze([...state.mediaEdits.get(account.id)]) : null
           }))),
         images: Object.freeze([...state.pending]),
         video: state.video
@@ -1057,6 +1197,29 @@ export async function openQuickComposer() {
         state.version = update.contentVersion;
         state.variantApplied.set(variant.accountId, { text: variant.text, targetId: target.id });
       }
+
+      // D3b1b: patch only the exact selected recipient's canonical media IDs.
+      // The endpoint handles content version, READY invalidation and role
+      // validation; unmodified accounts inherit the original order.
+      for (const plan of operation.mediaPlans) {
+        const target = updatedTargets.targets.find((item) =>
+          item.enabled && item.account_id === plan.accountId);
+        if (!target?.id) throw new Error('Не удалось сопоставить аккаунт для медиаплана.');
+        const current = state.mediaApplied.get(plan.accountId);
+        const same = current && current.targetId === target.id &&
+          JSON.stringify(current.mediaIds) === JSON.stringify(plan.mediaIds);
+        if (same || (!current && plan.mediaIds === null)) continue;
+        const result = await request('/api/posts/' + encodeURIComponent(state.savedId) +
+          '/targets/' + encodeURIComponent(target.id) + '/media-plan', {
+          method: 'PATCH', body: JSON.stringify({
+            mediaIds: plan.mediaIds,
+            expectedContentVersion: state.version
+          })
+        });
+        state.version = result.contentVersion;
+        state.mediaApplied.set(plan.accountId, { targetId: target.id,
+          mediaIds: plan.mediaIds === null ? null : [...plan.mediaIds] });
+      }
       return state.savedId;
     }
 
@@ -1064,6 +1227,15 @@ export async function openQuickComposer() {
       if (state.busy || state.uncertainPublish || state.finished) return;
       const chosen = checkedAccounts();
       const operation = snapshotOperation(action, chosen);
+      // Prevent stale plans after a global photo deletion before any mutation.
+      const availableMediaIds = new Set(operation.images.map((item) => item.remoteId).filter(Boolean));
+      for (const plan of operation.mediaPlans) {
+        if (plan.mediaIds !== null &&
+            (!plan.mediaIds.length || plan.mediaIds.some((id) => !availableMediaIds.has(id)))) {
+          setStatus('Для одного из аккаунтов изменился набор фотографий. Уточните его выбор или верните общий порядок.', true);
+          return;
+        }
+      }
       if (state.recoveryRequiredFiles > state.pending.length) {
         updateMissingFilesNotice();
         setStatus('Снова приложите фотографии или подтвердите продолжение без них.', true);
@@ -1146,6 +1318,7 @@ export async function openQuickComposer() {
         root.querySelector('#qc-recovery-note').textContent = '';
         root.querySelector('#qc-close').textContent = '×';
         root.querySelector('#qc-close').setAttribute('aria-label', 'Закрыть редактор');
+        refreshMediaVariantControls();
       } catch (error) {
         // Only an explicit per-account preflight 409 with structured ERROR
         // issues proves READY refused before any external publish attempt.

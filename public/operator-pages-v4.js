@@ -148,6 +148,28 @@ function vkCapabilityCard(checked) {
   </div>`;
 }
 
+function maxCapabilityCard(profile) {
+  const semantic = profile?.semantic || {};
+  const credential = semantic.credential || {};
+  const destination = semantic.destination || {};
+  const readiness = semantic.publicationReadiness || {};
+  const validity = { CONFIRMED: 'действителен', INVALID: 'недействителен', UNAVAILABLE: 'проверка недоступна', UNKNOWN: 'не подтверждён' };
+  const ready = ['TEXT', 'IMAGE', 'CAROUSEL'].some((format) => readiness[format]?.state === 'READY');
+  const formats = [['TEXT', 'Текст'], ['IMAGE', 'Фото'], ['CAROUSEL', 'Альбом']]
+    .map(([format, label]) => `${label}: ${readiness[format]?.state === 'READY' ? 'доступно' : 'не подтверждено'}`).join(' · ');
+  const remedies = (semantic.remediation || []).map((item) =>
+    `<p><strong>${operatorEsc(item.title)}</strong><br>${operatorEsc(item.explanation)}</p>`).join('');
+  const methods = (semantic.methods || []).map((item) =>
+    `<li>${operatorEsc(item.method)}: ${operatorEsc(item.state)}${item.machineCode ? ' · ' + operatorEsc(item.machineCode) : ''} — ${operatorEsc(item.reason)}</li>`).join('');
+  return `<div class="operator-result ${ready ? 'ok' : ''}" role="status">
+    <strong>Ключ сохранён. Публикация ${ready ? 'доступна' : 'пока недоступна'}.</strong><br>
+    Токен: ${operatorEsc(validity[credential.validity] || 'не проверен')}${credential.identity ? ' · ' + operatorEsc(credential.identity) : ''}<br>
+    Чат: ${operatorEsc(destination.id || 'не подтверждён')} · ${operatorEsc(destination.role || 'роль не подтверждена')}<br>
+    ${operatorEsc(formats)}${remedies}
+    <details><summary>Подробности проверки</summary><ul>${methods}</ul>${profile?.lastCheckMessage ? '<p>' + operatorEsc(profile.lastCheckMessage) + '</p>' : ''}</details>
+  </div>`;
+}
+
 function renderSocialConnectForm(platform) {
   const host = document.querySelector('#operator-social-connect');
   if (!host) return;
@@ -155,11 +177,11 @@ function renderSocialConnectForm(platform) {
   host.innerHTML = `<div class="operator-section">
     <div class="operator-page-head"><div><h3>Подключить ${meta.label}</h3><p>${meta.note}</p></div><button id="operator-close-connect" class="secondary" type="button">Закрыть</button></div>
     <form id="operator-social-form" class="operator-form">
-      <label class="full">Название подключения<input name="name" required placeholder="Например: Основной канал"><span class="operator-field-help">Это название будет видно при выборе площадки у публикации.</span></label>
+      <label class="full">Название подключения<input name="name" autocomplete="off" required placeholder="Например: Основной канал"><span class="operator-field-help">Это название будет видно при выборе площадки у публикации.</span></label>
       ${socialCredentialFields(platform)}
       <div class="operator-secret-note">Секреты вводятся только здесь, на вашем Publikator. В интерфейсе они обратно не показываются.</div>
       <div id="operator-connect-result" class="operator-test-result"></div>
-      <div class="row-actions full"><button id="operator-test-connect" class="secondary" type="button">Проверить подключение</button><button id="operator-save-connect" class="primary" type="submit" disabled>Сохранить подключение</button></div>
+      <div class="row-actions full"><button id="operator-test-connect" class="secondary" type="button" ${platform === 'max' ? 'hidden' : ''}>Проверить подключение</button><button id="operator-save-connect" class="primary" type="submit" disabled>Сохранить подключение</button></div>
     </form>
   </div>`;
   const form = host.querySelector('#operator-social-form');
@@ -172,10 +194,10 @@ function renderSocialConnectForm(platform) {
   const invalidate = () => {
     verifiedFingerprint = '';
     verifiedMode = '';
-    save.disabled = platform === 'vk'
-      ? !form.querySelector('input[name="accessToken"]').value.trim()
-      : true;
-    save.textContent = platform === 'vk' ? 'Сохранить ключ VK' : 'Сохранить подключение';
+    save.disabled = platform === 'max'
+      ? !['name', 'accessToken', 'chatId'].every((name) => form.querySelector(`input[name="${name}"]`).value.trim())
+      : platform === 'vk' ? !form.querySelector('input[name="accessToken"]').value.trim() : true;
+    save.textContent = platform === 'max' ? 'Сохранить и проверить' : platform === 'vk' ? 'Сохранить ключ VK' : 'Сохранить подключение';
     result.innerHTML = '';
   };
   form.querySelectorAll('input').forEach((input) => {
@@ -295,6 +317,20 @@ function renderSocialConnectForm(platform) {
     event.preventDefault();
     try {
       const credentials = socialCredentialsFromForm(platform, form);
+      if (platform === 'max') {
+        const name = String(new FormData(form).get('name') || '').trim();
+        save.disabled = true;
+        result.innerHTML = '<div class="operator-result">Сохраняю ключ и проверяю доступ к чату…</div>';
+        const saved = await operatorApi('/api/accounts/save-and-check', {
+          method: 'POST', body: JSON.stringify({ platform, name, credentials })
+        });
+        form.querySelector('input[name="accessToken"]').value = '';
+        await renderSocialsPage();
+        const row = [...operatorView.querySelectorAll('.operator-connection')]
+          .find((item) => item.dataset.accountId === saved.account.id);
+        if (row) row.querySelector('.operator-account-result').innerHTML = maxCapabilityCard(saved.capabilityProfile);
+        return;
+      }
       const verified = verifiedFingerprint && verifiedFingerprint === JSON.stringify(credentials);
       if (platform !== 'vk' && !verified) throw new Error('Сначала нажмите «Проверить подключение» после последнего изменения полей.');
       const data = new FormData(form);
@@ -335,6 +371,7 @@ function renderSocialConnectForm(platform) {
         save.disabled = !form.querySelector('input[name="accessToken"]').value.trim();
         save.textContent = 'Сохранить ключ VK';
       }
+      if (platform === 'max') save.disabled = false;
       showSocialConnectionError(result, error, platform, 'сохранение подключения');
     }
   };
@@ -356,7 +393,7 @@ async function renderSocialsPage() {
           const credentialOnly = account.platform === 'vk' && account.credential_only === true;
           const pendingKey = account.platform === 'vk' && account.verification_status === 'PENDING';
           const canAddVkCommunity = account.platform === 'vk' && !pendingKey && !credentialOnly && account.destination_kind === 'PERSONAL';
-          return `<div class="operator-connection" data-account-id="${operatorEsc(account.id)}" data-platform="${operatorEsc(account.platform)}"><span class="operator-platform-badge">${operatorEsc(account.platform)}</span><div class="operator-connection-main"><strong>${operatorEsc(account.name)}</strong><span>${pendingKey ? 'Ключ сохранён · проверка не завершена · публикация выключена' : credentialOnly ? `Ключ сообщества · текст: ${account.enabled && account.text_publish_ready ? 'включён' : 'выключен'} · фото: ${account.photo_publish_ready ? 'доступны' : account.photo_key_present ? 'проверка ключа загрузки не пройдена' : 'добавьте пользовательский ключ загрузки'}` : account.enabled ? 'Включено · назначение можно подтвердить кнопкой «Проверить»' : 'Отключено · назначение можно подтвердить кнопкой «Проверить»'}</span>${credentialOnly && account.capabilityProfile?.profileCurrent ? `<div class="small">Доступ: ${account.capabilityProfile.accessLevel === 'FULL' ? 'полный' : account.capabilityProfile.accessLevel === 'PARTIAL' ? 'частичный' : 'ограниченный'} · текст: ${account.capabilityProfile.semantic?.publicationReadiness?.TEXT?.state === 'READY' ? 'доступен' : 'не подтверждён'} · фото и карусель: ${account.capabilityProfile.semantic?.publicationReadiness?.IMAGE?.state === 'READY' ? 'доступны' : 'нужен рабочий ключ загрузки'}</div>${account.photo_setup_error ? `<div class="small error">${operatorEsc(account.photo_setup_error)}</div>` : ''}` : ''}<div class="operator-account-result"></div></div><div class="operator-connection-actions"><button class="secondary operator-test-account" type="button">Проверить</button>${canAddVkCommunity ? '<button class="secondary operator-add-vk-community" type="button">Добавить сообщество</button>' : ''}${pendingKey ? '<button class="secondary operator-activate-account" type="button">Завершить проверку</button>' : ''}${pendingKey ? '' : `<button class="secondary operator-toggle-account" type="button" data-enabled="${account.enabled ? '1' : '0'}">${account.enabled ? 'Отключить' : 'Включить'}</button>`}</div></div>`;
+          return `<div class="operator-connection" data-account-id="${operatorEsc(account.id)}" data-platform="${operatorEsc(account.platform)}" data-credential-version="${operatorEsc(account.capabilityProfile?.credentialVersion || '')}"><span class="operator-platform-badge">${operatorEsc(account.platform)}</span><div class="operator-connection-main"><strong>${operatorEsc(account.name)}</strong><span>${pendingKey ? 'Ключ сохранён · проверка не завершена · публикация выключена' : credentialOnly ? `Ключ сообщества · текст: ${account.enabled && account.text_publish_ready ? 'включён' : 'выключен'} · фото: ${account.photo_publish_ready ? 'доступны' : account.photo_key_present ? 'проверка ключа загрузки не пройдена' : 'добавьте пользовательский ключ загрузки'}` : account.enabled ? 'Включено · назначение можно подтвердить кнопкой «Проверить»' : 'Отключено · назначение можно подтвердить кнопкой «Проверить»'}</span>${credentialOnly && account.capabilityProfile?.profileCurrent ? `<div class="small">Доступ: ${account.capabilityProfile.accessLevel === 'FULL' ? 'полный' : account.capabilityProfile.accessLevel === 'PARTIAL' ? 'частичный' : 'ограниченный'} · текст: ${account.capabilityProfile.semantic?.publicationReadiness?.TEXT?.state === 'READY' ? 'доступен' : 'не подтверждён'} · фото и карусель: ${account.capabilityProfile.semantic?.publicationReadiness?.IMAGE?.state === 'READY' ? 'доступны' : 'нужен рабочий ключ загрузки'}</div>${account.photo_setup_error ? `<div class="small error">${operatorEsc(account.photo_setup_error)}</div>` : ''}` : ''}<div class="operator-account-result">${account.platform === 'max' ? maxCapabilityCard(account.capabilityProfile) : ''}</div></div><div class="operator-connection-actions"><button class="secondary operator-test-account" type="button">Проверить</button>${account.platform === 'max' ? '<button class="secondary operator-max-destination" type="button" data-mode="replace">Изменить чат</button><button class="secondary operator-max-destination" type="button" data-mode="add">Добавить чат</button>' : ''}${canAddVkCommunity ? '<button class="secondary operator-add-vk-community" type="button">Добавить сообщество</button>' : ''}${pendingKey ? '<button class="secondary operator-activate-account" type="button">Завершить проверку</button>' : ''}${pendingKey ? '' : `<button class="secondary operator-toggle-account" type="button" data-enabled="${account.enabled ? '1' : '0'}">${account.enabled ? 'Отключить' : 'Включить'}</button>`}</div></div>`;
         }).join('') : '<div class="operator-empty">Пока нет ни одного подключения. Выберите площадку выше.</div>'}</div>
       </section>
     </div>`;
@@ -377,6 +414,11 @@ async function renderSocialsPage() {
       const out = row.querySelector('.operator-account-result');
       out.innerHTML = '<div class="operator-result">Проверяю…</div>';
       try {
+        if (row.dataset.platform === 'max') {
+          const checked = await operatorApi(`/api/accounts/${encodeURIComponent(row.dataset.accountId)}/recheck`, { method: 'POST' });
+          out.innerHTML = maxCapabilityCard(checked.capabilityProfile);
+          return;
+        }
         const checked = await operatorApi(`/api/accounts/${encodeURIComponent(row.dataset.accountId)}/test`, { method: 'POST' });
         out.innerHTML = checked?.platform === 'vk' && checked?.details?.keyValidity
           ? vkCapabilityCard(checked)
@@ -384,6 +426,48 @@ async function renderSocialsPage() {
       } catch (error) {
         showSocialConnectionError(out, error, row.dataset.platform || 'unknown', 'проверку сохранённого подключения');
       }
+    }));
+    operatorView.querySelectorAll('.operator-max-destination').forEach((button) => button.addEventListener('click', () => {
+      const row = button.closest('.operator-connection');
+      const account = accounts.find((item) => item.id === row.dataset.accountId);
+      const mode = button.dataset.mode;
+      const out = row.querySelector('.operator-account-result');
+      out.innerHTML = `<form class="operator-max-destination-form operator-form">
+        <h4>${mode === 'add' ? 'Добавить чат этого бота' : 'Изменить чат'}</h4>
+        <p class="full">Используется сохранённый ключ бота. Доступ к чату проверяется отдельно.</p>
+        <label class="full">Название<input name="name" autocomplete="off" required value="${operatorEsc(account.name)}"></label>
+        <label class="full">ID чата MAX<input name="chatId" required inputmode="text" placeholder="-123456789" value="${mode === 'replace' ? operatorEsc(account.capabilityProfile?.semantic?.destination?.id || '') : ''}"><span class="operator-field-help">Числовой ID из MAX. Знак минус — часть ID.</span></label>
+        <div class="row-actions full"><button class="primary" type="submit">Сохранить и проверить</button><button class="secondary operator-cancel-max-destination" type="button">Отмена</button></div>
+        <div class="operator-max-destination-result full"></div>
+      </form>`;
+      const form = out.querySelector('form');
+      form.querySelector('.operator-cancel-max-destination').onclick = () => { out.innerHTML = maxCapabilityCard(account.capabilityProfile); };
+      form.onsubmit = async (event) => {
+        event.preventDefault();
+        const submit = form.querySelector('button[type="submit"]');
+        const result = form.querySelector('.operator-max-destination-result');
+        submit.disabled = true;
+        try {
+          const data = new FormData(form);
+          const saved = await operatorApi(`/api/accounts/${encodeURIComponent(account.id)}/max-destination`, {
+            method: 'POST', body: JSON.stringify({
+              mode, name: String(data.get('name') || '').trim(),
+              chatId: String(data.get('chatId') || '').trim(),
+              expectedCredentialVersion: account.capabilityProfile?.credentialVersion
+            })
+          });
+          await renderSocialsPage();
+          const changed = [...operatorView.querySelectorAll('.operator-connection')]
+            .find((item) => item.dataset.accountId === saved.account.id);
+          if (changed) {
+            changed.querySelector('.operator-account-result').innerHTML = maxCapabilityCard(saved.capabilityProfile);
+            changed.scrollIntoView({ block: 'nearest' });
+          }
+        } catch (error) {
+          showSocialConnectionError(result, error, 'max', mode === 'add' ? 'добавление чата' : 'смену чата');
+          submit.disabled = false;
+        }
+      };
     }));
     operatorView.querySelectorAll('.operator-activate-account').forEach((button) => button.addEventListener('click', async () => {
       const row = button.closest('.operator-connection');
@@ -563,7 +647,7 @@ function integrationTokenModal(token) {
   };
   overlay.querySelector('.integration-token-close').onclick = close;
   overlay.addEventListener('click', (event) => { if (event.target === overlay) close(); });
-  document.body.append(overlay);
+  (document.querySelector('.sources-api-modal[open]') || document.body).append(overlay);
 }
 
 function integrationKeyForm() {
@@ -607,7 +691,7 @@ function integrationKeyForm() {
       error.textContent = failure instanceof Error ? failure.message : String(failure);
     }
   };
-  document.body.append(overlay);
+  (document.querySelector('.sources-api-modal[open]') || document.body).append(overlay);
 }
 
 function integrationKeyRows(keys) {
@@ -674,28 +758,30 @@ async function renderSourcesPage() {
     operatorSourceFile = null;
     operatorSourcePreview = null;
     operatorSourcePreviewId = '';
-    operatorView.innerHTML = `<div class="operator-page">
-      <div class="operator-page-head"><div><h2>Источники / Интеграции</h2><p>Загружайте контент пачками из Excel/CSV или подключайте Google Sheets. Повторная версия одного набора обновляет строки вместо создания дублей.</p></div></div>
-      <div class="operator-source-layout">
-        <section class="operator-section"><h3>Таблица Excel / CSV</h3><p>Скачайте русский шаблон, заполните лист «Публикации», затем сначала проверьте файл. Импорт станет доступен только после успешной проверки этой же версии.</p>
-          <div class="operator-form"><label class="full">Название набора<input id="operator-source-id" value="${operatorEsc(savedSourceId)}" pattern="[A-Za-z0-9._:-]{1,128}" required><span class="operator-field-help">Например: social-plan. Используйте одно название для повторных версий одной и той же таблицы.</span></label></div>
-          <div class="operator-actions" style="margin:14px 0"><a class="button-link secondary" href="/api/content-plan/v3/template.xlsx" download>Скачать шаблон XLSX</a></div>
-          <label class="operator-drop"><input id="operator-source-file" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"><strong>Выбрать CSV / XLSX</strong><span id="operator-source-file-name">Файл не выбран</span></label>
-          <div class="operator-actions" style="margin-top:14px"><button id="operator-source-preview" class="primary" type="button" disabled>1. Проверить таблицу</button><button id="operator-source-apply" class="secondary" type="button" disabled>2. Импортировать</button></div>
-          <div id="operator-source-result"></div>
-        </section>
-        <aside class="operator-section"><h3>Подключения</h3><p>Здесь показаны доступные способы загрузки контента и внешних медиа.</p>
-          <div class="operator-connector-card"><strong>Excel / CSV</strong><span>Работает. Повторная загрузка обновляет существующие строки без дублей.</span></div>
-          <div class="operator-connector-card" style="margin-top:10px"><strong>Google Sheets</strong><span>Подключение и автоматизация доступны ниже на этой странице.</span></div>
-          <div class="operator-connector-card" style="margin-top:10px"><strong>Google Drive / Яндекс Диск</strong><span>Поддерживаются как источники изображений для Google Sheets; файлы после импорта сохраняются локально в Publikator.</span></div>
-        </aside>
-      </div>
-      <section class="operator-section" id="operator-integration-api" style="min-width:0">
-        <div class="operator-page-head"><div><h3>Integration API</h3><p>Создайте Bearer API key для бота или AI. Полный token показывается только один раз.</p></div><button id="operator-new-api-key" class="primary" type="button">+ Новый API-ключ</button></div>
+    operatorView.innerHTML = `<div class="operator-page sources-compact">
+      <div id="operator-source-connected-slot"></div>
+      <section class="operator-source-layout sources-file-panel" aria-label="Импорт файла">
+        <div class="sources-file-head"><h3>Импорт файла</h3><a href="/api/content-plan/v3/template.xlsx" download>Шаблон XLSX ↓</a></div>
+        <div class="sources-file-tools">
+          <label>Набор<input id="operator-source-id" value="${operatorEsc(savedSourceId)}" pattern="[A-Za-z0-9._:-]{1,128}" required aria-label="Название набора"></label>
+          <label class="sources-file-pick"><input id="operator-source-file" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"><span id="operator-source-file-name">CSV / XLSX</span></label>
+          <button id="operator-source-preview" class="primary" type="button" disabled>Проверить файл</button><button id="operator-source-apply" class="secondary" type="button" disabled>Импортировать</button>
+        </div><div id="operator-source-result"></div>
+      </section>
+      <div class="sources-api-entry"><button id="sources-open-api" class="secondary" type="button">Ключи для ботов / API</button></div>
+      <dialog class="gs-dialog sources-api-modal" aria-label="Ключи для ботов и API"><section id="operator-integration-api">
+        <div class="operator-page-head"><h3>Ключи для ботов / API</h3><button type="button" id="sources-close-api" class="secondary">Закрыть</button></div>
+        <button id="operator-new-api-key" class="primary" type="button">+ Новый API-ключ</button>
         <div class="operator-preview-table"><table class="table"><thead><tr><th>Название</th><th>Prefix</th><th>Scopes</th><th>Создан</th><th>Последнее использование</th><th>Статус</th><th>Действия</th></tr></thead><tbody><tr><td colspan="7">Загрузка…</td></tr></tbody></table></div>
         <div class="integration-api-result error"></div>
-      </section>
+      </section></dialog>
     </div>`;
+    const apiDialog = document.querySelector('.sources-api-modal');
+    document.querySelector('#sources-open-api').onclick = () => apiDialog.showModal();
+    document.querySelector('#sources-close-api').onclick = () => apiDialog.close();
+    apiDialog.addEventListener('cancel', event => {
+      if (apiDialog.querySelector('.integration-key-form-modal,.integration-token-modal')) event.preventDefault();
+    });
     const file = document.querySelector('#operator-source-file');
     const preview = document.querySelector('#operator-source-preview');
     const apply = document.querySelector('#operator-source-apply');

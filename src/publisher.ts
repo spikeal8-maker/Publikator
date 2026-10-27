@@ -13,6 +13,7 @@ import {
 } from './platform-text.js';
 import { beginPublicationActivity } from './runtime-gate.js';
 import { getContentRevision, revisionMedia, revisionTargets, type ContentRevisionRow } from './content-versioning.js';
+import { resolveTargetMediaPlan } from './target-media-plan.js';
 import {
   claimNextPublicationUnit,
   confirmPublicationUnitNotPublished,
@@ -222,10 +223,19 @@ function mergeCompilationDiagnostics(input: PublishInput, diagnostics: PlatformT
 export function buildRevisionPublishInput(target: PublishTargetRow, revision: ContentRevisionRow): PublishInput {
   const targetSnapshot = revisionTargets(revision).find((item) => item.targetId === target.id && item.accountId === target.account_id && item.enabled);
   if (!targetSnapshot) throw new Error('Цель не входит в immutable READY revision');
-  const media = revisionMedia(revision);
+  const canonicalMedia = revisionMedia(revision);
   const credentials = decryptJson<Record<string, unknown>>(target.credentials_encrypted);
   const publicationKind = resolvedPublicationKind(targetSnapshot.rendition?.publicationKind, revision.publication_kind);
-  const contentFormat = resolvedContentFormat(targetSnapshot.rendition?.contentFormat, revision.content_format);
+  const baseFormat = resolvedContentFormat(targetSnapshot.rendition?.contentFormat, revision.content_format);
+  // Resolve solely from the immutable READY target + media snapshots; do not
+  // read mutable target/media tables after the publication has been approved.
+  const plan = resolveTargetMediaPlan(
+    targetSnapshot.rendition?.mediaPlanJson, canonicalMedia, publicationKind, baseFormat
+  );
+  const media = plan.applied
+    ? plan.media.map((asset, order) => ({ ...asset, sort_order: order }))
+    : plan.media;
+  const contentFormat = plan.contentFormat;
   const publicMediaUrls = platformRequiresPublicHttpsMedia(target.platform, contentFormat) ? media.map(mediaPublicUrl) : [];
   const resolvedText = resolveTargetRichText({
     baseRichJson: revision.body_rich_json,

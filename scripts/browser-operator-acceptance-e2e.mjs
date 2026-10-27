@@ -1710,8 +1710,10 @@ try {
   for (const stale of ['Пока не подключено', 'backend ещё не реализован', 'Cloud media connectors пока не включены']) {
     assert.ok(!sourcesText.includes(stale), `stale Sources copy is visible: ${stale}`);
   }
-  assert.match(sourcesText, /Google Sheets/, 'Google Sheets live source section is missing');
-  assert.match(sourcesText, /Google Drive \/ Яндекс Диск/, 'cloud media source card is missing');
+  assert.match(sourcesText, /Таблицы/, 'connected plans section is missing');
+  assert.match(sourcesText, /Папки изображений/, 'connected media section is missing');
+  assert.equal(await page.locator('#operator-source-file').isVisible(), true);
+  await page.locator('#sources-open-api').click();
 
   // EW4-009: Integration API key UI -> external create -> normal Content workflow.
   const integrationSection = page.locator('#operator-integration-api');
@@ -1801,6 +1803,7 @@ try {
   await browserApiInspector.waitFor({ state: 'detached', timeout: 5000 });
 
   await page.goto(`${base}/sources`, { waitUntil: 'domcontentloaded' });
+  await page.locator('#sources-open-api').click();
   await page.locator('#operator-integration-api').waitFor({ state: 'visible', timeout: 5000 });
   apiKeyRow = page.locator('#operator-integration-api tbody tr').filter({ hasText: browserApiPrefix });
   page.once('dialog', (dialog) => dialog.accept());
@@ -1841,6 +1844,7 @@ try {
     assert.equal((await page.locator('body').textContent()).includes(token), false);
   }
 
+  await page.locator('#sources-close-api').click();
   const editorialSheetCard = page.locator(`.gs-connector[data-gs-id="${browserSheetConnector.id}"]`);
   await editorialSheetCard.waitFor({ state: 'visible', timeout: 5000 });
   await editorialSheetCard.locator('.gs-preview').click();
