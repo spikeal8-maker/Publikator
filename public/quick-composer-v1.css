@@ -197,6 +197,21 @@
   font-weight: 700; cursor: pointer;
 }
 .qc-variant-editor button:disabled { opacity: .55; cursor: default; }
+.qc-media-variant { margin-top: 14px; border-top: 1px solid #e2e8f2; padding-top: 12px; min-width: 0; }
+.qc-media-variant[hidden] { display: none; }
+.qc-media-variant h4 { font-size: 12px; color: #263951; margin: 0 0 6px; }
+#qc-media-variant-note { font-size: 11px; color: #596c85; line-height: 1.5; margin: 4px 0 10px; }
+.qc-media-variant-list { display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto; min-width: 0; }
+.qc-media-variant-row {
+  display: grid; grid-template-columns: 21px 36px minmax(0,1fr) 34px 34px;
+  align-items: center; gap: 5px; padding: 6px;
+  border: 1px solid #e1e8f3; border-radius: 8px; background: #f8fafc;
+}
+.qc-media-variant-row input { width: 18px; height: 18px; cursor: pointer; }
+.qc-media-variant-row img { width: 36px; height: 36px; object-fit: cover; border-radius: 5px; }
+.qc-media-variant-row span { min-width: 0; overflow-wrap: anywhere; font-size: 11px; color: #374760; }
+.qc-media-variant-row button { min-width: 30px; min-height: 34px; padding: 6px !important; }
+#qc-media-variant-reset { margin-top: 10px; }
 .qc-preview { border-top: 1px solid #dee6f0; margin-top: 20px; padding-top: 18px; }
 .qc-preview h4 { font-size: 12px; margin: 0 0 8px; }
 #qc-preview-text {

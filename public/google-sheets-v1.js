@@ -46,6 +46,52 @@ function serviceAccountIdentity(text) {
   }
 }
 
+
+function gsHelp(title, body) {
+  return '<details class="gs-help"><summary aria-label="Справка: ' + gsEsc(title) + '">ⓘ</summary><div class="gs-help-body">' + body + '</div></details>';
+}
+
+function gsCredentials(text) {
+  let value;
+  try { value = JSON.parse(String(text || '')); }
+  catch { throw new Error('Вставьте JSON-файл целиком: от первой { до последней }. Отдельный private_key или API-ключ самого n8n сюда не подходит.'); }
+  if (value?.type !== 'service_account' || typeof value.client_email !== 'string' ||
+      !/^[^\s@]+@[^\s@]+\.gserviceaccount\.com$/.test(value.client_email) ||
+      typeof value.private_key !== 'string' || !value.private_key.includes('BEGIN PRIVATE KEY')) {
+    throw new Error('Нужен JSON сервисного аккаунта Google с type=service_account, client_email и private_key. OAuth Client ID и API-ключ n8n не подходят.');
+  }
+  return value;
+}
+
+function gsSpreadsheetId(value) {
+  const raw = String(value || '').trim();
+  const match = raw.match(/^https:\/\/docs\.google\.com\/spreadsheets\/d\/([A-Za-z0-9_-]+)(?:[/?#].*)?$/);
+  const id = match ? match[1] : raw;
+  if (!/^[A-Za-z0-9_-]{10,200}$/.test(id)) throw new Error('Вставьте ссылку на Google Таблицу или её ID между /d/ и /edit.');
+  return id;
+}
+
+function gsActionableError(error, email = '', service = 'sheets') {
+  const message = error instanceof Error ? error.message : String(error);
+  const who = email ? ' ' + email : ' email из JSON';
+  if (/HTTP 403/.test(message) && service === 'google-drive') return 'Нет доступа к папке Google Drive (403). Откройте «Настройки доступа» папки и добавьте' + who + ' как «Читатель». Если доступ выдан, проверьте Google Drive API в проекте сервисного аккаунта.';
+  if (service === 'yandex-disk') {
+    if (/HTTP 401/.test(message)) return 'Яндекс не принял токен (401). Получите новый access_token для своего приложения и замените поле «Токен». ClientID и Client secret сюда не подходят.';
+    if (/HTTP 403/.test(message)) return 'Яндекс отклонил доступ (403). Для обычной папки нужно «Чтение всего Диска», а не только «Доступ к папке приложения». Добавьте право в настройках приложения, сохраните и получите НОВЫЙ токен. Замените старый токен здесь: сохранение прав не обновляет ранее выданный токен. Сам ответ 403 не доказывает конкретную причину; подробные шаги — в «Нет токена? Получить за 3 шага».';
+    if (/HTTP 404/.test(message)) return 'Папка не найдена или недоступна (404). Откройте Диск того аккаунта, который выдал токен. Проверьте точный путь, например /Публикатор.';
+    if (/timed out|Failed to fetch|fetch failed/.test(message)) return 'Яндекс не ответил вовремя. Повторите проверку. Это не подтверждает ошибку токена или прав.';
+    if (/OAuth token is invalid/.test(message)) return 'Вставьте access_token целиком, без пробелов, OAuth и кавычек. Это код со страницы получения токена, не ClientID и не Client secret.';
+  }
+  if (/HTTP 403|SHEETS_ACCESS_DENIED/.test(message)) return 'Нет доступа к таблице (403). Откройте «Настройки доступа» в Google Таблице и добавьте' + who + '. Для чтения выберите «Читатель», для записи статусов — «Редактор». Если доступ уже выдан, проверьте Google Sheets API в проекте сервисного аккаунта.';
+  if (/SHEETS_API_DISABLED/.test(message)) return 'Google Sheets API выключен в проекте сервисного аккаунта. В Google Cloud откройте «API и сервисы → Библиотека → Google Sheets API» и включите API.';
+  if (/HTTP 404/.test(message)) return 'Таблица или папка не найдена либо недоступна сервисному аккаунту. Проверьте ссылку и общий доступ.';
+  if (/HTTP 401|Google OAuth failed|private_key could not sign/.test(message)) return 'Google не принял ключ. Проверьте, что вставлен JSON сервисного аккаунта целиком, а ключ не отозван. Не изменяйте переносы внутри private_key вручную.';
+  if (/timed out|Failed to fetch/.test(message)) return 'Не удалось дождаться ответа. Проверьте соединение и повторите проверку; это действие ничего не публикует.';
+  return message;
+}
+
+const gsJsonGuide = '<ol><li>Откройте <a href="https://console.cloud.google.com/iam-admin/serviceaccounts" target="_blank" rel="noopener noreferrer">Google Cloud → IAM и администрирование → Сервисные аккаунты</a>.</li><li>Выберите аккаунт → «Ключи». Используйте ранее скачанный JSON. Если его нет, создайте новый ключ типа JSON; старые ключи не удаляйте без проверки других приложений.</li><li>Включите Google Sheets API, а для папки изображений — Google Drive API в этом же проекте.</li><li>Откройте файл .json в текстовом редакторе и скопируйте весь текст от { до }. Или выберите файл кнопкой ниже. Не вставляйте ключ в таблицу и не отправляйте его в чат.</li></ol>';
+
 function gsDate(value) {
   if (!value) return '\u2014';
   const date = new Date(value);
@@ -73,37 +119,85 @@ function gsPollingMeta(polling = {}) {
   return `\u041f\u043e\u0441\u043b\u0435\u0434\u043d\u044f\u044f \u0430\u0432\u0442\u043e\u043f\u0440\u043e\u0432\u0435\u0440\u043a\u0430: ${gsEsc(gsDate(polling.lastAttemptAt))} \u00b7 ${result}${autoApply}${autoReady}${next}`;
 }
 
+
+function gsDialog(host, id, title) {
+  host.querySelector('dialog.gs-setup-dialog')?.remove();
+  const dialog = document.createElement('dialog');
+  dialog.className = 'gs-dialog gs-setup-dialog';
+  dialog.setAttribute('aria-label', title);
+  dialog.innerHTML = '<div id="' + id + '"></div>';
+  host.append(dialog);
+  dialog.showModal();
+  return dialog.firstElementChild;
+}
+function gsCloseDialog(container, message = '') {
+  const dialog = container.closest('dialog');
+  if (dialog) { dialog.close(); dialog.remove(); }
+  const notice = document.querySelector('#sources-notice');
+  if (notice && message) { notice.textContent = message; notice.className = 'operator-result ok'; }
+}
+function gsAutomationSummary(connector) {
+  const config = connector.config;
+  const active = connector.enabled !== false;
+  return '<div class="gs-state-grid" aria-label="Сохранённые настройки">' +
+    '<div><span>Проверка таблицы</span><strong>' + (active && config.pollingEnabled ? 'Каждые ' + Number(config.pollIntervalMinutes || 15) + ' мин' : 'Автоматически не проверяется') + '</strong></div>' +
+    '<div><span>Импорт строк</span><strong>' + (active && config.pollingEnabled && config.autoApplyEnabled ? 'Автоматически в черновики' : 'Вручную после проверки') + '</strong></div>' +
+    '<div><span>Готовность к отправке</span><strong>' + (active && config.pollingEnabled && config.autoApplyEnabled && config.autoReadyEnabled ? 'Автоматически после проверок' : 'Требует вашей проверки') + '</strong></div></div>';
+}
+
 function connectorCard(connector) {
   const preview = googlePreviewByConnector.get(connector.id);
   return `<article class="gs-connector" data-gs-id="${gsEsc(connector.id)}">
     <div class="gs-connector-head">
-      <div><strong>${gsEsc(connector.name)}</strong><span>${gsEsc(connector.config.spreadsheetId)} · ${gsEsc(connector.config.sheetName)}</span></div>
-      <span class="badge">${connector.config.writeBack ? 'Импорт + статусы публикаций' : 'Только импорт'}</span>
+      <div><strong><a href="https://docs.google.com/spreadsheets/d/${encodeURIComponent(connector.config.spreadsheetId)}/edit" target="_blank" rel="noopener noreferrer">${gsEsc(connector.name)} ↗</a></strong><span>Google Таблица · лист «${gsEsc(connector.config.sheetName)}»</span></div>
+      <span class="gs-enabled">${connector.enabled === false ? 'Отключено' : connector.polling?.lastResult === 'failed' ? 'Ошибка проверки' : 'Подключено'}</span>
     </div>
+    ${gsAutomationSummary(connector)}
+    <dialog class="gs-dialog gs-automation" aria-label="Автоматизация таблицы"><div class="gs-settings-body"><div class="operator-page-head"><h3>Автоматизация</h3><button class="secondary gs-settings-close" type="button">Закрыть</button></div>
     <div class="gs-connector-meta">Сервисный аккаунт: <code>${gsEsc(connector.config.serviceAccountEmail)}</code></div>
     <div class="gs-polling">
-      <label class="target-check"><input class="gs-poll-enabled" type="checkbox" ${connector.config.pollingEnabled ? 'checked' : ''}> \u0410\u0432\u0442\u043e\u043f\u0440\u043e\u0432\u0435\u0440\u043a\u0430 \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u0439</label>
-      <label>\u0418\u043d\u0442\u0435\u0440\u0432\u0430\u043b <select class="gs-poll-interval">${[5,15,30,60].map((value) => `<option value="${value}" ${Number(connector.config.pollIntervalMinutes || 15) === value ? 'selected' : ''}>${value} \u043c\u0438\u043d</option>`).join('')}</select></label>
-      <label class="target-check gs-auto-apply-label"><input class="gs-auto-apply" type="checkbox" ${connector.config.autoApplyEnabled ? 'checked' : ''}> \u0410\u0432\u0442\u043e\u043c\u0430\u0442\u0438\u0447\u0435\u0441\u043a\u0438 \u0438\u043c\u043f\u043e\u0440\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0431\u0435\u0437\u043e\u043f\u0430\u0441\u043d\u044b\u0435 NEW/UPDATE \u043a\u0430\u043a \u0447\u0435\u0440\u043d\u043e\u0432\u0438\u043a\u0438</label>
-      <label class="target-check gs-auto-ready-label"><input class="gs-auto-ready" type="checkbox" ${connector.config.autoReadyEnabled ? 'checked' : ''} ${connector.config.autoApplyEnabled ? '' : 'disabled'}> \u0414\u043e\u0432\u0435\u0440\u0435\u043d\u043d\u044b\u0439 \u0438\u0441\u0442\u043e\u0447\u043d\u0438\u043a: \u043f\u043e\u0441\u043b\u0435 \u0430\u0432\u0442\u043e\u0438\u043c\u043f\u043e\u0440\u0442\u0430 \u0430\u0432\u0442\u043e\u043c\u0430\u0442\u0438\u0447\u0435\u0441\u043a\u0438 \u043f\u043e\u043c\u0435\u0447\u0430\u0442\u044c \u043a\u0430\u043a \u00ab\u0413\u043e\u0442\u043e\u0432\u043e\u00bb \u0442\u043e\u043b\u044c\u043a\u043e \u043f\u043e\u0441\u043b\u0435 media/targets/preflight</label>
-      <button class="secondary gs-poll-save" type="button">\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u0430\u0432\u0442\u043e\u043c\u0430\u0442\u0438\u0437\u0430\u0446\u0438\u044e</button>
+      <div class="gs-setting"><label><input class="gs-poll-enabled" type="checkbox" ${connector.config.pollingEnabled ? 'checked' : ''}> Проверять по таймеру</label>${gsHelp('Автопроверка', 'Publikator периодически читает таблицу. Сама проверка не создаёт публикаций и ничего не отправляет в соцсети.')}</div>
+      <div class="gs-setting"><label>Как часто <select class="gs-poll-interval">${[5,15,30,60].map(value => '<option value="' + value + '" ' + (Number(connector.config.pollIntervalMinutes || 15) === value ? 'selected' : '') + '>' + value + ' мин</option>').join('')}</select></label>${gsHelp('Интервал проверки', 'Это частота чтения таблицы, а не время отправки. Время публикации задаётся в строке таблицы или календаре. Изменения обнаружатся при следующей проверке.')}</div>
+      <div class="gs-setting"><label><input class="gs-auto-apply" type="checkbox" ${connector.config.autoApplyEnabled ? 'checked' : ''}> Импортировать в черновики</label>${gsHelp('Автоимпорт', 'После проверки Publikator сохраняет корректные строки как черновики. Ошибки и конфликты не перезаписываются автоматически. Для изменения строки увеличивайте source_revision; сохраняйте external_id, чтобы не создавать дубликаты.')}</div>
+      <div class="gs-setting gs-ready-setting"><label><input class="gs-auto-ready" type="checkbox" ${connector.config.autoReadyEnabled ? 'checked' : ''} ${connector.config.autoApplyEnabled ? '' : 'disabled'}> Готовить к отправке автоматически</label>${gsHelp('Автоматическая готовность', '<strong>Может привести к реальной отправке.</strong> После автоимпорта приложение проверяет текст, изображения, получателей и ограничения площадок. Успешно проверенный материал становится готовым. Режим AT отправит его в назначенное время, QUEUE — по очереди; MANUAL сам не отправится. Включайте только для таблицы, содержимое и получатели которой проверены. Требуется автоимпорт.')}</div>
+      <button class="secondary gs-poll-save" type="button">Сохранить автоматизацию</button>
       <span class="gs-poll-meta">${gsPollingMeta(connector.polling)}</span>
-    </div>
-    <div class="row-actions">
-      <button class="secondary gs-test" type="button">Проверить</button>
-      <button class="primary gs-preview" type="button">Посмотреть изменения</button>
-      <button class="secondary gs-apply" type="button" ${preview?.canApply ? '' : 'disabled'}>Импортировать изменения</button>
+    </div><p class="gs-unsaved hidden" role="status">Есть несохранённые изменения</p>
       ${connector.config.writeBack ? '<button class="secondary gs-publication-writeback" type="button">Записать статусы сейчас</button>' : ''}
+    </div></dialog>
+    <div class="row-actions gs-main-actions">
+      <button class="primary gs-preview" type="button">Изменения</button>
+      <button class="secondary gs-apply ${preview ? '' : 'hidden'}" type="button" ${preview?.canApply ? '' : 'disabled'}>Импортировать</button>
+      <button class="secondary gs-test" type="button">Проверить</button>
+      <button class="secondary gs-add-folder" type="button">Папка +</button>
+      <button class="secondary gs-settings" type="button">Настройки</button>
     </div>
-    <div class="gs-result">${preview ? `<div class="operator-result ${preview.canApply ? 'ok' : 'error'}"><strong>${preview.canApply ? 'Предпросмотр готов.' : 'Импорт заблокирован.'}</strong> Sheet SHA: <code>${gsEsc(preview.sourceSnapshotSha256)}</code></div>${gsSummary(preview.summary)}${gsPreviewRows(preview)}` : ''}</div>
+    <div class="gs-result">${preview ? `<div class="operator-result ${preview.canApply ? 'ok' : 'error'}"><strong>${preview.canApply ? 'Предпросмотр готов.' : 'Импорт заблокирован.'}</strong> ${gsHelp("Технические сведения проверки", "<code>" + gsEsc(preview.sourceSnapshotSha256) + "</code>")}</div>${gsSummary(preview.summary)}${gsPreviewRows(preview)}` : ''}</div>
   </article>`;
 }
 
 async function loadGoogleConnectors(host) {
-  const data = await googleSheetsApi('/api/google-sheets/connectors');
-  const connectors = data.connectors || [];
   const list = host.querySelector('#gs-connectors-list');
-  list.innerHTML = connectors.length ? connectors.map(connectorCard).join('') : '<div class="operator-empty">Google Sheets ещё не подключён.</div>';
+  let data;
+  try { data = await googleSheetsApi('/api/google-sheets/connectors'); }
+  catch (error) {
+    host.querySelector('#sources-google-count').textContent = '?';
+    list.innerHTML = '<div class="operator-result error" role="alert">' + gsEsc(gsActionableError(error)) + '</div><button type="button" class="secondary gs-retry">Повторить загрузку таблиц</button>';
+    list.querySelector('.gs-retry').onclick = () => loadGoogleConnectors(host);
+    return;
+  }
+  const connectors = data.connectors || [];
+  host.querySelector('#sources-google-count').textContent = String(connectors.length);
+  list.innerHTML = connectors.length ? connectors.map(connectorCard).join('') : '<p class="muted">Нет подключённых таблиц</p>';
+  list.querySelectorAll('.gs-add-folder').forEach(button => button.addEventListener('click', () => renderGoogleConnectForm(host, button.closest('.gs-connector').dataset.gsId)));
+  list.querySelectorAll('.gs-connector').forEach(card => {
+    const settings = card.querySelector('.gs-automation');
+    card.querySelector('.gs-settings').onclick = () => settings.showModal();
+    card.querySelector('.gs-settings-close').onclick = () => settings.close();
+    card.querySelectorAll('.gs-polling input, .gs-polling select').forEach(input => input.addEventListener('change', () => {
+      card.querySelector('.gs-unsaved').classList.remove('hidden');
+    }));
+  });
   list.querySelectorAll('.gs-auto-apply').forEach((control) => control.addEventListener('change', () => {
     const autoReady = control.closest('.gs-connector')?.querySelector('.gs-auto-ready');
     if (!autoReady) return;
@@ -125,7 +219,7 @@ async function loadGoogleConnectors(host) {
       });
       await loadGoogleConnectors(host);
     } catch (error) {
-      out.innerHTML = `<div class="operator-result error">${gsEsc(error instanceof Error ? error.message : String(error))}</div>`;
+      out.innerHTML = `<div class="operator-result error">${gsEsc(gsActionableError(error))}</div>`;
       button.disabled = false;
     }
   }));
@@ -138,7 +232,7 @@ async function loadGoogleConnectors(host) {
       const result = await googleSheetsApi(`/api/google-sheets/connectors/${encodeURIComponent(card.dataset.gsId)}/publication-writeback`, { method: 'POST', body: '{}' });
       out.innerHTML = `<div class="operator-result ok"><strong>Статусы синхронизированы.</strong> Записано: ${Number(result.written || 0)}, ошибок: ${Number(result.failed || 0)}.</div>`;
     } catch (error) {
-      out.innerHTML = `<div class="operator-result error">${gsEsc(error instanceof Error ? error.message : String(error))}</div>`;
+      out.innerHTML = `<div class="operator-result error">${gsEsc(gsActionableError(error))}</div>`;
     } finally { button.disabled = false; }
   }));
   list.querySelectorAll('.gs-test').forEach((button) => button.addEventListener('click', async () => {
@@ -149,7 +243,7 @@ async function loadGoogleConnectors(host) {
       const result = await googleSheetsApi(`/api/google-sheets/connectors/${encodeURIComponent(card.dataset.gsId)}/test`, { method: 'POST', body: '{}' });
       out.innerHTML = `<div class="operator-result ok"><strong>Подключение работает.</strong> ${gsEsc(result.spreadsheetTitle)} · лист ${gsEsc(result.sheetName)}</div>`;
     } catch (error) {
-      out.innerHTML = `<div class="operator-result error">${gsEsc(error instanceof Error ? error.message : String(error))}</div>`;
+      out.innerHTML = `<div class="operator-result error">${gsEsc(gsActionableError(error))}</div>`;
     }
   }));
   list.querySelectorAll('.gs-preview').forEach((button) => button.addEventListener('click', async () => {
@@ -162,7 +256,7 @@ async function loadGoogleConnectors(host) {
       await loadGoogleConnectors(host);
     } catch (error) {
       googlePreviewByConnector.delete(card.dataset.gsId);
-      out.innerHTML = `<div class="operator-result error">${gsEsc(error instanceof Error ? error.message : String(error))}</div>`;
+      out.innerHTML = `<div class="operator-result error">${gsEsc(gsActionableError(error))}</div>`;
     }
   }));
   list.querySelectorAll('.gs-apply').forEach((button) => button.addEventListener('click', async () => {
@@ -184,90 +278,126 @@ async function loadGoogleConnectors(host) {
         ? `<div class="operator-result error">Импорт сохранён, но status write-back не выполнен: ${gsEsc(applied.writeBack.error || 'Google API error')}</div>` : '';
       out.innerHTML = `<div class="operator-result ok"><strong>Google Sheets синхронизирован.</strong> Создано: ${Number(applied.created || 0)}, обновлено: ${Number(applied.updated || 0)}, без изменений: ${Number(applied.unchanged || 0)}.</div>${warning}`;
     } catch (error) {
-      out.innerHTML = `<div class="operator-result error">${gsEsc(error instanceof Error ? error.message : String(error))}</div>`;
+      out.innerHTML = `<div class="operator-result error">${gsEsc(gsActionableError(error))}</div>`;
     } finally {
       button.disabled = false;
     }
   }));
 }
 
-function renderGoogleConnectForm(host) {
-  const formHost = host.querySelector('#gs-connect-form-host');
-  formHost.innerHTML = `<div class="gs-connect-form operator-section">
-    <div class="operator-page-head"><div><h3>Подключить Google Sheets</h3><p>Создайте Service Account в Google Cloud, включите Sheets API и поделитесь нужной таблицей с email сервисного аккаунта.</p></div><button id="gs-close-connect" class="secondary" type="button">Закрыть</button></div>
-    <form id="gs-connect-form" class="operator-form">
-      <label class="full">Название подключения<input name="name" required placeholder="ASA content sheet"></label>
-      <label class="full">Spreadsheet ID<input name="spreadsheetId" required placeholder="ID между /d/ и /edit в URL таблицы"></label>
-      <label class="full">Service Account JSON<textarea name="credentials" required rows="9" autocomplete="off" placeholder='{"type":"service_account", ...}'></textarea><span class="operator-field-help">Private key хранится только зашифрованно в Publikator.</span></label>
-      <div id="gs-share-hint" class="operator-secret-note">Вставьте JSON — здесь появится email, которому нужно открыть доступ к таблице.</div>
-      <div class="row-actions full"><button id="gs-inspect" class="secondary" type="button">1. Проверить таблицу и получить листы</button></div>
-      <label id="gs-sheet-wrap" class="full hidden">Лист<select name="sheetName"></select></label>
-      <label id="gs-writeback-wrap" class="target-check hidden"><input name="writeBack" type="checkbox"> Записывать результат импорта и публикации обратно в таблицу (V:AD)</label>
-      <div id="gs-connect-result" class="full"></div>
-      <div class="row-actions full"><button id="gs-save" class="primary" type="submit" disabled>2. Сохранить подключение</button></div>
-    </form>
-  </div>`;
-  const form = formHost.querySelector('#gs-connect-form');
-  const credentialsInput = form.elements.credentials;
-  const result = formHost.querySelector('#gs-connect-result');
-  const save = formHost.querySelector('#gs-save');
-  const sheetWrap = formHost.querySelector('#gs-sheet-wrap');
-  const writeBackWrap = formHost.querySelector('#gs-writeback-wrap');
-  let verified = '';
-
-  const invalidate = () => { verified = ''; save.disabled = true; sheetWrap.classList.add('hidden'); writeBackWrap.classList.add('hidden'); result.innerHTML = ''; };
-  form.querySelectorAll('input,textarea').forEach((input) => input.addEventListener('input', invalidate));
-  credentialsInput.addEventListener('input', () => {
-    const email = serviceAccountIdentity(credentialsInput.value);
-    formHost.querySelector('#gs-share-hint').innerHTML = email
-      ? `Поделитесь Google Sheet с <code>${gsEsc(email)}</code>. Для import-only достаточно Viewer; для status write-back нужен Editor.`
-      : 'Вставьте корректный Service Account JSON — здесь появится email, которому нужно открыть доступ к таблице.';
-  });
-  formHost.querySelector('#gs-close-connect').onclick = () => { formHost.innerHTML = ''; };
-  formHost.querySelector('#gs-inspect').onclick = async () => {
-    result.innerHTML = '<div class="operator-result">Проверяю доступ к Spreadsheet…</div>';
-    save.disabled = true;
-    try {
-      const credentials = JSON.parse(credentialsInput.value);
-      const spreadsheetId = String(form.elements.spreadsheetId.value || '').trim();
-      const inspection = await googleSheetsApi('/api/google-sheets/inspect', {
-        method: 'POST', body: JSON.stringify({ spreadsheetId, credentials })
-      });
-      const select = form.elements.sheetName;
-      select.innerHTML = inspection.sheets.map((name) => `<option value="${gsEsc(name)}">${gsEsc(name)}</option>`).join('');
-      sheetWrap.classList.remove('hidden');
-      writeBackWrap.classList.remove('hidden');
-      verified = JSON.stringify({ spreadsheetId, credentials });
-      result.innerHTML = `<div class="operator-result ok"><strong>Доступ подтверждён.</strong> ${gsEsc(inspection.spreadsheetTitle)} · листов: ${inspection.sheets.length}</div>`;
-      save.disabled = false;
-    } catch (error) {
-      verified = '';
-      result.innerHTML = `<div class="operator-result error">${gsEsc(error instanceof Error ? error.message : String(error))}</div>`;
-    }
+async function renderGoogleConnectForm(host, existingId = '') {
+  const formHost = gsDialog(host, 'gs-connect-form-host', 'Подключение Google');
+  formHost.innerHTML = '<p role="status">Загружаю сохранённые подключения Google…</p>';
+  let saved;
+  try { saved = (await googleSheetsApi('/api/google-sheets/connectors')).connectors.filter(item => item.enabled); }
+  catch (error) {
+    formHost.innerHTML = '<div class="gs-dialog-error"><p role="alert">' + gsEsc(gsActionableError(error)) + '</p><button type="button">Закрыть</button></div>';
+    formHost.querySelector('button').onclick = () => gsCloseDialog(formHost);
+    formHost.closest('dialog').addEventListener('cancel', event => { event.preventDefault(); gsCloseDialog(formHost); });
+    formHost.querySelector('button').focus();
+    return;
+  }
+  formHost.innerHTML = '<div class="gs-connect-form operator-section"><div class="operator-page-head"><div><h3>Google: таблица и папка изображений</h3><p>Один сервисный аккаунт для плана публикаций и фотографий. Доступ выдаётся отдельно к таблице и папке.</p></div><button id="gs-close-connect" class="secondary" type="button">Закрыть</button></div>' +
+    '<form id="gs-connect-form" class="operator-form">' +
+    '<div class="full gs-setup-guide"><strong>1. Выберите сервисный аккаунт</strong>' + gsHelp('Один аккаунт для Google', '<p>JSON — удостоверение сервисного аккаунта, а не доступ ко всему Google Диску. Для таблицы и папки подходит один JSON. API-ключ самого n8n, пароль Google и OAuth Client ID сюда не подходят. Если имя сервисного аккаунта содержит n8n, его Google JSON подходит: название аккаунта не ограничивает использование.</p>' + gsJsonGuide) + '</div>' +
+    '<div class="full gs-account-choices" role="group" aria-label="Сервисный аккаунт Google">' + saved.map(item => '<label><input type="radio" name="accountChoice" value="' + gsEsc(item.id) + '"><span><strong>Использовать сохранённый аккаунт</strong><small>' + gsEsc(item.name) + '<br>' + gsEsc(item.config.serviceAccountEmail) + '</small></span></label>').join('') + '<label><input type="radio" name="accountChoice" value=""><span><strong>Подключить другой аккаунт</strong><small>Загрузить или вставить его JSON-ключ</small></span></label><select name="existingConnectorId" hidden aria-hidden="true" tabindex="-1"><option value="">Новый аккаунт</option>' + saved.map(item => '<option value="' + gsEsc(item.id) + '">' + gsEsc(item.name) + '</option>').join('') + '</select></div>' +
+    '<div class="full" id="gs-new-key"><label>JSON сервисного аккаунта Google<textarea name="credentials" rows="6" autocomplete="off" placeholder=\'{"type":"service_account", …}\'></textarea></label><label>Или выберите файл JSON<input id="gs-json-file" type="file" accept=".json,application/json"></label><p class="operator-field-help">Вставьте весь файл от первой { до последней }. Ключ хранится зашифрованно. При выборе сохранённого аккаунта он остаётся на сервере и не запрашивается снова.</p></div>' +
+    '<div id="gs-share-hint" class="operator-secret-note"></div>' +
+    '<div class="full gs-setup-guide"><strong>2. Таблица с планом публикаций</strong>' + gsHelp('Как указать таблицу и выдать доступ', '<ol><li>Откройте нужную Google Таблицу и скопируйте адрес целиком. Подойдёт и ID между /d/ и /edit.</li><li>Нажмите «Настройки доступа» → добавьте показанный email сервисного аккаунта.</li><li>Для чтения выберите «Читатель», для записи результатов обратно — «Редактор». Ваш личный доступ не передаётся приложению.</li><li>В проекте Google Cloud включите Google Sheets API. После проверки выберите лист с колонками шаблона Publikator.</li></ol><p>Сохранённая таблица сохраняет свой ID подключения, настройки автоматизации и историю импорта. Здесь к ней можно добавить папку; таблица повторно не создаётся.</p>') + '</div>' +
+    '<label class="full">Название подключения<input name="name" required placeholder="План публикаций"></label>' +
+    '<label class="full">Ссылка на Google Таблицу или ID<input name="spreadsheetId" required placeholder="https://docs.google.com/spreadsheets/d/…/edit"></label>' +
+    '<div class="full gs-setup-guide"><strong>3. Папка изображений — необязательно</strong>' + gsHelp('Как подключить папку изображений', '<ol><li>Создайте или откройте папку Google Drive с фотографиями для публикаций. Скопируйте ссылку вида drive.google.com/drive/folders/…</li><li>В «Настройках доступа» этой папки добавьте тот же email сервисного аккаунта как «Читатель». Доступ к таблице сам по себе не открывает папку.</li><li>В том же проекте Google Cloud включите Google Drive API. Отдельный JSON создавать не нужно.</li><li>Задайте понятное имя папки в Publikator. В колонке media таблицы используйте это имя как source и имя файла внутри папки как path.</li></ol><code>[{"source":"Фото проекта","path":"post-01.jpg"}]</code><p>Порядок объектов задаёт порядок фото. Не вставляйте путь Windows или ссылку страницы отдельного файла. Поддерживаются JPEG/PNG; облачный MP4 пока не включён. Если изображения не нужны, оставьте оба поля папки пустыми.</p>') + '</div>' +
+    '<label class="full">Ссылка на папку Google Drive или её ID<input name="rootFolder" placeholder="https://drive.google.com/drive/folders/…"></label>' +
+    '<label class="full">Название папки в Publikator<input name="mediaName" placeholder="Например: Фото проекта"><span class="operator-field-help">Укажите это точное название в поле source колонки media. Пример: ASA Lab Media Test.</span></label>' +
+    '<div class="row-actions full"><button id="gs-inspect" class="secondary" type="button">1. Проверить доступ к таблице и папке</button></div>' +
+    '<label id="gs-sheet-wrap" class="full hidden">Лист таблицы<select name="sheetName"></select></label>' +
+    '<label id="gs-writeback-wrap" class="target-check hidden"><input name="writeBack" type="checkbox"> Записывать результаты импорта и публикации обратно в таблицу</label>' +
+    '<div class="full">' + gsHelp('Что произойдёт после сохранения', '<p>Сохранятся проверенные подключения таблицы и папки. Фотографии загрузятся при импорте строк с указанными файлами. Сохранение подключения не публикует материалы. Автоматическая готовность и расписание настраиваются отдельно. Проверка чтения не подтверждает права записи: для статусов таблице нужен «Редактор». Результаты записываются в служебные колонки V:AD; не заполняйте их вручную.</p><p>403/404: проверьте адрес и доступ email к конкретной таблице или папке. Если доступ есть, проверьте соответствующий API в Google Cloud. Неправильный JSON, отозванный ключ и сетевой тайм-аут требуют разных действий; результаты проверки показаны отдельно ниже.</p>') + '</div>' +
+    '<div id="gs-connect-result" class="full" role="status"></div><div class="row-actions full"><button id="gs-save" class="primary" type="submit" disabled>2. Сохранить Google-подключение</button></div></form></div>';
+  const form = formHost.querySelector('form'), result = form.querySelector('#gs-connect-result'), save = form.querySelector('#gs-save');
+  const credentialsInput = form.elements.credentials, selectAccount = form.elements.existingConnectorId;
+  const inspect = form.querySelector('#gs-inspect');
+  let verified = '', busy = false;
+  function existing() { return saved.find(item => item.id === selectAccount.value); }
+  function email() { return existing()?.config.serviceAccountEmail || serviceAccountIdentity(credentialsInput.value); }
+  function showIdentity() {
+    const address = email(), hint = form.querySelector('#gs-share-hint');
+    hint.innerHTML = address ? '<strong>Выдайте доступ этому сервисному аккаунту:</strong><p><code>' + gsEsc(address) + '</code></p><ul><li>Таблица: «Читатель» для импорта, «Редактор» для записи статусов.</li><li>Папка Google Drive: «Читатель» для изображений.</li></ul><p>Откройте «Настройки доступа» каждого ресурса и добавьте этот email. Не открывайте доступ «всем по ссылке».</p>' : 'Выберите сохранённый аккаунт или вставьте JSON — здесь появится email для доступа и к таблице, и к папке.';
+  }
+  function invalidate() { verified = ''; save.disabled = true; result.textContent = ''; form.querySelector('#gs-sheet-wrap').classList.add('hidden'); form.querySelector('#gs-writeback-wrap').classList.add('hidden'); }
+  function accountChanged() {
+    invalidate();
+    const item = existing();
+    form.querySelector('#gs-new-key').classList.toggle('hidden', !!item);
+    credentialsInput.disabled = !!item;
+    if (item) credentialsInput.value = '';
+    form.elements.name.readOnly = !!item; form.elements.spreadsheetId.readOnly = !!item;
+    form.elements.name.value = item?.name || '';
+    form.elements.spreadsheetId.value = item?.config.spreadsheetId || '';
+    showIdentity();
+  }
+  function snapshot() {
+    const body = { spreadsheetId: gsSpreadsheetId(form.elements.spreadsheetId.value), rootFolder: form.elements.rootFolder.value.trim() };
+    if (existing()) body.existingConnectorId = existing().id;
+    else body.credentials = gsCredentials(credentialsInput.value);
+    return body;
+  }
+  selectAccount.onchange = accountChanged;
+  form.querySelectorAll('[name=accountChoice]').forEach(radio => radio.addEventListener('change', () => { selectAccount.value = radio.value; accountChanged(); }));
+  for (const input of [credentialsInput, form.elements.spreadsheetId, form.elements.rootFolder]) input.addEventListener('input', () => { invalidate(); showIdentity(); });
+  form.querySelector('#gs-json-file').onchange = async event => {
+    const file = event.target.files?.[0]; if (!file) return;
+    if (file.size > 65536) { result.textContent = 'Выберите JSON ключа до 64 КБ.'; return; }
+    credentialsInput.value = await file.text();
+    credentialsInput.dispatchEvent(new Event('input', { bubbles: true })); event.target.value = '';
   };
-  form.onsubmit = async (event) => {
-    event.preventDefault();
+  formHost.querySelector('#gs-close-connect').onclick = () => { if (!busy) gsCloseDialog(formHost); };
+  formHost.closest('dialog').addEventListener('cancel', event => { if (busy) event.preventDefault(); else { event.preventDefault(); gsCloseDialog(formHost); } });
+  inspect.onclick = async () => {
+    if (busy) return;
+    busy = true; inspect.disabled = true; save.disabled = true;
+    result.textContent = 'Проверяю таблицу и папку одним сервисным аккаунтом…';
     try {
-      const credentials = JSON.parse(credentialsInput.value);
-      const spreadsheetId = String(form.elements.spreadsheetId.value || '').trim();
-      if (verified !== JSON.stringify({ spreadsheetId, credentials })) throw new Error('После изменения Spreadsheet ID или credentials выполните проверку заново.');
-      result.innerHTML = '<div class="operator-result">Повторно проверяю и сохраняю connector…</div>';
-      await googleSheetsApi('/api/google-sheets/connectors', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: String(form.elements.name.value || '').trim(),
-          spreadsheetId,
-          sheetName: String(form.elements.sheetName.value || '').trim(),
-          writeBack: Boolean(form.elements.writeBack.checked),
-          credentials
-        })
-      });
-      formHost.innerHTML = '';
+      const body = snapshot();
+      const checked = await googleSheetsApi('/api/google-sheets/setup/inspect', { method: 'POST', body: JSON.stringify(body) });
+      if (JSON.stringify(snapshot()) !== JSON.stringify(body)) throw new Error('Поля изменились во время проверки. Проверьте доступ заново.');
+      result.innerHTML = '<div class="operator-result ' + (checked.sheet.ok ? 'ok' : 'error') + '"><strong>Таблица: ' + (checked.sheet.ok ? 'чтение доступно' : 'нужна проверка') + '</strong><p>' + gsEsc(checked.sheet.ok ? checked.sheet.value.spreadsheetTitle : checked.sheet.message) + '</p></div>' +
+        (checked.folder ? '<div class="operator-result ' + (checked.folder.ok ? 'ok' : 'error') + '"><strong>Папка: ' + (checked.folder.ok ? 'чтение доступно' : 'нужна проверка') + '</strong><p>' + gsEsc(checked.folder.ok ? checked.folder.value.rootFolderName : checked.folder.message) + '</p></div>' : '<p>Папка не указана: подключится только таблица.</p>');
+      if (!checked.canSave) { verified = ''; return; }
+      const item = existing(), select = form.elements.sheetName;
+      select.innerHTML = checked.sheet.value.sheets.map(name => '<option value="' + gsEsc(name) + '">' + gsEsc(name) + '</option>').join('');
+      if (item) select.value = item.config.sheetName;
+      select.disabled = !!item;
+      form.elements.writeBack.checked = !!item?.config.writeBack;
+      form.elements.writeBack.disabled = !!item;
+      form.querySelector('#gs-sheet-wrap').classList.remove('hidden');
+      form.querySelector('#gs-writeback-wrap').classList.remove('hidden');
+      verified = JSON.stringify(body); save.disabled = false;
+    } catch (error) { verified = ''; result.textContent = gsActionableError(error, email()); }
+    finally { busy = false; inspect.disabled = false; }
+  };
+  form.onsubmit = async event => {
+    event.preventDefault(); if (busy || save.disabled) return;
+    busy = true; save.disabled = true; inspect.disabled = true;
+    try {
+      const body = snapshot();
+      if (verified !== JSON.stringify(body)) throw new Error('Проверьте доступ после изменения адреса или аккаунта.');
+      if (body.rootFolder && !form.elements.mediaName.value.trim()) throw new Error('Укажите название папки в Publikator для колонки media.');
+      if (!body.rootFolder && form.elements.mediaName.value.trim()) throw new Error('Укажите адрес папки или очистите её название.');
+      await googleSheetsApi('/api/google-sheets/setup/save', { method: 'POST', body: JSON.stringify({ ...body, name: form.elements.name.value.trim(), sheetName: form.elements.sheetName.value, writeBack: form.elements.writeBack.checked, mediaName: form.elements.mediaName.value.trim() }) });
+      credentialsInput.value = '';
+      gsCloseDialog(formHost, 'Google-подключение сохранено. Выбранные ресурсы проверены; материалы не публиковались.');
       await loadGoogleConnectors(host);
-    } catch (error) {
-      result.innerHTML = `<div class="operator-result error">${gsEsc(error instanceof Error ? error.message : String(error))}</div>`;
-    }
+      host.querySelector('.gs-cloud-media')?.remove();
+      await mountCloudMedia(host);
+    } catch (error) { result.textContent = gsActionableError(error, email()); save.disabled = !verified; }
+    finally { busy = false; inspect.disabled = false; }
   };
+  if (!existingId && saved.length === 1) existingId = saved[0].id;
+  if (saved.some(item => item.id === existingId)) selectAccount.value = existingId;
+  form.querySelectorAll('[name=accountChoice]').forEach(radio => { radio.checked = radio.value === selectAccount.value; });
+  accountChanged();
+  formHost.querySelector('#gs-close-connect').focus();
 }
 
 async function mountGoogleSheets() {
@@ -277,21 +407,29 @@ async function mountGoogleSheets() {
   if (!layout || document.querySelector('#operator-google-sheets-live')) return;
   googleSheetsMountBusy = true;
   try {
-    const cards = [...layout.querySelectorAll('.operator-connector-card')];
-    const card = cards.find((item) => item.querySelector('strong')?.textContent?.trim() === 'Google Sheets');
-    if (card) {
-      card.innerHTML = '<strong>Google Sheets</strong><span>Рабочее подключение: проверить изменения → импортировать новые/изменённые строки → черновики.</span><button id="gs-open-connect" class="secondary" type="button">Подключить</button>';
-    }
     const host = document.createElement('section');
     host.id = 'operator-google-sheets-live';
-    host.className = 'operator-section gs-live-section';
-    host.innerHTML = `<div class="operator-page-head"><div><h3>Google Sheets</h3><p>Publikator читает лист «Публикации», показывает изменения до импорта и сохраняет канонические данные внутри Publikator.</p></div><a class="button-link secondary" href="/api/content-plan/v3/template.xlsx" download>Скачать XLSX шаблон</a></div><div id="gs-connect-form-host"></div><div id="gs-connectors-list"><div class="muted">Загрузка connectors…</div></div>`;
-    layout.after(host);
-    card?.querySelector('#gs-open-connect')?.addEventListener('click', () => renderGoogleConnectForm(host));
-    await loadGoogleConnectors(host);
+    host.className = 'gs-live-section';
+    host.innerHTML = '<div class="sources-toolbar"><button id="gs-open-connect" type="button" class="primary">+ Google</button><button id="gs-add-yandex" type="button" class="secondary">+ Яндекс Диск</button><button id="sources-help" type="button" class="secondary" aria-label="Справка об источниках">ⓘ</button></div><div id="sources-notice" role="status"></div>' +
+      '<section class="sources-group"><h3>Таблицы <span id="sources-google-count" class="sources-count">…</span></h3><div id="gs-connectors-list"><p role="status">Загрузка…</p></div></section><div id="sources-media-slot"></div>';
+    document.querySelector('#operator-source-connected-slot').append(host);
+    host.querySelector('#gs-open-connect').addEventListener('click', () => renderGoogleConnectForm(host));
+    host.querySelector('#sources-help').onclick = () => {
+      const panel = gsDialog(host, 'sources-help-panel', 'Справка об источниках');
+      panel.innerHTML = '<div class="gs-settings-body"><div class="operator-page-head"><h3>Как пользоваться источниками</h3><button class="secondary" type="button">Закрыть</button></div>' +
+        '<h4>Таблица — тексты и план</h4><p>Подключите Google и выберите лист с колонками шаблона Publikator. «Изменения» проверяет новые и изменённые строки без сохранения. После проверки появится кнопка импорта. Ошибки и конфликты нужно исправить до импорта. Удаление строки в таблице не удаляет публикацию.</p>' +
+        '<h4>Папка — изображения</h4><p>Google Drive использует тот же сервисный аккаунт, что таблица; доступ к папке нужно выдать отдельно. Яндекс Диск использует OAuth-токен владельца папки. Папка сама не создаёт материалы: в колонке media таблицы укажите название подключения и файл относительно корня папки.</p><code>[{"source":"Фото проекта","path":"post-01.jpg"}]</code><p>Для нескольких фото добавьте объекты через запятую в нужном порядке. Поддерживаются JPEG/PNG. Облачное видео пока не включено; не указывайте путь Windows или ссылку страницы файла.</p>' +
+        '<h4>Что означает состояние таблицы</h4><p>«Проверка» — как часто приложение читает таблицу. «Импорт» — сохраняет ли корректные строки в черновики автоматически. «Готовность» — нужно ли ваше подтверждение или приложение может подготовить материал после проверок. Автоматическая готовность может привести к отправке по времени AT или очереди QUEUE; MANUAL остаётся ручным. Все три параметра настраиваются кнопкой «Настройки» и меняются только после сохранения.</p>' +
+        '<h4>Импорт CSV / XLSX</h4><p>Скачайте шаблон, заполните лист «Публикации», выберите файл и нажмите «Проверить файл», затем «Импортировать». Название набора связывает повторные версии одной таблицы: сохраняйте его и external_id строки, чтобы обновлять материалы без дублей. source_revision увеличивайте при изменении строки. Проверка и импорт не отправляют материалы в соцсети.</p>' +
+        '<h4>Если проверка не прошла</h4><p>403: проверьте доступ сервисного аккаунта к конкретной таблице/папке и включение соответствующего Google API. Для Яндекса проверьте токен чтения. 404: проверьте адрес или путь папки. После изменения ключа, токена или адреса проверку нужно повторить. Секреты вводите только в окне подключения.</p></div>';
+      panel.querySelector('button').onclick = () => gsCloseDialog(panel);
+      panel.closest('dialog').addEventListener('cancel', event => { event.preventDefault(); gsCloseDialog(panel); });
+      panel.querySelector('button').focus();
+    };
+    await Promise.all([loadGoogleConnectors(host), mountCloudMedia(host)]);
   } catch (error) {
     const host = document.querySelector('#operator-google-sheets-live');
-    if (host) host.innerHTML = `<div class="operator-result error">${gsEsc(error instanceof Error ? error.message : String(error))}</div>`;
+    if (host) host.innerHTML = `<div class="operator-result error">${gsEsc(gsActionableError(error))}</div>`;
   } finally {
     googleSheetsMountBusy = false;
   }
@@ -301,3 +439,110 @@ window.addEventListener('publikator:operator-route-rendered', (event) => {
   if (event instanceof CustomEvent && event.detail?.path === '/sources') mountGoogleSheets().catch(() => {});
 });
 setTimeout(() => mountGoogleSheets().catch(() => {}), 0);
+
+async function mountCloudMedia(host) {
+  const section = document.createElement('section');
+  section.className = 'gs-cloud-media';
+  section.id = 'cloud-media-sources';
+  section.innerHTML = '<h3>Папки изображений</h3>' +
+    gsHelp('Как связать изображение со строкой', '<p>В колонке media укажите массив: <code>[{"source":"Фото проекта","path":"post-01.jpg"}]</code>. source — название подключения ниже, path — имя файла или путь внутри выбранной папки. Например, фото в подпапке: <code>Обложки/post-01.png</code>. Publikator сохраняет свою копию изображения. Подключение папки само ничего не импортирует и не публикует.') +
+    '<div id="gs-cloud-list"><p role="status">Загружаю папки…</p></div>';
+  host.querySelector('#sources-media-slot').append(section);
+  async function refresh() {
+    const list = section.querySelector('#gs-cloud-list');
+    const results = await Promise.allSettled(['google-drive', 'yandex-disk'].map(async kind => {
+      const response = await googleSheetsApi('/api/' + kind + '/connectors');
+      return { kind, connectors: response.connectors || [] };
+    }));
+    list.innerHTML = results.map((item, index) => {
+      const platform = index === 0 ? 'Google Drive' : 'Яндекс Диск';
+      if (item.status !== 'fulfilled') return '<p role="alert">' + gsEsc(platform) + ': ' + gsEsc(gsActionableError(item.reason)) + '</p>';
+      return item.value.connectors.map(connector => '<article class="gs-cloud-card"><div class="gs-cloud-card-info"><strong>' + gsEsc(connector.name) + '</strong><span>' + platform + ' · ' + gsEsc(connector.config.rootFolderName || connector.config.rootFolderId || connector.config.rootPath) + '</span><small>' + (connector.enabled === false ? 'Отключено' : 'Подключено') + '</small></div><button type="button" class="secondary gs-cloud-test" data-kind="' + item.value.kind + '" data-id="' + gsEsc(connector.id) + '">Проверить папку</button><div class="gs-cloud-result" role="status"></div></article>').join('');
+    }).join('') || '<p class="muted">Нет подключённых папок</p>';
+    list.querySelectorAll('.gs-cloud-test').forEach(button => button.addEventListener('click', async () => {
+      const out = button.parentElement.querySelector('.gs-cloud-result');
+      button.disabled = true;
+      out.textContent = 'Проверяю доступ к папке…';
+      try {
+        await googleSheetsApi('/api/' + button.dataset.kind + '/connectors/' + encodeURIComponent(button.dataset.id) + '/test', { method: 'POST', body: '{}' });
+        out.textContent = 'Папка доступна.';
+      } catch (error) { out.textContent = gsActionableError(error, '', button.dataset.kind); }
+      finally { button.disabled = false; }
+    }));
+  }
+  function open(kind) {
+    const drive = kind === 'google-drive';
+    const formHost = gsDialog(host, 'gs-cloud-form', 'Подключение Яндекс Диска');
+    formHost.innerHTML = '<div class="gs-settings-body"><div class="operator-page-head"><h4>Подключить Яндекс Диск</h4><button type="button" class="secondary gs-media-close">Закрыть</button></div>' +
+      '<details class="gs-yandex-guide"><summary>Нет токена? Получить за 3 шага ⓘ</summary><div class="gs-yandex-guide-body"><ol>' +
+      '<li><strong>Выдайте нужное право.</strong> Откройте <a href="https://oauth.yandex.ru/" target="_blank" rel="noopener noreferrer">Яндекс OAuth ↗</a> → своё приложение → <strong>«Настройки» → «Доступ к данным»</strong>. В поле «Название доступа» найдите и выберите <strong>«Чтение всего Диска»</strong> (<code>cloud_api:disk.read</code>). Нажмите <strong>«Сохранить» → «Да, сохранить»</strong>. <strong>«Доступ к папке приложения на Диске» — другое право:</strong> оно не открывает обычную папку /Публикатор. Чтение всего Диска позволяет приложению читать все файлы, а не только выбранную папку.</li>' +
+      '<li><strong>Подготовьте получение токена.</strong> После сохранения вернитесь на страницу приложения. Возле <strong>ClientID</strong> нажмите значок копирования и вставьте код сюда. Не копируйте Client secret и не вводите логин.</li></ol>' +
+      '<label>ClientID из Яндекс OAuth<input name="clientId" type="search" autocomplete="off" data-lpignore="true" data-1p-ignore placeholder="Например: 0123456789abcdef0123456789abcdef" aria-describedby="yandex-client-hint"></label><p id="yandex-client-hint" class="gs-yandex-client-hint" role="status">Скопируйте ClientID кнопкой рядом с кодом. Свой логин сюда вводить не нужно.</p><a class="button-link secondary gs-yandex-authorize" aria-disabled="true" target="_blank" rel="noopener noreferrer">Получить токен в Яндексе ↗</a>' +
+      '<ol start="3"><li><strong>Получите НОВЫЙ токен и замените старый.</strong> Нажмите «Получить токен в Яндексе». На странице входа проверьте, что показано <strong>«Чтение всего Диска»</strong>, и подтвердите вход своим аккаунтом. Скопируйте выданный <strong>access_token</strong> и полностью замените поле «Токен» ниже. Старый токен не получает новые права после сохранения настроек. Затем нажмите «Проверить доступ» → «Сохранить» в Publikator.</li></ol>' +
+      '<details class="gs-help"><summary aria-label="Справка: Настройки приложения Яндекса">ⓘ</summary><div class="gs-help-body">Если приложения ещё нет, создайте его в Яндекс OAuth. Платформа — веб-сервис, Redirect URI: <code>https://oauth.yandex.ru/verification_code</code>. Client secret для Publikator не требуется. Токен разрешает чтение всего Диска; путь папки ниже ограничивает использование в Publikator, а не права токена. <a href="https://yandex.ru/dev/id/doc/ru/tokens/debug-token" target="_blank" rel="noopener noreferrer">Официальная инструкция ↗</a>.</div></details></div></details>' +
+      '<form class="operator-form gs-media-form" autocomplete="off"><label class="full">Токен<input name="secret" type="password" required autocomplete="new-password" data-lpignore="true" data-1p-ignore placeholder="Вставьте access_token"><span class="operator-field-help">Уже есть токен — инструкцию выше можно пропустить.</span></label>' +
+      '<label class="full">Папка на вашем Диске<input name="root" required placeholder="/Публикатор"><span class="operator-field-help">Точный путь папки, например /Публикатор. Не ссылка браузера.</span></label>' +
+      '<label class="full">Название в Publikator<input name="name" required placeholder="Фото для публикаций"></label>' +
+      '<div class="row-actions full"><button type="button" class="secondary gs-media-inspect">Проверить доступ</button><button type="submit" class="primary gs-media-save" disabled>Сохранить</button></div><div class="full gs-media-result" role="status"></div></form></div>';
+    const form = formHost.querySelector('form'), out = form.querySelector('.gs-media-result'), save = form.querySelector('.gs-media-save');
+    let verified = '', busy = false;
+    function payload() {
+      let secret = form.elements.secret.value.trim();
+      const clientId = formHost.querySelector('[name=clientId]').value.trim();
+      if (/^https:\/\//i.test(secret)) {
+        try { secret = new URLSearchParams(new URL(secret).hash.slice(1)).get('access_token') || ''; } catch { secret = ''; }
+        if (!secret) throw new Error('В ссылке нет access_token. Скопируйте токен со страницы после подтверждения доступа в Яндексе.');
+      }
+      if (clientId && secret === clientId) throw new Error('В поле «Токен» вставлен ClientID. Нажмите «Получить токен в Яндексе» и вставьте выданный access_token.');
+      if (secret.length < 20 || /\s/.test(secret) || /^OAuth\s|^Bearer\s/i.test(secret)) throw new Error('Вставьте access_token целиком, без пробелов и слова OAuth. Логин, ClientID и Client secret не являются токеном.');
+      return { name: form.elements.name.value.trim(), ...(drive ? { rootFolder: form.elements.root.value.trim(), credentials: gsCredentials(secret) } : { rootPath: form.elements.root.value.trim(), credentials: { oauthToken: secret.trim() } }) };
+    }
+    form.addEventListener('input', () => {
+      verified = ''; save.disabled = true;
+      if (drive) {
+        const email = serviceAccountIdentity(form.elements.secret.value);
+        form.querySelector('.gs-drive-email').textContent = email ? 'Откройте папку Google Drive → «Настройки доступа» → добавьте ' + email + ' как «Читатель». В проекте аккаунта должен быть включён Google Drive API.' : 'Вставьте JSON целиком, чтобы увидеть email для доступа к папке.';
+      }
+    });
+    formHost.querySelector('.gs-media-close').onclick = () => { if (!busy) gsCloseDialog(formHost); };
+    formHost.closest('dialog').addEventListener('cancel', event => { event.preventDefault(); if (!busy) gsCloseDialog(formHost); });
+    formHost.querySelector('[name=clientId]')?.addEventListener('input', event => {
+      const id = event.target.value.trim(), valid = /^[a-zA-Z0-9_-]{20,128}$/.test(id);
+      const link = formHost.querySelector('.gs-yandex-authorize');
+      link.setAttribute('aria-disabled', String(!valid));
+      if (valid) link.href = 'https://oauth.yandex.ru/authorize?response_type=token&client_id=' + encodeURIComponent(id);
+      else link.removeAttribute('href');
+      formHost.querySelector('.gs-yandex-client-hint').textContent = valid ? 'ClientID указан. Теперь нажмите «Получить токен в Яндексе».' : id ? 'Это не похоже на ClientID. Скопируйте длинный код из поля ClientID в Яндекс OAuth, а не логин.' : 'Скопируйте ClientID кнопкой рядом с кодом. Свой логин сюда вводить не нужно.';
+    });
+    formHost.querySelector('.gs-media-close').focus();
+    const inspect = form.querySelector('.gs-media-inspect');
+    inspect.onclick = async () => {
+      if (busy) return;
+      busy = true; inspect.disabled = true; save.disabled = true;
+      try {
+        const body = payload();
+        if (!body.name) throw new Error('Укажите название подключения: оно используется в колонке media таблицы.');
+        await googleSheetsApi('/api/' + kind + '/inspect', { method: 'POST', body: JSON.stringify(body) });
+        if (JSON.stringify(payload()) !== JSON.stringify(body)) throw new Error('Поля изменились во время проверки. Проверьте папку заново.');
+        verified = JSON.stringify(body); save.disabled = false;
+        out.textContent = 'Папка доступна. Сохраните подключение, затем укажите его название и имя файла в колонке media.';
+      } catch (error) { out.textContent = gsActionableError(error, drive ? serviceAccountIdentity(form.elements.secret.value) : '', kind); }
+      finally { busy = false; inspect.disabled = false; }
+    };
+    form.onsubmit = async event => {
+      event.preventDefault();
+      if (busy) return;
+      busy = true; save.disabled = true; inspect.disabled = true;
+      try {
+        const body = payload();
+        if (!verified || verified !== JSON.stringify(body)) throw new Error('После изменения полей сначала проверьте папку.');
+        await googleSheetsApi('/api/' + kind + '/connectors', { method: 'POST', body: JSON.stringify(body) });
+        form.elements.secret.value = ''; gsCloseDialog(formHost, 'Папка Яндекс Диска сохранена. Теперь её можно указать в строках таблицы.');
+        await refresh();
+      } catch (error) { out.textContent = gsActionableError(error, '', kind); }
+      finally { busy = false; inspect.disabled = false; }
+    };
+  }
+  host.querySelector('#gs-add-yandex').onclick = () => open('yandex-disk');
+  await refresh();
+}

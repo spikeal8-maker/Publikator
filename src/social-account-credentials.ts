@@ -548,12 +548,29 @@ export async function replaceAndCheckSocialAccount(input: {
   name: string;
   credentials: Record<string, unknown>;
   activateIfReady?: boolean;
+  expectedCredentialVersion?: number;
+  protectPendingPublications?: boolean;
 }): Promise<SocialCredentialResult> {
   const before = accountRow(input.accountId);
+  if (input.expectedCredentialVersion !== undefined && input.expectedCredentialVersion !== before.credential_version) {
+    throw new SocialCredentialVersionConflictError();
+  }
   const name = String(input.name ?? '').trim();
   if (!name) requestError('Нужно непустое name');
   const normalized = normalizeCredentials(before.platform, input.credentials);
   db.transaction(() => {
+    requireSameCredentialVersion(input.accountId, before);
+    if (input.protectPendingPublications) {
+      // Account credentials are read at publish time, so replacing a destination
+      // while an approved/retryable intent exists would redirect that intent.
+      // Check in the same SQLite transaction as the credential version change.
+      const pending = db.prepare(`SELECT 1 FROM post_targets t JOIN posts p ON p.id=t.post_id
+        WHERE t.account_id=? AND t.enabled=1 AND t.state <> 'PUBLISHED'
+          AND p.ready_revision_id IS NOT NULL
+          AND p.status IN ('READY','QUEUED','PUBLISHING','PARTIAL','FAILED') LIMIT 1`)
+        .get(input.accountId);
+      if (pending) requestError('MAX: для смены чата сначала завершите готовые и незавершённые публикации этого подключения. Можно добавить новый чат.');
+    }
     replaceSocialAccountCredentials(input.accountId, encryptJson(normalized));
     db.prepare('UPDATE social_accounts SET name=?,enabled=0,updated_at=? WHERE id=?')
       .run(name, nowIso(), input.accountId);
@@ -613,4 +630,33 @@ export async function recheckSocialAccount(accountId: string): Promise<SocialCre
     account: accountView(accountRow(accountId)),
     capabilityProfile
   };
+}
+
+/** Reuse a server-stored MAX bot key; each chat has independent authorization. */
+export async function configureMaxDestination(input: {
+  accountId: string; name: unknown; chatId: unknown; mode: unknown; expectedCredentialVersion: unknown;
+}): Promise<SocialCredentialResult> {
+  const before = accountRow(input.accountId);
+  if (before.platform !== 'max') requestError('Эта операция доступна только для MAX.');
+  if (!Number.isSafeInteger(input.expectedCredentialVersion)
+    || input.expectedCredentialVersion !== before.credential_version) {
+    throw new SocialCredentialVersionConflictError();
+  }
+  const chatId = typeof input.chatId === 'string' ? input.chatId.trim() : '';
+  if (!/^-?\d{1,19}$/.test(chatId) || BigInt(chatId) === 0n
+    || BigInt(chatId) < -(1n << 63n) || BigInt(chatId) > (1n << 63n) - 1n) {
+    requestError('Укажите числовой chat_id MAX, сохранив знак минус.');
+  }
+  if (input.mode !== 'replace' && input.mode !== 'add') requestError('Укажите действие replace или add.');
+  const name = typeof input.name === 'string' ? input.name.trim() : '';
+  if (!name) requestError('Нужно непустое name');
+  const stored = decryptJson<Record<string, unknown>>(before.credentials_encrypted);
+  const credentials = { accessToken: stored.accessToken, chatId };
+  if (input.mode === 'add') {
+    return saveAndCheckSocialAccount({ platform: 'max', name, credentials });
+  }
+  return replaceAndCheckSocialAccount({
+    accountId: input.accountId, name, credentials, activateIfReady: true,
+    expectedCredentialVersion: before.credential_version, protectPendingPublications: true
+  });
 }
