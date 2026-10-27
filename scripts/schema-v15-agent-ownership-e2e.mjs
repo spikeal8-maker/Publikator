@@ -205,8 +205,107 @@ try {
     db.pragma('ignore_check_constraints = OFF');
   }
 
-  // Existing version-15 DBs retain the original table CHECK. Startup adds
-  // the idempotent triggers; it neither rebuilds tables nor deletes history.
+
+  // Raw SQL (not bound JavaScript strings) must not smuggle BLOBs or corrupt
+  // TEXT through either audit trigger, with or without CHECK constraints.
+  // Compare entire rows and dependent data after *each* rejected statement.
+  let directCase = 0;
+  const auditRows = () => db.prepare(
+    'SELECT * FROM agent_activity_events ORDER BY sequence').all();
+  const retainedPosts = db.prepare('SELECT * FROM posts ORDER BY id').all();
+  const retainedGrants = db.prepare('SELECT * FROM agent_grants ORDER BY agent_id').all();
+  function rejectRawAudit(field, expression, label) {
+    const beforeRows = auditRows(), beforeCount = auditCount();
+    const error = field === 'safe_summary'
+      ? /AGENT_AUDIT_INVALID_SUMMARY/
+      : /AGENT_AUDIT_INVALID_TARGET_IDS/;
+    const eventId = 'evt_invalid_raw_' + (++directCase);
+    const targetSql = field === 'target_account_ids_json' ? expression : "'[]'";
+    const summarySql = field === 'safe_summary' ? expression : "'safe'";
+    const insertion = [
+      'INSERT INTO agent_activity_events',
+      '(event_id,agent_id,actor_type,origin,request_id,operation_id,',
+      'stage,outcome,target_account_ids_json,safe_summary,occurred_at)',
+      "VALUES ('" + eventId + "','" + agentId + "','AGENT','REST',",
+      "'raw_sql','audit.probe','COMPLETED','SUCCEEDED',",
+      targetSql + ',' + summarySql + ",'" + now + "')"
+    ].join(' ');
+    const update = 'UPDATE agent_activity_events SET ' + field + '=' +
+      expression + " WHERE event_id='evt_a1a_001'";
+    for (const [operation, sql] of [['INSERT', insertion], ['UPDATE', update]]) {
+      assert.throws(() => db.exec(sql), error, label + ' ' + operation);
+      assert.deepEqual(auditRows(), beforeRows, label + ' ' + operation +
+        ' must not modify event rows, sequence or historical events');
+      assert.equal(auditCount(), beforeCount);
+      assert.deepEqual(db.prepare('SELECT * FROM posts ORDER BY id').all(), retainedPosts,
+        'rejected direct SQL cannot mutate existing posts');
+      assert.deepEqual(db.prepare('SELECT * FROM agent_grants ORDER BY agent_id').all(),
+        retainedGrants, 'rejected direct SQL cannot change grant revisions');
+    }
+  }
+  function rawSqlNegativeMatrix() {
+    const invalidUtf8 = [
+      ['invalid leading FF', 'FF'],
+      ['isolated continuation', '80'],
+      ['truncated three-byte sequence', 'E282'],
+      ['overlong UTF-8', 'C0AF'],
+      ['surrogate code point', 'EDA080'],
+      ['code point above U+10FFFF', 'F4908080']
+    ];
+    for (const [label, hex] of invalidUtf8) {
+      const jsonHex = '5B22' + hex + '225D'; // ["<raw bytes>"]
+      rejectRawAudit('safe_summary', "X'" + hex + "'", label + ' BLOB summary');
+      rejectRawAudit('safe_summary', "CAST(X'" + hex + "' AS TEXT)",
+        label + ' corrupt TEXT summary');
+      rejectRawAudit('target_account_ids_json', "X'" + jsonHex + "'",
+        label + ' BLOB JSON');
+      rejectRawAudit('target_account_ids_json', "CAST(X'" + jsonHex + "' AS TEXT)",
+        label + ' corrupt TEXT JSON');
+    }
+    rejectRawAudit('safe_summary', "X'6F6B'", 'well-formed UTF-8 as BLOB');
+    rejectRawAudit('safe_summary', "X'F09F9880'", 'valid emoji as BLOB');
+    rejectRawAudit('target_account_ids_json', "X'5B5D'", 'valid JSON [] as BLOB');
+    rejectRawAudit('target_account_ids_json', "CAST(X'5B5DFF' AS TEXT)",
+      'JSON with corrupt trailing byte');
+    rejectRawAudit('safe_summary', "'ok' || char(0) || CAST(zeroblob(300000) AS TEXT)",
+      'NUL and 300KB tail in summary');
+    rejectRawAudit('target_account_ids_json',
+      "'[]' || char(0) || CAST(zeroblob(300000) AS TEXT)",
+      'NUL and 300KB tail in JSON');
+  }
+  rawSqlNegativeMatrix();
+  db.pragma('ignore_check_constraints = ON');
+  try {
+    rawSqlNegativeMatrix();
+  } finally {
+    db.pragma('ignore_check_constraints = OFF');
+  }
+  // Positive Unicode and maximum legal sizes on the *actual* SQLite engine
+  // linked into better-sqlite3. Include the literal replacement character,
+  // not an incorrectly encoded byte sequence that decodes to U+FFFD.
+  auditWrite('[]', 'ASCII', 'OWNER');
+  auditWrite('[]', '\uFFFD', 'OWNER');
+  auditWrite('[]', 'Русский текст 😀', 'OWNER');
+  db.exec(
+    "INSERT INTO agent_activity_events(event_id,actor_type,origin,request_id," +
+    "operation_id,stage,safe_summary,occurred_at) VALUES " +
+    "('evt_valid_fffd','SYSTEM','SYSTEM','valid_fffd','audit.unicode'," +
+    "'COMPLETED',CAST(X'EFBFBD' AS TEXT),'" + now + "')"
+  );
+  assert.equal(db.prepare(
+    "SELECT hex(CAST(safe_summary AS BLOB)) AS bytes FROM agent_activity_events " +
+    "WHERE event_id='evt_valid_fffd'").get().bytes, 'EFBFBD');
+  const exact4096Json = '[' + ' '.repeat(4094) + ']';
+  assert.equal(Buffer.byteLength(exact4096Json), 4096);
+  const boundaryStartedAt = performance.now();
+  auditWrite(exact4096Json, '😀'.repeat(240), 'OWNER');
+  const boundaryMs = performance.now() - boundaryStartedAt;
+  assert.ok(boundaryMs < 5000, 'maximum legal summary/JSON must complete in 5s: ' +
+    boundaryMs.toFixed(1) + 'ms');
+
+
+  // Simulate an already-v15 database with *old* triggers. A failed upgrade
+  // halfway through DROP/CREATE must restore their original definitions.
   const legacy=new Database(':memory:');
   try {
     legacy.exec(
@@ -217,20 +316,86 @@ try {
       "safe_summary TEXT NOT NULL CHECK(length(safe_summary) BETWEEN 1 AND 240));"
     );
     legacy.pragma('user_version = 15');
+    legacy.exec([
+      'CREATE TRIGGER trg_agent_audit_payload_insert',
+      'BEFORE INSERT ON agent_activity_events BEGIN',
+      "SELECT RAISE(ABORT,'LEGACY_BLOCK_INSERT')",
+      "WHERE NEW.event_id='legacy_blocked_insert'; END;",
+      'CREATE TRIGGER trg_agent_audit_payload_update',
+      'BEFORE UPDATE ON agent_activity_events BEGIN',
+      "SELECT RAISE(ABORT,'LEGACY_BLOCK_UPDATE')",
+      "WHERE NEW.event_id='legacy_blocked_update'; END;"
+    ].join(' '));
     legacy.prepare('INSERT INTO agent_activity_events VALUES (?,?,?)')
       .run('legacy_good','[]','Историческое сообщение');
+    // Older schemas may already contain corrupt rows. Installation must not
+    // silently rewrite or delete one; later UPDATE fails closed on this row.
+    legacy.exec("INSERT INTO agent_activity_events VALUES "+
+      "('legacy_corrupt','[]',CAST(X'FF' AS TEXT))");
+    const historicalHex = legacy.prepare(
+      "SELECT hex(CAST(safe_summary AS BLOB)) AS h FROM agent_activity_events "+
+      "WHERE event_id='legacy_corrupt'").get().h;
+    assert.equal(historicalHex,'FF');
+    const triggerDefinitions = () => legacy.prepare(
+      "SELECT name,sql FROM sqlite_master WHERE type='trigger' "+
+      "AND name IN ('trg_agent_audit_payload_insert','trg_agent_audit_payload_update') "+
+      "ORDER BY name").all();
+    const oldTriggers = triggerDefinitions();
+    assert.equal(oldTriggers.length, 2);
+    const simulateBrokenInstaller = {
+      transaction: legacy.transaction.bind(legacy),
+      exec(sql) {
+        assert.match(sql, /DROP TRIGGER IF EXISTS trg_agent_audit_payload_insert/);
+        legacy.exec(sql.replace('CREATE TRIGGER trg_agent_audit_payload_update',
+          'THIS_DDL_IS_INTENTIONALLY_INVALID; CREATE TRIGGER trg_agent_audit_payload_update'));
+      }
+    };
+    assert.throws(() => ensureAgentAuditGuards(simulateBrokenInstaller),
+      /syntax error|near/, 'failed trigger replacement must throw');
+    assert.deepEqual(triggerDefinitions(), oldTriggers,
+      'failed replacement rolls back both drops and preserves old guards');
+    assert.throws(()=>legacy.prepare('INSERT INTO agent_activity_events VALUES (?,?,?)')
+      .run('legacy_blocked_insert','[]','safe'),/LEGACY_BLOCK_INSERT/);
+    assert.equal(legacy.prepare(
+      "SELECT hex(CAST(safe_summary AS BLOB)) AS h FROM agent_activity_events "+
+      "WHERE event_id='legacy_corrupt'").get().h,'FF');
+
     ensureAgentAuditGuards(legacy);
+    const newTriggers = triggerDefinitions();
+    assert.equal(newTriggers.length, 2);
+    for (const item of newTriggers) {
+      assert.match(item.sql, /WITH RECURSIVE utf8_reconstruction/,
+        'old definitions must be replaced, not ignored');
+    }
+    assert.notDeepEqual(newTriggers,oldTriggers);
     assert.throws(()=>legacy.prepare('INSERT INTO agent_activity_events VALUES (?,?,?)')
       .run('legacy_bad','[null]','safe'),/AGENT_AUDIT_INVALID_TARGET_IDS/);
+    assert.throws(()=>legacy.exec(
+      "INSERT INTO agent_activity_events VALUES "+
+      "('legacy_bad_blob',X'5B5D','safe')"),/AGENT_AUDIT_INVALID_TARGET_IDS/);
+    assert.throws(()=>legacy.exec(
+      "INSERT INTO agent_activity_events VALUES "+
+      "('legacy_bad_utf8','[]',CAST(X'FF' AS TEXT))"),/AGENT_AUDIT_INVALID_SUMMARY/);
     assert.throws(()=>legacy.prepare('UPDATE agent_activity_events SET safe_summary=? WHERE event_id=?')
       .run('x'+String.fromCharCode(0)+'hidden','legacy_good'),
       /AGENT_AUDIT_INVALID_SUMMARY/);
+    assert.throws(()=>legacy.prepare(
+      "UPDATE agent_activity_events SET event_id='history_edited' WHERE event_id='legacy_corrupt'")
+      .run(), /AGENT_AUDIT_INVALID_SUMMARY/,
+      'a historical corrupt row must remain untouched and fail closed on unrelated UPDATE');
+    assert.equal(legacy.prepare(
+      "SELECT hex(CAST(safe_summary AS BLOB)) AS h FROM agent_activity_events "+
+      "WHERE event_id='legacy_corrupt'").get().h,'FF');
     assert.equal(legacy.prepare('SELECT safe_summary FROM agent_activity_events WHERE event_id=?')
       .get('legacy_good').safe_summary,'Историческое сообщение');
+    ensureAgentAuditGuards(legacy);
+    assert.deepEqual(triggerDefinitions(),newTriggers,
+      'repeated replacement must keep identical guarded SQL');
     assert.equal(Number(legacy.pragma('user_version',{simple:true})),15);
   } finally {
     legacy.close();
   }
+
   // Runtime migrate() repairs dropped guards on an already v15 DB.
   db.exec('DROP TRIGGER trg_agent_audit_payload_insert; DROP TRIGGER trg_agent_audit_payload_update;');
   const retainedCount=auditCount();
@@ -261,6 +426,7 @@ try {
     defaultDeny:true,legacyReadyAndCredentialsPreserved:true,boundedAudit:true,
     boundedAuditIds:true,unicodeSummaryAndNulProtected:true,
     existingV15TriggersInstalled:true,corruptPolicyJsonRejected:true,
+    utf8RawSqlMatrix:true,atomicTriggerUpgradeRollback:true,legacyInvalidHistoryRetained:true,
     rerunSafe:true,futureSchemaRefused:true}));
 } finally {
   db.close();

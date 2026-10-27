@@ -134,45 +134,85 @@ export function migrateAgentOwnership(db: Database.Database): void {
 }
 
 /**
- * Install the same safe append/update guards on freshly migrated schema 15
- * and pre-existing schema 15 without rebuilding or deleting audit events.
- * Historical rows are intentionally not rewritten by this storage checkpoint.
+ * SQLite's typeof(TEXT), length() and JSON1 do not validate UTF-8:
+ * CAST(X'FF' AS TEXT) can otherwise evade audit CHECK constraints.
+ *
+ * Reconstruct a bounded TEXT value, one decoded codepoint at a time, using
+ * SQLite's own unicode()/char() functions. Exact BLOB comparison rejects
+ * malformed, overlong, truncated, surrogate and out-of-range sequences while
+ * preserving a real U+FFFD. The callers reject large values *before* this
+ * recursive CTE runs. No SQLite extension or application UDF is required.
+ */
+function utf8RoundtripMatches(value: string): string {
+  return `(
+    WITH RECURSIVE utf8_reconstruction(pos, reencoded) AS (
+      SELECT 1, CAST('' AS TEXT)
+      UNION ALL
+      SELECT pos + 1, reencoded || char(unicode(substr(${value}, pos, 1)))
+      FROM utf8_reconstruction
+      WHERE pos <= length(${value})
+    )
+    SELECT CAST(reencoded AS BLOB) = CAST(${value} AS BLOB)
+    FROM utf8_reconstruction WHERE pos = length(${value}) + 1
+  )`;
+}
+
+/**
+ * Replace only the two A1a-owned audit guards. Trigger DDL is transactional:
+ * a failed replacement rolls back both drops and recreations, preserving the
+ * previous guards and every historical row. It is safe on 14->15, existing
+ * v15 (including old trigger definitions), and repeated startup/restore.
  */
 export function ensureAgentAuditGuards(db: Database.Database): void {
-  // sqlite CHECK cannot contain SELECT subqueries; verify every json_each
-  // element with schema-owned triggers. IDs match Agent API's 20 x 128
-  // ASCII [A-Za-z0-9._:-] limit. Fail closed for malformed JSON.
+  const summaryValidUtf8 = utf8RoundtripMatches('NEW.safe_summary');
+  const targetIdsValidUtf8 = utf8RoundtripMatches('NEW.target_account_ids_json');
   const validate = `
+    SELECT RAISE(ABORT, 'AGENT_AUDIT_INVALID_SUMMARY')
+    WHERE CASE
+      WHEN typeof(NEW.safe_summary) <> 'text' THEN 1
+      WHEN length(CAST(NEW.safe_summary AS BLOB)) NOT BETWEEN 1 AND 960 THEN 1
+      WHEN length(NEW.safe_summary) NOT BETWEEN 1 AND 240 THEN 1
+      WHEN instr(CAST(NEW.safe_summary AS BLOB), X'00') <> 0 THEN 1
+      WHEN COALESCE(${summaryValidUtf8}, 0) <> 1 THEN 1
+      ELSE 0
+    END;
+
     SELECT RAISE(ABORT, 'AGENT_AUDIT_INVALID_TARGET_IDS')
     WHERE CASE
-      WHEN COALESCE(json_valid(NEW.target_account_ids_json),0)<>1 THEN 1
-      WHEN json_type(NEW.target_account_ids_json)<>'array' THEN 1
-      WHEN length(CAST(NEW.target_account_ids_json AS BLOB))>4096 THEN 1
-      WHEN (SELECT COUNT(*) FROM json_each(NEW.target_account_ids_json))>20 THEN 1
+      WHEN typeof(NEW.target_account_ids_json) <> 'text' THEN 1
+      WHEN length(CAST(NEW.target_account_ids_json AS BLOB)) NOT BETWEEN 2 AND 4096 THEN 1
+      WHEN COALESCE(${targetIdsValidUtf8}, 0) <> 1 THEN 1
+      WHEN COALESCE(json_valid(NEW.target_account_ids_json), 0) <> 1 THEN 1
+      WHEN json_type(NEW.target_account_ids_json) <> 'array' THEN 1
+      WHEN (SELECT COUNT(*) FROM json_each(NEW.target_account_ids_json)) > 20 THEN 1
       WHEN EXISTS (
         SELECT 1 FROM json_each(NEW.target_account_ids_json) AS item
-        WHERE item.type<>'text'
+        WHERE item.type <> 'text'
           OR length(item.value) NOT BETWEEN 1 AND 128
-          OR instr(item.value, char(0))<>0
+          OR instr(CAST(item.value AS BLOB), X'00') <> 0
           OR item.value GLOB '*[^A-Za-z0-9._:-]*'
       ) THEN 1
       ELSE 0
     END;
-    SELECT RAISE(ABORT, 'AGENT_AUDIT_INVALID_SUMMARY')
-    WHERE length(NEW.safe_summary) NOT BETWEEN 1 AND 240
-      OR length(CAST(NEW.safe_summary AS BLOB)) NOT BETWEEN 1 AND 960
-      OR instr(NEW.safe_summary, char(0))<>0;
   `;
-  db.exec(`
-    CREATE TRIGGER IF NOT EXISTS trg_agent_audit_payload_insert
-    BEFORE INSERT ON agent_activity_events
-    BEGIN
-      ${validate}
-    END;
-    CREATE TRIGGER IF NOT EXISTS trg_agent_audit_payload_update
-    BEFORE UPDATE ON agent_activity_events
-    BEGIN
-      ${validate}
-    END;
-  `);
+
+  // better-sqlite3 uses SAVEPOINT for nested transactions, so the same code
+  // is atomic when called from migrateAgentOwnership() or migrate() and when
+  // invoked independently against an already-initialized v15 database.
+  db.transaction(() => {
+    db.exec(`
+      DROP TRIGGER IF EXISTS trg_agent_audit_payload_insert;
+      DROP TRIGGER IF EXISTS trg_agent_audit_payload_update;
+      CREATE TRIGGER trg_agent_audit_payload_insert
+      BEFORE INSERT ON agent_activity_events
+      BEGIN
+        ${validate}
+      END;
+      CREATE TRIGGER trg_agent_audit_payload_update
+      BEFORE UPDATE ON agent_activity_events
+      BEGIN
+        ${validate}
+      END;
+    `);
+  }).immediate();
 }
