@@ -1,9 +1,11 @@
+import crypto from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { db, id } from '../db.js';
+import { config } from '../config.js';
 import { getOwnerAgent } from '../agent-owner-registry.js';
 import { AgentRegistryError } from '../agent-registry-error.js';
 import { assertEffectiveAgentGrant } from '../agent-grant-acl.js';
-import { parsePage, IDENTIFIER, type Page } from './agent-page.js';
+import { parsePage, IDENTIFIER } from './agent-page.js';
 import {
   verifiedAgentBearer, respondAgentBearerFailure, AgentBearerFailure
 } from './agent-bearer-boundary.js';
@@ -17,6 +19,55 @@ type VerifiedReader = {
   tokenScopes: string[];
 };
 type GrantIds = { projectIds: string[]; accountIds: string[] };
+type OwnedPage = { limit: number; cursor: string | null };
+
+function invalidCursor(): never {
+  throw new AgentRegistryError('VALIDATION_ERROR','Некорректный cursor.',400);
+}
+
+function parseOwnedPage(query: unknown): OwnedPage {
+  if (!query || typeof query !== 'object' || Array.isArray(query)) {
+    invalidCursor();
+  }
+  const params = query as Record<string, unknown>;
+  if (Object.keys(params).some(k => k !== 'limit' && k !== 'cursor')) {
+    throw new AgentRegistryError('VALIDATION_ERROR','Допустимы только limit и cursor.',400);
+  }
+  const page = parsePage({ limit: params.limit });
+  if (params.cursor === undefined) return {limit:page.limit,cursor:null};
+  if (typeof params.cursor !== 'string'
+    || !/^[A-Za-z0-9_-]{1,172}\.[A-Za-z0-9_-]{43}$/.test(params.cursor)) {
+    invalidCursor();
+  }
+  return {limit:page.limit,cursor:params.cursor};
+}
+
+/** HMAC authenticates the cursor to this agent and current grant version.
+ * No post content, access token or provider credential enters the cursor.
+ */
+function cursorMac(principal: VerifiedReader, postId: string): Buffer {
+  return crypto.createHmac('sha256', config.masterKey)
+    .update('publikator:a2b3:owned-drafts:v1\0')
+    .update(principal.agentId).update('\0')
+    .update(String(principal.grantVersion)).update('\0')
+    .update(postId).digest();
+}
+function encodeCursor(principal: VerifiedReader, postId: string): string {
+  return Buffer.from(postId,'utf8').toString('base64url')
+    + '.' + cursorMac(principal,postId).toString('base64url');
+}
+function decodeCursor(principal: VerifiedReader, cursor: string | null): string {
+  if (cursor === null) return '';
+  const [encoded,mac] = cursor.split('.');
+  const postId = Buffer.from(encoded,'base64url').toString('utf8');
+  if (!IDENTIFIER.test(postId)
+    || Buffer.from(postId,'utf8').toString('base64url') !== encoded) invalidCursor();
+  const actual = Buffer.from(mac,'base64url'), expected = cursorMac(principal,postId);
+  if (actual.length !== expected.length
+    || actual.toString('base64url') !== mac
+    || !crypto.timingSafeEqual(actual,expected)) invalidCursor();
+  return postId;
+}
 
 /**
  * Post text is private: always filter by immutable agent_draft_ownership,
@@ -110,9 +161,10 @@ function safeRowDto(row: PostRow, principal: VerifiedReader) {
   };
 }
 
-function listOwnDrafts(request: FastifyRequest, page: Page) {
+function listOwnDrafts(request: FastifyRequest, page: OwnedPage) {
   return db.transaction(() => {
     const {principal, grant} = requireReader(request);
+    const after = decodeCursor(principal,page.cursor);
     if (!grant.projectIds.length || !grant.accountIds.length) {
       return {items: [], pagination:{limit: page.limit,nextCursor:null}};
     }
@@ -124,7 +176,7 @@ function listOwnDrafts(request: FastifyRequest, page: Page) {
     ].join(' ');
     const rows = db.prepare(sql).all(principal.agentId,
       JSON.stringify(grant.projectIds), JSON.stringify(grant.accountIds),
-      page.after, page.limit+1) as PostRow[];
+      after, page.limit+1) as PostRow[];
     const visible=rows.slice(0,page.limit);
     const items=visible.map(row=>safeRowDto(row,principal));
     return {
@@ -132,7 +184,7 @@ function listOwnDrafts(request: FastifyRequest, page: Page) {
       pagination:{
         limit:page.limit,
         nextCursor:rows.length>page.limit
-          ? Buffer.from(visible.at(-1)!.id,'utf8').toString('base64url') : null
+          ? encodeCursor(principal,visible.at(-1)!.id) : null
       }
     };
   })();
@@ -174,7 +226,7 @@ export async function registerAgentOwnedDraftReadRoutes(app: FastifyInstance): P
   app.get('/api/agent/v1/posts',async(request,reply)=>{
     reply.header('cache-control','no-store');
     try {
-      return listOwnDrafts(request,parsePage(request.query));
+      return listOwnDrafts(request,parseOwnedPage(request.query));
     } catch(e) { return safeError(reply,e); }
   });
   app.get('/api/agent/v1/posts/:postId',async(request,reply)=>{

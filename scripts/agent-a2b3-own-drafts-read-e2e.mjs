@@ -96,6 +96,15 @@ try {
   const expected=[p1,p2,p3].sort();
   const before={posts:count('posts'),events:count('agent_activity_events'),
     receipts:count('agent_operation_receipts')};
+  const protectedTables=[
+    'posts','post_targets','content_revisions','agent_draft_ownership',
+    'agent_operation_receipts','agent_activity_events','agent_grants',
+    'agent_principals','agent_machine_keys','publication_units',
+    'media','content_media','social_accounts'
+  ];
+  const dbSnapshot=()=>Object.fromEntries(protectedTables.map(table=>
+    [table,db.prepare('SELECT * FROM '+table+' ORDER BY rowid').all()]));
+  const beforeReads=dbSnapshot();
 
   const response=await read(listUrl,authorization(reader));
   assert.equal(response.statusCode,200,response.body);
@@ -159,6 +168,18 @@ try {
     else assert.equal(cursor,null);
   }
   assert.deepEqual(paged,expected);
+  const firstPage=await read(listUrl+'?limit=1',authorization(reader));
+  assert.equal(firstPage.statusCode,200);
+  const issuedCursor=firstPage.json().pagination.nextCursor;
+  assert.ok(typeof issuedCursor==='string' && issuedCursor.includes('.'));
+  assert.equal((await read(listUrl+'?limit=100',authorization(reader))).json().items.length,3);
+  assert.ok(!issuedCursor.includes('draft text'));
+  assert.ok(!issuedCursor.includes('never-disclose'));
+  const mutatedCursor=issuedCursor.slice(0,-1)+(issuedCursor.endsWith('A')?'B':'A');
+  assert.equal((await read(listUrl+'?cursor='+mutatedCursor,
+    authorization(reader))).statusCode,400,'modified signature must fail');
+  assert.equal((await read(listUrl+'?cursor='+issuedCursor,
+    authorization(otherReader))).statusCode,400,'different agent cannot reuse signed cursor');
   for(const q of [
     '?limit=0','?limit=101','?limit=1.0','?cursor=bad*',
     '?cursor='+Buffer.from("' OR 1=1 --").toString('base64url'),
@@ -169,7 +190,7 @@ try {
   }
   const forged=await read(listUrl+'?cursor='+
     Buffer.from(foreignId,'utf8').toString('base64url'),authorization(reader));
-  assert.equal(forged.statusCode,200,forged.body);
+  assert.equal(forged.statusCode,400,forged.body);
   assert.ok(!forged.body.includes(foreignId));
   assert.equal((await read(listUrl+'/'+p1+'?agentId='+foreign.agentId,
     authorization(reader))).statusCode,400);
@@ -190,6 +211,8 @@ try {
   assert.equal(count('posts'),before.posts);
   assert.equal(count('agent_activity_events'),before.events);
   assert.equal(count('agent_operation_receipts'),before.receipts);
+  assert.deepEqual(dbSnapshot(),beforeReads,
+    'GET requests must not modify grants, keys, posts, targets, quotas, receipts or audit');
 
   // A canonical PATCH changes only the latest working draft, never rewrites
   // immutable earlier content revisions. GET returns the new current version.
@@ -215,6 +238,10 @@ try {
   assert.ok(!targetOff.json().items.some(x=>x.postId===p3));
   assert.equal((await read(listUrl+'/'+p3,authorization(reader))).statusCode,404);
   db.prepare('UPDATE post_targets SET enabled=1 WHERE post_id=?').run(p3);
+  db.prepare("UPDATE post_targets SET override_text='not allowed' WHERE post_id=?").run(p3);
+  assert.ok(!(await read(listUrl,authorization(reader))).json().items.some(x=>x.postId===p3));
+  assert.equal((await read(listUrl+'/'+p3,authorization(reader))).statusCode,404);
+  db.prepare('UPDATE post_targets SET override_text=NULL WHERE post_id=?').run(p3);
   assert.deepEqual((await read(listUrl,authorization(reader))).json().items.map(x=>x.postId),expected);
 
   await app.close();
@@ -233,6 +260,8 @@ try {
   assert.equal(changed.grantVersion,3);
   assert.equal((await read(listUrl,authorization(reader))).statusCode,401);
   const newReader=key(agent,'posts:read','a2b3-new-reader',3);
+  assert.equal((await read(listUrl+'?cursor='+issuedCursor,
+    authorization(newReader))).statusCode,400,'cursor must not survive grant version change');
   assert.deepEqual((await read(listUrl,authorization(newReader))).json().items.map(x=>x.postId),[p1]);
   assert.equal((await read(listUrl+'/'+p2,authorization(newReader))).statusCode,404);
   controlOwnerAgent(foreign.agentId,'pause',
@@ -245,6 +274,8 @@ try {
     originalAgentOwnership:true,sqlBoundProjectAndTargetAcl:true,
     absentForbiddenPosts404:true,readScopeRequired:true,
     currentDraftAndRevision:true,stablePagination:true,forgedCursorSafe:true,
+    signedAgentBoundCursors:true,staleGrantCursorDenied:true,
+    immutableGetDatabaseState:true,
     disabledTargetInvisible:true,revokedGrantDenied:true,
     noProviderSecretsOrSideEffects:true,restartSafe:true}));
 } finally {
