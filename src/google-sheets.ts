@@ -216,7 +216,7 @@ export function listGoogleSheetsConnectors(): GoogleSheetsConnector[] {
     WHERE type='google_sheets' ORDER BY created_at,id`).all() as ConnectorRow[]).map(connectorMetadata);
 }
 
-export async function createGoogleSheetsConnector(params: {
+export async function prepareGoogleSheetsConnector(params: {
   name: string;
   spreadsheetId: unknown;
   sheetName: unknown;
@@ -226,7 +226,7 @@ export async function createGoogleSheetsConnector(params: {
   autoApplyEnabled?: boolean;
   autoReadyEnabled?: boolean;
   credentials: unknown;
-}): Promise<GoogleSheetsConnector> {
+}) {
   const credentials = normalizeCredentials(params.credentials);
   const inspection = await inspectSpreadsheetRaw(credentials, params.spreadsheetId);
   const sheetName = normalizeSheetName(params.sheetName);
@@ -241,13 +241,13 @@ export async function createGoogleSheetsConnector(params: {
     autoReadyEnabled: params.autoReadyEnabled === true
   }, credentials.client_email);
   if (config.autoReadyEnabled && !config.autoApplyEnabled) throw new Error('autoReadyEnabled requires autoApplyEnabled');
-  const created = createIngestionConnector({
-    type: 'google_sheets',
-    name: params.name,
-    config,
-    credentials
-  });
-  return { ...created, config };
+  return { name: params.name, credentials, config };
+}
+
+export async function createGoogleSheetsConnector(params: Parameters<typeof prepareGoogleSheetsConnector>[0]): Promise<GoogleSheetsConnector> {
+  const prepared = await prepareGoogleSheetsConnector(params);
+  const created = createIngestionConnector({ type: 'google_sheets', ...prepared });
+  return { ...created, config: prepared.config };
 }
 
 export function updateGoogleSheetsPolling(connectorId: string, params: { enabled: boolean; intervalMinutes: unknown; autoApplyEnabled?: boolean; autoReadyEnabled?: boolean }): GoogleSheetsConnector {
