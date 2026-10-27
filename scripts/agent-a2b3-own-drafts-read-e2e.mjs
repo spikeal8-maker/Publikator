@@ -242,6 +242,22 @@ try {
   assert.ok(!(await read(listUrl,authorization(reader))).json().items.some(x=>x.postId===p3));
   assert.equal((await read(listUrl+'/'+p3,authorization(reader))).statusCode,404);
   db.prepare('UPDATE post_targets SET override_text=NULL WHERE post_id=?').run(p3);
+  db.prepare("UPDATE post_targets SET state='PUBLISHED',attempts=1 WHERE post_id=?").run(p3);
+  assert.ok(!(await read(listUrl,authorization(reader))).json().items.some(x=>x.postId===p3),
+    'target publication marker must exclude the entire draft');
+  assert.equal((await read(listUrl+'/'+p3,authorization(reader))).statusCode,404);
+  db.prepare("UPDATE post_targets SET state='PENDING',attempts=0 WHERE post_id=?").run(p3);
+  const targetId=db.prepare('SELECT id FROM post_targets WHERE post_id=? LIMIT 1')
+    .get(p3).id;
+  const revisionId=db.prepare('SELECT id FROM content_revisions WHERE post_id=? AND content_version=1')
+    .get(p3).id;
+  const unitId=id('unit');
+  db.prepare("INSERT INTO publication_units(id,target_id,revision_id,unit_index,unit_type,updated_at) VALUES (?,?,?,0,'POST',?)")
+    .run(unitId,targetId,revisionId,nowIso());
+  assert.ok(!(await read(listUrl,authorization(reader))).json().items.some(x=>x.postId===p3),
+    'even pending publication units make the draft ineligible');
+  assert.equal((await read(listUrl+'/'+p3,authorization(reader))).statusCode,404);
+  db.prepare('DELETE FROM publication_units WHERE id=?').run(unitId);
   assert.deepEqual((await read(listUrl,authorization(reader))).json().items.map(x=>x.postId),expected);
 
   await app.close();
@@ -275,7 +291,7 @@ try {
     absentForbiddenPosts404:true,readScopeRequired:true,
     currentDraftAndRevision:true,stablePagination:true,forgedCursorSafe:true,
     signedAgentBoundCursors:true,staleGrantCursorDenied:true,
-    immutableGetDatabaseState:true,
+    immutableGetDatabaseState:true,noPublicationMarkersVisible:true,
     disabledTargetInvisible:true,revokedGrantDenied:true,
     noProviderSecretsOrSideEffects:true,restartSafe:true}));
 } finally {
