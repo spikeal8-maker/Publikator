@@ -1,6 +1,7 @@
 import { db, type Platform } from './db.js';
 import type { ContentFormat, PublicationKind } from './domain/content-domain.js';
 import { getTargetRendition, resolveTargetRendition, type CanonicalRendition } from './delivery-foundation.js';
+import { resolveTargetMediaPlan } from './target-media-plan.js';
 import { listMedia } from './media.js';
 import { listContentMedia } from './rich-media.js';
 import { capabilityIssues, PLATFORM_CAPABILITIES, type CapabilityIssue } from './platforms/capabilities.js';
@@ -107,11 +108,6 @@ export function platformPreviews(postId: string): PlatformPreview[] {
   const post = db.prepare(`SELECT id,title,body,body_rich_json,publication_kind,content_format FROM posts WHERE id=?`).get(postId) as any;
   if (!post) throw new Error('Пост не найден');
   const items = orderedPreviewMedia(postId);
-  const publishMedia = primaryMedia(items).map((item) => ({
-    id: item.id, post_id: postId, original_name: '', relative_path: '', mime_type: item.mimeType,
-    size_bytes: 0, width: item.width, height: item.height, sha256: '', created_at: '', sort_order: item.order,
-    duration_ms: item.durationMs
-  })) as any[];
   const targets = db.prepare(`SELECT pt.id,pt.account_id,pt.enabled,pt.override_text,pt.state,
       a.platform,a.name AS account_name,a.enabled AS account_enabled
     FROM post_targets pt JOIN social_accounts a ON a.id=pt.account_id
@@ -129,6 +125,32 @@ export function platformPreviews(postId: string): PlatformPreview[] {
   return targets.map((target) => {
     const override = getTargetRendition(target.id);
     const resolved = resolveTargetRendition(canonical, override);
+    let targetItems = items;
+    let targetFormat = resolved.contentFormat;
+    const planIssues: PlatformPreviewIssue[] = [];
+    try {
+      const plan = resolveTargetMediaPlan(
+        override?.mediaPlanJson, primaryMedia(items), resolved.publicationKind, resolved.contentFormat
+      );
+      if (plan.applied) {
+        targetItems = plan.media.map((item, index) => ({ ...item, order: index }));
+        targetFormat = plan.contentFormat;
+      }
+    } catch (error) {
+      // Do not display canonical media as if a broken target plan had been
+      // applied. The same invalid plan blocks READY in publisher preflight.
+      targetItems = [];
+      planIssues.push({
+        severity: 'error',
+        code: 'TARGET_MEDIA_PLAN_INVALID',
+        message: error instanceof Error ? error.message : String(error)
+      });
+    }
+    const publishMedia = primaryMedia(targetItems).map((item) => ({
+      id: item.id, post_id: postId, original_name: '', relative_path: '', mime_type: item.mimeType,
+      size_bytes: 0, width: item.width, height: item.height, sha256: '', created_at: '', sort_order: item.order,
+      duration_ms: item.durationMs
+    })) as any[];
     const textResolution = resolveTargetRichText({
       baseRichJson: post.body_rich_json,
       basePlain: post.body,
@@ -146,9 +168,7 @@ export function platformPreviews(postId: string): PlatformPreview[] {
       message: diagnostic.message
     }));
     if (!target.account_enabled) issues.push({ severity: 'error', code: 'ACCOUNT_DISABLED', message: 'Аккаунт отключён' });
-    if (override?.mediaPlanJson) {
-      issues.push({ severity: 'warning', code: 'MEDIA_PLAN_NOT_EXECUTED', message: 'Target media plan сохранён, но текущий publisher ещё использует canonical media order' });
-    }
+    issues.push(...planIssues);
     const capability = PLATFORM_CAPABILITIES[target.platform as Platform];
     const publicMediaUrls = capability.requiresPublicHttpsMedia ? publishMedia.map(() => 'https://preview.invalid/media') : [];
     issues.push(...capabilityIssues(target.platform as Platform, {
@@ -159,9 +179,9 @@ export function platformPreviews(postId: string): PlatformPreview[] {
       credentials: {},
       publicMediaUrls,
       publicationKind: resolved.publicationKind,
-      contentFormat: resolved.contentFormat
+      contentFormat: targetFormat
     }).map((issue) => ({ ...issue, severity: 'error' as const })));
-    issues.push(...verticalAspectWarning(resolved.publicationKind, resolved.contentFormat, items));
+    issues.push(...verticalAspectWarning(resolved.publicationKind, targetFormat, targetItems));
     return {
       targetId: target.id,
       accountId: target.account_id,
@@ -170,14 +190,14 @@ export function platformPreviews(postId: string): PlatformPreview[] {
       enabled: Boolean(target.enabled),
       targetState: target.state,
       publicationKind: resolved.publicationKind,
-      contentFormat: resolved.contentFormat,
+      contentFormat: targetFormat,
       text,
       textSource: textResolution.source,
       resolvedRichText: textResolution.document,
       compilation,
-      media: items,
-      mediaCount: primaryMedia(items).length,
-      videoDurationMs: primaryMedia(items).find((item) => item.mimeType.startsWith('video/'))?.durationMs ?? null,
+      media: targetItems,
+      mediaCount: primaryMedia(targetItems).length,
+      videoDurationMs: primaryMedia(targetItems).find((item) => item.mimeType.startsWith('video/'))?.durationMs ?? null,
       captionPlacement: captionPlacement[target.platform as Platform],
       verticalSafeZone: resolved.publicationKind === 'SHORT' || resolved.publicationKind === 'STORY' || resolved.contentFormat === 'VERTICAL_VIDEO',
       issues
