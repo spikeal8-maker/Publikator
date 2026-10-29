@@ -17,6 +17,7 @@ let browser;
 const key = { type: 'service_account', client_email: 'fixture@source-test.iam.gserviceaccount.com', private_key: '-----BEGIN PRIVATE KEY-----\nSYNTHETIC_NOT_A_REAL_KEY\n-----END PRIVATE KEY-----' };
 const google = [], drive = [], yandex = [];
 let denySheet = true, denyDrive = false, inspectCalls = 0, saves = 0, yandexStatus = 0, yandexInspects = 0;
+let holdNextGoogleList = false, releaseGoogleList = null;
 const errors = [];
 try {
   browser = await chromium.launch({ channel: 'chrome', headless: true });
@@ -65,6 +66,10 @@ try {
       yandex.push(connector); status = 201; result = { connector };
     } else if (pathname.endsWith('/test')) result = { ok: true };
     else throw new Error('Unexpected mocked operation: ' + method + ' ' + pathname);
+    if (holdNextGoogleList && method === 'GET' && pathname === '/api/google-sheets/connectors') {
+      holdNextGoogleList = false;
+      await new Promise(resolve => { releaseGoogleList = resolve; });
+    }
     await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(result) });
   });
   await page.goto('http://127.0.0.1:18892/');
@@ -82,17 +87,69 @@ try {
   await page.keyboard.press('Escape');
   const initialScroll = await page.evaluate(() => window.scrollY);
   assert.ok(await page.locator('.operator-source-layout').evaluate(el => el.getBoundingClientRect().height < 800));
-  await page.locator('#gs-open-connect').click();
-  assert.equal(await page.locator('dialog[open]').count(), 1);
-  assert.equal(await page.evaluate(() => window.scrollY), initialScroll, 'opening setup does not jump page');
-  for (let i = 0; i < 12; i++) {
-    await page.keyboard.press('Tab');
-    assert.ok(await page.locator('dialog[open]').evaluate(el => el.contains(document.activeElement)), 'keyboard stays in dialog');
+  const focusSnapshots = [];
+  async function verifyModalTabs(phase, key, count = 12) {
+    for (let press = 1; press <= count; press++) {
+      await page.keyboard.press(key);
+      const state = await page.evaluate(() => {
+        const dialog = document.querySelector('dialog.gs-setup-dialog');
+        const active = document.activeElement;
+        return {
+          activeTag: active?.tagName || '',
+          activeId: active?.id || '',
+          dialogOpen: dialog?.open === true,
+          modal: dialog?.matches(':modal') === true,
+          formPresent: !!document.querySelector('#gs-connect-form'),
+          focusInside: dialog?.contains(active) === true
+        };
+      });
+      focusSnapshots.push({ phase, key, press, ...state });
+      assert.ok(state.dialogOpen && state.modal && state.focusInside,
+        'keyboard stays in dialog: ' + JSON.stringify({ phase, key, press, ...state }));
+    }
   }
+
+  // A blocked connector response must leave the modal keyboard-accessible.
+  holdNextGoogleList = true;
+  await page.locator('#gs-open-connect').click();
+  await page.locator('#gs-loading-close').waitFor();
+  assert.equal(await page.locator('dialog[open]').count(), 1);
+  assert.equal(await page.locator('#gs-connect-form').count(), 0, 'form is still loading');
+  assert.equal(await page.evaluate(() => window.scrollY), initialScroll, 'opening setup does not jump page');
+  await verifyModalTabs('loading', 'Tab');
+  await verifyModalTabs('loading', 'Shift+Tab');
+  assert.equal(typeof releaseGoogleList, 'function', 'controlled Google API request is pending');
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('dialog[open]').count(), 0);
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'gs-open-connect');
+  releaseGoogleList();
+  releaseGoogleList = null;
+
+  // Fast fixture response: the rendered form must trap forward and reverse Tab.
+  await page.locator('#gs-open-connect').click();
+  await page.locator('#gs-connect-form').waitFor();
+  assert.equal(await page.evaluate(() => window.scrollY), initialScroll);
+  await verifyModalTabs('loaded', 'Tab');
+  await verifyModalTabs('loaded', 'Shift+Tab');
+  const focusableSelector = 'a[href],button,input,select,textarea,summary,[tabindex]:not([tabindex="-1"])';
+  const focusBoundary = async side => page.evaluate(({ selector, side }) => {
+    const dialog = document.querySelector('dialog.gs-setup-dialog');
+    const nodes = Array.from(dialog.querySelectorAll(selector)).filter(element =>
+      element.tabIndex >= 0 && !element.matches(':disabled') && element.getClientRects().length > 0);
+    nodes[side === 'first' ? 0 : nodes.length - 1].focus();
+    return nodes.length;
+  }, { selector: focusableSelector, side });
+  assert.ok(await focusBoundary('last') > 1);
+  await verifyModalTabs('last-to-first', 'Tab', 1);
+  assert.ok(await focusBoundary('first') > 1);
+  await verifyModalTabs('first-to-last', 'Shift+Tab', 1);
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('dialog[open]').count(), 0);
   assert.equal(await page.evaluate(() => document.activeElement.id), 'gs-open-connect');
   await page.locator('#gs-open-connect').click();
+  await page.locator('#gs-connect-form').waitFor();
+  assert.equal(await page.evaluate(() => window.scrollY), initialScroll);
+  console.log(JSON.stringify({ checkpoint: 'GOOGLE-DIALOG-KEYBOARD', ok: true, focusSnapshots }));
   await page.locator('summary[aria-label="Справка: Один аккаунт для Google"]').press('Enter');
   assert.match(await page.locator('.gs-setup-guide').first().innerText(), /Сервисные аккаунты/);
   await page.locator('[name=name]').fill('Fixture plan');

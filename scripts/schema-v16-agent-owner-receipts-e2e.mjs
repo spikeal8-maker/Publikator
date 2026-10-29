@@ -36,7 +36,7 @@ try {
   };
 
   // Simulate a real N-1 schema 15 database: principals/grants/audit exist.
-  db.exec('DROP TABLE agent_machine_keys; DROP TABLE agent_owner_operation_receipts;');
+  db.exec('DROP TRIGGER IF EXISTS trg_agent_draft_initial_no_publish; DROP TRIGGER IF EXISTS trg_agent_receipt_exact_owner; DROP TRIGGER IF EXISTS trg_agent_draft_no_external_publish; DROP TABLE IF EXISTS agent_operation_receipts; DROP TABLE IF EXISTS agent_draft_ownership; DROP TABLE agent_machine_keys; DROP TABLE agent_owner_operation_receipts;');
   db.pragma('user_version = 15');
   migrate();
   assert.equal(Number(db.pragma('user_version', { simple: true })), DATABASE_SCHEMA_VERSION);

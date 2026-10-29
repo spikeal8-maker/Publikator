@@ -35,7 +35,7 @@ function eventCount() {
 }
 
 try {
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 17);
+  assert.ok(Number(db.pragma('user_version', { simple: true }))>=17);
   const project1 = db.prepare('SELECT id FROM projects ORDER BY id LIMIT 1').get().id;
   const project2 = id('prj');
   const now = nowIso();
@@ -208,7 +208,7 @@ try {
     readHeaders(restrictedKey.bearerToken))).statusCode, 401);
 
   console.log(JSON.stringify({
-    ok: true, checkpoint: 'AGENT-A1b2b2', schema: 17,
+    ok: true, checkpoint: 'AGENT-A1b2b2', schema: Number(db.pragma('user_version',{simple:true})),
     exactlyScopedCapabilities: true, bearerOnly: true, cookieAndLegacyIsolated: true,
     noOAuthOrMcp: true, unknownRouteProtected: true, noPostOrPublish: true,
     maliciousOriginDenied: true, noCredentialsInResponse: true,
