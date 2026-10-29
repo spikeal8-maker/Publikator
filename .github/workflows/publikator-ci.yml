@@ -98,6 +98,15 @@ jobs:
       - name: AGENT-A1b2a owner grants and exact resource ACL
         run: node scripts/agent-a1b2a-owner-grants-acl-e2e.mjs
 
+      - name: AGENT-A1b2b1 schema 17 machine token migration
+        run: node scripts/schema-v17-agent-machine-keys-e2e.mjs
+
+      - name: AGENT-A1b2b1 schema 17 machine token canonical backup
+        run: node scripts/backup-v17-agent-machine-keys-e2e.mjs
+
+      - name: AGENT-A1b2b1 machine keys owner API and auth security
+        run: node scripts/agent-a1b2b1-machine-key-security-e2e.mjs
+
       - name: GOOGLE-SETUP-001 atomic shared service-account setup
         run: node scripts/google-source-setup-e2e.mjs
 
