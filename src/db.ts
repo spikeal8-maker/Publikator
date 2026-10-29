@@ -10,7 +10,7 @@ import { migrateProjectDefaults } from './project-defaults-migration.js';
 import { migrateTemplates } from './templates-migration.js';
 import { migrateSocialCredentialCapability } from './social-credential-capability-migration.js';
 import { migrateAdminAuth } from './admin-auth-migration.js';
-import { migrateAgentOwnership } from './agent-ownership-migration.js';
+import { migrateAgentOwnership, ensureAgentAuditGuards } from './agent-ownership-migration.js';
 import { migrateAgentOwnerReceipts } from './agent-owner-receipt-migration.js';
 import { migrateAgentMachineKeys } from './agent-machine-key-migration.js';
 import { canonicalPlainRichJson } from './rich-text.js';
@@ -399,6 +399,7 @@ export function migrate(): void {
   if (currentSchemaVersion < 13) migrateSocialCredentialCapability(db);
   if (currentSchemaVersion < 14) migrateAdminAuth(db);
   if (currentSchemaVersion < 15) migrateAgentOwnership(db);
+  else db.transaction(() => ensureAgentAuditGuards(db)).immediate();
   if (currentSchemaVersion < 16) migrateAgentOwnerReceipts(db);
   if (currentSchemaVersion < 17) migrateAgentMachineKeys(db);
 
