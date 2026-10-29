@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { config } from '../config.js';
+import { isAgentApiPath } from './agent-bearer-boundary.js';
 import { createSessionToken, decryptJson, encryptJson, securePasswordEqual, verifySessionToken } from '../crypto.js';
 import { db, event, id, nowIso, type Platform } from '../db.js';
 import { adminMode, sessionAdmin, revokeSession, revokeLegacySession, isLegacySessionRevoked, loginAdmin,
@@ -275,7 +276,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       '/api/auth/recover', '/api/auth/migrate', '/api/auth/logout', '/api/vk/oauth/callback'
     ]);
     if (!request.url.startsWith('/api/') || publicRoutes.has(request.url.split('?')[0]!)
-      || request.url.startsWith('/api/integration/v1/')) return;
+      || request.url.startsWith('/api/integration/v1/')
+      // Only the earlier global mandatory Bearer onRequest hook owns Agent API.
+      || isAgentApiPath(request.url)) return;
     const cookie = request.cookies.publikator_session;
     if (!sessionAdmin(cookie) && !legacyAuthorized(cookie)) {
       return reply.code(401).send({ error: 'Требуется вход' });
