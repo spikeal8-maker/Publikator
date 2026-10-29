@@ -4683,7 +4683,8 @@
               "google_drive",
               "google_sheets",
               "yandex_disk",
-              "local"
+              "local",
+              "generic_https"
             ]
           },
           "name": {
@@ -4695,6 +4696,10 @@
             "type": "string",
             "minLength": 0,
             "maxLength": 160
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Saved source connector status; it does not grant access to files."
           }
         },
         "additionalProperties": false

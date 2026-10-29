@@ -177,7 +177,8 @@ try {
   }
   assert.equal((await read(endpoint,{...auth(firstToken),origin:'https://evil.example'})).statusCode,403);
   assert.equal((await read(endpoint,{...auth(firstToken),origin:process.env.PUBLIC_BASE_URL})).statusCode,200);
-  assert.equal((await read('/api/agent/v1/sources',auth(firstToken))).statusCode,404);
+  assert.equal((await read('/api/agent/v1/sources',auth(firstToken))).statusCode,403,
+    'account-only key must not read sources when the route exists');
   assert.equal((await read('/api/agent/v1/posts',auth(firstToken))).statusCode,404);
 
   // Credential mutation invalidates the previous profile; never show READY.
