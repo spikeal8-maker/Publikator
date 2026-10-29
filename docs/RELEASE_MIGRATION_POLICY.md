@@ -39,6 +39,8 @@ Publikator uses monotonic, one-step schema milestones. Current ledger:
 | 11 | EW4-005 | accepted project defaults: timezone, default targets and per-post isolation |
 | 12 | EW4-006 | accepted templates / reusable content blocks |
 | 13 | CRED-01A | social credential capability profile persistence + credential_version |
+| 14 | P0 admin auth (#167) | local owner sessions and installer setup grants |
+| 15 | AGENT-A1a (#175) | owner-scoped AgentPrincipal/AgentGrant and server activity records; no live API or auto-publishing |
 
 A feature PR MUST NOT combine several unrelated future data-model milestones into one schema jump.
 A new schema version must represent one coherent data ownership/invariant change and migrate from the immediately previous version.
@@ -53,6 +55,12 @@ Schema 11 `project-defaults` and schema 12 `templates` are accepted in `main`. S
 Schema 13 `social-credential-capability-profile` is owned only by CRED-01A. Evidence: `scripts/schema-v13-social-credential-capability-e2e.mjs`, `scripts/backup-v13-social-credential-capability-e2e.mjs`, and `scripts/cred-01a-capability-profile-e2e.mjs`. Its exact columns, legacy migration semantics and no-network migration rule are normative in `SOCIAL_CREDENTIAL_CAPABILITY_CONTRACT.md` sections 22–24.
 
 Schema 14 `admin-local-accounts` is an additive P0 owner-auth migration (#167) with installer-issued, single-use bootstrap grants; it preserves existing projects, posts, credentials and release data. Its dedicated regressions are `scripts/schema-v14-admin-auth-e2e.mjs` and `scripts/backup-v14-admin-auth-e2e.mjs`.
+
+Schema 15 `agent-ownership-audit` is AGENT-A1a (#175), adding inactive-by-default agent principal/grant storage and bounded safe server-observed audit events. No bot is granted accounts or publication rights during migration; no `/mcp` or Agent API endpoints are exposed. Dedicated regressions: `scripts/schema-v15-agent-ownership-e2e.mjs` and `scripts/backup-v15-agent-ownership-e2e.mjs`. Real A1b owner-authenticated permission mutations and A2 safe event writers require separate accepted checkpoints.
+
+Schema 15 audit hardening (security review P2-01/P2-02): `agent_activity_events.target_account_ids_json` is limited to 4096 UTF-8 bytes, at most 20 items, each an ASCII `[A-Za-z0-9._:-]` ID of 1–128 characters; `[]` remains valid. `safe_summary` is limited to 1–240 Unicode characters and 960 UTF-8 bytes with NUL forbidden. Direct SQLite INSERT/UPDATE are additionally guarded by idempotent `trg_agent_audit_payload_insert` and `trg_agent_audit_payload_update`. SQL constraints only bound shape and size: **A1b/A2 server writers must generate sanitized, allowlisted audit messages without copying credentials, user text or provider responses**; this storage change does not implement a sanitizer or publish permissions.
+
+**Already-created SQLite v15 databases:** SQLite does not modify an existing table's CHECK with `CREATE TABLE IF NOT EXISTS`. The v15 startup path therefore creates missing audit triggers in place, transactionally and without a new milestone, table rebuild or data deletion. Old historical audit rows are **not** retroactively cleaned or revalidated: legacy invalid rows can remain and must be assessed separately before any remediation. Canonical backups produced after guard installation contain both triggers. Restoring a pre-hardening v15 backup requires startup with the hardened binary to reinstall guards before audit writes. The choice of historical data remediation, if needed, belongs to a separate owner-approved migration; never silently rewrite or purge events.
 
 Every schema `N` after the V1 baseline MUST add all of the following in the same checkpoint PR:
 1. explicit migration code from `N-1` to `N`;
