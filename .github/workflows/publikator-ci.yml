@@ -128,6 +128,9 @@ jobs:
       - name: AGENT-A2b1 text-only scoped drafts and durable receipts
         run: node scripts/agent-a2b1-text-draft-only-e2e.mjs
 
+      - name: AGENT-A2b2 safe owner-bound draft text revisions and replay
+        run: node scripts/agent-a2b2-owned-draft-edit-e2e.mjs
+
       - name: GOOGLE-SETUP-001 atomic shared service-account setup
         run: node scripts/google-source-setup-e2e.mjs
 
@@ -629,3 +632,6 @@ jobs:
 
       - name: AGENT-A2b1 text-only scoped drafts and durable receipts
         run: node scripts/agent-a2b1-text-draft-only-e2e.mjs
+
+      - name: AGENT-A2b2 safe owner-bound draft text revisions and replay
+        run: node scripts/agent-a2b2-owned-draft-edit-e2e.mjs
