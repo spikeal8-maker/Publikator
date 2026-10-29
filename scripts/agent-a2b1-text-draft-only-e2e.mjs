@@ -1,0 +1,269 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+
+const dir=await fs.mkdtemp(path.join(os.tmpdir(),'publikator-a2b1-'));
+process.env.NODE_ENV='test';
+process.env.DATA_DIR=dir;
+delete process.env.ADMIN_PASSWORD;
+process.env.APP_MASTER_KEY='agent-text-only-master-key-longer-than-thirty-two-2026';
+process.env.PUBLIC_BASE_URL='https://publisher.example.test';
+
+const {db,migrate,id,nowIso}=await import('../dist/db.js');
+const {buildApp}=await import('../dist/app.js');
+const {encryptJson}=await import('../dist/crypto.js');
+const {createAdminSetupGrant,createOrRecoverAdmin}=await import('../dist/admin-auth.js');
+const {createOwnerAgent,controlOwnerAgent}=await import('../dist/agent-owner-registry.js');
+const {updateOwnerAgentGrant}=await import('../dist/agent-owner-grants.js');
+const {issueOwnerMachineKey}=await import('../dist/agent-machine-keys.js');
+
+migrate();
+let app=await buildApp();
+const session=createOrRecoverAdmin('INITIAL',createAdminSetupGrant('INITIAL'),
+  'owner','draft-only-owner-password-2026','draft-only-owner-password-2026');
+const endpoint='/api/agent/v1/posts';
+const headers=(token,key='create-once')=>({
+  authorization:'Bearer '+token,'idempotency-key':key
+});
+const send=(body,head,url=endpoint)=>app.inject({method:'POST',url,headers:head,payload:body});
+const count=table=>db.prepare('SELECT COUNT(*) AS n FROM '+table).get().n;
+
+try{
+  assert.equal(Number(db.pragma('user_version',{simple:true})),18);
+  const project=db.prepare('SELECT id,slug FROM projects LIMIT 1').get();
+  const otherProject=id('prj');
+  db.prepare('INSERT INTO projects(id,name,slug,created_at) VALUES (?,?,?,?)')
+    .run(otherProject,'Other project','agent-other',nowIso());
+  const a1=id('acc'),a2=id('acc'),foreign=id('acc'),disabled=id('acc');
+  for(const [aid,platform,enabled] of [
+    [a1,'telegram',1],[a2,'vk',1],[foreign,'max',1],[disabled,'telegram',0]
+  ]){
+    db.prepare('INSERT INTO social_accounts(id,platform,name,credentials_encrypted,enabled,created_at,updated_at) VALUES (?,?,?,?,?,?,?)')
+      .run(aid,platform,'Fixture '+aid,encryptJson({accessToken:'secret-never-return'}),enabled,nowIso(),nowIso());
+  }
+  const manual=id('post');
+  db.prepare("INSERT INTO posts(id,project_id,title,body,status,editorial_stage,schedule_mode,source_type,created_at,updated_at) VALUES (?,?,'Owner READY','manual','READY','APPROVED','MANUAL','manual',?,?)")
+    .run(manual,project.id,nowIso(),nowIso());
+  const one=createOwnerAgent({name:'Agent one',clientKind:'n8n'},'owner-agent-1');
+  const two=createOwnerAgent({name:'Agent two',clientKind:'rest_client'},'owner-agent-2');
+  const grant=(agent,prj,accounts,k)=>updateOwnerAgentGrant(agent.agentId,{
+    expectedGrantVersion:1,presetId:'CUSTOM',publishMode:'DRAFT_ONLY',
+    scopeIds:['posts:write'],projectIds:[prj],accountIds:accounts,
+    sourceConnectorIds:[],confirmElevation:true
+  },k);
+  assert.equal(grant(one,project.id,[a1,a2],'grant-one').grantVersion,2);
+  assert.equal(grant(two,otherProject,[foreign],'grant-two').grantVersion,2);
+  const key=(agent,k)=>issueOwnerMachineKey(agent.agentId,{
+    expectedGrantVersion:2,scopeIds:['posts:write'],ttlHours:24
+  },k).bearerToken;
+  const token1=key(one,'token-one'),token2=key(two,'token-two');
+  const initial=count('posts'),events=count('agent_activity_events');
+  const body={projectId:project.id,contentFormat:'TEXT_ONLY',publicationKind:'FEED',
+    internalTitle:'Test draft',bodyPlain:'Text that must stay a draft',
+    targetAccountIds:[a2,a1],mediaAssetIds:[],schedule:null};
+  // A post, its targets, revision, immutable owner, receipt and audit must
+  // share a single transaction. Inject failures at the two last write stages
+  // and verify every earlier write rolls back (including import events).
+  const stateCounts=()=>Object.fromEntries([
+    'posts','post_targets','content_revisions','agent_draft_ownership',
+    'agent_operation_receipts','agent_activity_events','publication_events'
+  ].map(table=>[table,count(table)]));
+  const beforeRollback=stateCounts();
+  for (const [table, condition] of [
+    ['agent_operation_receipts', "NEW.operation_name='createAgentPost'"],
+    ['agent_activity_events', "NEW.operation_id='createAgentPost'"]
+  ]) {
+    db.exec(`CREATE TEMP TRIGGER a2b1_injected_failure BEFORE INSERT ON ${table}
+      WHEN ${condition} BEGIN SELECT RAISE(ABORT,'A2B1_FORCED_ROLLBACK'); END;`);
+    try {
+      const failed=await send(body,headers(token1));
+      assert.equal(failed.statusCode,500,failed.body);
+      assert.equal(failed.json().error.code,'INTERNAL_ERROR');
+      assert.deepEqual(stateCounts(),beforeRollback,
+        'failing '+table+' must roll back the entire draft operation');
+    } finally {
+      db.exec('DROP TRIGGER a2b1_injected_failure;');
+    }
+  }
+  const first=await send(body,headers(token1));
+  assert.equal(first.statusCode,201,first.body);
+  const data=first.json();
+  assert.equal(data.status,'DRAFT');
+  assert.equal(data.contentVersion,1);
+  assert.equal(data.schedule,null);
+  assert.deepEqual(data.targetAccountIds,[a1,a2].sort());
+  assert.equal(count('posts'),initial+1);
+  const post=db.prepare('SELECT * FROM posts WHERE id=?').get(data.postId);
+  assert.equal(post.source_type,'agent-api');
+  assert.equal(post.status,'DRAFT');
+  assert.equal(post.schedule_mode,'MANUAL');
+  assert.equal(post.scheduled_at_utc,null);
+  const owner=db.prepare('SELECT * FROM agent_draft_ownership WHERE post_id=?').get(data.postId);
+  assert.equal(owner.agent_id,one.agentId);
+  assert.equal(owner.creation_grant_version,2);
+  const rev=db.prepare('SELECT * FROM content_revisions WHERE post_id=?').all(data.postId);
+  assert.equal(rev.length,1);
+  assert.equal(rev[0].actor_source,'agent_api');
+  assert.deepEqual(db.prepare('SELECT account_id FROM post_targets WHERE post_id=? ORDER BY account_id').all(data.postId)
+    .map(x=>x.account_id),[a1,a2].sort());
+  const receipt=db.prepare('SELECT * FROM agent_operation_receipts WHERE post_id=?').get(data.postId);
+  assert.equal(receipt.phase,'COMPLETED');
+  assert.equal(receipt.agent_id,one.agentId);
+  assert.equal(receipt.idempotency_key_hash.length,64);
+  assert.equal(count('agent_activity_events'),events+1);
+  assert.ok(!JSON.stringify(receipt).includes('create-once'));
+  assert.ok(!JSON.stringify(receipt).includes(token1));
+  assert.ok(!JSON.stringify(receipt).includes(body.bodyPlain),
+    'receipt should contain only safe immutable post references');
+  assert.deepEqual(JSON.parse(receipt.result_json),{
+    postId:data.postId,contentVersion:1,status:'DRAFT'
+  });
+  assert.ok(!first.body.includes('secret-never-return'));
+
+  const reordered={mediaAssetIds:[],targetAccountIds:[a1,a2],
+    internalTitle:body.internalTitle,projectId:project.id,
+    bodyPlain:body.bodyPlain,contentFormat:'TEXT_ONLY',schedule:null,publicationKind:'FEED'};
+  const replay=await send(reordered,headers(token1));
+  assert.equal(replay.statusCode,200,replay.body);
+  assert.deepEqual(replay.json(),data);
+  assert.equal(count('posts'),initial+1);
+  assert.equal(count('agent_activity_events'),events+1);
+  const conflict=await send({...body,bodyPlain:'Other text'},headers(token1));
+  assert.equal(conflict.statusCode,409);
+  assert.equal(conflict.json().error.code,'IDEMPOTENCY_CONFLICT');
+
+  const negatives=[
+    [{...body,status:'READY'},400],
+    [{...body,agentId:two.agentId},400],
+    [{...body,contentFormat:'IMAGE'},403],
+    [{...body,schedule:{mode:'QUEUE'}},403],
+    [{...body,mediaAssetIds:['media_forbidden']},403],
+    [{...body,targetTextOverrides:[{accountId:a1,bodyPlain:'replace'}]},403],
+    [{...body,targetAccountIds:[a1,foreign]},403],
+    [{...body,targetAccountIds:[disabled]},403],
+    [{...body,projectId:otherProject},403],
+    [{...body,targetAccountIds:[a1,a1]},400],
+    [{...body,targetAccountIds:[]},400],
+    [{...body,bodyPlain:' '},400]
+  ];
+  for(let i=0;i<negatives.length;i++){
+    const [bad,expected]=negatives[i];
+    const response=await send(bad,headers(token1,'negative-'+i));
+    assert.equal(response.statusCode,expected,
+      JSON.stringify({i,expected,actual:response.statusCode,body:response.body}));
+  }
+  assert.equal(count('posts'),initial+1);
+  for(const sql of [
+    "UPDATE posts SET status='READY' WHERE id=?",
+    "UPDATE posts SET schedule_mode='AT' WHERE id=?",
+    "UPDATE posts SET editorial_stage='APPROVED' WHERE id=?",
+    "UPDATE posts SET source_type='manual' WHERE id=?"
+  ])assert.throws(()=>db.prepare(sql).run(data.postId),/AGENT_OWNER_CONSENT_REQUIRED/);
+  assert.equal(db.prepare('SELECT status FROM posts WHERE id=?').get(manual).status,'READY');
+
+  assert.equal((await send(body,{})).statusCode,401);
+  assert.equal((await send(body,{cookie:'publikator_session='+session})).statusCode,401);
+  assert.equal((await send(body,{...headers(token1,'mixed'),cookie:'publikator_session='+session})).statusCode,401);
+  assert.equal((await send(body,{authorization:'Bearer pk_'+'a'.repeat(43),
+    'idempotency-key':'legacy'})).statusCode,401);
+  assert.equal((await send(body,{authorization:'Bearer '+token1})).statusCode,400);
+  assert.equal((await send(body,headers(token1,'evil-query'),endpoint+'?publish=true')).statusCode,400);
+  assert.equal((await send(body,{...headers(token1,'origin'),origin:'https://evil.example'})).statusCode,403);
+
+  assert.equal((await send(body,headers(token2,'foreign-post'))).statusCode,403);
+  const otherBody={...body,projectId:otherProject,targetAccountIds:[foreign],
+    internalTitle:'Independent draft'};
+  const other=await send(otherBody,headers(token2,'create-once'));
+  assert.equal(other.statusCode,201,other.body);
+  assert.notEqual(other.json().postId,data.postId);
+  assert.equal(db.prepare('SELECT agent_id FROM agent_draft_ownership WHERE post_id=?')
+    .get(other.json().postId).agent_id,two.agentId);
+  await app.close();
+  app=await buildApp();
+  const restart=await send(reordered,headers(token1));
+  assert.equal(restart.statusCode,200,restart.body);
+  assert.deepEqual(restart.json(),data);
+  // Exercise the hourly quota at its boundary with concurrent HTTP
+  // submissions, plus replay and restart. The 58 synthetic completed receipts
+  // represent older successful operations; the original create brings the
+  // count to 59, so exactly one of five new requests can be admitted.
+  const budgetReceipt=db.prepare([
+    'INSERT INTO agent_operation_receipts',
+    '(receipt_id,agent_id,operation_name,idempotency_key_hash,',
+    'canonical_payload_hash,post_id,phase,result_json,created_at,updated_at)',
+    'VALUES (?,?,?,?,?,?,?,?,?,?)'
+  ].join(' '));
+  db.transaction(()=>{
+    for(let i=1;i<=58;i++){
+      budgetReceipt.run(id('arec'),one.agentId,'createAgentPost',
+        i.toString(16).padStart(64,'0'),'f'.repeat(64),data.postId,
+        'COMPLETED',JSON.stringify({postId:data.postId,contentVersion:1,status:'DRAFT'}),
+        nowIso(),nowIso());
+    }
+  }).immediate();
+  const atBoundary=stateCounts();
+  const racingPayloads=Array.from({length:5},(_,index)=>({
+    ...body,internalTitle:'Concurrent '+index,
+    bodyPlain:'Only one concurrent draft may pass the hourly boundary '+index
+  }));
+  const racing=await Promise.all(racingPayloads.map((payload,index)=>
+    send(payload,headers(token1,'hourly-race-'+index))));
+  const winners=racing.flatMap((response,index)=>response.statusCode===201?[index]:[]);
+  const denied=racing.filter(response=>response.statusCode===429);
+  assert.equal(winners.length,1,'exactly one of five concurrent requests can create the 60th draft');
+  assert.equal(denied.length,4,'remaining requests must receive HTTP 429');
+  for (const response of denied) {
+    assert.equal(response.json().error.code,'RATE_LIMITED');
+    assert.equal(response.headers['retry-after'],'3600');
+  }
+  const afterBoundary=stateCounts();
+  assert.equal(afterBoundary.posts,atBoundary.posts+1);
+  assert.equal(afterBoundary.post_targets,atBoundary.post_targets+2);
+  assert.equal(afterBoundary.content_revisions,atBoundary.content_revisions+1);
+  assert.equal(afterBoundary.agent_draft_ownership,atBoundary.agent_draft_ownership+1);
+  assert.equal(afterBoundary.agent_operation_receipts,atBoundary.agent_operation_receipts+1);
+  assert.equal(afterBoundary.agent_activity_events,atBoundary.agent_activity_events+1);
+  const winner=winners[0];
+  const originalRace=await send(racingPayloads[winner],headers(token1,'hourly-race-'+winner));
+  assert.equal(originalRace.statusCode,200,'replay after quota must not create another post');
+  assert.deepEqual(originalRace.json(),racing[winner].json());
+  assert.deepEqual(stateCounts(),afterBoundary,'same-key replay has no side effects');
+  assert.equal((await send(reordered,headers(token1))).statusCode,200,
+    'older same-key replay should remain exempt from the quota');
+  await app.close();
+  app=await buildApp();
+  const limited=await send({...body,bodyPlain:'New operation blocked after restart'},
+    headers(token1,'hourly-after-restart'));
+  assert.equal(limited.statusCode,429,limited.body);
+  assert.equal(limited.json().error.code,'RATE_LIMITED');
+  assert.equal(limited.headers['retry-after'],'3600');
+  assert.equal((await send(racingPayloads[winner],
+    headers(token1,'hourly-race-'+winner))).statusCode,200);
+  assert.deepEqual(stateCounts(),afterBoundary,'quota and replay survive restart');
+  const independent=await send(otherBody,headers(token2,'independent-quota'));
+  assert.equal(independent.statusCode,201,independent.body);
+  const revokeGrant=updateOwnerAgentGrant(one.agentId,{
+    expectedGrantVersion:2,presetId:'CUSTOM',publishMode:'DRAFT_ONLY',
+    scopeIds:['posts:write'],projectIds:[project.id],accountIds:[a1],
+    sourceConnectorIds:[],confirmElevation:false
+  },'narrow-agent-one');
+  assert.equal(revokeGrant.grantVersion,3);
+  assert.equal((await send(body,headers(token1,'stale'))).statusCode,401);
+  controlOwnerAgent(two.agentId,'pause',{expectedGrantVersion:2,confirm:true},'pause-two');
+  assert.equal((await send(otherBody,headers(token2,'paused'))).statusCode,401);
+  const log=JSON.stringify([
+    ...db.prepare('SELECT * FROM agent_operation_receipts').all(),
+    ...db.prepare("SELECT * FROM agent_activity_events WHERE actor_type='AGENT'").all()
+  ]);
+  for(const secret of [token1,token2,'secret-never-return','create-once'])
+    assert.ok(!log.includes(secret));
+  console.log(JSON.stringify({ok:true,checkpoint:'AGENT-A2b1',schema:18,
+    canonicalContentPlan:true,immutableOrigin:true,oneSafeTextDraft:true,
+    scopedProjectsAccounts:true,replaySafe:true,conflict409:true,
+    noReadyOrSchedule:true,noSecretLeak:true,noLiveProviderPost:true,restartSafe:true}));
+}finally{
+  await app.close();
+  db.close();
+  await fs.rm(dir,{recursive:true,force:true});
+}

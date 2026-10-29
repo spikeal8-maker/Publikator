@@ -41,7 +41,7 @@ function capabilitiesFromVerifiedMachine(request: Parameters<typeof verifiedAgen
       sourceConnectorIds: safeIds('ingestion_connectors', scopeIds.includes('sources:read'),
         current.sourceConnectorIds),
       blockedReasons: [
-        'ONLY_PROJECT_ACCOUNT_AND_SOURCE_LIST_READ_ENABLED',
+        'PROJECT_ACCOUNT_SOURCE_READ_AND_TEXT_DRAFT_CREATE_ENABLED',
         'MACHINE_KEYS_CANNOT_PUBLISH_OR_SCHEDULE',
         'MCP_AND_OAUTH_NOT_YET_ENABLED'
       ]
