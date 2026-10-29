@@ -741,7 +741,7 @@
         ],
         "responses": {
           "200": {
-            "description": "OK",
+            "description": "Agent-owned, current, text-only DRAFT list filtered by exact live account/project ACL; no foreign/unowned drafts; keyset pagination.",
             "content": {
               "application/json": {
                 "schema": {
@@ -810,6 +810,15 @@
               }
             }
           }
+        },
+        "x-publikator-implementation-stage": "A2b3_OWNED_TEXT_DRAFT_LIST",
+        "x-publikator-implemented-response-subset": {
+          "status": "DRAFT_ONLY",
+          "contentFormat": "TEXT_ONLY",
+          "publicationKind": "FEED",
+          "ownership": "authenticated agent_draft_ownership.agent_id",
+          "scope": "current machine token AND current grant posts:read, exact project/account allowlists",
+          "safety": "no disabled/foreign targets; no media, overrides, schedule, ready or provider secrets; no write effects"
         }
       },
       "post": {
@@ -984,7 +993,7 @@
         ],
         "responses": {
           "200": {
-            "description": "OK",
+            "description": "Current safe agent-owned text-only DRAFT after live ACL and resource-owner recheck.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1024,7 +1033,7 @@
             }
           },
           "404": {
-            "description": "Error 404",
+            "description": "No visible agent-owned, policy-compliant DRAFT at this ID; do not reveal foreign post existence.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1053,6 +1062,15 @@
               }
             }
           }
+        },
+        "x-publikator-implementation-stage": "A2b3_OWNED_TEXT_DRAFT_DETAIL",
+        "x-publikator-implemented-response-subset": {
+          "status": "DRAFT_ONLY",
+          "contentFormat": "TEXT_ONLY",
+          "publicationKind": "FEED",
+          "ownership": "authenticated agent_draft_ownership.agent_id",
+          "scope": "current machine token AND current grant posts:read, exact project/account allowlists",
+          "safety": "no disabled/foreign targets; no media, overrides, schedule, ready or provider secrets; no write effects"
         }
       },
       "patch": {
