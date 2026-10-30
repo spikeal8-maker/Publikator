@@ -131,6 +131,7 @@ const server = new McpServer({ name: 'publikator-local', version: '0.1.0' });
 
 server.registerTool('get_connection_status', {
   description: 'Read-only health of the local Publikator Integration API. Cannot publish or schedule.',
+  annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   inputSchema: z.object({}).strict()
 }, async () => guarded(async () => {
   const value = await apiRequest('/drafts?limit=1&offset=0');
@@ -142,6 +143,7 @@ server.registerTool('get_connection_status', {
 
 server.registerTool('list_drafts', {
   description: 'List drafts in the trusted shared legacy Integration API namespace. Not per-agent isolated.',
+  annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   inputSchema: z.object({
     limit: z.number().int().min(1).max(20).default(10),
     offset: z.number().int().min(0).default(0)
@@ -158,6 +160,7 @@ server.registerTool('list_drafts', {
 
 server.registerTool('get_draft', {
   description: 'Read a specific Integration API draft by exact post ID. Never returns provider credentials.',
+  annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   inputSchema: z.object({ postId: z.string().regex(/^post_[A-Za-z0-9-]{10,100}$/) }).strict()
 }, async ({ postId }) => guarded(async () => {
   return safePost(await apiRequest('/drafts/' + encodeURIComponent(postId)));
@@ -165,6 +168,7 @@ server.registerTool('get_draft', {
 
 server.registerTool('create_text_draft', {
   description: 'Create TEXT_ONLY DRAFT without recipients, scheduling or sending. Stable idempotencyKey required.',
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   inputSchema: z.object({
     projectSlug: z.string().min(1).max(120).regex(/^[A-Za-z0-9._:-]+$/),
     title: z.string().min(1).max(160),
