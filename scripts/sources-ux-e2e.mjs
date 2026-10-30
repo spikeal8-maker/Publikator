@@ -85,6 +85,11 @@ try {
   await page.locator('#gs-open-connect').click();
   assert.equal(await page.locator('dialog[open]').count(), 1);
   assert.equal(await page.evaluate(() => window.scrollY), initialScroll, 'opening setup does not jump page');
+  // renderGoogleConnectForm awaits connectors before creating the actual form
+  // and focusing #gs-close-connect. Tab checks must start after that readiness,
+  // not while the modal still displays the async loading placeholder.
+  await page.locator('#gs-connect-form').waitFor({ state: 'visible' });
+  await page.waitForFunction(() => document.activeElement?.id === 'gs-close-connect');
   for (let i = 0; i < 12; i++) {
     await page.keyboard.press('Tab');
     assert.ok(await page.locator('dialog[open]').evaluate(el => el.contains(document.activeElement)), 'keyboard stays in dialog');
