@@ -211,6 +211,41 @@ try {
   assert.equal(httpCalls.length, pre, 'unknown publish tool reached REST server');
   checks++;
 
+  // Regression for Codex P2: ten accepted long DRAFTs include rich ASTs.
+  // One upstream page of ten would exceed the old 256 KiB limit.
+  for (let i = 0; i < 9; i++) {
+    const key = 'post_aaaaaaaa-aaaa-aaaa-aaaa-' + String(i).padStart(12, '0');
+    const plain = 'X'.repeat(i === 0 ? 35_000 : 20_000);
+    drafts.set(key, {
+      id: key, project: 'asa-telegram-max', internalTitle: 'Large draft ' + i,
+      body: plain, contentFormat: 'TEXT_ONLY', publicationStatus: 'DRAFT',
+      contentVersion: 1,
+      bodyRich: { type: 'doc', content: [
+        { type: 'paragraph', content: [{ type: 'text', text: plain, marks: [] }] }
+      ] },
+      credentials_encrypted: forbidden, access_token: forbidden
+    });
+  }
+  const beforeLargeList = httpCalls.length;
+  const largeList = await call('list_drafts', { limit: 10, offset: 0 });
+  assert.equal(Boolean(largeList.isError), false, 'large legacy DTOs must be listable');
+  assert.equal(largeList.structuredContent?.total, 10);
+  assert.equal(largeList.structuredContent?.items?.length, 10);
+  assert.ok(largeList.structuredContent.items.every(item => !('body' in item) && !('bodyRich' in item)));
+  assert.ok(JSON.stringify(largeList).length < 35_000, 'MCP list output must remain bounded');
+  assert.ok(!JSON.stringify(largeList).includes(forbidden));
+  assert.ok(httpCalls.slice(beforeLargeList).every(call =>
+    call.method === 'GET' && call.query.includes('limit=1&offset=')),
+    'large draft pages must be split into bounded single-record upstream calls');
+  checks++;
+
+  const largeRead = await call('get_draft', { postId: 'post_aaaaaaaa-aaaa-aaaa-aaaa-000000000000' });
+  assert.equal(Boolean(largeRead.isError), false);
+  assert.equal(largeRead.structuredContent?.bodyTruncated, true);
+  assert.equal(largeRead.structuredContent?.body?.length, 20_000);
+  assert.ok(!JSON.stringify(largeRead).includes(forbidden));
+  checks++;
+
   assert.ok(httpCalls.every(x =>
     x.authOk && x.path.startsWith('/api/integration/v1/drafts') &&
     !/publish|ready|accounts|social|schedule/.test(x.path)));
