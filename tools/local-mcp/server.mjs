@@ -9,7 +9,10 @@ import { McpServer } from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import * as z from 'zod/v4';
 
-const MAX_RESPONSE_BYTES = 256 * 1024;
+// A single legacy DTO may contain up to 2 MiB of bodyRich even when its
+// plain-text body is short. Bound one upstream record and summarize list output.
+const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
+const MAX_TOOL_BODY_CHARS = 20_000;
 const key = process.env.PUBLIKATOR_LOCAL_MCP_KEY ?? '';
 const origin = process.env.PUBLIKATOR_LOCAL_BASE_URL ?? 'http://127.0.0.1:8080';
 
@@ -90,17 +93,22 @@ async function apiRequest(path, { method = 'GET', body, idempotencyKey } = {}) {
   return readBoundedJson(response);
 }
 
-function safePost(value) {
+function safePost(value, { summary = false } = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value) ||
       typeof value.id !== 'string' || !/^post_[A-Za-z0-9-]{10,100}$/.test(value.id)) {
     throw Error('LOCAL_API_INVALID_POST');
   }
-  // Allowlist: future provider credentials or unrecognized fields cannot flow to MCP.
+  // Allowlist: do not let bodyRich or future provider-credential fields flow to MCP.
+  // The list response is metadata-only; full read explicitly bounds plain text.
+  const body = typeof value.body === 'string' ? value.body : null;
   return {
     id: value.id,
     project: typeof value.project === 'string' ? value.project : null,
     internalTitle: typeof value.internalTitle === 'string' ? value.internalTitle : null,
-    body: typeof value.body === 'string' ? value.body : null,
+    ...(summary ? {} : {
+      body: body === null ? null : body.slice(0, MAX_TOOL_BODY_CHARS),
+      bodyTruncated: body !== null && body.length > MAX_TOOL_BODY_CHARS
+    }),
     contentFormat: typeof value.contentFormat === 'string' ? value.contentFormat : null,
     publicationStatus: typeof value.publicationStatus === 'string' ? value.publicationStatus : null,
     contentVersion: Number.isSafeInteger(value.contentVersion) ? value.contentVersion : null
@@ -145,16 +153,29 @@ server.registerTool('list_drafts', {
   description: 'List drafts in the trusted shared legacy Integration API namespace. Not per-agent isolated.',
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   inputSchema: z.object({
-    limit: z.number().int().min(1).max(20).default(10),
+    limit: z.number().int().min(1).max(10).default(5),
     offset: z.number().int().min(0).default(0)
   }).strict()
 }, async ({ limit, offset }) => guarded(async () => {
-  const value = await apiRequest('/drafts?limit=' + limit + '&offset=' + offset);
-  if (!Array.isArray(value.items)) throw Error('LOCAL_API_INVALID_RESPONSE');
+  const items = [];
+  let total = null;
+  // Legacy /drafts includes full bodyRich for EVERY row. A 10-row API response
+  // can exceed the bounded response limit. Fetch one row at a time instead,
+  // then emit metadata only. This also prevents giant MCP tool responses.
+  for (let i = 0; i < limit; i++) {
+    const page = await apiRequest('/drafts?limit=1&offset=' + (offset + i));
+    if (!Array.isArray(page.items) || page.items.length > 1 ||
+        !Number.isSafeInteger(page.total) || page.total < 0) {
+      throw Error('LOCAL_API_INVALID_RESPONSE');
+    }
+    if (total === null) total = page.total;
+    if (page.items.length === 0) break;
+    items.push(safePost(page.items[0], { summary: true }));
+  }
   return {
-    items: value.items.map(safePost), limit, offset,
-    nextOffset: Number.isSafeInteger(value.nextOffset) ? value.nextOffset : null,
-    total: Number.isSafeInteger(value.total) ? value.total : null
+    items, limit, offset,
+    nextOffset: offset + items.length < (total ?? 0) ? offset + items.length : null,
+    total: total ?? 0
   };
 }));
 
