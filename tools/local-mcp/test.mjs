@@ -132,6 +132,14 @@ try {
     'create_text_draft', 'get_connection_status', 'get_draft', 'list_drafts'
   ]);
   assert.ok(catalog.tools.every(x => !/publish|schedule|media|secrets|credentials|delete/i.test(x.name)));
+  const byName = new Map(catalog.tools.map(tool => [tool.name, tool]));
+  for (const name of ['list_drafts', 'get_draft', 'get_connection_status']) {
+    assert.equal(byName.get(name)?.annotations?.readOnlyHint, true, name + ' must be read-only');
+    assert.equal(byName.get(name)?.annotations?.openWorldHint, false);
+  }
+  assert.equal(byName.get('create_text_draft')?.annotations?.readOnlyHint, false);
+  assert.equal(byName.get('create_text_draft')?.annotations?.destructiveHint, false);
+  assert.equal(byName.get('create_text_draft')?.annotations?.idempotentHint, true);
   checks++;
 
   const health = await call('get_connection_status', {});
