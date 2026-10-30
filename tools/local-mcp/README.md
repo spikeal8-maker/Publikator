@@ -7,8 +7,8 @@
 | Tool | Возможности |
 | --- | --- |
 | `get_connection_status` | Проверка локального API |
-| `list_drafts` | Список черновиков trusted Integration namespace |
-| `get_draft` | Чтение черновика по точному ID |
+| `list_drafts` | Метаданные черновиков trusted Integration namespace; по 1 записи из legacy API, не более 10 за вызов |
+| `get_draft` | Чтение черновика по точному ID; текст ограничен 20 000 символами, при усечении возвращается `bodyTruncated: true` |
 | `create_text_draft` | Только TEXT_ONLY DRAFT, без получателей и расписания; idempotencyKey обязателен |
 
 Нет инструментов публикации, READY, расписания, изменения соцсетей/ключей, доступа к файловой системе, shell, SQL или сетевого proxy. Список возвращаемых полей API ограничен allowlist.
