@@ -1,5 +1,7 @@
 import crypto from 'node:crypto';
 import { db, id, nowIso } from './db.js';
+import { AgentRegistryError } from './agent-registry-error.js';
+export { AgentRegistryError } from './agent-registry-error.js';
 
 const CLIENT_KINDS = new Set([
   'chatgpt', 'codex', 'claude', 'cursor', 'n8n', 'telegram_bot',
@@ -34,13 +36,7 @@ const SELECT_AGENT = [
   'FROM agent_principals p JOIN agent_grants g ON g.agent_id=p.id'
 ].join(' ');
 
-export class AgentRegistryError extends Error {
-  constructor(
-    public readonly code: string,
-    message: string,
-    public readonly status: number = 400
-  ) { super(message); }
-}
+
 
 function assertAgentId(agentId: string): void {
   if (!AGENT_ID.test(agentId)) {
@@ -187,7 +183,7 @@ function saveReceipt(
 
 function audit(
   agentId: string, requestId: string, fingerprint: string, operation: string,
-  stage: 'COMPLETED' | 'PAUSED' | 'REVOKED', summary: string, grantVersion: number
+  stage: 'COMPLETED' | 'PAUSED' | 'REVOKED' | 'POLICY_CHANGED', summary: string, grantVersion: number
 ) {
   db.prepare([
     'INSERT INTO agent_activity_events',
@@ -306,3 +302,11 @@ export function listOwnerAgentActivity(agentId: string, limit: number, cursor?: 
     }
   };
 }
+
+/** Internal helpers for owner-only grant mutations; never expose these as agent routes. */
+export {
+  receipt as ownerReceiptIdentity,
+  replayResult as replayOwnerResponse,
+  saveReceipt as persistOwnerResponse,
+  audit as recordOwnerAudit
+};

@@ -95,6 +95,9 @@ jobs:
       - name: AGENT-A1b1 owner-only agent registry and policy controls
         run: node scripts/agent-a1b1-owner-registry-e2e.mjs
 
+      - name: AGENT-A1b2a owner grants and exact resource ACL
+        run: node scripts/agent-a1b2a-owner-grants-acl-e2e.mjs
+
       - name: GOOGLE-SETUP-001 atomic shared service-account setup
         run: node scripts/google-source-setup-e2e.mjs
 

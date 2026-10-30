@@ -113,11 +113,13 @@ try {
     { authorization: 'Bearer faked-agent' })).statusCode, 401);
   assert.equal((await send('GET', endpoint + '/nonexistent', undefined, { cookie })).statusCode, 404);
 
-  // Deliberately no grant mutation endpoint yet: A1b1 only manages default-deny
-  // registration and token-version invalidation; actual machine keys are A1b2.
+  // A1b2a now provides this endpoint, but an incomplete or unauthorized
+  // request must never silently elevate an A1b1 default-deny registration.
   assert.equal((await send('PUT', endpoint + '/' + a.agentId + '/grant', {
     expectedGrantVersion: 1, presetId: 'FULL_CONTENT'
-  }, safeAuth)).statusCode, 404);
+  }, safeAuth)).statusCode, 400);
+  assert.deepEqual(JSON.parse(db.prepare('SELECT scope_ids_json FROM agent_grants WHERE agent_id=?')
+    .get(a.agentId).scope_ids_json), [], 'invalid grant input cannot elevate');
 
   const pauseUrl = endpoint + '/' + a.agentId + '/pause';
   const revokeUrl = endpoint + '/' + a.agentId + '/revoke';
