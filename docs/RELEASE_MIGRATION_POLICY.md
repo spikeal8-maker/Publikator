@@ -41,6 +41,7 @@ Publikator uses monotonic, one-step schema milestones. Current ledger:
 | 13 | CRED-01A | social credential capability profile persistence + credential_version |
 | 14 | P0 admin auth (#167) | local owner sessions and installer setup grants |
 | 15 | AGENT-A1a (#175) | owner-scoped AgentPrincipal/AgentGrant and server activity records; no live API or auto-publishing |
+| 16 | AGENT-A1b1 (#175) | immutable owner-operation response receipts with hashed idempotency identity; no agent bearer or publishing authority |
 
 A feature PR MUST NOT combine several unrelated future data-model milestones into one schema jump.
 A new schema version must represent one coherent data ownership/invariant change and migrate from the immediately previous version.
@@ -61,6 +62,8 @@ Schema 15 `agent-ownership-audit` is AGENT-A1a (#175), adding inactive-by-defaul
 Schema 15 audit hardening (security review P2-01/P2-02): `agent_activity_events.target_account_ids_json` is limited to 4096 UTF-8 bytes, at most 20 items, each an ASCII `[A-Za-z0-9._:-]` ID of 1–128 characters; `[]` remains valid. `safe_summary` is limited to 1–240 Unicode characters and 960 UTF-8 bytes with NUL forbidden. Direct SQLite INSERT/UPDATE are additionally guarded by idempotent `trg_agent_audit_payload_insert` and `trg_agent_audit_payload_update`. SQL constraints only bound shape and size: **A1b/A2 server writers must generate sanitized, allowlisted audit messages without copying credentials, user text or provider responses**; this storage change does not implement a sanitizer or publish permissions.
 
 **Already-created SQLite v15 databases:** SQLite does not modify an existing table's CHECK with `CREATE TABLE IF NOT EXISTS`. The v15 startup path therefore creates missing audit triggers in place, transactionally and without a new milestone, table rebuild or data deletion. Old historical audit rows are **not** retroactively cleaned or revalidated: legacy invalid rows can remain and must be assessed separately before any remediation. Canonical backups produced after guard installation contain both triggers. Restoring a pre-hardening v15 backup requires startup with the hardened binary to reinstall guards before audit writes. The choice of historical data remediation, if needed, belongs to a separate owner-approved migration; never silently rewrite or purge events.
+
+Schema 16 `agent-owner-idempotency-receipts` is the additive AGENT-A1b1 milestone that atomically persists original, server-sanitized REST response DTOs and canonical request fingerprints so a retry after later grant changes, restart, or backup returns the **original response**, never a new state. No raw idempotency keys, bearer tokens or provider credentials are stored. Focused regressions: `scripts/schema-v16-agent-owner-receipts-e2e.mjs` and `scripts/backup-v16-agent-owner-receipts-e2e.mjs`.
 
 Every schema `N` after the V1 baseline MUST add all of the following in the same checkpoint PR:
 1. explicit migration code from `N-1` to `N`;

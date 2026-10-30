@@ -86,6 +86,15 @@ jobs:
       - name: AGENT-A1a schema 15 canonical agent backup and restore
         run: node scripts/backup-v15-agent-ownership-e2e.mjs
 
+      - name: AGENT-A1b1 schema 16 durable owner receipt migration
+        run: node scripts/schema-v16-agent-owner-receipts-e2e.mjs
+
+      - name: AGENT-A1b1 schema 16 owner receipt backup and restore
+        run: node scripts/backup-v16-agent-owner-receipts-e2e.mjs
+
+      - name: AGENT-A1b1 owner-only agent registry and policy controls
+        run: node scripts/agent-a1b1-owner-registry-e2e.mjs
+
       - name: GOOGLE-SETUP-001 atomic shared service-account setup
         run: node scripts/google-source-setup-e2e.mjs
 
