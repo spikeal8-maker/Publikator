@@ -59,6 +59,11 @@ jobs:
       - name: AGENT-A0c OAuth route and fault-design contracts
         run: node scripts/agent-contract-a0c-e2e.mjs
 
+      - name: MCP-LOCAL-001 SDK v2 stdio and draft-only security
+        run: |
+          npm ci --prefix tools/local-mcp --no-audit --no-fund
+          npm test --prefix tools/local-mcp
+
       - name: TypeScript strict check
         run: npm run typecheck
 
