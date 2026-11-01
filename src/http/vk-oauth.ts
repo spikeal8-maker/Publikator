@@ -10,7 +10,7 @@ import { safeSocialFailureMessage } from './social-connection-observability.js';
 
 const VK_OAUTH_AUTHORIZE_URL = 'https://oauth.vk.com/authorize';
 const VK_OAUTH_TOKEN_URL = 'https://oauth.vk.com/access_token';
-const VK_OAUTH_SCOPES = ['wall', 'groups', 'photos', 'offline'] as const;
+const VK_OAUTH_SCOPES = ['wall', 'groups', 'photos', 'video', 'offline'] as const;
 const VK_OAUTH_STATE_TTL_MS = 5 * 60 * 1000;
 const VK_OAUTH_RESULT_TTL_MS = 5 * 60 * 1000;
 

@@ -8,7 +8,7 @@ const APP_MASTER_KEY = 'vk-oauth-start-master-key-longer-than-thirty-two-charact
 const CLIENT_ID = '12345678';
 const REDIRECT_URI = 'https://publisher.example.test/api/vk/oauth/callback';
 const CLIENT_SECRET_SENTINEL = 'vk-client-secret-must-never-be-returned';
-const REQUIRED_SCOPES = new Set(['wall', 'groups', 'photos', 'offline']);
+const REQUIRED_SCOPES = new Set(['wall', 'groups', 'photos', 'video', 'offline']);
 const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'publikator-vk-oauth-start-'));
 
 process.env.NODE_ENV = 'test';
