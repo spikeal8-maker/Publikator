@@ -221,8 +221,8 @@ export async function openQuickComposer(options = {}) {
     Object.defineProperty(text,'value',{get:()=>richEditor.getPlainText(),set:value=>richEditor.setDocument(plainTextToRichDocument(value))});
     const editorColumn=root.querySelector('.qc-editor');
     const rightColumn=root.querySelector('.qc-right');
-    const options=editorColumn.querySelector('.qc-advanced');
-    for(const node of [...rightColumn.children])if(!node.classList.contains('qc-preview'))editorColumn.insertBefore(node,options);
+    const optionsPanel=editorColumn.querySelector('.qc-advanced');
+    for(const node of [...rightColumn.children])if(!node.classList.contains('qc-preview'))editorColumn.insertBefore(node,optionsPanel);
     mountComposerLayout({root,panel:root.querySelector('.qc-dialog'),heading:root.querySelector('#qc-title'),
       close:root.querySelector('#qc-close'),editor:editorColumn,preview:rightColumn,
       layout:root.querySelector('.qc-main'),footer:root.querySelector('.qc-footer')});
