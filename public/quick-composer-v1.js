@@ -899,6 +899,7 @@ export async function openQuickComposer(options = {}) {
       }
       if (!images.length) return;
       event.preventDefault();
+      event.stopPropagation();
       const before = state.pending.length;
       addFiles(images);
       const added = state.pending.length - before;
@@ -906,7 +907,7 @@ export async function openQuickComposer(options = {}) {
         setStatus('Из буфера обмена добавлено изображений: ' + added +
           '. Проверьте порядок и сохраните публикацию.');
       }
-    });
+    }, { capture: true });
     root.querySelectorAll('input[name="qc-account"]').forEach((input) => input.addEventListener('change', () => {
       markDirty();
       refreshPreview();
