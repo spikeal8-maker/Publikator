@@ -107,3 +107,72 @@
  .overview-v1 .dashboard-v3-item-side { display:flex; gap:8px; align-items:center; }
  .overview-help > summary { width:28px; height:28px; }
 }
+
+/* Owner revision: one thin heading and chart-first layout. */
+html[data-page="overview"] main > header { height:44px!important; min-height:44px!important; padding:6px 18px!important; gap:10px; }
+html[data-page="overview"] .ui-header-copy { display:flex!important; align-items:center; gap:12px; flex-wrap:nowrap; }
+html[data-page="overview"] .ui-header-kicker,html[data-page="overview"] .ui-page-subtitle { display:none!important; }
+html[data-page="overview"] #page-title { margin:0!important; font-size:18px!important; line-height:26px!important; }
+.ui-overview-date { color:var(--text-secondary); font-size:12px; white-space:nowrap; }
+.ui-overview-date[hidden] { display:none!important; }
+html[data-page="overview"] #view { padding:16px; }
+.overview-v1 { gap:12px; }
+.overview-chart { padding:14px 18px 8px; overflow:visible!important; }
+.overview-chart-toolbar { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+.overview-chart-title { display:flex; align-items:center; gap:8px; }
+.overview-chart-title h2 { font-size:15px; margin:0; }
+.overview-chart-title > span { color:var(--text-secondary); font-size:13px; font-weight:700; }
+.overview-chart-periods { display:flex; padding:3px; gap:2px; background:var(--surface-muted); border-radius:7px; }
+.overview-chart-periods button { border:0; background:transparent; color:var(--text-secondary); padding:6px 11px; border-radius:5px; cursor:pointer; font-size:12px; white-space:nowrap; }
+.overview-chart-periods button[aria-pressed="true"] { background:var(--surface); color:var(--text-primary); box-shadow:0 1px 4px #0001; font-weight:700; }
+.overview-chart-range { display:flex; align-items:center; justify-content:center; gap:10px; margin:10px 0; font-size:12px; color:var(--text-secondary); }
+.overview-chart-range button { padding:3px 8px; border:0; background:transparent; color:var(--text-primary); cursor:pointer; font-size:16px; border-radius:5px; }
+.overview-chart-range .overview-chart-today { font-size:11px; margin-left:6px; }
+.overview-chart-range .overview-create { margin-left:auto; background:#315bea; color:#fff; width:28px; height:28px; font-size:19px; padding:0; border-radius:7px; }
+.overview-chart-plot { display:grid; grid-template-columns:22px minmax(0,1fr); gap:8px; height:208px; min-width:0; }
+.overview-chart-axis { display:flex; flex-direction:column; justify-content:space-between; padding-bottom:22px; text-align:right; font-size:10px; color:var(--text-secondary); }
+.overview-chart-bars { display:grid; grid-template-columns:repeat(var(--chart-columns),minmax(0,1fr)); gap:7px; min-width:0; background:linear-gradient(var(--border),var(--border)) 0 0/100% 1px no-repeat,linear-gradient(var(--border),var(--border)) 0 calc(50% - 10px)/100% 1px no-repeat,linear-gradient(var(--border),var(--border)) 0 calc(100% - 20px)/100% 1px no-repeat; }
+.overview-chart-bar { border:0; padding:0; background:transparent; display:flex; flex-direction:column; min-width:0; cursor:pointer; color:var(--text-secondary); border-radius:3px; }
+.overview-chart-bar:hover,.overview-chart-bar[aria-current] { background:color-mix(in srgb,#315bea 9%,transparent); }
+.overview-chart-stack { height:calc(100% - 20px); width:100%; display:flex; flex-direction:column; justify-content:flex-end; gap:0; }
+.overview-chart-stack > span { display:block; min-height:2px; width:100%; border-radius:2px; }
+.overview-chart-tick { height:20px; font-size:10px; line-height:20px; text-align:center; }
+.overview-platform-chart { display:flex; flex-wrap:wrap; gap:14px; margin:12px 0 0 30px; }
+.overview-platform-row { flex:1; min-width:80px; max-width:240px; }
+.overview-platform-row > span { display:flex; gap:6px; align-items:center; color:var(--text-secondary); font-size:11px; }
+.overview-platform-row i { width:7px; height:7px; border-radius:50%; }
+.overview-platform-row strong { margin-left:auto; color:var(--text-primary); }
+.overview-platform-track { margin-top:5px; height:4px; background:var(--surface-muted); border-radius:3px; overflow:hidden; }
+.overview-platform-track > span { height:100%; display:block; border-radius:3px; }
+.overview-chart-detail { min-height:18px; margin:8px 0 0 30px; color:var(--text-secondary); font-size:11px; line-height:1.5; }
+.overview-chart-empty { margin:8px 0 0 30px; font-size:12px; color:var(--text-secondary); }
+.overview-chart-loading,.overview-chart-error { padding:24px 0; font-size:13px; }
+.overview-v1 .dashboard-v3-metric { display:flex; justify-content:space-between; align-items:center; gap:8px; min-height:0; height:50px; padding:10px 13px; }
+.overview-v1 .dashboard-v3-metric > span,.overview-v1 .dashboard-v3-metric > div > span { display:none; }
+.overview-v1 .dashboard-v3-metric > div { min-height:0; line-height:1.2; }
+.overview-v1 .dashboard-v3-metric strong { margin:0; font-size:24px; }
+@media(max-width:640px) {
+ html[data-page="overview"] main > header { padding:5px 10px!important; }
+ html[data-page="overview"] .ui-mobile-menu { width:30px; height:30px; min-width:30px; padding:0; }
+ html[data-page="overview"] #page-title { font-size:16px!important; }
+ html[data-page="overview"] #view { padding:10px; }
+ .overview-chart { padding:10px 10px 4px; }
+ .overview-chart-toolbar { gap:6px; }
+ .overview-chart-title { gap:5px; }
+ .overview-chart-title h2 { font-size:13px; }
+ .overview-chart-title > span { font-size:12px; }
+ .overview-chart-title .overview-help > summary { width:23px; height:23px; }
+ .overview-chart-periods button { padding:5px 6px; font-size:10px; }
+ .overview-chart-range { margin:7px 0; gap:4px; font-size:11px; }
+ .overview-chart-range button { padding:2px 5px; }
+ .overview-chart-range .overview-chart-today { font-size:10px; margin-left:0; }
+ .overview-chart-plot { height:156px; grid-template-columns:16px minmax(0,1fr); gap:5px; }
+ .overview-chart-bars { gap:3px; }
+ .overview-chart-tick { font-size:9px; }
+ .overview-platform-chart { margin-left:21px; gap:10px; }
+ .overview-platform-row { min-width:70px; }
+ .overview-chart-detail,.overview-chart-empty { margin-left:21px; font-size:10px; }
+ .overview-v1 .dashboard-v3-metric { height:48px; padding:7px 6px; gap:4px; }
+ .overview-v1 .dashboard-v3-metric strong { font-size:18px; }
+ .overview-v1 .dashboard-v3-metric > div { font-size:10px; }
+}

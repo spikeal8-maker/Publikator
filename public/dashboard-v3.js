@@ -1,3 +1,4 @@
+import { mountOverviewChart } from './overview-chart.js';
 import { publicationFormatLabel, statusLabel } from './presentation-labels.js';
 
 const dashboardView = document.querySelector('#view');
@@ -108,7 +109,7 @@ async function renderEditorialDashboard() {
       : '<span class="dashboard-v3-platform">Нет запланированных площадок</span>';
     const upcoming = data.weekItems || data.todayItems;
     dashboardView.innerHTML = `<div class="dashboard-v3-root overview-v1">
-      <div class="overview-heading"><p>${new Date().toLocaleDateString('ru-RU',{weekday:'long',day:'numeric',month:'long'})}</p><button type="button" class="overview-create">+ Публикация</button></div>
+      <section class="dashboard-v3-panel overview-chart" id="overview-chart" aria-label="Графики публикаций"></section>
       <div class="dashboard-v3-metrics">
         ${dashboardMetric('Сегодня', data.metrics.today, 'по расписанию', 'neutral', 'today')}
         ${dashboardMetric('7 дней', data.metrics.next7Days, 'в контент-плане', 'neutral', 'upcoming')}
@@ -125,7 +126,7 @@ async function renderEditorialDashboard() {
       </div>
     </div>`;
     const navigate = (id) => document.querySelector(id)?.click();
-    dashboardView.querySelector('.overview-create').onclick = () => navigate('#quick-compose-nav');
+    mountOverviewChart(dashboardView.querySelector('#overview-chart'), {request:dashboardRequest,createPublication:()=>navigate('#quick-compose-nav'),help:dashboardHelp});
     dashboardView.querySelector('.overview-calendar').onclick = () => navigate('#calendar-nav');
     dashboardView.querySelector('.overview-sources').onclick = () => navigate('#sources-nav');
     dashboardView.querySelectorAll('[data-dashboard-section]').forEach(button => button.onclick = () => {
