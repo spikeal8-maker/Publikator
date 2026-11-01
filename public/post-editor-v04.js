@@ -383,8 +383,9 @@ async function enhancePostEditor(form, postId) {
 
 function tryEnhanceVisibleEditor() {
   const form = document.querySelector('.modal-card #post-form');
-  if (!form || form.dataset.v04Enhanced === '1' || !activePostId) return;
-  enhancePostEditor(form, activePostId).catch((error) => {
+  const postId=form?.hasAttribute('data-post-id')?form.dataset.postId:activePostId;
+  if (!form || form.dataset.v04Enhanced === '1' || !postId) return;
+  enhancePostEditor(form, postId).catch((error) => {
     const errorBox = form.closest('.modal-card')?.querySelector('#post-error');
     if (errorBox) errorBox.textContent = `Не удалось загрузить редактор площадок: ${error instanceof Error ? error.message : String(error)}`;
   });

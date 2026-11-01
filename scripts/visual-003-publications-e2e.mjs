@@ -82,6 +82,9 @@ try {
  await savedRow.waitFor();
  await savedRow.locator('[data-edit-post]').click();
  await page.locator('#post-form').waitFor();
+ assert.equal(await page.locator('#post-form').getAttribute('data-post-id'),saved.id);
+ await page.locator('#post-form .platform-workspace').waitFor();
+ await page.waitForFunction(()=>document.querySelector('#post-form')?.dataset.videoAuthoringEnhanced==='1');
  await page.locator('#post-form input[name="title"]').fill('UI draft edited through Publications');
  await page.locator('#post-form button[type="submit"]').click();
  await page.locator('#post-form').waitFor({state:'detached'});

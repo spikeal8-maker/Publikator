@@ -256,12 +256,13 @@ async function enhanceEditor(form, postId) {
 
 function tryEnhanceVisibleEditor() {
   const form = document.querySelector('.modal-card #post-form');
-  if (!form || !activePostId) {
+  const postId=form?.hasAttribute('data-post-id')?form.dataset.postId:activePostId;
+  if (!form || !postId) {
     queueSync();
     return;
   }
   if (form.dataset.videoAuthoringEnhanced !== '1') {
-    enhanceEditor(form, activePostId).catch((error) => {
+    enhanceEditor(form, postId).catch((error) => {
       setError(form, `Не удалось загрузить video authoring: ${error instanceof Error ? error.message : String(error)}`);
     });
   } else {
