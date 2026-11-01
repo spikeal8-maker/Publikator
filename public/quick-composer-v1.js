@@ -163,7 +163,7 @@ export async function openQuickComposer(options = {}) {
           '<details class="qc-advanced composer-options"><summary>Дополнительно: проект и расписание</summary>' +
           '<div class="qc-options"><label>Проект (для организации материалов)<select id="qc-project" name="projectId">' +
           (projectOptions || '<option value="">Мои публикации — будет создан автоматически</option>') +
-          '</select></label><label>Название в списке (необязательно)<input id="qc-name" name="title" maxlength="500" placeholder="Автоматически из текста"></label>' +
+          '</select></label><button id="qc-project-targets" type="button" class="qc-subtle">Выбрать получателей проекта</button><label>Название в списке (необязательно)<input id="qc-name" name="title" maxlength="500" placeholder="Автоматически из текста"></label>' +
           '<label>Когда публиковать<select id="qc-mode" name="scheduleMode"><option value="MANUAL">Вручную</option><option value="AT">По времени</option><option value="QUEUE">Из очереди</option></select></label>' +
           '<label id="qc-date-field" hidden>Дата и время публикации<input id="qc-datetime" name="scheduledAt" type="datetime-local"></label>' +
           '<p id="qc-timezone-note" class="qc-muted"></p><label>При повторяющемся времени (перевод часов)' +
@@ -181,7 +181,7 @@ export async function openQuickComposer(options = {}) {
           '<header class="qc-target-sheet-head"><h4 id="qc-target-picker-title">Аккаунты и каналы</h4>' +
           '<button type="button" id="qc-target-done">Готово</button></header>' +
           '<div class="qc-target-actions"><button type="button" id="qc-select-all">Выбрать все</button>' +
-          '<button type="button" id="qc-select-none">Снять выбор</button><button type="button" id="qc-project-targets">Из проекта</button></div><div class="qc-accounts">' + grouped + '</div></div>'
+          '<button type="button" id="qc-select-none">Снять выбор</button></div><div class="qc-accounts">' + grouped + '</div></div>'
           : '<div class="qc-empty">Нет активных подключений. Черновик можно сохранить и без них.' +
             '<a href="/socials" id="qc-connect">Перейти к подключению соцсетей</a></div>') +
         '<details class="qc-variant-editor" id="qc-variant-editor" hidden>' +
