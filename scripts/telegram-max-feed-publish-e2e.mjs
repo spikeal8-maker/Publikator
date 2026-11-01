@@ -152,7 +152,7 @@ try {
     form = await edit(title);
     if (format === 'MEDIA') {
       await form.locator('#media-file').setInputFiles(imagePath);
-      await form.waitFor({ state: 'detached' });
+      await page.locator('#post-form .media-list img').first().waitFor({state:'visible'});
       await page.locator('#post-form').waitFor({state:'visible'});
       await page.locator('#post-form .media-list img').waitFor({ state: 'visible' });
       form = page.locator('#post-form');
