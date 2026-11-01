@@ -256,7 +256,7 @@ async function renderCalendar(){
   setNotice(calendarNoticeMessage,calendarNoticeError);
   document.querySelector('#calendar-prev').onclick=()=>{moveAnchor(-1);renderCalendar().catch(showCalendarError);};
   document.querySelector('#calendar-next').onclick=()=>{moveAnchor(1);renderCalendar().catch(showCalendarError);};
-  document.querySelector('#calendar-today').onclick=()=>{calendarAnchor=new Date();renderCalendar().catch(showCalendarError);};
+  document.querySelector('#calendar-today').onclick=()=>{calendarAnchor=new Date();calendarSelectedDay=isoDay(calendarAnchor);renderCalendar().catch(showCalendarError);};
   document.querySelectorAll('[data-calendar-mode]').forEach(button=>button.addEventListener('click',()=>{calendarMode=button.dataset.calendarMode;renderCalendar().catch(showCalendarError);}));
   const data=await calApi(`/api/calendar?from=${encodeURIComponent(range.start.toISOString())}&to=${encodeURIComponent(range.end.toISOString())}`);
   if(generation!==calendarRenderGeneration||title.textContent!=='Календарь'||!view.querySelector('.calendar-shell'))return;
