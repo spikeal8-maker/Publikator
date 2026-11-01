@@ -122,3 +122,5 @@ html[data-page="content"] #view .posts-table td:first-child .small{font-size:11p
  #ui-content-filter .ui-filter-chips{flex:1 1 0;width:0}
  #ui-content-filter .ui-count-pill{flex:0 0 auto}
 }
+
+#post-form .platform-workspace-head>div{display:flex;align-items:center;gap:8px;flex-wrap:wrap}#post-form .platform-workspace-head h3{font-size:14px;margin:0}#post-form .platform-workspace{padding:12px}#post-form .post-editor-section-note{display:none}

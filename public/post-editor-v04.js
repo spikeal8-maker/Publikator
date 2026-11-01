@@ -298,7 +298,7 @@ async function enhancePostEditor(form, postId) {
   section.innerHTML = `<div class="platform-workspace-head">
       <div>
         <h3>Варианты по площадкам</h3>
-        <p class="muted small">Rich-варианты сохраняются в TargetRendition. Панель инструментов отражает реальные возможности compiler каждой площадки.</p>
+        <details class="posts-help editor-help"><summary aria-label="Подсказка: Варианты по площадкам">i</summary><div>По умолчанию все получатели используют основной текст. Для отдельного подключения можно сохранить свой вариант или вернуть общий. Доступное форматирование зависит от площадки. Сохранение варианта не отправляет публикацию; готовность проверяется отдельно.</div></details>
       </div>
       <span class="badge">${post.targets.length} подключений</span>
     </div>
