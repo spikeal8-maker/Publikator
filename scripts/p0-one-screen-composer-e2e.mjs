@@ -1411,7 +1411,7 @@ try {
   await mp.locator('#qc-text').fill('Новая публикация для всех подключений.');
   await mp.locator('#qc-files').setInputFiles([{ name: 'mobile.png', mimeType: 'image/png', buffer: image1 }]);
   await mp.screenshot({ path: 'test-results/p0-composer-mobile.png', fullPage: false });
-  await mp.locator('.qc-right').scrollIntoViewIfNeeded();
+  await mp.locator('#qc-target-toggle').scrollIntoViewIfNeeded();
   assert.equal(await mp.locator('#qc-target-toggle').isVisible(), true,
     'mobile offers a compact recipient chooser');
   assert.equal(await mp.locator('#qc-target-picker').isVisible(), false,

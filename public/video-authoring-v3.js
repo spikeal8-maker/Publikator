@@ -1,3 +1,4 @@
+import { updateMediaGuide } from './composer-layout-v1.js';
 function escapeHtml(value = '') {
   return String(value).replace(/[&<>'"]/g, (char) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
@@ -160,19 +161,20 @@ function renderAuthoringMedia(form, post) {
    actions.querySelector('.sp-add-video').onclick=()=>actions.querySelector('#editor-video-file').click();
    actions.querySelector('#editor-video-file').onchange=event=>form.uploadPublicationFiles?.([...event.target.files]);
   }
-  actions.querySelector('[data-media-count]').textContent=items.length+' файлов';
-  actions.querySelector('.sp-add-photos').disabled=hasVideo;
+  actions.querySelector('[data-media-count]').textContent='';
+  updateMediaGuide(list.parentElement,{images:items.filter(item=>!item.isVideo).length,video:hasVideo});
+  actions.querySelector('.sp-add-photos').disabled=hasVideo||items.length>=10;
   actions.querySelector('.sp-add-video').disabled=items.length>0;
   actions.querySelector('.sp-add-video').title=items.length?'Для видео создайте отдельную публикацию или удалите фотографии':'Выбрать MP4 (H.264, AAC или без звука)';
   const mediaBlock = list.parentElement;
   const heading = mediaBlock?.querySelector(':scope > strong');
-  if (heading) heading.textContent = 'Медиа';
+  if (heading) heading.textContent = 'Вложения';
   let help = form.querySelector('.video-authoring-help');
   if (!help) {
     help = document.createElement('div');
     help.className = 'video-authoring-help muted small';
     const host=[...form.querySelectorAll('.ui-editor-section-title')].find(node=>node.querySelector('strong')?.textContent==='Медиа')?.querySelector('.editor-help > div');
-    if(host)host.append(help);else fileInput.before(help);
+    if(host)host.append(help);else {help.hidden=true;fileInput.before(help);}
   }
   help.textContent = hasVideo
     ? 'Один MP4 (H.264, AAC или без аудио). Чтобы заменить ролик, сначала удалите текущий.'
@@ -268,6 +270,7 @@ async function enhanceEditor(form, postId) {
    try{
     setError(form,'');
     const projection=publicationMediaProjection(post);
+    if(!files.some(file=>file.type==='video/mp4')&&projection.items.length+files.length>10)throw new Error('Можно добавить до 10 фотографий. Удалите лишние или выберите меньше файлов.');
     if(projection.items.some(item=>item.isVideo))throw new Error('Видеопубликация содержит один ролик. Сначала удалите текущее видео.');
     if(files.some(file=>file.type==='video/mp4')&&(files.length!==1||projection.items.length))throw new Error('Видео добавляется отдельно от фотографий. Создайте отдельную публикацию или удалите фотографии.');
     for(const [index,file] of files.entries()){

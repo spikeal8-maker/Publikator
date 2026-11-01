@@ -161,6 +161,7 @@ try {
  await page.locator('#post-form .platform-workspace').waitFor();
  assert.equal(await page.locator('#post-form .platform-workspace').getAttribute('open'),null,'Per-platform copies should be optional');
  await page.waitForFunction(()=>document.querySelector('#post-form')?.dataset.videoAuthoringEnhanced==='1');
+ await page.locator('#post-form .composer-options').evaluate(el=>el.open=true);
  await page.locator('#post-form input[name="title"]').fill('UI draft edited through Publications');
  const uploadPaths=Array.from({length:10},(_,index)=>path.join(dataDir,'upload-'+index+'.jpg'));
  for(const [index,file] of uploadPaths.entries())await sharp({create:{width:800,height:600,channels:3,background:{r:20*index,g:40,b:190}}}).jpeg().toFile(file);
@@ -213,6 +214,7 @@ try {
   assert.match(await page.locator('.posts-toolbar>.posts-help[open]').innerText(),/повторная отправка/);
   await page.locator('.posts-toolbar>.posts-help summary').click();
   await page.locator('tr[data-post-id="'+seeded[0].id+'"] .open-post').click();
+  await page.locator('.composer-panes [data-pane="preview"]').click();
   await page.locator('.editor-media-host .sp-media').waitFor();
   const phoneMedia=await page.locator('.editor-media-host .sp-media').boundingBox();assert.ok(phoneMedia.width>=width-70&&phoneMedia.height>=Math.min(220,(width-70)*.6),'Phone image must be large');
   await page.locator('.publication-editor-close').click();
@@ -232,6 +234,7 @@ try {
  const videoPostId=seeded[5].id;
  await page.locator('tr[data-post-id="'+videoPostId+'"] .open-post').click();
  await page.waitForFunction(()=>document.querySelector('#post-form')?.dataset.videoAuthoringEnhanced==='1');
+ await page.locator('#post-form .composer-options').evaluate(el=>el.open=true);
  await page.locator('#post-form input[name="title"]').fill('Video editor preserves unsaved caption');
  const videoPath=path.join(dataDir,'editor-video.mp4');
  execFileSync('ffmpeg',['-y','-f','lavfi','-i','color=c=blue:s=640x360:r=24','-t','1','-c:v','libx264','-pix_fmt','yuv420p','-an',videoPath],{stdio:'ignore'});

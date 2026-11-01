@@ -1,3 +1,4 @@
+import { mountComposerLayout, mountMediaGuide, updateMediaGuide } from './composer-layout-v1.js';
 import { mountSocialPreview } from './social-post-preview-v1.js';
 import { plainTextToRichDocument } from './rich-text-editor-v1.js';
 import { createComposerRecovery } from './quick-composer-recovery-v1.js';
@@ -154,17 +155,11 @@ export async function openQuickComposer() {
           '<strong>Видео MP4 из прежней вкладки отсутствует</strong>' +
           '<p>Выберите MP4 снова или явно подтвердите отказ от него.</p>' +
           '<button type="button" id="qc-skip-recovered-video">Продолжить без прежнего видео</button></div>' +
-          '<div class="qc-photo-head"><strong>Фотографии</strong><span class="qc-muted">До сохранения, перетаскиванием или Ctrl+V</span></div>' +
-          '<label class="qc-drop" id="qc-drop"><input id="qc-files" type="file" accept="image/*" multiple>' +
-          '<span class="qc-drop-icon" aria-hidden="true">+</span><strong>Добавить фото</strong><small>Выберите несколько изображений, перетащите или вставьте из буфера обмена</small></label>' +
+          '<section class="composer-media" id="qc-media"><div class="composer-media-actions">' +
+          '<label class="qc-drop" id="qc-drop"><input id="qc-files" type="file" accept="image/*" multiple><strong>+ Добавить фото</strong></label>' +
+          '<label class="qc-drop qc-video-drop" id="qc-video-drop"><input id="qc-video-file" type="file" accept="video/mp4"><strong>+ Добавить видео</strong></label></div>' +
           '<div id="qc-images" class="qc-images" aria-live="polite"></div>' +
-          '<div class="qc-video-section"><div class="qc-photo-head"><strong>Видео MP4</strong>' +
-          '<span class="qc-muted">Отдельно от фотографий · подпись зависит от площадки</span></div>' +
-          '<label class="qc-drop qc-video-drop" id="qc-video-drop">' +
-          '<input id="qc-video-file" type="file" accept="video/mp4">' +
-          '<span class="qc-drop-icon" aria-hidden="true">▶</span><strong>Добавить MP4</strong>' +
-          '<small>До сохранения · формат и доступность проверяет сервер</small></label>' +
-          '<div id="qc-video-preview" class="qc-video-preview" aria-live="polite"></div></div>' +
+          '<div id="qc-video-preview" class="qc-video-preview" aria-live="polite"></div></section>' +
           '<details class="qc-advanced"><summary>Дополнительно: проект и расписание</summary>' +
           '<div class="qc-options"><label>Проект (для организации материалов)<select id="qc-project">' +
           (projectOptions || '<option value="">Мои публикации — будет создан автоматически</option>') +
@@ -218,6 +213,14 @@ export async function openQuickComposer() {
 
     const root = overlay;
     const text = root.querySelector('#qc-text');
+    const editorColumn=root.querySelector('.qc-editor');
+    const rightColumn=root.querySelector('.qc-right');
+    const options=editorColumn.querySelector('.qc-advanced');
+    for(const node of [...rightColumn.children])if(!node.classList.contains('qc-preview'))editorColumn.insertBefore(node,options);
+    mountComposerLayout({root,panel:root.querySelector('.qc-dialog'),heading:root.querySelector('#qc-title'),
+      close:root.querySelector('#qc-close'),editor:editorColumn,preview:rightColumn,
+      layout:root.querySelector('.qc-main'),footer:root.querySelector('.qc-footer')});
+    mountMediaGuide(root.querySelector('#qc-media'));
     const status = root.querySelector('#qc-status');
     const selectedIds = () => [...root.querySelectorAll('input[name="qc-account"]:checked')].map((input) => input.value);
     const checkedAccounts = () => state.accounts.filter((account) => selectedIds().includes(account.id));
@@ -232,7 +235,7 @@ export async function openQuickComposer() {
       targetPicker.removeAttribute('aria-modal');
       document.body.classList.remove('qc-target-sheet-open');
       targetToggle.setAttribute('aria-expanded', 'false');
-      for (const element of root.querySelectorAll('.qc-head, .qc-editor, .qc-footer, .qc-preview')) {
+      for (const element of root.querySelectorAll('.qc-head, .qc-footer, .qc-preview, .qc-editor > :not(#qc-target-picker)')) {
         element.inert = false;
       }
       targetToggle.focus();
@@ -246,7 +249,7 @@ export async function openQuickComposer() {
       targetPicker.setAttribute('aria-labelledby', 'qc-target-picker-title');
       targetToggle.setAttribute('aria-expanded', 'true');
       document.body.classList.add('qc-target-sheet-open');
-      for (const element of root.querySelectorAll('.qc-head, .qc-editor, .qc-footer, .qc-preview')) {
+      for (const element of root.querySelectorAll('.qc-head, .qc-footer, .qc-preview, .qc-editor > :not(#qc-target-picker)')) {
         element.inert = true;
       }
       root.querySelector('#qc-target-done').focus();
@@ -672,13 +675,14 @@ export async function openQuickComposer() {
     }
     function syncMediaInputs() {
       const locked = state.busy || state.finished || state.uncertainPublish;
-      const cannotAddPhotos = locked || Boolean(state.video) || state.recoveryRequiresVideo;
+      const cannotAddPhotos = locked || Boolean(state.video) || state.recoveryRequiresVideo || state.pending.length >= 10;
       const cannotAddVideo = locked || state.pending.length > 0 || Boolean(state.video) ||
         state.recoveryRequiredFiles > 0;
       root.querySelector('#qc-files').disabled = cannotAddPhotos;
       root.querySelector('#qc-video-file').disabled = cannotAddVideo;
       root.querySelector('#qc-drop').classList.toggle('is-disabled', cannotAddPhotos);
       root.querySelector('#qc-video-drop').classList.toggle('is-disabled', cannotAddVideo);
+      updateMediaGuide(root.querySelector('#qc-media'),{images:state.pending.length,video:Boolean(state.video)});
     }
     function updateCaptionPreview() {
       root.querySelector('#qc-preview-text').textContent = text.value.trim() ||
@@ -772,6 +776,7 @@ export async function openQuickComposer() {
         if (file.size > MAX_IMAGE_BYTES) { setStatus('Слишком большой файл: ' + file.name + ' (максимум 50 МБ).', true); continue; }
         const key = file.name + ':' + file.size + ':' + file.lastModified;
         if (currentKeys.has(key)) continue;
+        if(state.pending.length >= 10){setStatus('В альбоме уже 10 фото. Удалите ненужные, чтобы добавить другие.',true);break;}
         currentKeys.add(key);
         state.pending.push({ file, url: URL.createObjectURL(file), uploaded: false, remoteId: null });
         markDirty();

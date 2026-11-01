@@ -1,3 +1,4 @@
+import { mountComposerLayout, mountMediaGuide } from './composer-layout-v1.js';
 import { mountSocialPreview, previewMedia } from './social-post-preview-v1.js';
 import { scheduleModeLabel, statusLabel } from './presentation-labels.js';
 import { publicationFormatLabel } from './presentation-labels.js';
@@ -273,9 +274,9 @@ document.addEventListener('publikator:publication-saved',()=>{if(document.docume
 async function posts(){
  const rows=await api('/api/posts');
  if(title.textContent!=='Публикации'&&document.documentElement.dataset.page!=='content')return;
- view.innerHTML=`<div class="posts-page"><div class="toolbar posts-toolbar"><button id="quick-new-post" class="primary" type="button">+ Создать публикацию</button>${publicationsHelpHtml()}<details class="posts-secondary"><summary>Дополнительно</summary><div><button id="new-post" class="secondary" type="button">Расширенный редактор</button></div></details></div><table class="table posts-table"><thead><tr><th aria-sort="none"><button type="button" data-post-sort="title">Публикация <span></span></button></th><th aria-sort="none"><button type="button" data-post-sort="project">Проект / площадки <span></span></button></th><th aria-sort="none"><button type="button" data-post-sort="format">Формат <span></span></button></th><th aria-sort="none"><button type="button" data-post-sort="when">Когда <span></span></button></th><th aria-sort="none"><button type="button" data-post-sort="status">Состояние <span></span></button></th><th>Действия</th></tr></thead><tbody>${publicationRows(rows)}</tbody></table><p class="posts-filter-empty" hidden>По выбранным фильтрам ничего не найдено.</p></div>`;
+ view.innerHTML=`<div class="posts-page"><div class="toolbar posts-toolbar"><button id="quick-new-post" class="primary" type="button">+ Создать публикацию</button>${publicationsHelpHtml()}<details class="posts-secondary"><summary>Дополнительно</summary><div><button id="new-post" class="secondary" type="button">Создать публикацию</button></div></details></div><table class="table posts-table"><thead><tr><th aria-sort="none"><button type="button" data-post-sort="title">Публикация <span></span></button></th><th aria-sort="none"><button type="button" data-post-sort="project">Проект / площадки <span></span></button></th><th aria-sort="none"><button type="button" data-post-sort="format">Формат <span></span></button></th><th aria-sort="none"><button type="button" data-post-sort="when">Когда <span></span></button></th><th aria-sort="none"><button type="button" data-post-sort="status">Состояние <span></span></button></th><th>Действия</th></tr></thead><tbody>${publicationRows(rows)}</tbody></table><p class="posts-filter-empty" hidden>По выбранным фильтрам ничего не найдено.</p></div>`;
  bindPublicationSorting(view.querySelector('.posts-table'));
- document.querySelector('#new-post').onclick=()=>postEditor();
+ document.querySelector('#new-post').onclick=()=>window.PublikatorQuickComposer?.open();
  document.querySelectorAll('.open-post').forEach(b=>b.onclick=()=>postEditor(b.dataset.id));
 }
 document.addEventListener('click',async event=>{
@@ -356,6 +357,30 @@ async function postEditor(postId,options={}){
    layout.dataset.pane=button.dataset.pane;
    panes.querySelectorAll('button').forEach(item=>item.setAttribute('aria-pressed',String(item===button)));
   });
+  // Both entry points use the same authoring layout and mobile panes.
+  const textField=form.querySelector('.rich-text-field');
+  const mediaBlock=form.querySelector('.media-list')?.parentElement;
+  const targetBlock=form.querySelector('.target-picker')?.parentElement;
+  const actionBar=form.querySelector('.row-actions.full');
+  const optionsBlock=document.createElement('details');optionsBlock.className='qc-advanced composer-options full';
+  optionsBlock.innerHTML='<summary>Дополнительно: проект и расписание</summary><div class="composer-option-fields"></div>';
+  const optionFields=optionsBlock.querySelector('div');
+  for(const child of [...form.children]){
+    if(child===textField||child===mediaBlock||child===targetBlock||child===actionBar)continue;
+    if(child.classList.contains('ui-editor-section-title')){
+      const guide=child.querySelector('.editor-help');
+      if(guide&&child.querySelector('strong')?.textContent==='Основное')textField?.prepend(guide);
+      child.remove();continue;
+    }
+    optionFields.append(child);
+  }
+  if(textField){textField.classList.add('composer-text');textField.querySelector('.rich-text-label').textContent='Текст публикации';form.append(textField);}
+  if(mediaBlock){mediaBlock.classList.add('composer-media');mediaBlock.querySelector(':scope > strong')?.remove();mountMediaGuide(mediaBlock);form.append(mediaBlock);}
+  if(targetBlock){targetBlock.classList.add('composer-targets');targetBlock.querySelector(':scope > strong').textContent='Куда опубликовать';form.append(targetBlock);}
+  form.append(optionsBlock);
+  if(actionBar)form.append(actionBar);
+  mountComposerLayout({root:m,panel:m.querySelector('.modal-card'),heading,close:topClose,
+    editor:form,preview:host,layout,footer:actionBar});
   const preview=mountSocialPreview(host);
   let savedPreviews=[],previewTimer=null,previewRequest=0;
   const refreshPreview=()=>{
