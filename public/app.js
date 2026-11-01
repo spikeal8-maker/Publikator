@@ -339,6 +339,14 @@ async function postEditor(postId,options={}){
   m.querySelector('.modal-card')?.classList.add('publication-has-media');
   const layout=document.createElement('div');layout.className='publication-edit-layout';form.before(layout);
   const host=document.createElement('div');host.className='editor-media-host';layout.append(host,form);
+  layout.dataset.pane='preview';
+  const panes=document.createElement('div');panes.className='publication-pane-switch';
+  panes.innerHTML='<button type="button" data-pane="edit" aria-pressed="false">Редактировать</button><button type="button" data-pane="preview" aria-pressed="true">Предпросмотр</button>';
+  layout.before(panes);
+  panes.querySelectorAll('button').forEach(button=>button.onclick=()=>{
+   layout.dataset.pane=button.dataset.pane;
+   panes.querySelectorAll('button').forEach(item=>item.setAttribute('aria-pressed',String(item===button)));
+  });
   const preview=mountSocialPreview(host);
   let savedPreviews=[],previewTimer=null,previewRequest=0;
   const refreshPreview=()=>{

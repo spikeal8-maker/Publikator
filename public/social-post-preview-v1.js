@@ -17,7 +17,7 @@ export function previewMedia(post){
 
 // Display only. This component never declares publishing readiness or writes a post.
 export function mountSocialPreview(host,initial=[]){
- let rows=initial,active='',device='desktop',slide=0,disposed=false;
+ let rows=initial,active='',device=window.matchMedia('(max-width:900px)').matches?'phone':'desktop',slide=0,disposed=false;
  const render=()=>{
   if(disposed)return;
   const selected=rows.find(item=>String(item.accountId||item.targetId)===active)||rows[0];

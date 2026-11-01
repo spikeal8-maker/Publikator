@@ -197,6 +197,9 @@ try {
   await savedRow.locator('.open-post').click();
   await page.locator('#post-form').waitFor();
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'Editor must fit phone');
+  await page.locator('.publication-pane-switch [data-pane="edit"]').click();
+  assert.equal(await page.locator('#post-form').isVisible(),true);
+  assert.equal(await page.locator('.editor-media-host').isVisible(),false);
   await page.locator('#post-form .editor-help summary').first().click();
   assert.match(await page.locator('#post-form .editor-help[open]').innerText(),/Сохранение не отправляет/);
   await page.locator('#post-form .editor-help summary').first().click();
