@@ -379,7 +379,7 @@ async function postEditor(postId,options={}){
   form.addEventListener('publikator:media-order-changed',()=>reloadPreview());
   const versionObserver=new MutationObserver(()=>reloadPreview());versionObserver.observe(form,{attributes:true,attributeFilter:['data-content-version']});
   const removal=new MutationObserver(()=>{if(!m.isConnected){preview.dispose();clearTimeout(previewTimer);versionObserver.disconnect();removal.disconnect();}});removal.observe(document.body,{childList:true});
-  queueMicrotask(reloadPreview);
+  queueMicrotask(()=>{refreshPreview();reloadPreview();});
   form.dataset.exactScheduledAt=initialExactScheduledAt;
   const scheduledInput=form.querySelector('input[name="scheduledAt"]');
   scheduledInput?.addEventListener('input',()=>{form.dataset.exactScheduledAt='';});

@@ -90,6 +90,7 @@ try {
  await page.locator('#post-form').waitFor();
  assert.equal(await page.locator('.editorial-inspector-overlay').count(),0,'Editable row must open the editor directly');
  const editorBounds=await page.locator('.publication-editor').boundingBox();assert.ok(editorBounds.width>=1100,'Desktop editor must use the available screen width');
+ await page.locator('.editor-media-host .sp-media').waitFor();
  const desktopMedia=await page.locator('.editor-media-host .sp-media').boundingBox();
  assert.ok(desktopMedia.width>=450,'Single image must use the main preview width');
  assert.ok(desktopMedia.height>=350,'Single image must have a large preview');
@@ -133,6 +134,7 @@ try {
  await published.locator('.open-post').click();
  await page.locator('.editorial-inspector-overlay').waitFor();
  assert.equal(await page.locator('.inspector-edit').count(),0);
+ await page.locator('.publication-reader .sp-media').waitFor();
  const readonlyMedia=await page.locator('.publication-reader .sp-media').boundingBox();assert.ok(readonlyMedia.width>=450);
  await page.locator('.inspector-dismiss').click();
  await page.locator('#quick-new-post').click();
