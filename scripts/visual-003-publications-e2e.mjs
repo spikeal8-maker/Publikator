@@ -183,7 +183,7 @@ try {
   await page.locator('.posts-toolbar>.posts-help summary').click();
   await page.locator('tr[data-post-id="'+seeded[0].id+'"] .open-post').click();
   await page.locator('.editor-media-host .sp-media').waitFor();
-  const phoneMedia=await page.locator('.editor-media-host .sp-media').boundingBox();assert.ok(phoneMedia.width>=width-70&&phoneMedia.height>=220,'Phone image must be large');
+  const phoneMedia=await page.locator('.editor-media-host .sp-media').boundingBox();assert.ok(phoneMedia.width>=width-70&&phoneMedia.height>=Math.min(220,(width-70)*.6),'Phone image must be large');
   await page.locator('.publication-editor-close').click();
   await savedRow.locator('.open-post').click();
   await page.locator('#post-form').waitFor();

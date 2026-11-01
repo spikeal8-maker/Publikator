@@ -78,3 +78,5 @@
 #qc-platform-preview-load{font-size:11px;min-height:28px;padding:5px 8px}
 
 .sp-video-availability{font-size:11px;color:#9c5d13;margin:5px 0 8px}
+
+@media(max-width:900px){.sp-canvas{padding:0;border:0;background:transparent}.sp-telegram .sp-post,.sp-max .sp-post{margin:8px 0}.sp-canvas .sp-device-frame{max-width:100%}.sp-media[data-count="1"] img{max-height:none}}
