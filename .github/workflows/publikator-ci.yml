@@ -289,6 +289,8 @@ jobs:
       - name: CX3-PREVIEW-RACE-001 inspector event lifecycle after delayed load
         run: node scripts/cx3-preview-open-race-e2e.mjs
 
+      - name: VISUAL-002 responsive Calendar and selected-day workflow
+        run: node scripts/visual-002-calendar-e2e.mjs
       - name: VISUAL-001 compact Overview and help in real Chrome
         run: node scripts/visual-001-overview-e2e.mjs
       - name: CX3-007 dashboard API semantics

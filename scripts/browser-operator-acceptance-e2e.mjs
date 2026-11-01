@@ -1331,7 +1331,9 @@ try {
   await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Календарь');
   await page.locator('.calendar-shell').waitFor({ state: 'visible' });
   assert.equal((await page.locator('[data-calendar-mode="agenda"]').textContent())?.trim(), 'Список');
-  assert.match((await page.locator('.calendar-toolbar').innerText()), /Часовой пояс:/);
+  await page.locator('.calendar-help summary').click();
+  assert.match(await page.locator('.calendar-help[open]').innerText(), /Часовой пояс:/);
+  await page.locator('.calendar-help summary').click();
   let calendarFixtureCard = page.locator(`[data-calendar-post="${calendarFixture.id}"]`);
   await calendarFixtureCard.waitFor({ state: 'visible' });
   let calendarFixtureText = await calendarFixtureCard.innerText();
@@ -1478,8 +1480,9 @@ try {
   }, 201);
   await page.evaluate(() => window.publikatorRenderCalendar());
   let queueCalendarCard = page.locator(`.calendar-card.queue[data-calendar-post="${queueCalendar.id}"]`);
+  if(!(await page.locator('.calendar-queue-lane').getAttribute('open'))&&await page.locator('.calendar-queue-lane').getAttribute('open')===null)await page.locator('.calendar-queue-lane > summary').click();
   await queueCalendarCard.waitFor({ state: 'visible', timeout: 5000 });
-  assert.ok((await queueCalendarCard.innerText()).includes('QUEUE'));
+  assert.ok((await queueCalendarCard.innerText()).includes('Из очереди'));
   const queueTargetSlot = page.locator(`.calendar-time-slot[data-calendar-slot="${candidateSlots[4]}"]`);
   let queueTransfer = await page.evaluateHandle(() => new DataTransfer());
   await queueCalendarCard.dispatchEvent('dragstart', { dataTransfer: queueTransfer });
@@ -1501,6 +1504,7 @@ try {
 
   await page.evaluate(() => window.publikatorRenderCalendar());
   queueCalendarCard = page.locator(`.calendar-card.queue[data-calendar-post="${queueCalendar.id}"]`);
+  if(!(await page.locator('.calendar-queue-lane').getAttribute('open'))&&await page.locator('.calendar-queue-lane').getAttribute('open')===null)await page.locator('.calendar-queue-lane > summary').click();
   await queueCalendarCard.waitFor({ state: 'visible', timeout: 5000 });
   queueTransfer = await page.evaluateHandle(() => new DataTransfer());
   await queueCalendarCard.dispatchEvent('dragstart', { dataTransfer: queueTransfer });
