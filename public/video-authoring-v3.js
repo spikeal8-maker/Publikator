@@ -123,7 +123,7 @@ function renderAuthoringMedia(form, post) {
   list.classList.add('video-authoring-list');
   list.innerHTML = items.map(mediaItemHtml).join('') || '<div class="muted small">Медиа пока не добавлено.</div>';
   bindDeleteButtons(form, post);
-  if(!items.some(item=>item.isVideo)){
+  {
    for(const [index,item] of items.entries()){
     const node=[...list.children].find(element=>element.dataset.authoringMediaId===item.id);
     if(!node)continue;
@@ -149,8 +149,8 @@ function renderAuthoringMedia(form, post) {
   fileInput.accept = 'image/*,video/mp4';
   fileInput.multiple = true;
   const hasVideo = items.some((item) => item.isVideo);
-  fileInput.disabled = hasVideo;
-  fileInput.title = hasVideo ? 'Video v1 содержит один ролик. Сначала удалите текущее видео.' : 'JPEG/PNG/WebP или MP4 H.264 + AAC';
+  fileInput.disabled = items.length >= 10;
+  fileInput.title = 'До 10 вложений: JPEG/PNG/WebP и MP4 H.264 + AAC вместе';
 
   let actions=form.querySelector('.sp-media-actions');
   if(!actions){
@@ -163,9 +163,9 @@ function renderAuthoringMedia(form, post) {
   }
   actions.querySelector('[data-media-count]').textContent='';
   updateMediaGuide(list.parentElement,{images:items.filter(item=>!item.isVideo).length,video:hasVideo});
-  actions.querySelector('.sp-add-photos').disabled=hasVideo||items.length>=10;
-  actions.querySelector('.sp-add-video').disabled=items.length>0;
-  actions.querySelector('.sp-add-video').title=items.length?'Для видео создайте отдельную публикацию или удалите фотографии':'Выбрать MP4 (H.264, AAC или без звука)';
+  actions.querySelector('.sp-add-photos').disabled=items.length>=10;
+  actions.querySelector('.sp-add-video').disabled=items.length>=10;
+  actions.querySelector('.sp-add-video').title='Добавить MP4 к фотографиям или другим видео';
   const mediaBlock = list.parentElement;
   const heading = mediaBlock?.querySelector(':scope > strong');
   if (heading) heading.textContent = 'Вложения';
@@ -176,11 +176,7 @@ function renderAuthoringMedia(form, post) {
     const host=[...form.querySelectorAll('.ui-editor-section-title')].find(node=>node.querySelector('strong')?.textContent==='Медиа')?.querySelector('.editor-help > div');
     if(host)host.append(help);else {help.hidden=true;fileInput.before(help);}
   }
-  help.textContent = hasVideo
-    ? 'Один MP4 (H.264, AAC или без аудио). Чтобы заменить ролик, сначала удалите текущий.'
-    : items.length
-      ? 'Можно добавлять изображения. Для MP4 публикация должен быть без других медиа.'
-      : 'Изображения или MP4: H.264, AAC либо без аудио. Обложка создаётся автоматически.';
+  help.textContent = 'До 10 фото и MP4 вместе. Меняйте порядок стрелками. Обложки видео создаются автоматически и не отправляются отдельными фотографиями.';
 }
 
 function previewMarkup(post) {
@@ -270,9 +266,7 @@ async function enhanceEditor(form, postId) {
    try{
     setError(form,'');
     const projection=publicationMediaProjection(post);
-    if(!files.some(file=>file.type==='video/mp4')&&projection.items.length+files.length>10)throw new Error('Можно добавить до 10 фотографий. Удалите лишние или выберите меньше файлов.');
-    if(projection.items.some(item=>item.isVideo))throw new Error('Видеопубликация содержит один ролик. Сначала удалите текущее видео.');
-    if(files.some(file=>file.type==='video/mp4')&&(files.length!==1||projection.items.length))throw new Error('Видео добавляется отдельно от фотографий. Создайте отдельную публикацию или удалите фотографии.');
+    if(projection.items.length+files.length>10)throw new Error('Не более 10 вложений: фото и MP4 вместе.');
     for(const [index,file] of files.entries()){
      const isVideo=file.type==='video/mp4';
      if(!isVideo&&!String(file.type).startsWith('image/'))throw new Error('Выберите изображения или MP4.');

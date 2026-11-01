@@ -588,12 +588,9 @@ export async function openQuickComposer(options = {}) {
         role: 'primary',
         order: index
       }));
-      const media = state.video
-        ? [{ url: state.video.url, mimeType: 'video/mp4', role: 'primary', order: 0 }]
-        : images;
-      const contentFormat = state.video ? 'VIDEO'
-        : images.length > 1 ? 'CAROUSEL'
-          : images.length ? 'IMAGE' : 'TEXT_ONLY';
+      const media = [...images];
+      if (state.video) media.splice(Math.min(state.video.position ?? images.length, images.length), 0, { url: state.video.url, mimeType: 'video/mp4', role: 'primary' });
+      const contentFormat = media.length > 1 ? 'CAROUSEL' : state.video ? 'VIDEO' : media.length ? 'IMAGE' : 'TEXT_ONLY';
       return checkedAccounts().map((account) => ({
         targetId: 'local:' + account.id,
         accountId: account.id,
@@ -688,9 +685,8 @@ export async function openQuickComposer(options = {}) {
     }
     function syncMediaInputs() {
       const locked = state.busy || state.finished || state.uncertainPublish;
-      const cannotAddPhotos = locked || Boolean(state.video) || state.recoveryRequiresVideo || state.pending.length >= 10;
-      const cannotAddVideo = locked || state.pending.length > 0 || Boolean(state.video) ||
-        state.recoveryRequiredFiles > 0;
+      const cannotAddPhotos = locked || state.pending.length + Number(Boolean(state.video)) >= 10;
+      const cannotAddVideo = locked || Boolean(state.video) || state.pending.length >= 10;
       root.querySelector('#qc-files').disabled = cannotAddPhotos;
       root.querySelector('#qc-video-file').disabled = cannotAddVideo;
       root.querySelector('#qc-drop').classList.toggle('is-disabled', cannotAddPhotos);
@@ -779,17 +775,13 @@ export async function openQuickComposer(options = {}) {
     }
     function addFiles(files) {
       if (state.busy || state.finished || state.uncertainPublish) return;
-      if (state.video || state.recoveryRequiresVideo) {
-        setStatus('Смешивание фото и видео не поддерживается. Сначала удалите MP4 либо отмените его восстановление.', true);
-        return;
-      }
       const currentKeys = new Set(state.pending.map((item) => item.file.name + ':' + item.file.size + ':' + item.file.lastModified));
       for (const file of files) {
         if (!file.type.startsWith('image/')) { setStatus('Выберите файлы изображений.', true); continue; }
         if (file.size > MAX_IMAGE_BYTES) { setStatus('Слишком большой файл: ' + file.name + ' (максимум 50 МБ).', true); continue; }
         const key = file.name + ':' + file.size + ':' + file.lastModified;
         if (currentKeys.has(key)) continue;
-        if(state.pending.length >= 10){setStatus('В альбоме уже 10 фото. Удалите ненужные, чтобы добавить другие.',true);break;}
+        if(state.pending.length + Number(Boolean(state.video)) >= 10){setStatus('В публикации уже 10 вложений. Удалите ненужные, чтобы добавить другие.',true);break;}
         currentKeys.add(key);
         state.pending.push({ file, url: URL.createObjectURL(file), uploaded: false, remoteId: null });
         markDirty();
@@ -847,7 +839,14 @@ export async function openQuickComposer(options = {}) {
         markDirty();
         redrawVideo();
       });
-      meta.append(title, size, remove);
+      const order = document.createElement('div');
+      order.className = 'sp-image-order';
+      const position = Math.min(item.position ?? state.pending.length, state.pending.length);
+      order.innerHTML = '<button type="button" class="secondary" aria-label="Передвинуть видео раньше">←</button><span>' + (position + 1) + ' из ' + (state.pending.length + 1) + '</span><button type="button" class="secondary" aria-label="Передвинуть видео позже">→</button>';
+      const moves = order.querySelectorAll('button');
+      moves[0].disabled = !position || state.busy; moves[1].disabled = position === state.pending.length || state.busy;
+      moves.forEach((button, index) => button.onclick = () => { item.position = position + (index ? 1 : -1); markDirty(); redrawVideo(); });
+      meta.append(title, size, order, remove);
       card.append(preview, meta);
       host.append(card);
       syncMediaInputs();
@@ -859,10 +858,7 @@ export async function openQuickComposer(options = {}) {
       const file = input.files?.[0];
       input.value = '';
       if (!file || state.busy || state.finished || state.uncertainPublish) return;
-      if (state.pending.length || state.recoveryRequiredFiles) {
-        setStatus('Чтобы выбрать MP4, сначала удалите фотографии или завершите их восстановление.', true);
-        return;
-      }
+      if (state.pending.length >= 10) { setStatus('Не более 10 вложений вместе с видео.', true); return; }
       if (state.video) {
         setStatus('Сначала удалите ранее выбранное видео.', true);
         return;
@@ -1149,14 +1145,6 @@ export async function openQuickComposer(options = {}) {
         }
         nextOrder.push(item.remoteId);
       }
-      if (nextOrder.join('\u0000') !== state.remoteMediaOrder.join('\u0000')) {
-        const reordered = await request('/api/posts/' + encodeURIComponent(state.savedId) + '/media-order', {
-          method: 'PUT',
-          body: JSON.stringify({ mediaIds: nextOrder, expectedContentVersion: state.version })
-        });
-        state.version = reordered.contentVersion;
-        state.remoteMediaOrder = [...nextOrder];
-      }
       if (operation.video && !operation.video.uploaded) {
         // A completed MP4 POST may have a lost response; never retry it blindly.
         if (!recovery?.saveServerDraft(state.savedId)) {
@@ -1183,6 +1171,15 @@ export async function openQuickComposer(options = {}) {
         operation.video.uploaded = true;
         state.version = uploaded.contentVersion;
         redrawVideo();
+      }
+      if (operation.video?.remoteId) nextOrder.splice(Math.min(operation.video.position ?? nextOrder.length, nextOrder.length), 0, operation.video.remoteId);
+      if (nextOrder.join('\u0000') !== state.remoteMediaOrder.join('\u0000')) {
+        const reordered = await request('/api/posts/' + encodeURIComponent(state.savedId) + '/media-order', {
+          method: 'PUT',
+          body: JSON.stringify({ mediaIds: nextOrder, expectedContentVersion: state.version })
+        });
+        state.version = reordered.contentVersion;
+        state.remoteMediaOrder = [...nextOrder];
       }
       state.recoveryRequiresVideo = false;
       // The transient recovery requirement protects only the initial rebuild
@@ -1257,10 +1254,6 @@ export async function openQuickComposer(options = {}) {
       if (state.recoveryRequiresVideo && !operation.video) {
         updateMissingFilesNotice();
         setStatus('Снова выберите MP4 или явно подтвердите отказ от прежнего видео.', true);
-        return;
-      }
-      if (operation.video && operation.images.length) {
-        setStatus('Смешивание фотографий и видео не поддерживается. Выберите один тип вложений.', true);
         return;
       }
       if (!operation.body && !operation.images.length && !operation.video) {

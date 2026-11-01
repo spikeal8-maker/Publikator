@@ -270,7 +270,8 @@ function assertImagePublication(input: PublishInput): void {
   }
   if (input.media.length < 1) throw new Error('VK: требуется минимум одно изображение');
   for (const media of input.media) {
-    if (media.mime_type !== 'image/jpeg') throw new Error(`VK: image publication требует image/jpeg, получен ${media.mime_type}`);
+    if (media.mime_type === 'video/mp4' && input.contentFormat === 'CAROUSEL') assertFeedVideo({ ...input, contentFormat: 'VIDEO', media: [media] });
+    else if (media.mime_type !== 'image/jpeg') throw new Error('VK: допустимы JPEG и MP4');
   }
 }
 
@@ -369,10 +370,11 @@ export const vkPublisher: SocialPublisher = {
   validate(input) {
     requireString(input.credentials, 'accessToken');
     if (input.credentials.authKind === 'COMMUNITY') {
-      if (isVideoPublication(input)) {
+      if (input.media.some(media => media.mime_type === 'video/mp4')) {
         if (input.credentials.videoPublishReady !== true || !input.credentials.videoUploadUserId) throw new Error('VK: добавьте проверенный пользовательский ключ с правом video в разделе «Соцсети».');
         requireString(input.credentials, 'uploadAccessToken');
-      } else if (input.contentFormat !== 'TEXT_ONLY') {
+      }
+      if (input.media.some(media => media.mime_type.startsWith('image/'))) {
         if (input.publicationKind && input.publicationKind !== 'FEED') throw new Error('VK: связка ключей поддерживает фото только в ленте');
         if (!['IMAGE', 'CAROUSEL'].includes(input.contentFormat || 'IMAGE')) throw new Error('VK: связка ключей поддерживает текст, фото и карусель в ленте');
         if (input.credentials.photoPublishReady !== true || !input.credentials.uploadUserId) {
@@ -405,19 +407,22 @@ export const vkPublisher: SocialPublisher = {
     let imageCommon = common;
     if (input.credentials.authKind === 'COMMUNITY') {
       await checkVkCommunityTextAccess(input.credentials);
-      if (isVideoPublication(input)) {
+      if (input.media.some(media => media.mime_type === 'video/mp4')) {
         const checked = await checkVkVideoUploadAccess(input.credentials);
         if (checked.userId !== input.credentials.videoUploadUserId) throw new Error('VK: владелец ключа видео изменился; проверьте подключение снова.');
         imageCommon = { ...common, access_token: requireString(input.credentials, 'uploadAccessToken') };
-      } else if (input.contentFormat !== 'TEXT_ONLY') {
+      }
+      if (input.media.some(media => media.mime_type.startsWith('image/'))) {
         const checked = await checkVkPhotoUploadAccess(input.credentials);
         if (checked.userId !== input.credentials.uploadUserId) throw new Error('VK: владелец ключа загрузки изменился; повторите проверку подключения');
         imageCommon = { ...common, access_token: requireString(input.credentials, 'uploadAccessToken') };
       }
     }
-    const attachments = input.contentFormat === 'TEXT_ONLY' ? [] : isVideoPublication(input)
-      ? [await prepareVideoAttachment(input, imageCommon, destination)]
-      : await prepareImageAttachments(input, imageCommon, destination);
+    const attachments: string[] = [];
+    for (const media of input.media) {
+      if (media.mime_type === 'video/mp4') attachments.push(await prepareVideoAttachment({ ...input, contentFormat: 'VIDEO', media: [media] }, imageCommon, destination));
+      else attachments.push(...await prepareImageAttachments({ ...input, media: [media] }, imageCommon, destination));
+    }
 
     const context = input.publicationKind === 'STORY' ? 'story_caption' : input.media.length ? 'media_caption' : 'text';
     const compilation = input.textCompilation ?? compileLiteralPlainText('vk', input.text, context);

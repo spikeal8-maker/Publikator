@@ -68,11 +68,13 @@ function duplicateMedia(postId: string, sha256: string): MediaRow | undefined {
     .get(postId, sha256) as MediaRow | undefined;
 }
 
-export function syncImageContentFormat(postId: string): 'IMAGE' | 'CAROUSEL' {
-  const count = Number((db.prepare('SELECT COUNT(*) AS count FROM media WHERE post_id=?').get(postId) as { count: number }).count);
-  const format = count > 1 ? 'CAROUSEL' : 'IMAGE';
-  db.prepare("UPDATE posts SET content_format=? WHERE id=? AND publication_kind='FEED' AND content_format IN ('TEXT_ONLY','IMAGE','CAROUSEL')")
-    .run(format, postId);
+export function syncImageContentFormat(postId: string): 'TEXT_ONLY' | 'IMAGE' | 'VIDEO' | 'CAROUSEL' {
+  const rows = listMedia(postId);
+  const posters = new Set(rows.map(row => row.poster_asset_id).filter(Boolean));
+  const primary = rows.filter(row => !posters.has(row.id));
+  const format = primary.length > 1 ? 'CAROUSEL' : primary.length
+    ? primary[0]!.mime_type.startsWith('video/') ? 'VIDEO' : 'IMAGE' : 'IMAGE';
+  db.prepare("UPDATE posts SET content_format=? WHERE id=? AND publication_kind='FEED'").run(format, postId);
   return format;
 }
 
@@ -146,10 +148,6 @@ export async function saveVideoVersioned(
   expectedContentVersion: number
 ): Promise<{ media: MediaRow; poster: MediaRow; contentVersion: number }> {
   assertContentVersion(postId, expectedContentVersion);
-  if (listMedia(postId).length !== 0) {
-    throw new Error('Для Video v1 пост должен быть без других media. Удалите текущие изображения/видео перед загрузкой MP4.');
-  }
-
   const preparedVideo = await prepareVideoUpload(originalName, input);
   let videoAbsolutePath: string | null = null;
   let posterAbsolutePath: string | null = null;
@@ -169,6 +167,7 @@ export async function saveVideoVersioned(
 
     const committed = commitContentEdit(postId, expectedContentVersion, 'manual', () => {
       const createdAt = nowIso();
+      const nextOrder = (db.prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM media WHERE post_id=?').get(postId) as { n: number }).n;
       db.prepare(`INSERT INTO media
         (id,post_id,original_name,relative_path,mime_type,size_bytes,width,height,sha256,created_at,sort_order)
         VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
@@ -183,7 +182,7 @@ export async function saveVideoVersioned(
           posterPrepared.height,
           posterPrepared.sha256,
           createdAt,
-          1
+          nextOrder + 1
         );
       db.prepare(`INSERT INTO media
         (id,post_id,original_name,relative_path,mime_type,size_bytes,width,height,sha256,created_at,sort_order,
@@ -200,7 +199,7 @@ export async function saveVideoVersioned(
           preparedVideo.height,
           preparedVideo.sha256,
           createdAt,
-          0,
+          nextOrder,
           preparedVideo.durationMs,
           preparedVideo.fps,
           preparedVideo.videoCodec,
@@ -208,11 +207,11 @@ export async function saveVideoVersioned(
           preparedVideo.container,
           posterId
         );
-      db.prepare("UPDATE posts SET publication_kind='FEED',content_format='VIDEO' WHERE id=?").run(postId);
-      db.prepare("UPDATE content_media SET sort_order=0,role='video',updated_at=? WHERE post_id=? AND media_id=?")
-        .run(createdAt, postId, videoId);
-      db.prepare("UPDATE content_media SET sort_order=1,role='poster',updated_at=? WHERE post_id=? AND media_id=?")
+
+      db.prepare("UPDATE content_media SET role='video',updated_at=? WHERE post_id=? AND media_id=?").run(createdAt, postId, videoId);
+      db.prepare("UPDATE content_media SET role='poster',updated_at=? WHERE post_id=? AND media_id=?")
         .run(createdAt, postId, posterId);
+      syncImageContentFormat(postId);
       return {
         media: db.prepare('SELECT * FROM media WHERE id=?').get(videoId) as MediaRow,
         poster: db.prepare('SELECT * FROM media WHERE id=?').get(posterId) as MediaRow
@@ -233,7 +232,11 @@ export function listMedia(postId: string): MediaRow[] {
 }
 
 export function reorderMedia(postId: string, mediaIds: string[]): MediaRow[] {
-  const current = listMedia(postId);
+  const all = listMedia(postId);
+  const posters = new Set(all.map(row => row.poster_asset_id).filter(Boolean));
+  const primary = all.filter(row => !posters.has(row.id));
+  if (mediaIds.length === primary.length) mediaIds = [...mediaIds, ...all.filter(row => posters.has(row.id)).map(row => row.id)];
+  const current = all;
   if (current.length !== mediaIds.length) throw new Error('Порядок должен содержать все изображения поста');
   const expected = new Set(current.map((media) => media.id));
   const supplied = new Set(mediaIds);
@@ -268,13 +271,7 @@ function normalizeRemainingMedia(postId: string): void {
   const rest = listMedia(postId);
   const update = db.prepare('UPDATE media SET sort_order=? WHERE id=?');
   rest.forEach((row, index) => update.run(index, row.id));
-  const hasVideo = rest.some((row) => row.mime_type.startsWith('video/'));
-  if (!hasVideo) {
-    const imageFormat = rest.length > 1 ? 'CAROUSEL' : 'IMAGE';
-    db.prepare("UPDATE posts SET publication_kind='FEED',content_format=? WHERE id=? AND content_format IN ('VIDEO','VERTICAL_VIDEO')")
-      .run(imageFormat, postId);
-    syncImageContentFormat(postId);
-  }
+  syncImageContentFormat(postId);
 }
 
 export async function deleteMediaVersioned(mediaId: string, expectedContentVersion: number): Promise<{ postId: string; contentVersion: number }> {
