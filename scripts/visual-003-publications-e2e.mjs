@@ -96,7 +96,9 @@ try {
  await page.screenshot({path:'test-results/visual-003-publications-desktop.png'});
  for(const width of [390,320]){
   await page.setViewportSize({width,height:844});
-  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'Publications must fit phone '+width);
+  const phone=await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth,overflow:[...document.querySelectorAll('#view *')].filter(e=>e.getBoundingClientRect().right>innerWidth+1).slice(0,10).map(e=>({tag:e.tagName,cls:e.className,right:e.getBoundingClientRect().right}))}));
+  await page.screenshot({path:'test-results/visual-003-publications-phone-'+width+'.png'});
+  assert.ok(phone.scroll<=phone.width,'Publications must fit phone '+width+': '+JSON.stringify(phone));
   const header=await page.locator('main>header').boundingBox();assert.ok(header.height<=48);
   await page.locator('.posts-toolbar>.posts-help summary').click();
   const help=await page.locator('.posts-toolbar>.posts-help[open]>div').boundingBox();
