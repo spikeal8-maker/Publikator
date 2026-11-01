@@ -235,6 +235,29 @@ export async function checkVkPhotoUploadAccess(credentials: Record<string, unkno
   return { userId };
 }
 
+
+/** Read-only USER scope and destination checks; never reserves or publishes a video. */
+export async function checkVkVideoUploadAccess(credentials: Record<string, unknown>): Promise<{ userId: string }> {
+  const destination = resolveVkDestination(credentials);
+  const common = {
+    access_token: requireString(credentials, credentials.authKind === 'COMMUNITY' ? 'uploadAccessToken' : 'accessToken'),
+    v: typeof credentials.apiVersion === 'string' ? credentials.apiVersion : '5.199'
+  };
+  const mask = await vkCall('account.getAppPermissions', common);
+  if (!Number.isSafeInteger(mask) || !(Number(mask) & 16)) throw new Error('VK: нужен пользовательский ключ с правом video.');
+  const users = await vkCall('users.get', common);
+  const userId = normalizeVkUserId(Array.isArray(users) ? users[0]?.id : undefined);
+  if (destination.kind === 'PERSONAL' && destination.id !== userId) throw new Error('VK: личная стена не совпадает с владельцем ключа.');
+  if (destination.kind === 'COMMUNITY') {
+    const response = await vkCall('groups.getById', { ...common, group_id: destination.id, fields: 'screen_name' });
+    const group = Array.isArray(response) ? response[0] : response?.groups?.[0] ?? response?.items?.[0];
+    if (!group?.id || normalizeVkCommunityId(group.id) !== destination.id || !(group.is_admin === 1 || group.is_admin === true || Number(group.admin_level) > 0)) {
+      throw new Error('VK: пользовательский ключ не подтвердил управление выбранным сообществом.');
+    }
+  }
+  return { userId };
+}
+
 function assertTextPublication(input: PublishInput): void {
   if (input.publicationKind && input.publicationKind !== 'FEED') throw new Error('VK: текстовый пост поддерживается только в ленте');
   if (input.media.length !== 0) throw new Error('VK: текстовый пост не должен содержать вложения');
@@ -346,7 +369,10 @@ export const vkPublisher: SocialPublisher = {
   validate(input) {
     requireString(input.credentials, 'accessToken');
     if (input.credentials.authKind === 'COMMUNITY') {
-      if (input.contentFormat !== 'TEXT_ONLY') {
+      if (isVideoPublication(input)) {
+        if (input.credentials.videoPublishReady !== true || !input.credentials.videoUploadUserId) throw new Error('VK: добавьте проверенный пользовательский ключ с правом video в разделе «Соцсети».');
+        requireString(input.credentials, 'uploadAccessToken');
+      } else if (input.contentFormat !== 'TEXT_ONLY') {
         if (input.publicationKind && input.publicationKind !== 'FEED') throw new Error('VK: связка ключей поддерживает фото только в ленте');
         if (!['IMAGE', 'CAROUSEL'].includes(input.contentFormat || 'IMAGE')) throw new Error('VK: связка ключей поддерживает текст, фото и карусель в ленте');
         if (input.credentials.photoPublishReady !== true || !input.credentials.uploadUserId) {
@@ -379,14 +405,18 @@ export const vkPublisher: SocialPublisher = {
     let imageCommon = common;
     if (input.credentials.authKind === 'COMMUNITY') {
       await checkVkCommunityTextAccess(input.credentials);
-      if (input.contentFormat !== 'TEXT_ONLY') {
+      if (isVideoPublication(input)) {
+        const checked = await checkVkVideoUploadAccess(input.credentials);
+        if (checked.userId !== input.credentials.videoUploadUserId) throw new Error('VK: владелец ключа видео изменился; проверьте подключение снова.');
+        imageCommon = { ...common, access_token: requireString(input.credentials, 'uploadAccessToken') };
+      } else if (input.contentFormat !== 'TEXT_ONLY') {
         const checked = await checkVkPhotoUploadAccess(input.credentials);
         if (checked.userId !== input.credentials.uploadUserId) throw new Error('VK: владелец ключа загрузки изменился; повторите проверку подключения');
         imageCommon = { ...common, access_token: requireString(input.credentials, 'uploadAccessToken') };
       }
     }
     const attachments = input.contentFormat === 'TEXT_ONLY' ? [] : isVideoPublication(input)
-      ? [await prepareVideoAttachment(input, common, destination)]
+      ? [await prepareVideoAttachment(input, imageCommon, destination)]
       : await prepareImageAttachments(input, imageCommon, destination);
 
     const context = input.publicationKind === 'STORY' ? 'story_caption' : input.media.length ? 'media_caption' : 'text';

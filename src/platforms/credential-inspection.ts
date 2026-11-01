@@ -10,7 +10,7 @@ import {
   type PublicationFormat,
   type RuntimePrerequisiteEvidence
 } from '../social-credential-capability.js';
-import { checkVkPhotoUploadAccess, normalizeVkCommunityId, normalizeVkUserId, vkCall, vkDestinationKind } from './vk.js';
+import { checkVkVideoUploadAccess, checkVkPhotoUploadAccess, normalizeVkCommunityId, normalizeVkUserId, vkCall, vkDestinationKind } from './vk.js';
 import { PlatformError, requireString } from './types.js';
 
 export type InspectionCredentialValidity = 'CONFIRMED' | 'INVALID' | 'UNAVAILABLE' | 'UNKNOWN';
@@ -36,6 +36,7 @@ export type CredentialInspectionResult = {
   warnings: string[];
   /** Verified by VK USER key probes; never accepted from an HTTP client. */
   verifiedVkUploadUserId?: string | null;
+  verifiedVkVideoUploadUserId?: string | null;
 };
 
 type JsonProbe =
@@ -457,7 +458,7 @@ async function inspectTelegram(credentials: Record<string, unknown>): Promise<Cr
     CAROUSEL: canPost
       ? publication('CONFIRMED', { requiredMethods: ['sendMediaGroup'] })
       : publication('SETUP_REQUIRED', { remediationCodes: ['TELEGRAM_CAN_POST_MESSAGES_REQUIRED'] }),
-    VIDEO: publication('UNKNOWN', { reason: 'Video publishing was not probed during credential inspection.' }),
+    VIDEO: canPost ? publication('CONFIRMED', { requiredMethods: ['sendVideo'] }) : publication('SETUP_REQUIRED', { remediationCodes: ['TELEGRAM_CAN_POST_MESSAGES_REQUIRED'] }),
     SHORT: publication('UNKNOWN', { reason: 'Short-video publishing is not proven by this inspection.' }),
     STORY: member.result.can_post_stories === true
       ? publication('CONFIRMED', { requiredMethods: ['story publication rights'] })
@@ -765,7 +766,7 @@ async function inspectMax(credentials: Record<string, unknown>): Promise<Credent
       TEXT: feedEvidence,
       IMAGE: feedEvidence,
       CAROUSEL: feedEvidence,
-      VIDEO: publication('UNKNOWN', { reason: 'Video publishing was not probed during credential inspection.' }),
+      VIDEO: feedEvidence,
       SHORT: publication('UNKNOWN'),
       STORY: publication('UNKNOWN')
     },
@@ -1025,6 +1026,22 @@ async function inspectVk(credentials: Record<string, unknown>): Promise<Credenti
         'photos.getWallUploadServer', credentials.uploadAccessToken ? 'NOT_CHECKED' : 'NOT_SUPPORTED_FOR_CREDENTIAL_TYPE', photoReason, 'vk', 'USER_CREDENTIAL_REQUIRED'
       ));
     }
+
+    let videoReady = false;
+    let verifiedVkVideoUploadUserId: string | null = null;
+    let videoReason = 'Добавьте пользовательский ключ с правом video и доступом к сообществу.';
+    if (destination.resolutionState === 'CONFIRMED' && declaredPermissions.includes('wall') && credentials.uploadAccessToken) {
+      try {
+        const checked = await checkVkVideoUploadAccess({ ...credentials, authKind: 'COMMUNITY', groupId: destination.id, destinationKind: 'COMMUNITY' });
+        videoReady = true; verifiedVkVideoUploadUserId = checked.userId;
+        videoReason = 'USER загружает видео, сохранённый ключ сообщества отправляет пост.';
+        methods.push(method('vk.video.upload.prerequisites', 'CONFIRMED', videoReason, 'vk', 'USER_VIDEO_SCOPE_AND_DESTINATION_CONFIRMED'));
+      } catch (error) {
+        videoReason = safeText(error instanceof Error ? error.message : error).split(String(credentials.uploadAccessToken)).join('[REDACTED]');
+        methods.push({ ...vkMethodFromFailure('vk.video.upload.prerequisites', error), reason: videoReason });
+      }
+    }
+    if (!videoReady) remediationRows.push(remediation('VK_VIDEO_USER_REQUIRED', 'Нужен личный ключ для видео', videoReason, { requiredCredentialType: 'USER', requiredPermissions: ['video'] }));
     methods.push(method(
       'wall.post',
       'NOT_CHECKED',
@@ -1056,6 +1073,7 @@ async function inspectVk(credentials: Record<string, unknown>): Promise<Credenti
           requiredMethods: ['photos.getWallUploadServer', 'photos.saveWallPhoto', 'wall.post'],
           reason: photoReason, remediationCodes: photoReady ? [] : [code]
         }),
+        VIDEO: publication(videoReady ? 'CONFIRMED' : 'SETUP_REQUIRED', { requiredMethods: ['video.save', 'wall.post'], reason: videoReason, remediationCodes: videoReady ? [] : ['VK_VIDEO_USER_REQUIRED'] }),
         CAROUSEL: publication(photoReady ? 'CONFIRMED' : 'SETUP_REQUIRED', {
           requiredMethods: ['photos.getWallUploadServer', 'photos.saveWallPhoto', 'wall.post'],
           reason: photoReason, remediationCodes: photoReady ? [] : [code]
@@ -1064,7 +1082,8 @@ async function inspectVk(credentials: Record<string, unknown>): Promise<Credenti
       runtimePrerequisiteEvidence: [],
       remediation: remediationRows,
       warnings,
-      verifiedVkUploadUserId
+      verifiedVkUploadUserId,
+      verifiedVkVideoUploadUserId
     };
   }
 
@@ -1265,6 +1284,14 @@ async function inspectVk(credentials: Record<string, unknown>): Promise<Credenti
           requiredMethods: ['photos.getWallUploadServer', 'photos.saveWallPhoto', 'wall.post']
         });
 
+
+  let userVideoEvidence = publication('SETUP_REQUIRED', { reason: 'Нужно право video и доступ к выбранной стене.', remediationCodes: ['VK_VIDEO_USER_REQUIRED'] });
+  if (destination.resolutionState === 'CONFIRMED') {
+    try {
+      await checkVkVideoUploadAccess({ ...credentials, authKind: 'USER', destinationKind: destination.kind, ...(destination.kind === 'COMMUNITY' ? { groupId: destination.id } : { userId: destination.id }) });
+      userVideoEvidence = publication('CONFIRMED', { requiredMethods: ['video.save', 'wall.post'], reason: 'USER scope video и назначение подтверждены; публичные запросы не выполнялись.' });
+    } catch (error) { userVideoEvidence = publication('SETUP_REQUIRED', { reason: safeText(error instanceof Error ? error.message : error), remediationCodes: ['VK_VIDEO_USER_REQUIRED'] }); }
+  }
   return {
     platform: 'vk',
     credential: {
@@ -1285,7 +1312,7 @@ async function inspectVk(credentials: Record<string, unknown>): Promise<Credenti
       }),
       IMAGE: imageEvidence,
       CAROUSEL: imageEvidence,
-      VIDEO: publication('UNKNOWN'),
+      VIDEO: userVideoEvidence,
       SHORT: publication('UNKNOWN'),
       STORY: publication('UNKNOWN')
     },

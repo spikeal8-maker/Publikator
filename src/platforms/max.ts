@@ -13,6 +13,7 @@ const MAX_IMAGE_BYTES = 50 * 1024 * 1024;
 const MAX_IMAGE_UPLOAD_TIMEOUT_MS = 120_000;
 const MAX_VIDEO_BYTES = 250 * 1024 * 1024;
 const MAX_REQUEST_TIMEOUT_MS = 30_000;
+const MAX_VIDEO_UPLOAD_TIMEOUT_MS = 120_000;
 const MAX_VIDEO_UPLOAD_HOST = 'omub.okcdn.ru';
 
 function characterCount(value: string): number {
@@ -242,9 +243,15 @@ async function uploadVideoFile(uploadUrl: string, media: MediaRow, blob: Blob): 
     const response = await maxFetch(uploadUrl, {
       method: 'POST',
       body: form,
-      signal: AbortSignal.timeout(MAX_REQUEST_TIMEOUT_MS)
+      signal: AbortSignal.timeout(MAX_VIDEO_UPLOAD_TIMEOUT_MS)
     });
-    const body = await responseJson(response, 'MAX upload video');
+    const raw = await response.text();
+    let body: any;
+    if (response.ok && /^\s*<retval>\s*1\s*<\/retval>\s*$/i.test(raw)) body = {};
+    else {
+      try { body = JSON.parse(raw); }
+      catch { throw new PlatformError('MAX upload video: неподтверждённый ответ сервера загрузки', { retryable: true, outcomeUnknown: false, status: response.status }); }
+    }
     if (!response.ok) {
       const code = typeof body?.code === 'string' ? body.code : `HTTP_${response.status}`;
       throw new PlatformError(`MAX upload video: HTTP ${response.status}: ${body?.message || body?.code || 'ошибка upload host'}`, {
@@ -367,7 +374,17 @@ export const maxPublisher: SocialPublisher = {
         ? input.publicMediaUrls.map((url) => ({ type: 'image', payload: { url } }))
         : await prepareImagePayloads(accessToken, input.media);
     const compiled = maxCompiledText(input);
-    const body = await postMessage(accessToken, chatId, compiled.text, compiled.format, attachments);
+    let body: any;
+    for (let attempt = 0; ; attempt++) {
+      try { body = await postMessage(accessToken, chatId, compiled.text, compiled.format, attachments); break; }
+      catch (error) {
+        // MAX explicitly refused creation while processing this attachment.
+        // Keep the same prepared token; never retry an unknown public outcome.
+        if (!isVideoPublication(input) || !(error instanceof PlatformError)
+          || error.code !== 'attachment.not.ready' || error.outcomeUnknown || attempt >= 4) throw error;
+        await new Promise(resolve => setTimeout(resolve, 2000 * (2 ** attempt)));
+      }
+    }
 
     const message = body.message ?? body;
     const externalId = message?.body?.mid ?? message?.mid ?? message?.id ?? message?.message_id;

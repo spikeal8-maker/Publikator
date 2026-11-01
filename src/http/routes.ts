@@ -22,6 +22,7 @@ import { checkVkConnection, inspectVkToken, testConnection } from '../platforms/
 import {
   activatePendingVkAccount,
   configureMaxDestination,
+  configureVkUploadCredential,
   isVerifiedAccountPublishReady,
   normalizeSocialCredentialInput,
   recheckSocialAccount,
@@ -82,6 +83,7 @@ function vkDestinationMetadata(credentialsEncrypted: string): {
     const destination = resolveVkDestination(credentials);
     return { destination_kind: destination.kind, destination_id: destination.id,
       ...(credentialOnly ? { credential_only: true, text_publish_ready: credentials.textPublishReady === true,
+        video_publish_ready: credentials.videoPublishReady === true, video_setup_error: typeof credentials.videoSetupError === 'string' ? credentials.videoSetupError : undefined,
         photo_key_present: Boolean(credentials.uploadAccessToken), photo_publish_ready: credentials.photoPublishReady === true,
         photo_setup_error: typeof credentials.photoSetupError === 'string' ? credentials.photoSetupError : undefined } : {}) };
   } catch {
@@ -429,6 +431,18 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       if (error instanceof SocialCredentialRequestError) {
         return reply.code(400).send({ error: error.message });
       }
+      throw error;
+    }
+  });
+  app.post('/api/accounts/:id/vk-upload-key', async (request, reply) => {
+    const params=request.params as {id: string};
+    try {
+      const body=bodyObject(request.body);
+      return await configureVkUploadCredential({accountId: params.id, uploadAccessToken: body.uploadAccessToken, expectedCredentialVersion: body.expectedCredentialVersion});
+    } catch(error) {
+      if(error instanceof SocialAccountNotFoundError) return reply.code(404).send({error:'Аккаунт не найден'});
+      if(error instanceof SocialCredentialVersionConflictError) return reply.code(409).send({error:error.message});
+      if(error instanceof SocialCredentialRequestError) return reply.code(400).send({error:error.message});
       throw error;
     }
   });

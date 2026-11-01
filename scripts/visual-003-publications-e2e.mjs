@@ -189,7 +189,7 @@ try {
  const afterOrder=db.prepare('SELECT id FROM media WHERE post_id=? ORDER BY sort_order,created_at').all(saved.id).map(row=>row.id);
  assert.equal(afterOrder[0],beforeOrder[1]);assert.equal(afterOrder[1],beforeOrder[0]);
  assert.equal(await page.locator('.sp-add-video').isDisabled(),true,'Mixed photo/video must not silently replace an album');
- assert.match(await page.locator('.sp-video-availability').innerText(),/Отправка видео.*пока не подключена/);
+ assert.match(await page.locator('.sp-video-availability').innerText(),/Отправка видео:.*Telegram.*VK.*MAX/);
 
  const saveResponse=page.waitForResponse(response=>response.request().method()==='PATCH'&&new URL(response.url()).pathname==='/api/posts/'+saved.id);
  await page.locator('#post-form button[type="submit"]').click();
