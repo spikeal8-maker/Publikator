@@ -183,3 +183,12 @@ html[data-page="overview"] #view { padding:16px; }
  .overview-chart-detail { font-size:11px; }
  .overview-chart .overview-help[open] > div { position:fixed; left:12px; right:12px; top:106px; width:auto; max-height:calc(100dvh - 128px); overflow:auto; z-index:100; }
 }
+
+@media(max-width:640px) {
+ .overview-chart-toolbar { flex-wrap:nowrap; gap:4px; }
+ .overview-chart-title { gap:4px; }
+ .overview-chart-title h2 { font-size:12px; }
+ .overview-chart-periods { gap:0; padding:2px; }
+ .overview-chart-periods button { padding:4px 5px; font-size:10px; min-height:28px; }
+ .overview-chart-range button { min-height:28px; }
+}
