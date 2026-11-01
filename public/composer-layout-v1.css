@@ -60,3 +60,10 @@
 .publication-composer .qc-head{min-height:0!important;height:auto!important;flex:0 0 auto!important}.publication-composer .qc-head>div{padding:0!important;margin:0!important}
 
 .publication-composer .qc-head{height:57px!important;flex-basis:57px!important}.publication-composer .composer-heading{line-height:24px!important}@media(max-width:900px){.publication-composer .qc-head{height:49px!important;flex-basis:49px!important}}
+
+.publication-composer .qc-account-group{padding:0!important}
+.publication-composer .qc-account-group h4{display:none}
+.publication-composer .qc-account,.publication-composer .target-check{margin:0!important;min-height:38px;padding:8px 3px!important;font-size:12px}
+.publication-composer .qc-accounts{min-height:0;padding:4px 10px}
+.publication-composer .composer-text>.rich-text-label{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.publication-composer .composer-text>.rich-text-label>.editor-help{margin:0}

@@ -74,7 +74,10 @@ try {
 
   const image1 = await sharp({ create: { width: 120, height: 110, channels: 3, background: '#ff6600' } }).png().toBuffer();
   const image2 = await sharp({ create: { width: 160, height: 130, channels: 3, background: '#0055ff' } }).png().toBuffer();
-  await page.locator('#qc-text').fill('Наша новая публикация\n\nВторой абзац для нескольких площадок.');
+  await page.locator('#qc-text').evaluate(el=>{
+    const text='Наша новая публикация\n\nВторой абзац для нескольких площадок.';
+    el.closest('[data-rich-text-editor]').richTextEditor.setDocument(window.PublikatorRichText.plainTextToRichDocument(text));
+  });
   await page.locator('#qc-files').setInputFiles([
     { name: 'first.png', mimeType: 'image/png', buffer: image1 },
     { name: 'second.png', mimeType: 'image/png', buffer: image2 }
@@ -158,6 +161,7 @@ try {
   assert.ok(post?.id, 'post created');
   assert.equal(post.title, 'Наша новая публикация');
   assert.equal(post.status, 'DRAFT');
+  assert.equal(post.body,'Наша новая публикация\n\nВторой абзац для нескольких площадок.','canonical rich paragraphs preserve the initial caption');
   assert.equal(post.content_format, 'CAROUSEL');
   assert.equal(db.prepare('SELECT COUNT(*) n FROM media WHERE post_id=?').get(post.id).n,2);
   const selected = db.prepare('SELECT account_id FROM post_targets WHERE post_id=? AND enabled=1 ORDER BY account_id')

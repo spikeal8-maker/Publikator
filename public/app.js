@@ -375,7 +375,7 @@ async function postEditor(postId,options={}){
     }
     optionFields.append(child);
   }
-  if(textField){textField.classList.add('composer-text');textField.querySelector('.rich-text-label').textContent='Текст публикации';form.append(textField);}
+  if(textField){textField.classList.add('composer-text');const label=textField.querySelector('.rich-text-label');label.textContent='Текст публикации';const guide=textField.querySelector(':scope > .editor-help');if(guide)label.append(guide);form.append(textField);}
   if(mediaBlock){mediaBlock.classList.add('composer-media');mediaBlock.querySelector(':scope > strong')?.remove();mountMediaGuide(mediaBlock);form.append(mediaBlock);}
   if(targetBlock){targetBlock.classList.add('composer-targets');targetBlock.querySelector(':scope > strong').textContent='Куда опубликовать';form.append(targetBlock);}
   form.append(optionsBlock);
