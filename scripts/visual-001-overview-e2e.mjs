@@ -89,6 +89,7 @@ try {
  await page.locator('.overview-chart .overview-help summary').click();
  await page.locator('[data-dashboard-section="review"]').click();
  assert.equal(await page.locator('#overview-review').getAttribute('tabindex'),'-1');
+ await page.locator('.ui-mobile-menu').click();
  await page.locator('#calendar-nav').click();
  await page.waitForURL('**/calendar');
  assert.equal(await page.locator('.ui-overview-date').isVisible(),false,'Overview date must not leak into other pages');
