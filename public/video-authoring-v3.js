@@ -221,7 +221,8 @@ function queueSync() {
 }
 
 async function enhanceEditor(form, postId) {
-  if (form.dataset.videoAuthoringEnhanced === '1') return;
+  if (form.dataset.videoAuthoringEnhanced) return;
+  form.dataset.videoAuthoringEnhanced='loading';
   const post = await requestJson(`/api/posts/${encodeURIComponent(postId)}`);
   if (!form.isConnected) return;
   form.dataset.videoAuthoringEnhanced = '1';
@@ -277,7 +278,7 @@ function tryEnhanceVisibleEditor() {
     queueSync();
     return;
   }
-  if (form.dataset.videoAuthoringEnhanced !== '1') {
+  if (!form.dataset.videoAuthoringEnhanced) {
     enhanceEditor(form, postId).catch((error) => {
       setError(form, `Не удалось загрузить video authoring: ${error instanceof Error ? error.message : String(error)}`);
     });
