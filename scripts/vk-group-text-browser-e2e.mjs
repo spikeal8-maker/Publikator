@@ -48,8 +48,11 @@ try {
   await page.goto('http://127.0.0.1:18094/content');
   await page.locator('#password').fill(process.env.ADMIN_PASSWORD);
   await page.locator('#login-form button[type="submit"]').click();
+  await page.locator('.posts-secondary').waitFor({state:'visible'});
+  if(await page.locator('.posts-secondary').getAttribute('open')===null)await page.locator('.posts-secondary > summary').click();
   await page.locator('#new-post').waitFor({ state: 'visible' });
   async function create(title, format) {
+    if(await page.locator('.posts-secondary').getAttribute('open')===null)await page.locator('.posts-secondary > summary').click();
     await page.locator('#new-post').click();
     const form = page.locator('#post-form');
     await form.locator('input[name="title"]').fill(title);
