@@ -107,6 +107,8 @@ try{
  const mixedInput={postId:editable.id,title:'permission guard',text:'fixture',media:db.prepare("SELECT m.* FROM media m JOIN content_media cm ON cm.media_id=m.id WHERE m.post_id=? AND cm.role<>'poster' ORDER BY m.sort_order").all(editable.id),publicMediaUrls:[],publicationKind:'FEED',contentFormat:'CAROUSEL',credentials:stored};
  assert.throws(()=>vkPublisher.validate({...mixedInput,credentials:{...stored,videoPublishReady:false}}),/video/);
  assert.throws(()=>vkPublisher.validate({...mixedInput,credentials:{...stored,photoPublishReady:false}}),/фото/);
+ assert.throws(()=>vkPublisher.validate({...mixedInput,media:[],contentFormat:'IMAGE',credentials:{...stored,photoPublishReady:false}}),/пользовательский ключ/);
+ assert.throws(()=>vkPublisher.validate({...mixedInput,media:[],contentFormat:'VIDEO',credentials:{...stored,videoPublishReady:false}}),/пользовательский ключ/);
  const post=await draft(['video_telegram','video_vk','video_max'],'All three video platforms');
  await request('POST','/api/posts/'+post.id+'/publish-now');
  const targets=db.prepare('SELECT state,external_id FROM post_targets WHERE post_id=?').all(post.id);
