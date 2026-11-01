@@ -1,6 +1,6 @@
 import { renderRichText } from './rich-text-editor-v1.js';
 
-const names={vk:'VK',telegram:'Telegram',max:'MAX',instagram:'Instagram'};
+const names={material:'Материал',vk:'VK',telegram:'Telegram',max:'MAX',instagram:'Instagram'};
 const escape=(value='')=>String(value).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 const safeUrl=value=>typeof value==='string'&&(value.startsWith('/public-media/')||value.startsWith('blob:'));
 export function previewMedia(post){
@@ -50,9 +50,9 @@ export function mountSocialPreview(host,initial=[]){
    }
    group.append(cell);
   }
-  if(platform==='vk')content.append(text);
+  if(platform==='vk'||platform==='material')content.append(text);
   if(media.length)content.append(group);
-  if(platform!=='vk')content.append(text);
+  if(platform!=='vk'&&platform!=='material')content.append(text);
   if(!selected){const empty=document.createElement('p');empty.className='sp-empty';empty.textContent='Выберите площадки — здесь появится ваша публикация.';content.append(empty);}
   if(media.length>1){
    const nav=document.createElement('div');nav.className='sp-gallery-nav';

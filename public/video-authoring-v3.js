@@ -122,6 +122,28 @@ function renderAuthoringMedia(form, post) {
   list.classList.add('video-authoring-list');
   list.innerHTML = items.map(mediaItemHtml).join('') || '<div class="muted small">Медиа пока не добавлено.</div>';
   bindDeleteButtons(form, post);
+  if(!items.some(item=>item.isVideo)){
+   for(const [index,item] of items.entries()){
+    const node=[...list.children].find(element=>element.dataset.authoringMediaId===item.id);
+    if(!node)continue;
+    const order=document.createElement('div');order.className='sp-image-order';
+    order.innerHTML='<button type="button" class="secondary move-media" data-direction="-1" aria-label="Передвинуть изображение '+(index+1)+' раньше" '+(index===0?'disabled':'')+'>←</button><span>'+(index+1)+'</span><button type="button" class="secondary move-media" data-direction="1" aria-label="Передвинуть изображение '+(index+1)+' позже" '+(index===items.length-1?'disabled':'')+'>→</button>';
+    order.querySelectorAll('button').forEach(button=>button.onclick=async()=>{
+     if(form.dataset.mediaBusy==='1')return;
+     const next=index+Number(button.dataset.direction),ids=items.map(media=>media.id);
+     [ids[index],ids[next]]=[ids[next],ids[index]];
+     form.dataset.mediaBusy='1';
+     try{
+      const result=await requestJson('/api/posts/'+encodeURIComponent(post.id)+'/media-order',{method:'PUT',body:JSON.stringify({mediaIds:ids,expectedContentVersion:currentVersion(form)})});
+      form.dataset.contentVersion=String(result.contentVersion);post.media=result.media;
+      renderAuthoringMedia(form,post);
+      form.dispatchEvent(new CustomEvent('publikator:media-order-changed',{bubbles:true}));
+     }catch(error){setError(form,error instanceof Error?error.message:String(error));}
+     finally{form.dataset.mediaBusy='';}
+    });
+    node.append(order);
+   }
+  }
 
   fileInput.accept = 'image/*,video/mp4';
   fileInput.multiple = true;
@@ -228,13 +250,13 @@ async function enhanceEditor(form, postId) {
   form.dataset.videoAuthoringEnhanced = '1';
   editorStates.set(form, { post });
   renderAuthoringMedia(form, post);
-  const availability=await requestJson('/api/platform-capabilities').catch(()=>null);
-  if(form.isConnected&&availability){
+  requestJson('/api/platform-capabilities').then(availability=>{
+   if(!form.isConnected)return;
    const supported=(availability.capabilities||[]).filter(item=>item.supportsVideo).map(item=>({telegram:'Telegram',vk:'VK',max:'MAX',instagram:'Instagram'})[item.platform]||item.platform);
    const note=document.createElement('div');note.className='sp-video-availability';
    note.textContent=supported.length?'Отправка видео: '+supported.join(', ')+'.':'MP4 можно сохранить и посмотреть. Отправка видео на площадки пока не подключена.';
    form.querySelector('.sp-media-actions')?.after(note);
-  }
+  }).catch(()=>{});
 
   const fileInput = form.querySelector('#media-file');
   const uploadFiles=async(files)=>{
@@ -257,7 +279,9 @@ async function enhanceEditor(form, postId) {
     }
     setError(form,'');reopenEditor(post.id);
    }catch(error){
-    setError(form,(error instanceof Error?error.message:String(error))+' Уже загруженные файлы сохранены. Закройте и откройте публикацию, чтобы увидеть их.');
+    const message=error instanceof Error?error.message:String(error);
+    await reopenEditor(post.id);
+    const currentForm=document.querySelector('#post-form');if(currentForm)setError(currentForm,message+' Уже загруженные файлы сохранены; повторно добавляйте только недостающие.');
    }finally{
     form.dataset.mediaBusy='';controls.forEach((button,index)=>button.disabled=previous[index]);if(fileInput)fileInput.value='';
    }

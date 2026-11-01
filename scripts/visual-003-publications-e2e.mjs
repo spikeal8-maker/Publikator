@@ -151,14 +151,19 @@ try {
  assert.equal(await page.locator('#post-form .platform-workspace').getAttribute('open'),null,'Per-platform copies should be optional');
  await page.waitForFunction(()=>document.querySelector('#post-form')?.dataset.videoAuthoringEnhanced==='1');
  await page.locator('#post-form input[name="title"]').fill('UI draft edited through Publications');
- const uploadPaths=[path.join(dataDir,'upload-a.jpg'),path.join(dataDir,'upload-b.jpg')];
- for(const [index,file] of uploadPaths.entries())await sharp({create:{width:800,height:600,channels:3,background:index?'#ff8822':'#2288ff'}}).jpeg().toFile(file);
+ const uploadPaths=Array.from({length:10},(_,index)=>path.join(dataDir,'upload-'+index+'.jpg'));
+ for(const [index,file] of uploadPaths.entries())await sharp({create:{width:800,height:600,channels:3,background:{r:20*index,g:40,b:190}}}).jpeg().toFile(file);
  const chooserPromise=page.waitForEvent('filechooser');
  await page.locator('.sp-add-photos').click();const chooser=await chooserPromise;
  assert.equal(chooser.isMultiple(),true);await chooser.setFiles(uploadPaths);
- await page.waitForFunction(()=>document.querySelectorAll('#post-form .media-list img').length===2);
+ await page.waitForFunction(()=>document.querySelectorAll('#post-form .media-list img').length===10);
  assert.equal(await page.locator('#post-form input[name="title"]').inputValue(),'UI draft edited through Publications','Batch upload preserves unsaved fields');
- assert.equal(db.prepare('SELECT COUNT(*) n FROM media WHERE post_id=?').get(saved.id).n,2);
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM media WHERE post_id=?').get(saved.id).n,10);
+ const beforeOrder=db.prepare('SELECT id FROM media WHERE post_id=? ORDER BY sort_order,created_at').all(saved.id).map(row=>row.id);
+ await page.locator('.sp-image-order button[data-direction="1"]').first().click();
+ await page.waitForFunction(()=>document.querySelector('#post-form')?.dataset.mediaBusy==='');
+ const afterOrder=db.prepare('SELECT id FROM media WHERE post_id=? ORDER BY sort_order,created_at').all(saved.id).map(row=>row.id);
+ assert.equal(afterOrder[0],beforeOrder[1]);assert.equal(afterOrder[1],beforeOrder[0]);
  assert.equal(await page.locator('.sp-add-video').isDisabled(),true,'Mixed photo/video must not silently replace an album');
  assert.match(await page.locator('.sp-video-availability').innerText(),/Отправка видео.*пока не подключена/);
 

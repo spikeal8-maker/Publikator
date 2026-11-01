@@ -362,6 +362,7 @@ async function postEditor(postId,options={}){
      ...(local?{compilation:null,localDraft:true,issues:[]}:{}),
      media:saved?.media||previewMedia(post)};
    });
+   if(!rows.length)rows.push({accountId:'unselected',accountName:'Материал · получатели не выбраны',platform:'material',text:body,resolvedRichText:doc,localDraft:true,media:previewMedia(post)});
    preview.update(rows);
   };
   const reloadPreview=async()=>{
