@@ -1063,8 +1063,10 @@ try {
     document.querySelector('#qc-text').dispatchEvent(event);
     return event.defaultPrevented;
   });
-  assert.equal(textPastePrevented, false,
-    'text-only clipboard paste remains native; do not hijack normal text editing');
+  assert.equal(textPastePrevented, true,
+    'canonical rich editor consumes text paste as safe plain text');
+  assert.match(await page.locator('#qc-text').evaluate(el=>el.value),/Обычный текст/);
+  assert.equal(await page.locator('.qc-image').count(),0,'text paste must not add media');
   async function pasteImage(buffer, filename) {
     return page.evaluate(({ bytes, name }) => {
       const clipboard = new DataTransfer();
@@ -1072,13 +1074,18 @@ try {
       const event = new ClipboardEvent('paste', {
         bubbles: true, cancelable: true, clipboardData: clipboard
       });
-      document.querySelector('#qc-text').dispatchEvent(event);
+      const surface=document.querySelector('#qc-text');
+      const range=document.createRange();range.selectNodeContents(surface);
+      const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);
+      surface.dispatchEvent(event);
       return event.defaultPrevented;
     }, { bytes: Array.from(buffer), name: filename });
   }
+  const captionBeforeImagePaste=await page.locator('#qc-text').evaluate(el=>el.value);
   assert.equal(await pasteImage(image1, 'clipboard-one.png'), true,
     'image clipboard paste must be consumed inside the composer');
   assert.equal(await page.locator('.qc-image').count(), 1);
+  assert.equal(await page.locator('#qc-text').evaluate(el=>el.value),captionBeforeImagePaste,'image paste must not erase a selected caption');
   assert.match(await page.locator('#qc-status').textContent(), /из буфера обмена/i);
   await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
   const beforeClipboardPost = db.prepare('SELECT COUNT(*) n FROM posts').get().n;
