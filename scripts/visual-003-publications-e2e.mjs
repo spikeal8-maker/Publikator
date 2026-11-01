@@ -167,7 +167,9 @@ try {
  assert.equal(await page.locator('.sp-add-video').isDisabled(),true,'Mixed photo/video must not silently replace an album');
  assert.match(await page.locator('.sp-video-availability').innerText(),/Отправка видео.*пока не подключена/);
 
+ const saveResponse=page.waitForResponse(response=>response.request().method()==='PATCH'&&new URL(response.url()).pathname==='/api/posts/'+saved.id);
  await page.locator('#post-form button[type="submit"]').click();
+ const savedResponse=await saveResponse;assert.equal(savedResponse.status(),200,await savedResponse.text());
  await page.locator('#post-form').waitFor({state:'detached'});
  await page.locator('tr[data-post-id="'+saved.id+'"]').waitFor();
  assert.equal(db.prepare('SELECT title FROM posts WHERE id=?').get(saved.id).title,'UI draft edited through Publications');

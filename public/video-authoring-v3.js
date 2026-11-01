@@ -264,6 +264,7 @@ async function enhanceEditor(form, postId) {
    form.dataset.mediaBusy='1';
    const controls=[...form.querySelectorAll('button[type="submit"],#mark-ready,#publish-now,.sp-media-actions button,.delete-authoring-media,.move-media')];
    const previous=controls.map(button=>button.disabled);controls.forEach(button=>button.disabled=true);
+   let uploadedCount=0;
    try{
     setError(form,'');
     const projection=publicationMediaProjection(post);
@@ -275,11 +276,13 @@ async function enhanceEditor(form, postId) {
      setError(form,'Загрузка '+(index+1)+' из '+files.length+'…');
      const data=new FormData();data.set('file',file,file.name);
      const result=await requestJson('/api/posts/'+encodeURIComponent(post.id)+(isVideo?'/video':'/media'),{method:'POST',body:data,headers:{'x-content-version':String(currentVersion(form))}});
-     form.dataset.contentVersion=String(result.contentVersion);
+     form.dataset.contentVersion=String(result.contentVersion);uploadedCount++;
     }
+    const format=form.querySelector('select[name="postFormat"]');if(format)format.value='MEDIA';
     setError(form,'');reopenEditor(post.id);
    }catch(error){
     const message=error instanceof Error?error.message:String(error);
+    if(uploadedCount){const format=form.querySelector('select[name="postFormat"]');if(format)format.value='MEDIA';}
     await reopenEditor(post.id);
     const currentForm=document.querySelector('#post-form');if(currentForm)setError(currentForm,message+' Уже загруженные файлы сохранены; повторно добавляйте только недостающие.');
    }finally{

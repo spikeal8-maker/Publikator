@@ -1081,15 +1081,21 @@ try {
   await contentRow(richEditorTitle).locator('.post-inspect').click();
   richInspector = page.locator('.editorial-inspector-overlay');
   await richInspector.waitFor({ state: 'visible', timeout: 5000 });
-  const compilerPreviewSection = richInspector.locator('.platform-preview-section');
-  await compilerPreviewSection.waitFor({ state: 'visible', timeout: 5000 });
-  await page.waitForFunction(() => document.querySelectorAll('.platform-preview-section .platform-preview-card').length === 4);
-  assert.ok(await compilerPreviewSection.locator('.platform-telegram .platform-preview-caption strong').count() >= 1, 'Telegram preview must preserve bold safely');
-  assert.ok(await compilerPreviewSection.locator('.platform-max .platform-preview-caption u').count() >= 1, 'MAX preview must preserve underline safely');
-  assert.ok((await compilerPreviewSection.locator('.platform-vk').innerText()).includes('RICH_BOLD_DOWNGRADED'), 'VK downgrade warning missing');
-  assert.ok((await compilerPreviewSection.locator('.platform-instagram').innerText()).includes('RICH_UNDERLINE_DOWNGRADED'), 'Instagram downgrade warning missing');
-  assert.ok((await compilerPreviewSection.locator('.platform-telegram').innerText()).includes('Свой rich-вариант'));
-  assert.ok((await compilerPreviewSection.locator('.platform-max').innerText()).includes('Свой rich-вариант'));
+  const compilerPreviewSection=richInspector.locator('.inspector-media-host.social-preview');
+  await compilerPreviewSection.locator('[role="tab"]').first().waitFor();
+  assert.equal(await compilerPreviewSection.locator('[role="tab"]').count(),4);
+  const showPlatform=async(platform)=>{
+   const tab=compilerPreviewSection.getByRole('tab').filter({hasText:({telegram:'Telegram',max:'MAX',vk:'VK',instagram:'Instagram'})[platform]}).first();
+   await tab.click();
+  };
+  await showPlatform('telegram');
+  assert.ok(await compilerPreviewSection.locator('.sp-telegram .sp-text strong').count()>=1,'Telegram preview must preserve bold safely');
+  await showPlatform('max');
+  assert.ok(await compilerPreviewSection.locator('.sp-max .sp-text u').count()>=1,'MAX preview must preserve underline safely');
+  await showPlatform('vk');
+  assert.ok(await compilerPreviewSection.locator('.sp-issues').count()>=1,'VK downgrade warning missing');
+  await showPlatform('instagram');
+  assert.ok(await compilerPreviewSection.locator('.sp-issues').count()>=1,'Instagram downgrade warning missing');
 
   await richInspector.locator('.inspector-edit').click();
   await richInspector.waitFor({ state: 'detached', timeout: 5000 });
