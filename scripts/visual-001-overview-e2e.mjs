@@ -92,6 +92,7 @@ try {
  await page.locator('.ui-mobile-menu').click();
  await page.locator('#calendar-nav').click();
  await page.waitForURL('**/calendar');
+ await page.locator('.ui-overview-date').waitFor({state:'hidden'});
  assert.equal(await page.locator('.ui-overview-date').isVisible(),false,'Overview date must not leak into other pages');
  assert.deepEqual(errors,[]);
  console.log(JSON.stringify({checkpoint:'VISUAL-001',ok:true,aggregationAndDedup:true,realCalendarData:true,periodSwitches:true,chartDetails:true,thinMobileHeader:true,chartFirstScreen:true,mobileNoOverflow:true}));
