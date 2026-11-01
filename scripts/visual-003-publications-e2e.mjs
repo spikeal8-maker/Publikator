@@ -196,6 +196,7 @@ try {
   const phoneMedia=await page.locator('.editor-media-host .sp-media').boundingBox();assert.ok(phoneMedia.width>=width-70&&phoneMedia.height>=Math.min(220,(width-70)*.6),'Phone image must be large');
   await page.locator('.publication-editor-close').click();
   await savedRow.locator('.open-post').click();
+  await page.locator('.publication-pane-switch [data-pane="edit"]').click();
   await page.locator('#post-form').waitFor();
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'Editor must fit phone');
   await page.locator('.publication-pane-switch [data-pane="edit"]').click();
