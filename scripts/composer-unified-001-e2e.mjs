@@ -79,6 +79,7 @@ try{
  const calendar=db.prepare('SELECT schedule_mode,scheduled_at_utc FROM posts WHERE title=?').get('Calendar entry uses the same composer');
  assert.equal(calendar.schedule_mode,'AT');assert.equal(calendar.scheduled_at_utc,'2026-11-12T07:00:00.000Z');
  await page.locator('#qc-close').click();
+ db.prepare("UPDATE projects SET default_timezone='Europe/Moscow'").run();
  await page.locator('#quick-new-post').click();await page.locator('#qc-text').fill('Queue draft body');
  await page.locator('.qc-advanced > summary').click();
  await page.locator('#qc-name').fill('Queue draft custom title');
@@ -86,7 +87,17 @@ try{
  assert.equal(await page.locator('#qc-date-field').isVisible(),false);
  await page.locator('#qc-save').click();
  await page.waitForFunction(()=>document.querySelector('#qc-status')?.textContent.includes('Черновик сохранён'));
- assert.equal(db.prepare('SELECT schedule_mode FROM posts WHERE title=?').get('Queue draft custom title').schedule_mode,'QUEUE');
+ const queued=db.prepare('SELECT id,schedule_mode,content_version FROM posts WHERE title=?').get('Queue draft custom title');
+ assert.equal(queued.schedule_mode,'QUEUE');
+ await page.locator('#qc-mode').selectOption('AT');
+ assert.match(await page.locator('#qc-timezone-note').innerText(),/Europe\/Moscow/);
+ await page.locator('#qc-datetime').fill('2026-11-12T10:00');
+ page.once('dialog',dialog=>dialog.dismiss());await page.locator('#qc-save').click();
+ assert.equal(db.prepare('SELECT content_version FROM posts WHERE id=?').get(queued.id).content_version,queued.content_version,'cancelled queue conversion must not mutate the draft');
+ page.once('dialog',dialog=>dialog.accept());await page.locator('#qc-save').click();
+ await page.waitForFunction(()=>document.querySelector('#qc-status')?.textContent.includes('Черновик сохранён'));
+ const converted=db.prepare('SELECT schedule_mode,scheduled_at_utc FROM posts WHERE id=?').get(queued.id);
+ assert.equal(converted.schedule_mode,'AT');assert.equal(converted.scheduled_at_utc,'2026-11-12T07:00:00.000Z');
  await page.locator('#qc-close').click();
  await page.locator('#quick-new-post').click();await page.locator('#qc-text').waitFor();
  assert.equal(await page.locator('.composer-fields').isVisible(),true);

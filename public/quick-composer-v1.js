@@ -334,7 +334,7 @@ export async function openQuickComposer(options = {}) {
       state.projects.find((project) => project.id === id)?.default_timezone || 'UTC';
     function showTimezone() {
       root.querySelector('#qc-timezone-note').textContent =
-        'Время в часовом поясе ' + (state.savedId && state.scheduleMode === 'AT'
+        'Время в часовом поясе ' + (state.savedId && state.savedScheduleMode === 'AT'
           ? state.scheduleTimezone || 'UTC'
           : (state.restoredScheduleTimezone || projectTimezone(root.querySelector('#qc-project').value))) + '.';
     }
@@ -953,7 +953,7 @@ export async function openQuickComposer(options = {}) {
       root.querySelector('#qc-schedule').textContent=root.querySelector('#qc-mode').value==='QUEUE'?'В очередь':'Запланировать';
     }
     root.querySelector('#qc-mode').addEventListener('change',()=>{
-      state.scheduleMode=root.querySelector('#qc-mode').value;syncScheduleField();markDirty();
+      state.scheduleMode=root.querySelector('#qc-mode').value;syncScheduleField();showTimezone();markDirty();
     });
     root.querySelector('#qc-name').addEventListener('input',markDirty);
     root.querySelector('#qc-project-targets')?.addEventListener('click',()=>{
@@ -1010,7 +1010,7 @@ export async function openQuickComposer(options = {}) {
         title:root.querySelector('#qc-name').value.trim(),
         requiresQueueToAt:Boolean(state.savedId&&state.savedScheduleMode==='QUEUE'&&mode==='AT'),
         scheduleTimezone: mode === 'AT'
-          ? (state.savedId && state.scheduleMode === 'AT' && state.scheduleTimezone
+          ? (state.savedId && state.savedScheduleMode === 'AT' && state.scheduleTimezone
             ? state.scheduleTimezone : (state.restoredScheduleTimezone || projectTimezone(projectId)))
           : null,
         body: text.value.trim(), bodyRich: richEditor.getDocument(),
