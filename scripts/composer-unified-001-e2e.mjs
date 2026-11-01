@@ -79,7 +79,7 @@ try{
  const calendar=db.prepare('SELECT schedule_mode,scheduled_at_utc FROM posts WHERE title=?').get('Calendar entry uses the same composer');
  assert.equal(calendar.schedule_mode,'AT');assert.equal(calendar.scheduled_at_utc,'2026-11-12T07:00:00.000Z');
  await page.locator('#qc-close').click();
- await page.locator('#quick-compose-nav').click();await page.locator('#qc-text').waitFor();
+ await page.locator('#quick-new-post').click();await page.locator('#qc-text').waitFor();
  assert.equal(await page.locator('.composer-fields').isVisible(),true);
  await page.locator('.composer-panes [data-pane=preview]').click();
  assert.equal(await page.locator('.composer-preview').isVisible(),true);
