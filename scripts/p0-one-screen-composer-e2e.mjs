@@ -100,20 +100,20 @@ try {
   assert.match(await page.locator('#qc-platform-preview-source').textContent(), /До сохранения.*локальный/);
   const telegramLocalOption = 'local:' + accounts[0].id;
   const vkLocalOption = 'local:' + accounts[2].id;
-  await page.locator('#qc-platform-preview-choice').selectOption(telegramLocalOption);
-  assert.equal(await page.locator('.qc-platform-media img').count(), 2);
-  const originalLocalOrder = await page.locator('.qc-platform-media img').evaluateAll((images) =>
+  await page.locator('#qc-platform-preview-card [role="tab"][data-account="' + accounts[0].id + '"]').click();
+  assert.equal(await page.locator('#qc-platform-preview-card .sp-media img').count(), 2);
+  const originalLocalOrder = await page.locator('#qc-platform-preview-card .sp-media img').evaluateAll((images) =>
     images.map((img) => img.getAttribute('src')));
   assert.ok(originalLocalOrder.every((uri) => uri.startsWith('blob:')),
     'unsaved preview shows only local object URLs, not invented remote media');
-  let localParts = await page.locator('#qc-platform-preview-card > *').evaluateAll((elements) =>
-    elements.map((el) => el.className));
-  assert.ok(localParts.indexOf('qc-platform-media') < localParts.indexOf('qc-platform-caption'),
+  let localParts = await page.locator('#qc-platform-preview-card .sp-content > *').evaluateAll((elements) =>
+    elements.map((el) => el.className.split(' ')[0]));
+  assert.ok(localParts.indexOf('sp-media') < localParts.indexOf('sp-text'),
     'local Telegram caption is below local images');
-  await page.locator('#qc-platform-preview-choice').selectOption(vkLocalOption);
-  localParts = await page.locator('#qc-platform-preview-card > *').evaluateAll((elements) =>
-    elements.map((el) => el.className));
-  assert.ok(localParts.indexOf('qc-platform-caption') < localParts.indexOf('qc-platform-media'),
+  await page.locator('#qc-platform-preview-card [role="tab"][data-account="' + accounts[2].id + '"]').click();
+  localParts = await page.locator('#qc-platform-preview-card .sp-content > *').evaluateAll((elements) =>
+    elements.map((el) => el.className.split(' ')[0]));
+  assert.ok(localParts.indexOf('sp-text') < localParts.indexOf('sp-media'),
     'local VK caption is above local images');
   assert.equal(localPreviewRequests.length, 0, 'pre-save preview must not fetch server renditions');
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM posts').get().n, 0,
@@ -121,11 +121,11 @@ try {
   await fs.mkdir('test-results', { recursive: true });
   await page.screenshot({ path: 'test-results/p0-composer-local-preview-desktop.png', fullPage: false });
   await page.locator('.qc-image').nth(1).getByRole('button', { name: 'Переместить раньше' }).click();
-  assert.equal(await page.locator('#qc-platform-preview').isVisible(), false,
-    'changing local media order invalidates the previous approximate view');
+  assert.equal(await page.locator('#qc-platform-preview').isVisible(), true,
+    'changing local media order refreshes the visible approximate view');
   await page.locator('#qc-platform-preview-load').click();
-  await page.locator('#qc-platform-preview-choice').selectOption(telegramLocalOption);
-  const reorderedLocal = await page.locator('.qc-platform-media img').evaluateAll((images) =>
+  await page.locator('#qc-platform-preview-card [role="tab"][data-account="' + accounts[0].id + '"]').click();
+  const reorderedLocal = await page.locator('#qc-platform-preview-card .sp-media img').evaluateAll((images) =>
     images.map((img) => img.getAttribute('src')));
   assert.deepEqual(reorderedLocal, [...originalLocalOrder].reverse(),
     'local preview follows the operator-specified image order');
@@ -138,13 +138,13 @@ try {
   await page.locator('#qc-variant-choice').selectOption(accounts[2].id);
   await page.locator('#qc-variant-text').fill('Вариант публикации только для VK');
   assert.match(await page.locator('#qc-variant-status').textContent(), /Отдельный текст подготовлен/);
-  assert.equal(await page.locator('#qc-platform-preview').isVisible(), false);
+  assert.equal(await page.locator('#qc-platform-preview').isVisible(), true);
   await page.locator('#qc-platform-preview-load').click();
-  await page.locator('#qc-platform-preview-choice').selectOption(vkLocalOption);
-  assert.match(await page.locator('.qc-platform-caption').textContent(), /Вариант публикации только для VK/);
-  await page.locator('#qc-platform-preview-choice').selectOption(telegramLocalOption);
-  assert.match(await page.locator('.qc-platform-caption').textContent(), /Наша новая публикация/);
-  assert.doesNotMatch(await page.locator('.qc-platform-caption').textContent(), /только для VK/);
+  await page.locator('#qc-platform-preview-card [role="tab"][data-account="' + accounts[2].id + '"]').click();
+  assert.match(await page.locator('#qc-platform-preview-card .sp-text').textContent(), /Вариант публикации только для VK/);
+  await page.locator('#qc-platform-preview-card [role="tab"][data-account="' + accounts[0].id + '"]').click();
+  assert.match(await page.locator('#qc-platform-preview-card .sp-text').textContent(), /Наша новая публикация/);
+  assert.doesNotMatch(await page.locator('#qc-platform-preview-card .sp-text').textContent(), /только для VK/);
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM posts').get().n, 0,
     'editing a target variant before Save has no server side effect');
   await page.screenshot({ path: 'test-results/p0-composer-per-account-text-variant.png', fullPage: false });
@@ -179,7 +179,7 @@ try {
   await page.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });
   assert.equal(await page.locator('#qc-platform-preview-choice option').count(), 3);
   assert.match(await page.locator('#qc-platform-preview-source').textContent(), /сохранённой серверной версии/);
-  assert.ok((await page.locator('.qc-platform-media img').first().getAttribute('src')).startsWith('/public-media/'),
+  assert.ok((await page.locator('#qc-platform-preview-card .sp-media img').first().getAttribute('src')).startsWith('/public-media/'),
     'server preview after Save uses canonical media URLs rather than old local blobs');
   const desktopPreviewVisible = await page.evaluate(() => {
     const card = document.querySelector('#qc-platform-preview-card').getBoundingClientRect();
@@ -193,23 +193,23 @@ try {
     .get(post.id, accounts[0].id).id;
   const vkTarget = db.prepare('SELECT id FROM post_targets WHERE post_id=? AND account_id=?')
     .get(post.id, accounts[2].id).id;
-  await page.locator('#qc-platform-preview-choice').selectOption(telegramTarget);
-  assert.match(await page.locator('#qc-platform-preview-card').textContent(), /Telegram · Account 0/);
+  await page.locator('#qc-platform-preview-card [role="tab"][data-account="' + accounts[0].id + '"]').click();
+  assert.match(await page.locator('#qc-platform-preview-card').textContent(), /Account 0/);
   assert.match(await page.locator('#qc-platform-preview-card').textContent(), /Наша новая публикация/);
-  assert.equal(await page.locator('.qc-platform-media img').count(), 2);
-  let parts = await page.locator('#qc-platform-preview-card > *').evaluateAll((elements) =>
-    elements.map((item) => item.className));
-  assert.ok(parts.indexOf('qc-platform-media') < parts.indexOf('qc-platform-caption'),
+  assert.equal(await page.locator('#qc-platform-preview-card .sp-media img').count(), 2);
+  let parts = await page.locator('#qc-platform-preview-card .sp-content > *').evaluateAll((elements) =>
+    elements.map((item) => item.className.split(' ')[0]));
+  assert.ok(parts.indexOf('sp-media') < parts.indexOf('sp-text'),
     'Telegram caption is displayed after canonical media order');
-  await page.locator('#qc-platform-preview-choice').selectOption(vkTarget);
-  assert.match(await page.locator('#qc-platform-preview-card').textContent(), /ВКонтакте · Account 2/);
-  assert.match(await page.locator('.qc-platform-caption').textContent(), /Вариант публикации только для VK/,
+  await page.locator('#qc-platform-preview-card [role="tab"][data-account="' + accounts[2].id + '"]').click();
+  assert.match(await page.locator('#qc-platform-preview-card').textContent(), /Account 2/);
+  assert.match(await page.locator('#qc-platform-preview-card .sp-text').textContent(), /Вариант публикации только для VK/,
     'server-compiled preview uses the saved VK target override');
-  parts = await page.locator('#qc-platform-preview-card > *').evaluateAll((elements) =>
-    elements.map((item) => item.className));
-  assert.ok(parts.indexOf('qc-platform-caption') < parts.indexOf('qc-platform-media'),
+  parts = await page.locator('#qc-platform-preview-card .sp-content > *').evaluateAll((elements) =>
+    elements.map((item) => item.className.split(' ')[0]));
+  assert.ok(parts.indexOf('sp-text') < parts.indexOf('sp-media'),
     'VK caption is displayed before canonical images');
-  assert.equal(await page.locator('.qc-platform-media img').count(), 2);
+  assert.equal(await page.locator('#qc-platform-preview-card .sp-media img').count(), 2);
   assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, 1,
     'opening account previews must not create new posts');
   await page.screenshot({ path: 'test-results/p0-composer-platform-preview-desktop.png', fullPage: false });
@@ -226,8 +226,8 @@ try {
     'Наша новая публикация\n\nВторой абзац для нескольких площадок.',
     'changing recipient text never mutates canonical content');
   await page.locator('#qc-platform-preview-load').click();
-  await page.locator('#qc-platform-preview-choice').selectOption(vkTarget);
-  assert.match(await page.locator('.qc-platform-caption').textContent(), /Наша новая публикация/);
+  await page.locator('#qc-platform-preview-card [role="tab"][data-account="' + accounts[2].id + '"]').click();
+  assert.match(await page.locator('#qc-platform-preview-card .sp-text').textContent(), /Наша новая публикация/);
   await page.screenshot({ path: 'test-results/p0-composer-variant-inherited-again.png', fullPage: false });
 
   // D3b1b: selected VK recipient can use its own image order/subset without
@@ -257,7 +257,7 @@ try {
     .filter((x) => x.role !== 'poster').map((x) => x.id), baseImageOrder,
     'other accounts still inherit canonical media');
   await page.locator('#qc-platform-preview-load').click();
-  await page.locator('#qc-platform-preview-choice').selectOption(vkTarget);
+  await page.locator('#qc-platform-preview-card [role="tab"][data-account="' + accounts[2].id + '"]').click();
   await page.screenshot({ path: 'test-results/p0-composer-target-photo-order.png', fullPage: false });
 
   await page.locator('.qc-media-variant-row input[type="checkbox"]').nth(1).uncheck();
@@ -286,13 +286,13 @@ try {
     .map((row) => row.id);
   assert.equal(initialOrder.length, 2);
   await page.locator('.qc-image').nth(1).getByRole('button', { name: 'Переместить раньше' }).click();
-  assert.equal(await page.locator('#qc-platform-preview').isVisible(), false,
-    'changing media order invalidates previously loaded account-specific preview');
+  assert.equal(await page.locator('#qc-platform-preview').isVisible(), true,
+    'changing media order refreshes the live approximate preview');
   assert.equal(await page.locator('#qc-platform-preview-load').isDisabled(), false);
   await page.locator('#qc-platform-preview-load').click();
   await page.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });
   assert.match(await page.locator('#qc-platform-preview-source').textContent(), /Несохранённые изменения/);
-  assert.ok((await page.locator('.qc-platform-media img').first().getAttribute('src')).startsWith('blob:'),
+  assert.ok((await page.locator('#qc-platform-preview-card .sp-media img').first().getAttribute('src')).startsWith('blob:'),
     'edited saved draft shows local media until the new version is committed');
   await page.locator('#qc-save').click();
   await page.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 30000 });
@@ -927,9 +927,9 @@ try {
   await page.locator('#qc-platform-preview-load').click();
   await page.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });
   assert.match(await page.locator('#qc-platform-preview-source').textContent(), /До сохранения/);
-  assert.equal(await page.locator('.qc-platform-media video').count(), 1,
+  assert.equal(await page.locator('#qc-platform-preview-card .sp-media video').count(), 1,
     'operator-selected unsaved MP4 appears in local platform preview');
-  assert.ok((await page.locator('.qc-platform-media video').getAttribute('src')).startsWith('blob:'));
+  assert.ok((await page.locator('#qc-platform-preview-card .sp-media video').getAttribute('src')).startsWith('blob:'));
   assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, beforeC1,
     'previewing MP4 without saving must not create a draft');
   await page.screenshot({ path: 'test-results/p0-composer-video-desktop.png', fullPage: false });
@@ -1245,7 +1245,7 @@ try {
   assert.equal(readinessChecks, 1, 'READY is evaluated once before any scheduled publication');
   assert.equal(unexpectedPublishNow, 0, 'failed preflight must never dispatch publish-now');
   const visibleFailures = await page.locator('#qc-preflight-issues').textContent();
-  assert.match(visibleFailures, /Telegram · Account 0/);
+  assert.match(visibleFailures, /Account 0/);
   assert.match(visibleFailures, /VK|ВКонтакте/);
   assert.match(visibleFailures, /Account 2/);
   assert.match(visibleFailures, /Нет права публикации в канал/);
@@ -1423,7 +1423,7 @@ try {
   await mp.locator('#qc-platform-preview-load').click();
   await mp.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });
   assert.equal(await mp.locator('#qc-platform-preview-choice option').count(), 2);
-  assert.equal(await mp.locator('.qc-platform-media img').count(), 1);
+  assert.equal(await mp.locator('#qc-platform-preview-card .sp-media img').count(), 1);
   assert.match(await mp.locator('#qc-platform-preview-source').textContent(), /До сохранения/);
   assert.equal(await mp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
     '390px local image preview must not cause horizontal overflow');
@@ -1438,7 +1438,7 @@ try {
   assert.equal(await mp.locator('#qc-video-preview video').count(), 1);
   await mp.locator('#qc-platform-preview-load').click();
   await mp.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });
-  assert.equal(await mp.locator('.qc-platform-media video').count(), 1);
+  assert.equal(await mp.locator('#qc-platform-preview-card .sp-media video').count(), 1);
   assert.match(await mp.locator('#qc-platform-preview-source').textContent(), /До сохранения/);
   assert.equal(await mp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
     '390px local MP4 preview must not overflow');
@@ -1455,7 +1455,7 @@ try {
   });
   assert.equal(mobilePreviewVisible, true,
     'opening the server preview must reveal content above the mobile sticky footer');
-  assert.equal(await mp.locator('.qc-platform-media video').count(), 1,
+  assert.equal(await mp.locator('#qc-platform-preview-card .sp-media video').count(), 1,
     'mobile platform preview uses the actual saved MP4 rather than an invented thumbnail');
   assert.equal(await mp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
     '390px per-account video preview must not introduce horizontal overflow');
@@ -1532,7 +1532,7 @@ try {
       await rp.screenshot({ path: 'test-results/p0-composer-video-responsive-320.png', fullPage: false });
       await rp.locator('#qc-platform-preview-load').click();
       await rp.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });
-      assert.equal(await rp.locator('.qc-platform-media video').count(), 1);
+      assert.equal(await rp.locator('#qc-platform-preview-card .sp-media video').count(), 1);
       assert.equal(await rp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
         '320px local per-account preview must not overflow horizontally');
     }

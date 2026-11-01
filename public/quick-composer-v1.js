@@ -560,8 +560,8 @@ export async function openQuickComposer() {
       }
       previewSource.textContent = message;
       previewArea.hidden = false;
-      if (state.previewRows.length) renderPlatformPreview();
-      else previewContent.textContent = 'Нет выбранных получателей для предпросмотра.';
+      renderPlatformPreview();
+      previewArea.scrollIntoView({block:'nearest',behavior:'auto'});
 
     }
     function localPreviewRows() {
