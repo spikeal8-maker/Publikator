@@ -262,7 +262,7 @@ async function enhanceEditor(form, postId) {
   const uploadFiles=async(files)=>{
    if(!files.length||form.dataset.mediaBusy==='1')return;
    form.dataset.mediaBusy='1';
-   const controls=[...form.querySelectorAll('button[type="submit"],#mark-ready,#publish-now,.sp-media-actions button,.delete-authoring-media,.move-media')];
+   const controls=[...form.closest('.modal').querySelectorAll('button[type="submit"],#mark-ready,#publish-now,.sp-media-actions button,.delete-authoring-media,.move-media,.publication-editor-close,#close-modal')];
    const previous=controls.map(button=>button.disabled);controls.forEach(button=>button.disabled=true);
    let uploadedCount=0;
    try{
@@ -285,7 +285,7 @@ async function enhanceEditor(form, postId) {
     const message=error instanceof Error?error.message:String(error);
     if(uploadedCount){const format=form.querySelector('select[name="postFormat"]');if(format)format.value='MEDIA';}
     await reopenEditor(post.id);
-    const currentForm=document.querySelector('#post-form');if(currentForm)setError(currentForm,message+' Уже загруженные файлы сохранены; повторно добавляйте только недостающие.');
+    const currentForm=document.querySelector('#post-form');if(currentForm?.dataset.postId===post.id)setError(currentForm,message+' Уже загруженные файлы сохранены; повторно добавляйте только недостающие.');
    }finally{
     form.dataset.mediaBusy='';controls.forEach((button,index)=>button.disabled=previous[index]);if(fileInput)fileInput.value='';
    }

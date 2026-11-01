@@ -164,10 +164,23 @@ try {
  await page.locator('#post-form input[name="title"]').fill('UI draft edited through Publications');
  const uploadPaths=Array.from({length:10},(_,index)=>path.join(dataDir,'upload-'+index+'.jpg'));
  for(const [index,file] of uploadPaths.entries())await sharp({create:{width:800,height:600,channels:3,background:{r:20*index,g:40,b:190}}}).jpeg().toFile(file);
+ let announceUpload,releaseUpload;
+ const uploadStarted=new Promise(resolve=>announceUpload=resolve),uploadGate=new Promise(resolve=>releaseUpload=resolve);
+ let gatedUpload=false;
+ await page.route('**/api/posts/'+saved.id+'/media',async route=>{
+  if(!gatedUpload&&route.request().method()==='POST'){gatedUpload=true;announceUpload();await uploadGate;}
+  await route.continue();
+ });
  const chooserPromise=page.waitForEvent('filechooser');
  await page.locator('.sp-add-photos').click();const chooser=await chooserPromise;
  assert.equal(chooser.isMultiple(),true);await chooser.setFiles(uploadPaths);
+ await uploadStarted;
+ assert.equal(await page.locator('.publication-editor-close').isDisabled(),true,'A running batch cannot close or overwrite a different editor');
+ await page.locator('.modal').click({position:{x:1,y:1}});
+ assert.equal(await page.locator('#post-form').getAttribute('data-post-id'),saved.id);
+ releaseUpload();
  await page.waitForFunction(()=>document.querySelectorAll('#post-form .media-list img').length===10);
+ await page.unroute('**/api/posts/'+saved.id+'/media');
  assert.equal(await page.locator('#post-form input[name="title"]').inputValue(),'UI draft edited through Publications','Batch upload preserves unsaved fields');
  assert.equal(db.prepare('SELECT COUNT(*) n FROM media WHERE post_id=?').get(saved.id).n,10);
  const beforeOrder=db.prepare('SELECT id FROM media WHERE post_id=? ORDER BY sort_order,created_at').all(saved.id).map(row=>row.id);
