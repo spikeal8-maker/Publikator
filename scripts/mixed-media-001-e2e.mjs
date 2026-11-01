@@ -12,7 +12,7 @@ const {buildApp}=await import('../dist/app.js');
 migrate();const app=await buildApp();
 const realFetch=globalThis.fetch;
 const counts={tg:0,vk:0,max:0,reserve:0,upload:0},captions={};
-let maxNotReady=true,maxUnknown=false,photoSerial=0,maxPhotoSerial=0;
+let maxNotReady=true,maxUnknown=false,photoSerial=0,maxPhotoSerial=0,tgPartial=false;
 const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json'}});
 globalThis.fetch=async(input,init={})=>{
  const url=new URL(String(input));
@@ -25,7 +25,7 @@ globalThis.fetch=async(input,init={})=>{
    assert.deepEqual(media.map(item=>item.type),['photo','video','photo']);
    for(const item of media)assert.ok(init.body.get(item.media.slice(9)) instanceof Blob);
    captions.telegram=media[0].caption;
-   return json({ok:true,result:media.map((item,i)=>({message_id:111+i,media_group_id:'fixture-album',chat:{id:-10042,username:'video_fixture'}}))});
+   return json({ok:true,result:(tgPartial?media.slice(0,1):media).map((item,i)=>({message_id:111+i,media_group_id:'fixture-album',chat:{id:-10042,username:'video_fixture'}}))});
   }
  }
  if(url.hostname==='platform-api2.max.ru'){
@@ -102,6 +102,10 @@ try{
  const previous=counts.max;await request('POST','/api/posts/'+uncertain.id+'/publish-now');
  assert.equal(counts.max,previous+1,'Unknown public outcome must never auto-retry');
  assert.equal(db.prepare('SELECT state FROM post_targets WHERE post_id=?').get(uncertain.id).state,'RECOVERY_NEEDED');
+ const partial=await draft(['video_telegram'],'Incomplete Telegram album receipt');tgPartial=true;
+ const beforeTg=counts.tg;await request('POST','/api/posts/'+partial.id+'/publish-now');
+ assert.equal(counts.tg,beforeTg+1);
+ assert.equal(db.prepare('SELECT state FROM post_targets WHERE post_id=?').get(partial.id).state,'RECOVERY_NEEDED','partial album receipt never auto-retries');
  const accounts=await request('GET','/api/accounts');assert.ok(!JSON.stringify(accounts).includes('user-video-secret'));
  console.log(JSON.stringify({checkpoint:'MIXED-MEDIA-001',ok:true,orderedMixedThreePlatforms:true,maxXml:true,sameTokenProcessingRetry:true,unknownOutcomeNoRetry:true,vkIndependentUploader:true,secretSafe:true,protectedReady:true}));
 }finally{globalThis.fetch=realFetch;await app.close();db.close();await fs.rm(dir,{recursive:true,force:true});}

@@ -360,7 +360,13 @@ async function publishImages(token: string, chatId: string, mediaRows: MediaRow[
     method: 'POST',
     body: data
   }, 'Telegram sendMediaGroup');
-  return body.result?.[0];
+  if (!Array.isArray(body.result) || body.result.length !== mediaRows.length ||
+      body.result.some((message: any) => !message?.message_id)) {
+    throw new PlatformError('Telegram: медиагруппа не подтвердила все вложения; проверьте результат перед повтором', {
+      retryable: false, outcomeUnknown: true
+    });
+  }
+  return { ...body.result[0], mediaGroupMessages: body.result };
 }
 
 function assertStoryResult(result: any): PublishResult {

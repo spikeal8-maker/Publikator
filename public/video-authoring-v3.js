@@ -162,7 +162,7 @@ function renderAuthoringMedia(form, post) {
    actions.querySelector('#editor-video-file').onchange=event=>form.uploadPublicationFiles?.([...event.target.files]);
   }
   actions.querySelector('[data-media-count]').textContent='';
-  updateMediaGuide(list.parentElement,{images:items.filter(item=>!item.isVideo).length,video:hasVideo});
+  updateMediaGuide(list.parentElement,{images:items.filter(item=>!item.isVideo).length,video:items.filter(item=>item.isVideo).length});
   actions.querySelector('.sp-add-photos').disabled=items.length>=10;
   actions.querySelector('.sp-add-video').disabled=items.length>=10;
   actions.querySelector('.sp-add-video').title='Добавить MP4 к фотографиям или другим видео';
