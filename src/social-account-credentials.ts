@@ -573,7 +573,7 @@ export async function replaceAndCheckSocialAccount(input: {
           AND p.ready_revision_id IS NOT NULL
           AND p.status IN ('READY','QUEUED','PUBLISHING','PARTIAL','FAILED') LIMIT 1`)
         .get(input.accountId);
-      if (pending) requestError('Перед изменением ключа или назначения завершите готовые и незавершённые публикации этого подключения.');
+      if (pending) requestError(before.platform === 'max' ? 'MAX: для смены чата сначала завершите готовые и незавершённые публикации этого подключения. Можно добавить новый чат.' : 'VK: для изменения ключа сначала завершите готовые и незавершённые публикации этого подключения.');
     }
     replaceSocialAccountCredentials(input.accountId, encryptJson(normalized));
     db.prepare('UPDATE social_accounts SET name=?,enabled=0,updated_at=? WHERE id=?')
