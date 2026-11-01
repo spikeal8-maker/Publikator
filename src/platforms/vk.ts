@@ -370,11 +370,12 @@ export const vkPublisher: SocialPublisher = {
   validate(input) {
     requireString(input.credentials, 'accessToken');
     if (input.credentials.authKind === 'COMMUNITY') {
-      if (input.media.some(media => media.mime_type === 'video/mp4')) {
+      if (isVideoPublication(input) || input.media.some(media => media.mime_type === 'video/mp4')) {
         if (input.credentials.videoPublishReady !== true || !input.credentials.videoUploadUserId) throw new Error('VK: добавьте проверенный пользовательский ключ с правом video в разделе «Соцсети».');
         requireString(input.credentials, 'uploadAccessToken');
       }
-      if (input.media.some(media => media.mime_type.startsWith('image/'))) {
+      if (input.media.some(media => media.mime_type.startsWith('image/')) ||
+          (!input.media.length && input.contentFormat !== 'TEXT_ONLY' && !isVideoPublication(input))) {
         if (input.publicationKind && input.publicationKind !== 'FEED') throw new Error('VK: связка ключей поддерживает фото только в ленте');
         if (!['IMAGE', 'CAROUSEL'].includes(input.contentFormat || 'IMAGE')) throw new Error('VK: связка ключей поддерживает текст, фото и карусель в ленте');
         if (input.credentials.photoPublishReady !== true || !input.credentials.uploadUserId) {
