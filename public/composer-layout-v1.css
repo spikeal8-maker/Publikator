@@ -67,3 +67,5 @@
 .publication-composer .qc-accounts{min-height:0;padding:4px 10px}
 .publication-composer .composer-text>.rich-text-label{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .publication-composer .composer-text>.rich-text-label>.editor-help{margin:0}
+
+.publication-composer textarea[hidden],.publication-composer .qc-options label[hidden],.publication-composer #reusable-block-picker[hidden]{display:none!important}.publication-composer #reusable-block-picker{margin-top:10px}.publication-composer #toggle-reusable-blocks{margin-top:10px;padding:7px 10px;font-size:12px}

@@ -398,6 +398,7 @@ try {
   await page.locator('.qc-advanced summary').click();
   await page.locator('#qc-project').selectOption(projectId);
   await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
+  await page.locator('#qc-mode').selectOption('AT');
   await page.locator('#qc-datetime').fill('2026-11-12T10:00');
   const imageForRetry = await sharp({ create: { width: 100, height: 100, channels: 3,
     background: '#99bbdd' } }).png().toBuffer();
@@ -443,6 +444,7 @@ try {
   await page.locator('.qc-advanced summary').click();
   await page.locator('#qc-project').selectOption(dstProjectId);
   await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
+  await page.locator('#qc-mode').selectOption('AT');
   await page.locator('#qc-datetime').fill('2026-11-01T01:30');
   page.once('dialog', (dialog) => dialog.accept());
   await page.locator('#qc-schedule').click();
@@ -568,6 +570,7 @@ try {
   await page.locator('#qc-variant-text').fill('Личный вариант перед перезагрузкой');
   await page.locator('.qc-advanced summary').click();
   await page.locator('#qc-project').selectOption(projectId);
+  await page.locator('#qc-mode').selectOption('AT');
   await page.locator('#qc-datetime').fill('2026-11-16T18:30');
   await page.locator('#qc-files').setInputFiles([
     { name: 'offline-file.png', mimeType: 'image/png', buffer: image2 }
@@ -1230,6 +1233,7 @@ try {
     await page.locator('input[name="qc-account"][value="' + account.id + '"]').check();
   }
   await page.locator('.qc-advanced summary').click();
+  await page.locator('#qc-mode').selectOption('AT');
   await page.locator('#qc-datetime').fill('2027-02-14T14:30');
   const readyIssues = [
     {
@@ -1343,6 +1347,7 @@ try {
   await page.locator('#qc-text').fill('Неопределённый результат проверки готовности');
   await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
   await page.locator('.qc-advanced summary').click();
+  await page.locator('#qc-mode').selectOption('AT');
   await page.locator('#qc-datetime').fill('2027-03-14T14:30');
   await page.route('**/api/posts/*/ready', async (route) => {
     if (route.request().method() === 'POST') {
@@ -1378,6 +1383,7 @@ try {
   await page.locator('#qc-text').fill('READY 409 без списка ошибок площадок');
   await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
   await page.locator('.qc-advanced summary').click();
+  await page.locator('#qc-mode').selectOption('AT');
   await page.locator('#qc-datetime').fill('2027-03-16T14:30');
   await page.route('**/api/posts/*/ready', async (route) => {
     if (route.request().method() === 'POST') {
@@ -1491,6 +1497,7 @@ try {
   // explanation must remain available without clipping the action bar.
   await mp.locator('.composer-panes [data-pane="edit"]').click();
   await mp.locator('.qc-advanced summary').click();
+  await mp.locator('#qc-mode').selectOption('AT');
   await mp.locator('#qc-datetime').fill('2027-02-14T14:30');
   await mp.route('**/api/posts/*/ready', async (route) => {
     if (route.request().method() !== 'POST') { await route.continue(); return; }

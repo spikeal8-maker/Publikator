@@ -66,6 +66,8 @@ export function createComposerRecovery(identity) {
     return write({
       kind: 'local',
       body: String(draft.body || '').slice(0, 200000),
+      title:String(draft.title||'').slice(0,500),
+      scheduleMode:['MANUAL','AT','QUEUE'].includes(draft.scheduleMode)?draft.scheduleMode:'MANUAL',
       bodyRich: draft.bodyRich ? normalizeRichDocument(draft.bodyRich) : null,
       projectId: String(draft.projectId || '').slice(0, 200),
       scheduledAtLocal: String(draft.scheduledAtLocal || '').slice(0, 32),

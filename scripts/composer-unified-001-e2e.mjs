@@ -79,6 +79,15 @@ try{
  const calendar=db.prepare('SELECT schedule_mode,scheduled_at_utc FROM posts WHERE title=?').get('Calendar entry uses the same composer');
  assert.equal(calendar.schedule_mode,'AT');assert.equal(calendar.scheduled_at_utc,'2026-11-12T07:00:00.000Z');
  await page.locator('#qc-close').click();
+ await page.locator('#quick-new-post').click();await page.locator('#qc-text').fill('Queue draft body');
+ await page.locator('.qc-advanced > summary').click();
+ await page.locator('#qc-name').fill('Queue draft custom title');
+ await page.locator('#qc-mode').selectOption('QUEUE');
+ assert.equal(await page.locator('#qc-date-field').isVisible(),false);
+ await page.locator('#qc-save').click();
+ await page.waitForFunction(()=>document.querySelector('#qc-status')?.textContent.includes('Черновик сохранён'));
+ assert.equal(db.prepare('SELECT schedule_mode FROM posts WHERE title=?').get('Queue draft custom title').schedule_mode,'QUEUE');
+ await page.locator('#qc-close').click();
  await page.locator('#quick-new-post').click();await page.locator('#qc-text').waitFor();
  assert.equal(await page.locator('.composer-fields').isVisible(),true);
  await page.locator('.composer-panes [data-pane=preview]').click();

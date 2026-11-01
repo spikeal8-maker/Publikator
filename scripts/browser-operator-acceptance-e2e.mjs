@@ -5,6 +5,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { chromium } from 'playwright-core';
 
+async function showPostOptions(form){
+  const options=form.locator('.composer-options');
+  if(await options.getAttribute('open')===null)await options.locator(':scope > summary').click();
+}
+async function saveNewComposer(page){
+  await page.locator('#qc-save').click();
+  await page.waitForFunction(()=>document.querySelector('#qc-status')?.textContent.includes('Черновик сохранён'));
+  await page.locator('#qc-close').click();
+}
+
 const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'publikator-browser-'));
 process.env.NODE_ENV = 'test';
 process.env.DATA_DIR = dataDir;
@@ -706,6 +716,7 @@ try {
 
   let reusablePostForm=page.locator('#post-form');
   await reusablePostForm.waitFor({state:'visible'});
+  await showPostOptions(reusablePostForm);
   const baseSurface=reusablePostForm.locator('[data-rich-text-editor] .rich-text-surface');
   assert.equal((await baseSurface.innerText()).trim(),'До после');
   const caretSet=await page.evaluate(() => {
@@ -798,10 +809,10 @@ try {
 
   await page.goto(`${base}/content`,{waitUntil:'domcontentloaded'});
   await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Публикации');
-  if(await page.locator('.posts-secondary').getAttribute('open')===null)await page.locator('.posts-secondary > summary').click();
-  await page.locator('#new-post').click();
-  let newReusablePostForm=page.locator('#post-form');
+  await page.locator('#quick-new-post').click();
+  let newReusablePostForm=page.locator('.qc-dialog');
   await newReusablePostForm.waitFor({state:'visible'});
+  await showPostOptions(newReusablePostForm);
   await newReusablePostForm.locator('select[name="projectId"]').selectOption(fixtureProjectId);
   await newReusablePostForm.locator('input[name="title"]').fill('Browser Reusable Post B');
   await newReusablePostForm.locator('[data-rich-text-editor] .rich-text-surface').fill('Начало B');
@@ -809,14 +820,13 @@ try {
   await newReusablePostForm.locator('#reusable-block-select').selectOption(browserCta.id);
   await newReusablePostForm.locator('#apply-reusable-block').click();
   assert.ok((await newReusablePostForm.locator('[data-rich-text-editor] .rich-text-surface').innerText()).includes('Записаться на новый курс'));
-  await newReusablePostForm.locator('button.primary[type="submit"]').click();
-  await page.locator('#post-form').waitFor({state:'detached',timeout:5000});
+  await saveNewComposer(page);
 
   const savedReusableB=db.prepare(
     'SELECT id,body,body_rich_json,content_version FROM posts WHERE title=? ORDER BY rowid DESC LIMIT 1'
   ).get('Browser Reusable Post B');
   assert.ok(savedReusableB?.id);
-  assert.equal(savedReusableB.content_version,1);
+  assert.equal(savedReusableB.content_version,2,'create plus explicit recipient selection remain versioned');
   assert.ok(savedReusableB.body.includes('Записаться на новый курс'));
   const postBRichSnapshot=savedReusableB.body_rich_json;
 
@@ -832,21 +842,20 @@ try {
 
   await page.goto(`${base}/content`,{waitUntil:'domcontentloaded'});
   await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Публикации');
-  await page.locator('.posts-secondary').waitFor({state:'visible'});
 
   // EW4-005: new Post inherits project timezone and targets; per-post override stays isolated.
   const ewInheritedTitle = 'Browser EW4-005 inherited defaults';
-  if(await page.locator('.posts-secondary').getAttribute('open')===null)await page.locator('.posts-secondary > summary').click();
-  await page.locator('#new-post').click();
-  let ewPostForm = page.locator('#post-form');
+  await page.locator('#quick-new-post').click();
+  let ewPostForm = page.locator('.qc-dialog');
   await ewPostForm.waitFor({ state: 'visible' });
+  await showPostOptions(ewPostForm);
   await ewPostForm.locator('select[name="projectId"]').selectOption(ew4005Project.id);
   await ewPostForm.locator('select[name="scheduleMode"]').selectOption('AT');
   await ewPostForm.locator('input[name="scheduledAt"]').fill('2026-10-01T18:00');
   await ewPostForm.locator('input[name="title"]').fill(ewInheritedTitle);
+  await page.locator('#qc-project-targets').click();
   await ewPostForm.locator('[data-rich-text-editor] .rich-text-surface').fill('EW4-005 inherited defaults browser body');
-  await ewPostForm.locator('button.primary[type="submit"]').click();
-  await page.locator('#post-form').waitFor({ state: 'detached', timeout: 5000 });
+  await saveNewComposer(page);
   await page.waitForFunction((title) => [...document.querySelectorAll('#view table.table tbody tr')].some((row) => row.textContent?.includes(title)), ewInheritedTitle);
 
   const ewPost = db.prepare(`SELECT id,schedule_timezone,scheduled_at_utc FROM posts WHERE title=?`).get(ewInheritedTitle);
@@ -864,6 +873,7 @@ try {
   await ewInspector.waitFor({ state: 'detached', timeout: 5000 });
   ewPostForm = page.locator('#post-form');
   await ewPostForm.waitFor({ state: 'visible', timeout: 5000 });
+  await showPostOptions(ewPostForm);
   await ewPostForm.locator('.platform-workspace').waitFor({ state: 'visible', timeout: 5000 });
   if(await ewPostForm.locator('.platform-workspace').getAttribute('open')===null)await ewPostForm.locator('.platform-workspace > summary').click();
 
@@ -905,21 +915,21 @@ try {
   await ewInspector.waitFor({ state: 'detached', timeout: 5000 });
   ewPostForm = page.locator('#post-form');
   await ewPostForm.waitFor({ state: 'visible', timeout: 5000 });
+  await showPostOptions(ewPostForm);
   assert.equal(await ewPostForm.locator(`input[name="accountId"][value="${editorAccountId}"]`).isChecked(), false);
   assert.equal(await ewPostForm.locator(`input[name="accountId"][value="${browserPlatformAccounts.vk}"]`).isChecked(), false);
   assert.equal(await ewPostForm.locator(`input[name="accountId"][value="${browserPlatformAccounts.max}"]`).isChecked(), true);
   await ewPostForm.locator('#close-modal').click();
   await page.locator('#post-form').waitFor({ state: 'detached', timeout: 5000 });
 
-  if(await page.locator('.posts-secondary').getAttribute('open')===null)await page.locator('.posts-secondary > summary').click();
-  await page.locator('#new-post').click();
-  let postForm = page.locator('#post-form');
+  await page.locator('#quick-new-post').click();
+  let postForm = page.locator('.qc-dialog');
   await postForm.waitFor({ state: 'visible' });
-  const newPostModal = postForm.locator('xpath=ancestor::div[contains(@class,"modal-card")]');
-  assert.equal((await newPostModal.locator('h2').textContent())?.trim(), 'Новая публикация');
-  const newSections = await newPostModal.locator('.ui-editor-section-title strong').allTextContents();
-  assert.ok(newSections.includes('Основное'));
-  assert.ok(newSections.includes('После сохранения'));
+  await showPostOptions(postForm);
+  const newPostModal = postForm;
+  assert.equal((await newPostModal.locator('h2').textContent())?.trim(), 'Создать публикацию');
+  assert.equal(await newPostModal.locator('.composer-layout').count(),1);
+  assert.equal(await newPostModal.locator('#qc-files,#qc-video-file').count(),2,'media is available before the first save');
   assert.match((await postForm.locator('label:has(select[name="scheduleMode"])').innerText()).trim(), /^Когда публиковать/);
   const scheduledLabel = postForm.locator('label:has(input[name="scheduledAt"])');
   assert.match((await scheduledLabel.innerText()).trim(), /^Дата и время публикации/);
@@ -933,6 +943,7 @@ try {
   // EW4-003: real Base rich-text create flow.
   const richEditorTitle = 'Browser Canonical Rich Text';
   await postForm.locator('select[name="projectId"]').selectOption(fixtureProjectId);
+  for(const accountId of Object.values(browserPlatformAccounts))await page.locator('input[name="qc-account"][value="'+accountId+'"]').check();
   await postForm.locator('select[name="scheduleMode"]').selectOption('MANUAL');
   await postForm.locator('input[name="title"]').fill(richEditorTitle);
   assert.equal(await postForm.locator('textarea[name="body"]:visible').count(), 0, 'visible raw body textarea must be absent');
@@ -993,8 +1004,7 @@ try {
   for (const mark of ['bold','italic','underline','strike','code']) assert.ok(editorJson.includes(`"type":"${mark}"`), `editor AST missing mark ${mark}`);
   assert.ok(editorJson.includes('"type":"link"'), 'editor AST missing link');
 
-  await postForm.locator('button.primary[type="submit"]').click();
-  await page.locator('#post-form').waitFor({ state: 'detached', timeout: 5000 });
+  await saveNewComposer(page);
   await page.waitForFunction((title) => [...document.querySelectorAll('#view table.table tbody tr')].some((row) => row.textContent?.includes(title)), richEditorTitle);
 
   const richDbPost = db.prepare('SELECT id,body,body_rich_json,content_version,status,ready_revision_id FROM posts WHERE title=?').get(richEditorTitle);
@@ -1015,6 +1025,7 @@ try {
 
   postForm = page.locator('#post-form');
   await postForm.waitFor({ state: 'visible', timeout: 5000 });
+  await showPostOptions(postForm);
   await postForm.locator('.platform-workspace').waitFor({ state: 'visible', timeout: 5000 });
   if(await postForm.locator('.platform-workspace').getAttribute('open')===null)await postForm.locator('.platform-workspace > summary').click();
   for (const selector of ['strong','em','u','s','code','a','blockquote','ul','ol','pre']) {
@@ -1101,6 +1112,7 @@ try {
   await richInspector.waitFor({ state: 'detached', timeout: 5000 });
   postForm = page.locator('#post-form');
   await postForm.waitFor({ state: 'visible', timeout: 5000 });
+  await showPostOptions(postForm);
   await postForm.locator('.platform-workspace').waitFor({ state: 'visible', timeout: 5000 });
   if(await postForm.locator('.platform-workspace').getAttribute('open')===null)await postForm.locator('.platform-workspace > summary').click();
   assert.ok((await postForm.locator('.platform-editor-card[data-platform="telegram"] .rich-text-surface').innerText()).includes('Telegram Browser Bold Link🙂'));
@@ -1126,6 +1138,7 @@ try {
   }
   postForm = page.locator('#post-form');
   await postForm.waitFor({ state: 'visible', timeout: 5000 });
+  await showPostOptions(postForm);
   await postForm.locator('.media-list img').first().waitFor({ state: 'visible', timeout: 5000 });
   await postForm.locator('#mark-ready').click();
   await page.locator('#post-form').waitFor({ state: 'detached', timeout: 5000 });
@@ -1145,6 +1158,7 @@ try {
   await richInspector.locator('.inspector-edit').click();
   postForm = page.locator('#post-form');
   await postForm.waitFor({ state: 'visible', timeout: 5000 });
+  await showPostOptions(postForm);
   const changedSurface = postForm.locator('[data-rich-text-editor] .rich-text-surface');
   await changedSurface.click();
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A');
@@ -1188,6 +1202,7 @@ try {
   await richInspector.locator('.inspector-edit').click();
   postForm = page.locator('#post-form');
   await postForm.waitFor({ state: 'visible', timeout: 5000 });
+  await showPostOptions(postForm);
   assert.equal(await postForm.locator('[data-rich-text-editor] .rich-text-surface strong').count(),1,'restored editor must hydrate formatting');
 
   // Hostile clipboard HTML is treated as plain text; executable DOM never enters the editor/storage.
@@ -1278,11 +1293,12 @@ try {
 
   postForm = page.locator('#post-form');
   await postForm.waitFor({ state: 'visible', timeout: 5000 });
+  await showPostOptions(postForm);
   const existingPostModal = postForm.locator('xpath=ancestor::div[contains(@class,"modal-card")]');
   await existingPostModal.locator('.platform-workspace').waitFor({ state: 'visible', timeout: 5000 });
   if(await existingPostModal.locator('.platform-workspace').getAttribute('open')===null)await existingPostModal.locator('.platform-workspace > summary').click();
-  const existingSections = await existingPostModal.locator('.ui-editor-section-title strong').allTextContents();
-  for (const section of ['Основное', 'Медиа', 'Площадки']) assert.ok(existingSections.includes(section), `existing editor section missing: ${section}`);
+  assert.equal(await existingPostModal.locator('.composer-layout').count(),1);
+  assert.equal(await existingPostModal.locator('.composer-media,.composer-targets').count(),2,'shared attachment and recipient sections remain available');
   assert.equal(await postForm.locator('#media-file').count(), 1, 'existing editor media enhancement missing');
   assert.equal(await existingPostModal.locator('.platform-editor-card').count(), 4, 'existing editor target enhancement missing');
   await postForm.locator('#close-modal').click();
@@ -1403,23 +1419,24 @@ try {
 
   const slotCreateExact = candidateSlots[0];
   await page.locator(`.calendar-time-slot[data-calendar-slot="${slotCreateExact}"]`).click();
-  let calendarPostForm = page.locator('#post-form');
+  let calendarPostForm = page.locator('.qc-dialog');
   await calendarPostForm.waitFor({ state: 'visible', timeout: 5000 });
+  await showPostOptions(calendarPostForm);
   assert.equal(await calendarPostForm.locator('select[name="scheduleMode"]').inputValue(), 'AT');
   assert.equal(await calendarPostForm.getAttribute('data-exact-scheduled-at'), slotCreateExact);
   assert.ok(await calendarPostForm.locator('input[name="scheduledAt"]').inputValue(), 'exact slot must prefill datetime field');
   await calendarPostForm.locator('select[name="projectId"]').selectOption(fixtureProjectId);
   await calendarPostForm.locator('input[name="title"]').fill('Browser Calendar Slot Create');
+  await page.locator('#qc-project-targets').click();
   await calendarPostForm.locator('[data-rich-text-editor] .rich-text-surface').fill('Calendar exact slot body');
-  await calendarPostForm.locator('button.primary[type="submit"]').click();
-  await page.locator('#post-form').waitFor({ state: 'detached', timeout: 5000 });
+  await saveNewComposer(page);
 
   const calendarCreated = db.prepare(
     'SELECT id,scheduled_at_utc,schedule_timezone,content_version,status FROM posts WHERE title=? ORDER BY rowid DESC LIMIT 1'
   ).get('Browser Calendar Slot Create');
   assert.ok(calendarCreated?.id);
   assert.equal(calendarCreated.scheduled_at_utc, slotCreateExact);
-  assert.equal(calendarCreated.content_version, 1);
+  assert.equal(calendarCreated.content_version, 2,'create and recipient selection each keep their immutable version');
   assert.equal(calendarCreated.status, 'DRAFT');
   await page.waitForFunction(({ id, exact }) =>
     document.querySelector(`.calendar-time-slot[data-calendar-slot="${exact}"] [data-calendar-post="${id}"]`) !== null,

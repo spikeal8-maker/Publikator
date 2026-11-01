@@ -107,8 +107,8 @@ export async function openQuickComposer(options = {}) {
   removeListenerWhenClosed.observe(document.body, { childList: true });
 
   try {
-    const [projects, accounts, auth] = await Promise.all([
-      request('/api/projects'), request('/api/accounts'), request('/api/auth/state')
+    const [projects, accounts, auth, templates] = await Promise.all([
+      request('/api/projects'), request('/api/accounts'), request('/api/auth/state'), request('/api/templates')
     ]);
     if (!overlay.isConnected) return;
     recovery = createComposerRecovery(auth);
@@ -160,13 +160,18 @@ export async function openQuickComposer(options = {}) {
           '<label class="qc-drop qc-video-drop" id="qc-video-drop"><input id="qc-video-file" type="file" accept="video/mp4"><strong>+ Добавить видео</strong></label></div>' +
           '<div id="qc-images" class="qc-images" aria-live="polite"></div>' +
           '<div id="qc-video-preview" class="qc-video-preview" aria-live="polite"></div></section>' +
-          '<details class="qc-advanced"><summary>Дополнительно: проект и расписание</summary>' +
-          '<div class="qc-options"><label>Проект (для организации материалов)<select id="qc-project">' +
+          '<details class="qc-advanced composer-options"><summary>Дополнительно: проект и расписание</summary>' +
+          '<div class="qc-options"><label>Проект (для организации материалов)<select id="qc-project" name="projectId">' +
           (projectOptions || '<option value="">Мои публикации — будет создан автоматически</option>') +
-          '</select></label><label>Дата и время, если нужно запланировать<input id="qc-datetime" type="datetime-local"></label>' +
+          '</select></label><label>Название в списке (необязательно)<input id="qc-name" name="title" maxlength="500" placeholder="Автоматически из текста"></label>' +
+          '<label>Когда публиковать<select id="qc-mode" name="scheduleMode"><option value="MANUAL">Вручную</option><option value="AT">По времени</option><option value="QUEUE">Из очереди</option></select></label>' +
+          '<label id="qc-date-field" hidden>Дата и время публикации<input id="qc-datetime" name="scheduledAt" type="datetime-local"></label>' +
           '<p id="qc-timezone-note" class="qc-muted"></p><label>При повторяющемся времени (перевод часов)' +
           '<select id="qc-ambiguous"><option value="">Попросить уточнить</option><option value="earlier">Первое наступление времени</option>' +
-          '<option value="later">Второе наступление времени</option></select></label></div></details>' +
+          '<option value="later">Второе наступление времени</option></select></label></div>' +
+          '<button id="toggle-reusable-blocks" type="button" class="qc-subtle">Вставить заготовку</button>' +
+          '<div id="reusable-block-picker" hidden><label>Заготовка<select id="reusable-block-select"></select></label>' +
+          '<button id="apply-reusable-block" type="button" class="qc-subtle">Вставить</button></div></details>' +
         '</section>' +
         '<section class="qc-right"><div class="qc-target-head"><div><h3>Куда опубликовать</h3><p>Выберите любое количество ваших подключений</p></div>' +
         '<span class="qc-counter" id="qc-counter">0 выбрано</span></div>' +
@@ -176,7 +181,7 @@ export async function openQuickComposer(options = {}) {
           '<header class="qc-target-sheet-head"><h4 id="qc-target-picker-title">Аккаунты и каналы</h4>' +
           '<button type="button" id="qc-target-done">Готово</button></header>' +
           '<div class="qc-target-actions"><button type="button" id="qc-select-all">Выбрать все</button>' +
-          '<button type="button" id="qc-select-none">Снять выбор</button></div><div class="qc-accounts">' + grouped + '</div></div>'
+          '<button type="button" id="qc-select-none">Снять выбор</button><button type="button" id="qc-project-targets">Из проекта</button></div><div class="qc-accounts">' + grouped + '</div></div>'
           : '<div class="qc-empty">Нет активных подключений. Черновик можно сохранить и без них.' +
             '<a href="/socials" id="qc-connect">Перейти к подключению соцсетей</a></div>') +
         '<details class="qc-variant-editor" id="qc-variant-editor" hidden>' +
@@ -214,9 +219,9 @@ export async function openQuickComposer(options = {}) {
     const root = overlay;
     const plainInput=root.querySelector('#qc-text');
     const textHost=document.createElement('div');textHost.dataset.richTextEditor='';
-    plainInput.replaceWith(textHost);
+    plainInput.before(textHost);plainInput.hidden=true;plainInput.removeAttribute('id');plainInput.name='body';
     let textReady=false;
-    const richEditor=mountRichTextEditor(textHost,{onChange:()=>{if(textReady){markDirty();refreshPreview();}}});
+    const richEditor=mountRichTextEditor(textHost,{onChange:(doc,plain)=>{plainInput.value=plain;if(textReady){markDirty();refreshPreview();}}});
     const text=richEditor.surface;text.id='qc-text';
     Object.defineProperty(text,'value',{get:()=>richEditor.getPlainText(),set:value=>richEditor.setDocument(plainTextToRichDocument(value))});
     const editorColumn=root.querySelector('.qc-editor');
@@ -656,7 +661,7 @@ export async function openQuickComposer(options = {}) {
       updatePreviewButton();
       if (state.savedId || !recovery) return;
       const stored = recovery.saveLocalDraft({
-        body: text.value, bodyRich: richEditor.getDocument(),
+        body: text.value, bodyRich: richEditor.getDocument(), title:root.querySelector('#qc-name').value, scheduleMode:root.querySelector('#qc-mode').value,
         projectId: root.querySelector('#qc-project').value,
         scheduledAtLocal: root.querySelector('#qc-datetime').value,
         scheduleTimezone: state.restoredScheduleTimezone || projectTimezone(root.querySelector('#qc-project').value),
@@ -925,8 +930,42 @@ export async function openQuickComposer(options = {}) {
       refreshPreview();
     });
 
+    const reusableTypes={SNIPPET:'Фрагменты',CTA:'CTA',SIGNATURE:'Подписи',HASHTAG_SET:'Хэштеги'};
+    function refreshReusableBlocks(){
+      const projectId=root.querySelector('#qc-project').value;
+      const picker=root.querySelector('#reusable-block-select');
+      picker.innerHTML=Object.entries(reusableTypes).map(([type,label])=>{
+        const rows=templates.filter(item=>item.projectId===projectId&&item.templateType===type);
+        return rows.length?'<optgroup label="'+html(label)+'">'+rows.map(item=>'<option value="'+html(item.id)+'">'+html(item.name)+'</option>').join('')+'</optgroup>':'';
+      }).join('')||'<option value="">Нет заготовок для этого проекта</option>';
+      root.querySelector('#apply-reusable-block').disabled=!picker.value;
+    }
+    root.querySelector('#toggle-reusable-blocks').addEventListener('click',()=>{
+      const picker=root.querySelector('#reusable-block-picker');picker.hidden=!picker.hidden;refreshReusableBlocks();
+    });
+    root.querySelector('#apply-reusable-block').addEventListener('click',()=>{
+      const block=templates.find(item=>item.id===root.querySelector('#reusable-block-select').value&&item.projectId===root.querySelector('#qc-project').value&&reusableTypes[item.templateType]);
+      if(!block||state.busy)return;
+      richEditor.insertDocument(block.bodyRich);root.querySelector('#reusable-block-picker').hidden=true;richEditor.focus();
+    });
+    function syncScheduleField(){
+      root.querySelector('#qc-date-field').hidden=root.querySelector('#qc-mode').value!=='AT';
+      root.querySelector('#qc-schedule').textContent=root.querySelector('#qc-mode').value==='QUEUE'?'В очередь':'Запланировать';
+    }
+    root.querySelector('#qc-mode').addEventListener('change',()=>{
+      state.scheduleMode=root.querySelector('#qc-mode').value;syncScheduleField();markDirty();
+    });
+    root.querySelector('#qc-name').addEventListener('input',markDirty);
+    root.querySelector('#qc-project-targets')?.addEventListener('click',()=>{
+      if(state.busy||state.finished||state.uncertainPublish)return;
+      const ids=new Set(state.projects.find(project=>project.id===root.querySelector('#qc-project').value)?.defaultTargetAccountIds||[]);
+      root.querySelectorAll('input[name="qc-account"]').forEach(input=>input.checked=!input.disabled&&ids.has(input.value));
+      markDirty();refreshPreview();
+    });
+    refreshReusableBlocks();syncScheduleField();
     root.querySelector('#qc-project').addEventListener('change', () => {
       state.restoredScheduleTimezone = null;
+      refreshReusableBlocks();
       markDirty();
       showTimezone();
     });
@@ -962,12 +1001,14 @@ export async function openQuickComposer(options = {}) {
 
     function snapshotOperation(action, chosen) {
       const projectId = root.querySelector('#qc-project').value;
-      const mode = action === 'schedule' ? 'AT' : action === 'save' ? state.scheduleMode : 'MANUAL';
+      const mode = action === 'schedule' ? (state.scheduleMode==='QUEUE'?'QUEUE':'AT') : action === 'save' ? state.scheduleMode : 'MANUAL';
       const scheduledAtLocal = root.querySelector('#qc-datetime').value;
       const ambiguousOffset = root.querySelector('#qc-ambiguous').value;
       return Object.freeze({
         exactScheduledAt: options.scheduledAt && scheduledAtLocal === state.prefilledLocal ? options.scheduledAt : null,
         action, mode, projectId, scheduledAtLocal, ambiguousOffset,
+        title:root.querySelector('#qc-name').value.trim(),
+        requiresQueueToAt:Boolean(state.savedId&&state.savedScheduleMode==='QUEUE'&&mode==='AT'),
         scheduleTimezone: mode === 'AT'
           ? (state.savedId && state.scheduleMode === 'AT' && state.scheduleTimezone
             ? state.scheduleTimezone : (state.restoredScheduleTimezone || projectTimezone(projectId)))
@@ -991,11 +1032,12 @@ export async function openQuickComposer(options = {}) {
 
     function createPayload(projectId, operation) {
       const payload = {
-        projectId, title: titleFromText(operation.body), body: operation.body,
+        projectId, title: operation.title || titleFromText(operation.body), body: operation.body,
         bodyRich: operation.bodyRich,
         contentFormat: operation.images.length || operation.video ? 'MEDIA' : 'TEXT_ONLY',
         scheduleMode: operation.mode
       };
+      if(operation.requiresQueueToAt)payload.confirmQueueToAt=true;
       if (operation.mode === 'AT') {
         if (!operation.scheduledAtLocal) throw new Error('Укажите дату и время публикации.');
         if(operation.exactScheduledAt)payload.scheduledAt=operation.exactScheduledAt;
@@ -1039,7 +1081,7 @@ export async function openQuickComposer(options = {}) {
           state.uncertainPublish = !rejected;
           if (rejected) {
             recovery.saveLocalDraft({
-              body: operation.body, bodyRich:operation.bodyRich, projectId: operation.projectId,
+              body: operation.body, bodyRich:operation.bodyRich, title:operation.title,scheduleMode:operation.mode, projectId: operation.projectId,
               scheduledAtLocal: operation.scheduledAtLocal,
               scheduleTimezone: operation.scheduleTimezone,
               ambiguousOffset: operation.ambiguousOffset,
@@ -1062,6 +1104,7 @@ export async function openQuickComposer(options = {}) {
         state.version = updated.contentVersion;
       }
       state.scheduleMode = operation.mode;
+      state.savedScheduleMode=operation.mode;
       state.scheduleTimezone = operation.scheduleTimezone;
       const updatedTargets = await request('/api/posts/' + encodeURIComponent(state.savedId) + '/targets', {
         method: 'PUT',
@@ -1228,14 +1271,16 @@ export async function openQuickComposer(options = {}) {
       if (action !== 'save' && !operation.accountIds.length) {
         setStatus('Выберите хотя бы одно подключение.', true); return;
       }
-      if (action === 'schedule' && !operation.scheduledAtLocal) {
+      if (action === 'schedule' && operation.mode==='AT' && !operation.scheduledAtLocal) {
+        root.querySelector('#qc-mode').value='AT';state.scheduleMode='AT';syncScheduleField();
         root.querySelector('.qc-advanced').open = true;
         setStatus('Чтобы запланировать, укажите дату и время в дополнительных настройках.', true);
         root.querySelector('#qc-datetime').focus();
         return;
       }
+      if(operation.requiresQueueToAt&&!window.confirm('Преобразовать публикацию из очереди в точное время?'))return;
       if (action !== 'save') {
-        const what = action === 'send' ? 'Опубликовать сейчас' : 'Запланировать публикацию';
+        const what = action === 'send' ? 'Опубликовать сейчас' : operation.mode==='QUEUE' ? 'Подготовить публикацию для автоматической очереди' : 'Запланировать публикацию';
         if (!window.confirm(what + ' в ' + chosen.length + ' выбранных подключениях?\n\n' +
           chosen.map(accountLabel).join('\n') + '\n\nПроверьте текст и фотографии.')) return;
       }
@@ -1277,7 +1322,7 @@ export async function openQuickComposer(options = {}) {
           } else {
             state.dirty = false;
             state.finished = true;
-            setStatus('Публикация запланирована. Её статус можно проверить в списке публикаций.');
+            setStatus(operation.mode==='QUEUE'?'Публикация готова для автоматических правил очереди.':'Публикация запланирована. Её статус можно проверить в списке публикаций.');
           }
         } else {
           state.dirty = false;
@@ -1335,6 +1380,7 @@ export async function openQuickComposer(options = {}) {
       const local=part('year')+'-'+part('month')+'-'+part('day')+'T'+part('hour')+':'+part('minute');
       root.querySelector('#qc-datetime').value=local;
       state.prefilledLocal=local;state.scheduleMode='AT';state.restoredScheduleTimezone=zone;
+      root.querySelector('#qc-mode').value='AT';syncScheduleField();root.querySelector('.qc-dialog').dataset.exactScheduledAt=options.scheduledAt;
       root.querySelector('.qc-advanced').open=true;showTimezone();
     }
     const previous = recovery?.read();
@@ -1355,6 +1401,9 @@ export async function openQuickComposer(options = {}) {
         root.querySelectorAll('input[name="qc-account"]').forEach((input) => {
           input.checked = !input.disabled && validIds.has(input.value);
         });
+        root.querySelector('#qc-name').value=typeof previous.title==='string'?previous.title:'';
+        state.scheduleMode=['MANUAL','AT','QUEUE'].includes(previous.scheduleMode)?previous.scheduleMode:(previous.scheduledAtLocal?'AT':'MANUAL');
+        root.querySelector('#qc-mode').value=state.scheduleMode;syncScheduleField();refreshReusableBlocks();
         state.dirty = true;
         if (typeof previous.scheduleTimezone === 'string' && previous.scheduleTimezone) {
           try {
