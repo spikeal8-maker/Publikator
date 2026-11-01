@@ -92,3 +92,7 @@
  .publication-edit-layout[data-pane=preview]>#post-form{display:none!important}
  .publication-edit-layout[data-pane=edit]>.editor-media-host{display:none!important}
 }
+
+#post-form .editor-help[open]{z-index:80}
+#post-form .editor-help[open]>div,.sp-help[open]>div{z-index:100}
+.editor-help-dismiss,.sp-help-dismiss{float:right;margin:0 0 6px 8px!important;width:28px!important;height:28px;min-height:28px!important;border:1px solid #dce3ed!important;border-radius:6px!important;background:white!important;padding:0!important;font-size:18px!important;color:#536780!important}

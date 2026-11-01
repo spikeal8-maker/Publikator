@@ -336,6 +336,14 @@ async function postEditor(postId,options={}){
   const topClose=document.createElement('button');topClose.type='button';topClose.className='publication-editor-close';topClose.setAttribute('aria-label','Закрыть публикацию');topClose.textContent='×';heading?.after(topClose);topClose.onclick=()=>m.remove();
   m.querySelector('#close-modal').onclick=()=>m.remove();
   const form=m.querySelector('#post-form');
+  m.addEventListener('toggle',event=>{
+   const details=event.target;
+   if(!(details instanceof HTMLDetailsElement)||!details.classList.contains('editor-help')||!details.open)return;
+   const content=details.querySelector(':scope > div');if(!content||content.querySelector('.editor-help-dismiss'))return;
+   const close=document.createElement('button');close.type='button';close.className='editor-help-dismiss';close.textContent='×';close.setAttribute('aria-label','Закрыть подсказку');
+   close.onclick=()=>{details.open=false;};content.prepend(close);
+  },true);
+
   m.querySelector('.modal-card')?.classList.add('publication-has-media');
   const layout=document.createElement('div');layout.className='publication-edit-layout';form.before(layout);
   const host=document.createElement('div');host.className='editor-media-host';layout.append(host,form);

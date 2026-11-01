@@ -212,7 +212,7 @@ try {
   assert.equal(await page.locator('.editor-media-host').isVisible(),false);
   await page.locator('#post-form .editor-help summary').first().click();
   assert.match(await page.locator('#post-form .editor-help[open]').innerText(),/Сохранение не отправляет/);
-  await page.locator('#post-form .editor-help summary').first().click();
+  await page.locator('#post-form .editor-help[open] .editor-help-dismiss').click();
   await page.locator('#close-modal').click();
  }
  await page.setViewportSize({width:1440,height:1000});
