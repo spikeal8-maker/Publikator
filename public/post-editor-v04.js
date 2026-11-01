@@ -258,6 +258,7 @@ function enhanceMediaOrdering(form, post, rerenderAll) {
           if (itemNode) mediaList.append(itemNode);
         });
         sync();
+        form.dispatchEvent(new CustomEvent('publikator:media-order-changed',{bubbles:true}));
         rerenderAll();
       };
 

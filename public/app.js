@@ -1,3 +1,4 @@
+import { mountSocialPreview, previewMedia } from './social-post-preview-v1.js';
 import { scheduleModeLabel, statusLabel } from './presentation-labels.js';
 import { publicationFormatLabel } from './presentation-labels.js';
 import { mountRichTextEditor, plainTextToRichDocument } from './rich-text-editor-v1.js';
@@ -335,18 +336,54 @@ async function postEditor(postId,options={}){
   const topClose=document.createElement('button');topClose.type='button';topClose.className='publication-editor-close';topClose.setAttribute('aria-label','Закрыть публикацию');topClose.textContent='×';heading?.after(topClose);topClose.onclick=()=>m.remove();
   m.querySelector('#close-modal').onclick=()=>m.remove();
   const form=m.querySelector('#post-form');
-  if(post?.media?.length){
-   m.querySelector('.modal-card')?.classList.add('publication-has-media');
-   const layout=document.createElement('div');layout.className='publication-edit-layout';form.before(layout);
-   const host=document.createElement('div');host.className='editor-media-host';layout.append(host,form);
-   const cleanup=window.PublikatorMediaViewer?.mount?.(host,post)||(()=>{});
-   const removal=new MutationObserver(()=>{if(!m.isConnected){cleanup();removal.disconnect();}});removal.observe(document.body,{childList:true});
-  }
+  m.querySelector('.modal-card')?.classList.add('publication-has-media');
+  const layout=document.createElement('div');layout.className='publication-edit-layout';form.before(layout);
+  const host=document.createElement('div');host.className='editor-media-host';layout.append(host,form);
+  const preview=mountSocialPreview(host);
+  let savedPreviews=[],previewTimer=null,previewRequest=0;
+  const refreshPreview=()=>{
+   const body=form.querySelector('textarea[name="body"]')?.value||'';
+   const doc=form.querySelector('[data-rich-text-editor]')?.richTextEditor?.getDocument?.()||post?.bodyRich;
+   const selected=[...form.querySelectorAll('input[name="accountId"]:checked')].map(input=>input.value);
+   const rows=accounts.filter(account=>selected.includes(account.id)).map(account=>{
+    const saved=savedPreviews.find(row=>row.accountId===account.id);
+    const target=post?.targets?.find(row=>row.account_id===account.id);
+    const ownEditor=[...form.querySelectorAll('.platform-editor-card')].find(card=>card.dataset.accountId===account.id)?.richTextEditor;
+    const ownDocument=ownEditor?.getDocument?.();
+    const ownText=ownEditor?.getPlainText?.();
+    const hasOwn=Boolean(target?.textRich||target?.textPlain||target?.override_text);
+    const localBase=body!==String(post?.body||'');
+    const localOwn=hasOwn&&ownText!=null&&ownText!==saved?.text;
+    const local=localBase||localOwn||!saved;
+    return {...saved,accountId:account.id,accountName:account.name,platform:account.platform,
+     publicationKind:post?.publication_kind||'FEED',
+     text:hasOwn?(ownText??target.textPlain??target.override_text??body):body,
+     resolvedRichText:hasOwn?(ownDocument||target.textRich||saved?.resolvedRichText):doc,
+     ...(local?{compilation:null,localDraft:true,issues:[]}:{}),
+     media:saved?.media||previewMedia(post)};
+   });
+   preview.update(rows);
+  };
+  const reloadPreview=async()=>{
+   if(!post)return refreshPreview();
+   const token=++previewRequest;
+   try{
+    const payload=await api('/api/posts/'+encodeURIComponent(post.id)+'/platform-previews');
+    if(!m.isConnected||token!==previewRequest)return;
+    savedPreviews=payload.previews||[];refreshPreview();
+   }catch{if(m.isConnected)refreshPreview();}
+  };
+  const queuePreview=()=>{clearTimeout(previewTimer);previewTimer=setTimeout(refreshPreview,120);};
+  form.addEventListener('input',queuePreview);form.addEventListener('change',queuePreview);
+  form.addEventListener('publikator:media-order-changed',()=>reloadPreview());
+  const versionObserver=new MutationObserver(()=>reloadPreview());versionObserver.observe(form,{attributes:true,attributeFilter:['data-content-version']});
+  const removal=new MutationObserver(()=>{if(!m.isConnected){preview.dispose();clearTimeout(previewTimer);versionObserver.disconnect();removal.disconnect();}});removal.observe(document.body,{childList:true});
+  queueMicrotask(reloadPreview);
   form.dataset.exactScheduledAt=initialExactScheduledAt;
   const scheduledInput=form.querySelector('input[name="scheduledAt"]');
   scheduledInput?.addEventListener('input',()=>{form.dataset.exactScheduledAt='';});
   const bodyFallback=form.querySelector('textarea[name="body"]');
-  const initialRichDocument=post?.bodyRich || plainTextToRichDocument(post?.body || '');
+  const initialRichDocument=options.draftState?.bodyRich||post?.bodyRich || plainTextToRichDocument(post?.body || '');
   const richEditor=mountRichTextEditor(form.querySelector('[data-rich-text-editor]'),{
     document:initialRichDocument,
     onChange:(documentValue,plain)=>{
@@ -368,6 +405,11 @@ async function postEditor(postId,options={}){
     blockPicker.classList.add('hidden');
     richEditor.focus();
   };
+  if(options.draftState){
+   for(const [name,value] of Object.entries(options.draftState.fields||{})){const input=form.elements.namedItem(name);if(input)input.value=value;}
+   for(const input of form.querySelectorAll('input[name="accountId"]'))input.checked=options.draftState.accounts.includes(input.value);
+   form.dataset.exactScheduledAt=options.draftState.exactScheduledAt||'';
+  }
   syncPostEditorScheduleField(form);
   const saveDraft=async()=>{
     const f=new FormData(form);
@@ -405,6 +447,17 @@ async function postEditor(postId,options={}){
     m.querySelectorAll('.retry-target').forEach(b=>b.onclick=async()=>{try{await api(`/api/targets/${b.dataset.id}/retry`,{method:'POST'});m.remove();await postEditor(post.id);}catch(err){m.querySelector('#post-error').textContent=err.message;}});
   }
 }
+window.publikatorReopenEditor=async(postId)=>{
+ const form=document.querySelector('#post-form');
+ const draftState=form?{
+  fields:Object.fromEntries(['projectId','title','scheduleMode','postFormat','scheduledAt'].map(name=>[name,form.elements.namedItem(name)?.value||''])),
+  accounts:[...form.querySelectorAll('input[name="accountId"]:checked')].map(input=>input.value),
+  bodyRich:form.querySelector('[data-rich-text-editor]')?.richTextEditor?.getDocument?.(),
+  exactScheduledAt:form.dataset.exactScheduledAt
+ }:null;
+ form?.closest('.modal')?.remove();
+ await postEditor(postId,{draftState});
+};
 window.publikatorPostEditor=postEditor;
 function vkDestinationSuffix(account){if(account?.platform!=='vk')return'';if(account.destination_kind==='PERSONAL')return' · личная страница';if(account.destination_kind==='COMMUNITY')return' · сообщество';return'';}
 function targetsHtml(targets=[]){return `<h3>Площадки</h3><table class="table"><thead><tr><th>Площадка</th><th>Статус</th><th>Попытки</th><th>Ошибка</th><th></th></tr></thead><tbody>${targets.map(t=>`<tr><td>${esc(t.platform)} / ${esc(t.account_name)}${vkDestinationSuffix(t)}</td><td>${badge(t.state)}</td><td>${t.attempts}</td><td class="small error">${esc(t.last_error||'')}</td><td>${['FAILED','RETRY','RECOVERY_NEEDED'].includes(t.state)?`<button class="secondary retry-target" data-id="${t.id}">Повторить</button>`:''}</td></tr>`).join('')||'<tr><td colspan="5">Цели появятся после READY</td></tr>'}</tbody></table>`;}

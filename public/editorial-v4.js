@@ -1,3 +1,4 @@
+import { mountSocialPreview } from './social-post-preview-v1.js';
 import { publicationFormatLabel, scheduleModeLabel, sourceLabel, statusLabel } from './presentation-labels.js';
 import { openRevisionHistory } from './revision-history-v1.js';
 import { renderRichText } from './rich-text-editor-v1.js';
@@ -200,13 +201,16 @@ async function openContentInspector(postId) {
   document.body.append(overlay);
   const richHost=overlay.querySelector('[data-inspector-rich-text]');
   if(richHost)renderRichText(richHost,post.bodyRich);
-  const mediaCleanup = window.PublikatorMediaViewer?.mount?.(overlay.querySelector('.inspector-media-host'), post) || (() => {});
+  const mediaHost=overlay.querySelector('.inspector-media-host');
+  const socialPreview=mountSocialPreview(mediaHost);
+  editorialRequest('/api/posts/'+encodeURIComponent(post.id)+'/platform-previews').then(payload=>{
+   if(overlay.isConnected)socialPreview.update((payload.previews||[]).filter(item=>item.enabled));
+  }).catch(error=>{if(overlay.isConnected)mediaHost.textContent='Не удалось загрузить предпросмотр: '+error.message;});
+  const mediaCleanup=()=>socialPreview.dispose();
   const inspectorElement = overlay.querySelector('.editorial-inspector');
-  if(post.media?.length){
-   inspectorElement.classList.add('publication-reader');
-   const host=overlay.querySelector('.inspector-media-host'),grid=overlay.querySelector('.inspector-grid');
-   const layout=document.createElement('div');layout.className='publication-reader-layout';host.before(layout);layout.append(host,grid);
-  }
+  inspectorElement.classList.add('publication-reader');
+  const grid=overlay.querySelector('.inspector-grid');
+  const readerLayout=document.createElement('div');readerLayout.className='publication-reader-layout';mediaHost.before(readerLayout);readerLayout.append(mediaHost,grid);
   const close = () => {
     document.dispatchEvent(new CustomEvent('publikator:editorial-inspector-closed', {
       detail: { postId: post.id, inspector: inspectorElement }

@@ -85,10 +85,10 @@ try {
   await contentRow('Delayed preview inspector').getByRole('button', { name: 'Сведения', exact: true }).click();
   let overlay = page.locator('.editorial-inspector-overlay');
   await overlay.waitFor({ state: 'visible', timeout: 9000 });
-  let previews = overlay.locator('.platform-preview-section');
+  let previews = overlay.locator('.inspector-media-host.social-preview');
   await previews.waitFor({ state: 'visible', timeout: 5000 });
-  await previews.locator('.platform-preview-card').first().waitFor({ state: 'visible' });
-  assert.equal(await previews.locator('.platform-preview-card').count(), 2);
+  await previews.locator('[role="tab"]').first().waitFor({ state: 'visible' });
+  assert.equal(await previews.locator('[role="tab"]').count(), 2);
   assert.equal(slowRequestCount, 1, 'the 1900ms delayed inspector GET must be intercepted');
   assert.ok(previewCalls.some(url => url.includes(posts[0].id)), 'previews must request opened post ID');
 
@@ -100,8 +100,8 @@ try {
   await contentRow('Second preview inspector').getByRole('button', { name: 'Сведения', exact: true }).click();
   overlay = page.locator('.editorial-inspector-overlay');
   await overlay.waitFor({ state: 'visible', timeout: 6000 });
-  await overlay.locator('.platform-preview-section .platform-preview-card').first().waitFor({ state: 'visible' });
-  assert.equal(await overlay.locator('.platform-preview-section .platform-preview-card').count(), 2);
+  await overlay.locator('.inspector-media-host.social-preview [role="tab"]').first().waitFor({ state: 'visible' });
+  assert.equal(await overlay.locator('.inspector-media-host.social-preview [role="tab"]').count(), 2);
   assert.ok(previewCalls.some(url => url.includes(posts[1].id)), 'second inspector must request second post ID');
   await overlay.locator('.inspector-close').click();
   await overlay.waitFor({ state: 'detached' });

@@ -74,10 +74,9 @@ function currentVersion(form) {
 }
 
 function reopenEditor(postId) {
-  const modal = document.querySelector('.modal-card #post-form')?.closest('.modal');
-  modal?.remove();
-  const button = [...document.querySelectorAll('.open-post')].find((item) => item.dataset.id === postId);
-  if (button) button.click();
+ if(window.publikatorReopenEditor)return window.publikatorReopenEditor(postId);
+ const modal=document.querySelector('.modal-card #post-form')?.closest('.modal');modal?.remove();
+ return window.publikatorPostEditor?.(postId);
 }
 
 function mediaItemHtml(item) {
@@ -125,10 +124,24 @@ function renderAuthoringMedia(form, post) {
   bindDeleteButtons(form, post);
 
   fileInput.accept = 'image/*,video/mp4';
+  fileInput.multiple = true;
   const hasVideo = items.some((item) => item.isVideo);
   fileInput.disabled = hasVideo;
   fileInput.title = hasVideo ? 'Video v1 содержит один ролик. Сначала удалите текущее видео.' : 'JPEG/PNG/WebP или MP4 H.264 + AAC';
 
+  let actions=form.querySelector('.sp-media-actions');
+  if(!actions){
+   actions=document.createElement('div');actions.className='sp-media-actions';
+   actions.innerHTML='<button type="button" class="secondary sp-add-photos">+ Добавить фото</button><button type="button" class="secondary sp-add-video">+ Добавить видео</button><span class="small muted" data-media-count></span><input id="editor-video-file" type="file" accept="video/mp4" hidden>';
+   list.before(actions);
+   actions.querySelector('.sp-add-photos').onclick=()=>{fileInput.accept='image/*';fileInput.multiple=true;fileInput.click();};
+   actions.querySelector('.sp-add-video').onclick=()=>actions.querySelector('#editor-video-file').click();
+   actions.querySelector('#editor-video-file').onchange=event=>form.uploadPublicationFiles?.([...event.target.files]);
+  }
+  actions.querySelector('[data-media-count]').textContent=items.length+' файлов';
+  actions.querySelector('.sp-add-photos').disabled=hasVideo;
+  actions.querySelector('.sp-add-video').disabled=items.length>0;
+  actions.querySelector('.sp-add-video').title=items.length?'Для видео создайте отдельную публикацию или удалите фотографии':'Выбрать MP4 (H.264, AAC или без звука)';
   const mediaBlock = list.parentElement;
   const heading = mediaBlock?.querySelector(':scope > strong');
   if (heading) heading.textContent = 'Медиа';
@@ -214,41 +227,43 @@ async function enhanceEditor(form, postId) {
   form.dataset.videoAuthoringEnhanced = '1';
   editorStates.set(form, { post });
   renderAuthoringMedia(form, post);
-
-  const fileInput = form.querySelector('#media-file');
-  if (fileInput) {
-    fileInput.onchange = async () => {
-      try {
-        setError(form, '');
-        const file = fileInput.files?.[0];
-        if (!file) return;
-        const projection = publicationMediaProjection(post);
-        const isVideo = file.type === 'video/mp4';
-        const isImage = String(file.type || '').startsWith('image/');
-        if (!isVideo && !isImage) throw new Error('Поддерживаются изображения и MP4 video/mp4.');
-        if (isVideo && projection.items.length) {
-          throw new Error('Для Video v1 пост должен быть без других медиа. Сначала удалите текущие изображения/видео.');
-        }
-        if (projection.items.some((item) => item.isVideo)) {
-          throw new Error('Video v1 содержит один ролик. Сначала удалите текущее видео.');
-        }
-        const data = new FormData();
-        data.set('file', file, file.name);
-        const endpoint = isVideo ? `/api/posts/${encodeURIComponent(post.id)}/video` : `/api/posts/${encodeURIComponent(post.id)}/media`;
-        const uploaded = await requestJson(endpoint, {
-          method: 'POST',
-          body: data,
-          headers: { 'x-content-version': String(currentVersion(form)) }
-        });
-        form.dataset.contentVersion = String(uploaded.contentVersion);
-        reopenEditor(post.id);
-      } catch (error) {
-        fileInput.value = '';
-        setError(form, error instanceof Error ? error.message : String(error));
-      }
-    };
+  const availability=await requestJson('/api/platform-capabilities').catch(()=>null);
+  if(form.isConnected&&availability){
+   const supported=(availability.capabilities||[]).filter(item=>item.supportsVideo).map(item=>({telegram:'Telegram',vk:'VK',max:'MAX',instagram:'Instagram'})[item.platform]||item.platform);
+   const note=document.createElement('div');note.className='sp-video-availability';
+   note.textContent=supported.length?'Отправка видео: '+supported.join(', ')+'.':'MP4 можно сохранить и посмотреть. Отправка видео на площадки пока не подключена.';
+   form.querySelector('.sp-media-actions')?.after(note);
   }
 
+  const fileInput = form.querySelector('#media-file');
+  const uploadFiles=async(files)=>{
+   if(!files.length||form.dataset.mediaBusy==='1')return;
+   form.dataset.mediaBusy='1';
+   const controls=[...form.querySelectorAll('button[type="submit"],#mark-ready,#publish-now,.sp-media-actions button,.delete-authoring-media,.move-media')];
+   const previous=controls.map(button=>button.disabled);controls.forEach(button=>button.disabled=true);
+   try{
+    setError(form,'');
+    const projection=publicationMediaProjection(post);
+    if(projection.items.some(item=>item.isVideo))throw new Error('Видеопубликация содержит один ролик. Сначала удалите текущее видео.');
+    if(files.some(file=>file.type==='video/mp4')&&(files.length!==1||projection.items.length))throw new Error('Видео добавляется отдельно от фотографий. Создайте отдельную публикацию или удалите фотографии.');
+    for(const [index,file] of files.entries()){
+     const isVideo=file.type==='video/mp4';
+     if(!isVideo&&!String(file.type).startsWith('image/'))throw new Error('Выберите изображения или MP4.');
+     setError(form,'Загрузка '+(index+1)+' из '+files.length+'…');
+     const data=new FormData();data.set('file',file,file.name);
+     const result=await requestJson('/api/posts/'+encodeURIComponent(post.id)+(isVideo?'/video':'/media'),{method:'POST',body:data,headers:{'x-content-version':String(currentVersion(form))}});
+     form.dataset.contentVersion=String(result.contentVersion);
+    }
+    setError(form,'');reopenEditor(post.id);
+   }catch(error){
+    setError(form,(error instanceof Error?error.message:String(error))+' Уже загруженные файлы сохранены. Закройте и откройте публикацию, чтобы увидеть их.');
+   }finally{
+    form.dataset.mediaBusy='';controls.forEach((button,index)=>button.disabled=previous[index]);if(fileInput)fileInput.value='';
+   }
+  };
+  // The shared controls are rendered below after uploadFiles has been initialized.
+  form.uploadPublicationFiles=uploadFiles;
+  if(fileInput)fileInput.onchange=()=>uploadFiles([...fileInput.files||[]]);
   const rerenderTriggers = form.querySelectorAll('textarea, input[name="accountId"], select[name="postFormat"]');
   rerenderTriggers.forEach((node) => node.addEventListener('input', queueSync));
   rerenderTriggers.forEach((node) => node.addEventListener('change', queueSync));

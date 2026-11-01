@@ -84,7 +84,7 @@ try {
  await page.locator('#post-form').waitFor();
  assert.equal(await page.locator('.editorial-inspector-overlay').count(),0,'Editable row must open the editor directly');
  const editorBounds=await page.locator('.publication-editor').boundingBox();assert.ok(editorBounds.width>=1100,'Desktop editor must use the available screen width');
- const desktopMedia=await page.locator('.editor-media-host .viewer-stage').boundingBox();
+ const desktopMedia=await page.locator('.editor-media-host .sp-media').boundingBox();
  assert.ok(desktopMedia.width>=450,'Single image must use the main preview width');
  assert.ok(desktopMedia.height>=350,'Single image must have a large preview');
  await page.locator('.publication-editor-close').click();
@@ -102,7 +102,7 @@ try {
  await published.locator('.open-post').click();
  await page.locator('.editorial-inspector-overlay').waitFor();
  assert.equal(await page.locator('.inspector-edit').count(),0);
- const readonlyMedia=await page.locator('.publication-reader .viewer-stage').boundingBox();assert.ok(readonlyMedia.width>=450);
+ const readonlyMedia=await page.locator('.publication-reader .sp-media').boundingBox();assert.ok(readonlyMedia.width>=450);
  await page.locator('.inspector-dismiss').click();
  await page.locator('#quick-new-post').click();
  await page.locator('#qc-text').fill('UI draft created through Publications');
@@ -140,8 +140,8 @@ try {
   assert.match(await page.locator('.posts-toolbar>.posts-help[open]').innerText(),/повторная отправка/);
   await page.locator('.posts-toolbar>.posts-help summary').click();
   await page.locator('tr[data-post-id="'+seeded[0].id+'"] .open-post').click();
-  await page.locator('.editor-media-host .viewer-stage').waitFor();
-  const phoneMedia=await page.locator('.editor-media-host .viewer-stage').boundingBox();assert.ok(phoneMedia.width>=width-70&&phoneMedia.height>=220,'Phone image must be large');
+  await page.locator('.editor-media-host .sp-media').waitFor();
+  const phoneMedia=await page.locator('.editor-media-host .sp-media').boundingBox();assert.ok(phoneMedia.width>=width-70&&phoneMedia.height>=220,'Phone image must be large');
   await page.locator('.publication-editor-close').click();
   await savedRow.locator('.open-post').click();
   await page.locator('#post-form').waitFor();
