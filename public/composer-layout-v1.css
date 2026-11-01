@@ -58,3 +58,5 @@
 .publication-composer .composer-text>.editor-help{float:right;margin:0 0 4px 8px}.publication-composer .composer-text>.editor-help>summary{width:24px;height:24px}.publication-composer #post-form .video-authoring-help[hidden]{display:none}
 
 .publication-composer .qc-head{min-height:0!important;height:auto!important;flex:0 0 auto!important}.publication-composer .qc-head>div{padding:0!important;margin:0!important}
+
+.publication-composer .qc-head{height:57px!important;flex-basis:57px!important}.publication-composer .composer-heading{line-height:24px!important}@media(max-width:900px){.publication-composer .qc-head{height:49px!important;flex-basis:49px!important}}
