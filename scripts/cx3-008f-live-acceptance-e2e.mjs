@@ -5,7 +5,9 @@ const core = await import('../dist/platforms/live-video-acceptance.js');
 const { PLATFORM_CAPABILITIES } = await import('../dist/platforms/capabilities.js');
 
 for (const platform of ['telegram', 'vk', 'max', 'instagram']) {
-  assert.equal(PLATFORM_CAPABILITIES[platform].supportsVideo, false, `${platform} must remain live-gated`);
+  assert.equal(PLATFORM_CAPABILITIES[platform].supportsVideo, platform !== 'instagram', `${platform} implemented feed-video scope`);
+  assert.equal(PLATFORM_CAPABILITIES[platform].supportsStories, false);
+  assert.equal(PLATFORM_CAPABILITIES[platform].supportsShortVideo, false);
   assert.equal(PLATFORM_CAPABILITIES[platform].verification.richMediaPendingLiveAcceptance, true);
 }
 
@@ -186,7 +188,7 @@ assert.equal(packageJson.scripts['live:video:accept'], 'node dist/cli/live-video
 console.log(JSON.stringify({
   ok: true,
   checkpoint: 'CX3-008F',
-  capabilityStillClosed: true,
+  instagramVideoStillClosed: true,
   productionAccountAndMediaIds: true,
   targetFreeSourcePost: true,
   sourceDraftQuarantine: true,
