@@ -53,7 +53,7 @@ for (const contract of ['.ui-mobile-menu', '@media (max-width: 820px)', '.table-
 }
 assert.ok(css.includes('.brand::after'), 'legacy compact-brand pseudo element must be suppressed');
 const calendarCss=await fs.readFile(new URL('../public/calendar-v3.css',import.meta.url),'utf8');
-assert.match(calendarCss,/grid-template-columns:\\s*repeat\\(7,\\s*minmax\\(0,\\s*1fr\\)\\)/,'mobile calendar must fit seven columns');
+assert.match(calendarCss,/grid-template-columns:\s*repeat\(7,\s*minmax\(0,\s*1fr\)\)/,'mobile calendar must fit seven columns');
 assert.ok(css.includes('overscroll-behavior-inline: contain'), 'mobile library tabs must scroll internally');
 assert.ok(css.includes('html[data-page="content"] .table tbody tr'), 'mobile content cards contract missing');
 assert.ok(!css.includes('.ui-internal-status'), 'obsolete hidden raw status selector must be removed');

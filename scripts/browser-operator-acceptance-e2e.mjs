@@ -1334,11 +1334,11 @@ try {
   await page.locator('.calendar-help summary').click();
   assert.match(await page.locator('.calendar-help[open]').innerText(), /Часовой пояс:/);
   await page.locator('.calendar-help summary').click();
-  let calendarFixtureCard = page.locator(`[data-calendar-post="${calendarFixture.id}"]`);
-  await calendarFixtureCard.waitFor({ state: 'visible' });
-  const fixtureDay=await calendarFixtureCard.evaluate(node=>node.closest('[data-calendar-day]').dataset.calendarDay);
+  const fixtureInstant=new Date(calendarFixture.scheduled_at_utc);
+  const fixtureDay=fixtureInstant.getFullYear()+'-'+String(fixtureInstant.getMonth()+1).padStart(2,'0')+'-'+String(fixtureInstant.getDate()).padStart(2,'0');
+  await page.locator('.calendar-day-head[data-calendar-select="'+fixtureDay+'"]').waitFor({state:'visible'});
   await page.locator('.calendar-day-head[data-calendar-select="'+fixtureDay+'"]').click();
-  calendarFixtureCard=page.locator('[data-calendar-selected-post="'+calendarFixture.id+'"]');
+  let calendarFixtureCard=page.locator('[data-calendar-selected-post="'+calendarFixture.id+'"]');
   let calendarFixtureText = await calendarFixtureCard.innerText();
   assert.ok(calendarFixtureText.includes('Google Sheets'));
   assert.ok(calendarFixtureText.includes('Готово'));
@@ -1355,8 +1355,7 @@ try {
   for (const raw of ['google_sheets', 'IN_REVIEW', 'READY', 'schedule', 'display', 'Agenda']) assert.ok(!calendarFixtureText.includes(raw), `Calendar list exposes technical presentation: ${raw}`);
 
   await page.locator('[data-calendar-mode="month"]').click();
-  await page.waitForFunction((id) => document.querySelector(`.calendar-card[data-calendar-post="${id}"]`) !== null, calendarFixture.id);
-  calendarFixtureCard = page.locator(`.calendar-card[data-calendar-post="${calendarFixture.id}"]`);
+  await page.locator('.calendar-day-head[data-calendar-select="'+fixtureDay+'"]').waitFor({state:'visible'});
   await page.locator('.calendar-day-head[data-calendar-select="'+fixtureDay+'"]').click();
   assert.ok((await page.locator('[data-calendar-selected-post="'+calendarFixture.id+'"]').innerText()).includes('Google Sheets'), 'Calendar selected-day presentation must survive mode rerender');
 
