@@ -1456,7 +1456,7 @@ try {
   ).get(calendarCreated.id);
   assert.equal(calendarCreatedAfter.scheduled_at_utc, slotDragExact);
   assert.equal(calendarCreatedAfter.schedule_timezone, calendarCreated.schedule_timezone);
-  assert.equal(calendarCreatedAfter.content_version, 2);
+  assert.equal(calendarCreatedAfter.content_version, calendarCreated.content_version+1);
 
   editableCalendarCard = page.locator(`[data-calendar-post="${calendarCreated.id}"]`);
   await editableCalendarCard.locator('.calendar-quick-edit').click();
@@ -1474,7 +1474,7 @@ try {
   ).get(calendarCreated.id);
   assert.equal(calendarCreatedAfter.scheduled_at_utc, quickTarget.toISOString());
   assert.equal(calendarCreatedAfter.schedule_timezone, 'UTC');
-  assert.equal(calendarCreatedAfter.content_version, 3);
+  assert.equal(calendarCreatedAfter.content_version, calendarCreated.content_version+2);
 
   const readyCalendar = await fixtureApi('POST', '/api/posts', {
     projectId: fixtureProjectId,
