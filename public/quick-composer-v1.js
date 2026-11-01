@@ -54,7 +54,7 @@ function readableError(error) {
   return error instanceof Error ? error.message : 'Не удалось выполнить операцию.';
 }
 
-export async function openQuickComposer() {
+export async function openQuickComposer(options = {}) {
   if (openDialog) return;
   const overlay = document.createElement('div');
   overlay.className = 'qc-overlay';
@@ -83,7 +83,7 @@ export async function openQuickComposer() {
     overlay.remove();
     document.body.classList.remove('qc-open');
     openDialog = null;
-    if(state?.savedId)document.dispatchEvent(new CustomEvent('publikator:publication-saved',{detail:{postId:state.savedId}}));
+    if(state?.savedId){document.dispatchEvent(new CustomEvent('publikator:publication-saved',{detail:{postId:state.savedId}}));options.afterSave?.(state.savedId);}
   };
   overlay.querySelector('#qc-close').addEventListener('click', dispose);
   overlay.addEventListener('click', (event) => { if (event.target === overlay) dispose(); });
@@ -953,10 +953,11 @@ export async function openQuickComposer() {
 
     function snapshotOperation(action, chosen) {
       const projectId = root.querySelector('#qc-project').value;
-      const mode = action === 'schedule' ? 'AT' : 'MANUAL';
+      const mode = action === 'schedule' ? 'AT' : action === 'save' ? state.scheduleMode : 'MANUAL';
       const scheduledAtLocal = root.querySelector('#qc-datetime').value;
       const ambiguousOffset = root.querySelector('#qc-ambiguous').value;
       return Object.freeze({
+        exactScheduledAt: options.scheduledAt && scheduledAtLocal === state.prefilledLocal ? options.scheduledAt : null,
         action, mode, projectId, scheduledAtLocal, ambiguousOffset,
         scheduleTimezone: mode === 'AT'
           ? (state.savedId && state.scheduleMode === 'AT' && state.scheduleTimezone
@@ -988,7 +989,8 @@ export async function openQuickComposer() {
       };
       if (operation.mode === 'AT') {
         if (!operation.scheduledAtLocal) throw new Error('Укажите дату и время публикации.');
-        payload.scheduledAtLocal = operation.scheduledAtLocal;
+        if(operation.exactScheduledAt)payload.scheduledAt=operation.exactScheduledAt;
+        else payload.scheduledAtLocal = operation.scheduledAtLocal;
         payload.scheduleTimezone = operation.scheduleTimezone || 'UTC';
         if (operation.ambiguousOffset) payload.ambiguousOffset = operation.ambiguousOffset;
       }
@@ -1317,6 +1319,15 @@ export async function openQuickComposer() {
       setStatus('Начат новый материал. Предыдущий черновик не изменён.');
       text.focus();
     });
+    if(options.scheduleMode === 'AT' && options.scheduledAt){
+      const zone=projectTimezone(root.querySelector('#qc-project').value);
+      const parts=new Intl.DateTimeFormat('en-CA',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(options.scheduledAt));
+      const part=type=>parts.find(item=>item.type===type)?.value;
+      const local=part('year')+'-'+part('month')+'-'+part('day')+'T'+part('hour')+':'+part('minute');
+      root.querySelector('#qc-datetime').value=local;
+      state.prefilledLocal=local;state.scheduleMode='AT';state.restoredScheduleTimezone=zone;
+      root.querySelector('.qc-advanced').open=true;showTimezone();
+    }
     const previous = recovery?.read();
     if (previous?.kind === 'local') {
       if (window.confirm('Есть незавершённая публикация в этой вкладке. Восстановить текст и получателей?' +

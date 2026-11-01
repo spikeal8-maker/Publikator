@@ -71,6 +71,9 @@ jobs:
           set -euo pipefail
           find public -maxdepth 1 -type f -name '*.js' -print0 | sort -z | xargs -0 -n1 node --check
 
+      - name: COMPOSER-UNIFIED-001 shared layout media and responsive authoring
+        run: node scripts/composer-unified-001-e2e.mjs
+
       - name: VIDEO-PUBLISH-001 normal service video delivery and credential safety
         run: node scripts/video-publish-001-e2e.mjs
 
@@ -82,7 +85,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: publikator-publications-layout-screenshots
-          path: test-results/visual-003-publications-*.png
+          path: |
+            test-results/visual-003-publications-*.png
+            test-results/composer-unified-*.png
           if-no-files-found: ignore
           retention-days: 14
 

@@ -1,3 +1,4 @@
+import { openQuickComposer } from './quick-composer-v1.js';
 import { mountComposerLayout, mountMediaGuide } from './composer-layout-v1.js';
 import { mountSocialPreview, previewMedia } from './social-post-preview-v1.js';
 import { scheduleModeLabel, statusLabel } from './presentation-labels.js';
@@ -319,6 +320,7 @@ function exactToLocalInput(value){
 }
 
 async function postEditor(postId,options={}){
+  if(!postId)return openQuickComposer(options);
   const post=postId?await api(`/api/posts/${postId}`):null;
   const prefill=!post&&options&&typeof options==='object'?options:{};
   const initialScheduleMode=post?.schedule_mode||prefill.scheduleMode||'MANUAL';
