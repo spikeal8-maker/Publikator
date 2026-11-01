@@ -121,3 +121,5 @@ html[data-page="calendar"] #view{padding:16px;min-width:0}
 @media(min-width:641px){.calendar-card .calendar-source{display:block;font-size:9px}.calendar-list-card .calendar-source{display:block}}
 .calendar-time-slot .calendar-quick-edit{display:inline-block;grid-column:1/-1;justify-self:start}
 .calendar-time-slot .calendar-card{overflow:hidden}
+
+#calendar-content{min-width:0}
