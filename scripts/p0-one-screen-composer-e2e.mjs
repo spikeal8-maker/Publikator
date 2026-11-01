@@ -549,7 +549,7 @@ try {
   ]);
   page.once('dialog', (dialog) => dialog.dismiss());
   await page.locator('#qc-connect').click();
-  assert.equal(await page.locator('#qc-text').inputValue(), 'Не терять черновик при переходе к соцсетям');
+  assert.equal(await page.locator('#qc-text').evaluate(el=>el.value), 'Не терять черновик при переходе к соцсетям');
   assert.equal(await page.locator('.qc-image').count(), 1);
   await closeComposer();
   db.prepare('UPDATE social_accounts SET enabled=1').run();
@@ -576,7 +576,7 @@ try {
   page.once('dialog', (dialog) => dialog.accept());
   await page.locator('#quick-compose-nav').click();
   await page.locator('#qc-text').waitFor();
-  assert.equal(await page.locator('#qc-text').inputValue(), 'Черновик на телефоне до перезагрузки');
+  assert.equal(await page.locator('#qc-text').evaluate(el=>el.value), 'Черновик на телефоне до перезагрузки');
   assert.equal(await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').isChecked(), true);
   await page.locator('#qc-variant-editor summary').click();
   assert.equal(await page.locator('#qc-variant-text').inputValue(),
@@ -598,7 +598,7 @@ try {
   page.once('dialog', (dialog) => dialog.accept());
   await page.locator('#quick-compose-nav').click();
   await page.locator('#qc-text').waitFor();
-  assert.equal(await page.locator('#qc-text').inputValue(),
+  assert.equal(await page.locator('#qc-text').evaluate(el=>el.value),
     'Черновик на телефоне до перезагрузки — исправлен');
   assert.equal(await page.locator('#qc-missing-media').isVisible(), true,
     'second reload must retain missing-photo warning after text edits');
@@ -631,7 +631,7 @@ try {
   await closeComposer();
   await page.locator('#quick-compose-nav').click();
   await page.locator('#qc-text').waitFor();
-  assert.equal(await page.locator('#qc-text').inputValue(), '',
+  assert.equal(await page.locator('#qc-text').evaluate(el=>el.value), '',
     'confirmed server save must clear tab recovery data');
   await closeComposer();
 
@@ -987,7 +987,7 @@ try {
   page.once('dialog', (dialog) => dialog.accept());
   await page.locator('#quick-compose-nav').click();
   await page.locator('#qc-text').waitFor();
-  assert.equal(await page.locator('#qc-text').inputValue(), 'Восстановление видео после обновления');
+  assert.equal(await page.locator('#qc-text').evaluate(el=>el.value), 'Восстановление видео после обновления');
   assert.equal(await page.locator('#qc-missing-video').isVisible(), true);
   assert.equal(await page.locator('#qc-video-preview video').count(), 0);
   assert.equal(await page.locator('#qc-video-file').isDisabled(), false);
@@ -1033,7 +1033,7 @@ try {
   page.once('dialog', (dialog) => dialog.accept());
   await page.locator('#quick-compose-nav').click();
   await page.locator('#qc-text').waitFor();
-  assert.equal(await page.locator('#qc-text').inputValue(),
+  assert.equal(await page.locator('#qc-text').evaluate(el=>el.value),
     'Проверка восстановления MP4 после отказа сервера');
   assert.equal(await page.locator('#qc-missing-video').isVisible(), true,
     'definitive 4xx must retain video-required across refresh');
@@ -1291,7 +1291,7 @@ try {
   // publication. It must not leave a false unknown-outcome guard.
   assert.equal(await page.locator('#qc-recovery-warning').isVisible(), false,
     'definitive READY 409 must not block the next unrelated composer');
-  assert.equal(await page.locator('#qc-text').isEnabled(), true,
+  assert.equal(await page.locator('#qc-text').evaluate(el=>el.contentEditable==='true'), true,
     'an operator may start a new material without reconciling a known refusal');
   await page.locator('#qc-text').fill('Отдельный вариант после отклонённого создания');
   await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
@@ -1315,7 +1315,7 @@ try {
   page.once('dialog', (dialog) => dialog.accept());
   await page.locator('#quick-compose-nav').click();
   await page.locator('#qc-text').waitFor();
-  assert.equal(await page.locator('#qc-text').inputValue(),
+  assert.equal(await page.locator('#qc-text').evaluate(el=>el.value),
     'Отдельный вариант после отклонённого создания');
   assert.equal(await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').isChecked(), true);
   await page.locator('#qc-variant-editor summary').click();
@@ -1354,10 +1354,10 @@ try {
   await page.locator('#qc-text').waitFor({ state: 'visible', timeout: 30000 });
   assert.equal(await page.locator('#qc-recovery-warning').isVisible(), true,
     'unknown READY HTTP503 retains the durable operator reconciliation guard');
-  assert.equal(await page.locator('#qc-text').isEnabled(), false);
+  assert.equal(await page.locator('#qc-text').evaluate(el=>el.contentEditable==='true'), false);
   page.once('dialog', (dialog) => dialog.accept());
   await page.locator('#qc-start-new').click();
-  assert.equal(await page.locator('#qc-text').isEnabled(), true);
+  assert.equal(await page.locator('#qc-text').evaluate(el=>el.contentEditable==='true'), true);
   await closeComposer();
 
   // A bare READY 409 can mean immutable/PUBLISHED post or version conflict:
@@ -1384,7 +1384,7 @@ try {
   await page.locator('#qc-text').waitFor({ state: 'visible', timeout: 30000 });
   assert.equal(await page.locator('#qc-recovery-warning').isVisible(), true,
     'bare READY HTTP409 without structured preflight evidence keeps reconciliation guard');
-  assert.equal(await page.locator('#qc-text').isEnabled(), false);
+  assert.equal(await page.locator('#qc-text').evaluate(el=>el.contentEditable==='true'), false);
   page.once('dialog', (dialog) => dialog.accept());
   await page.locator('#qc-start-new').click();
   await closeComposer();
@@ -1427,7 +1427,7 @@ try {
   assert.equal(await mp.locator('#qc-target-picker').isVisible(), false);
   assert.equal(await mp.locator('#qc-target-toggle').getAttribute('aria-expanded'), 'false');
   assert.match(await mp.locator('#qc-counter').textContent(), /2 выбрано/);
-  assert.equal(await mp.locator('#qc-text').inputValue(), 'Новая публикация для всех подключений.');
+  assert.equal(await mp.locator('#qc-text').evaluate(el=>el.value), 'Новая публикация для всех подключений.');
   await mp.locator('#qc-platform-preview-load').click();
   await mp.waitForFunction(()=>document.querySelector('#qc-platform-preview-load')?.disabled===false);
   await mp.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });

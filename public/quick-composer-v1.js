@@ -1,6 +1,6 @@
 import { mountComposerLayout, mountMediaGuide, updateMediaGuide } from './composer-layout-v1.js';
 import { mountSocialPreview } from './social-post-preview-v1.js';
-import { plainTextToRichDocument } from './rich-text-editor-v1.js';
+import { mountRichTextEditor, plainTextToRichDocument } from './rich-text-editor-v1.js';
 import { createComposerRecovery } from './quick-composer-recovery-v1.js';
 
 // The visible user operation is a single composer. Existing versioned APIs still
@@ -212,7 +212,13 @@ export async function openQuickComposer(options = {}) {
       '<button type="button" id="qc-send" class="qc-primary">Опубликовать сейчас</button></div></footer>';
 
     const root = overlay;
-    const text = root.querySelector('#qc-text');
+    const plainInput=root.querySelector('#qc-text');
+    const textHost=document.createElement('div');textHost.dataset.richTextEditor='';
+    plainInput.replaceWith(textHost);
+    let textReady=false;
+    const richEditor=mountRichTextEditor(textHost,{onChange:()=>{if(textReady){markDirty();refreshPreview();}}});
+    const text=richEditor.surface;text.id='qc-text';
+    Object.defineProperty(text,'value',{get:()=>richEditor.getPlainText(),set:value=>richEditor.setDocument(plainTextToRichDocument(value))});
     const editorColumn=root.querySelector('.qc-editor');
     const rightColumn=root.querySelector('.qc-right');
     const options=editorColumn.querySelector('.qc-advanced');
@@ -329,6 +335,7 @@ export async function openQuickComposer(options = {}) {
     }
     function setBusy(busy) {
       state.busy = busy;
+      richEditor.setDisabled(busy || state.finished || state.uncertainPublish);
       const locked = state.finished || state.uncertainPublish;
       root.querySelectorAll('input,textarea,select,button').forEach((element) => {
         const unavailable = element.matches('input[name="qc-account"]') &&
@@ -594,6 +601,7 @@ export async function openQuickComposer(options = {}) {
           ? (state.mediaEdits.get(account.id).length === 1 ? 'IMAGE' : 'CAROUSEL')
           : contentFormat,
         text: state.variantEdits.get(account.id) || text.value.trim(),
+        resolvedRichText: state.variantEdits.has(account.id) ? plainTextToRichDocument(state.variantEdits.get(account.id)||text.value) : richEditor.getDocument(),
         media: Array.isArray(state.mediaEdits.get(account.id)) && !state.video
           ? state.mediaEdits.get(account.id).map((id, index) => {
             const source = state.pending.find((item) => item.remoteId === id);
@@ -648,7 +656,7 @@ export async function openQuickComposer(options = {}) {
       updatePreviewButton();
       if (state.savedId || !recovery) return;
       const stored = recovery.saveLocalDraft({
-        body: text.value,
+        body: text.value, bodyRich: richEditor.getDocument(),
         projectId: root.querySelector('#qc-project').value,
         scheduledAtLocal: root.querySelector('#qc-datetime').value,
         scheduleTimezone: state.restoredScheduleTimezone || projectTimezone(root.querySelector('#qc-project').value),
@@ -915,7 +923,7 @@ export async function openQuickComposer(options = {}) {
       markDirty();
       refreshPreview();
     });
-    text.addEventListener('input', () => { markDirty(); refreshPreview(); });
+
     root.querySelector('#qc-project').addEventListener('change', () => {
       state.restoredScheduleTimezone = null;
       markDirty();
@@ -963,7 +971,7 @@ export async function openQuickComposer(options = {}) {
           ? (state.savedId && state.scheduleMode === 'AT' && state.scheduleTimezone
             ? state.scheduleTimezone : (state.restoredScheduleTimezone || projectTimezone(projectId)))
           : null,
-        body: text.value.trim(),
+        body: text.value.trim(), bodyRich: richEditor.getDocument(),
         accountIds: Object.freeze(chosen.map((account) => account.id)),
         variants: Object.freeze(chosen.filter((account) => state.variantEdits.has(account.id))
           .map((account) => Object.freeze({
@@ -983,7 +991,7 @@ export async function openQuickComposer(options = {}) {
     function createPayload(projectId, operation) {
       const payload = {
         projectId, title: titleFromText(operation.body), body: operation.body,
-        bodyRich: plainTextToRichDocument(operation.body),
+        bodyRich: operation.bodyRich,
         contentFormat: operation.images.length || operation.video ? 'MEDIA' : 'TEXT_ONLY',
         scheduleMode: operation.mode
       };
@@ -1030,7 +1038,7 @@ export async function openQuickComposer(options = {}) {
           state.uncertainPublish = !rejected;
           if (rejected) {
             recovery.saveLocalDraft({
-              body: operation.body, projectId: operation.projectId,
+              body: operation.body, bodyRich:operation.bodyRich, projectId: operation.projectId,
               scheduledAtLocal: operation.scheduledAtLocal,
               scheduleTimezone: operation.scheduleTimezone,
               ambiguousOffset: operation.ambiguousOffset,
@@ -1333,7 +1341,8 @@ export async function openQuickComposer(options = {}) {
       if (window.confirm('Есть незавершённая публикация в этой вкладке. Восстановить текст и получателей?' +
           (previous.photoCount ? '\\nФотографии потребуется добавить заново.' : '') +
           (previous.videoRequired ? '\\nMP4 потребуется выбрать заново.' : ''))) {
-        text.value = typeof previous.body === 'string' ? previous.body : '';
+        if(previous.bodyRich)richEditor.setDocument(previous.bodyRich);
+        else text.value = typeof previous.body === 'string' ? previous.body : '';
         const project = root.querySelector('#qc-project');
         if ([...project.options].some((option) => option.value === previous.projectId)) project.value = previous.projectId;
         const datetime = root.querySelector('#qc-datetime');
@@ -1384,6 +1393,7 @@ export async function openQuickComposer(options = {}) {
       setBusy(false);
       setStatus('Обнаружена незавершённая серверная операция. Сначала проверьте список публикаций.', true);
     }
+    textReady=true;
     text.focus();
   } catch (error) {
     if (overlay.isConnected) {
