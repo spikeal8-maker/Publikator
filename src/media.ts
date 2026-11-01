@@ -64,7 +64,7 @@ async function prepareImage(input: Buffer): Promise<PreparedImage> {
 }
 
 function duplicateMedia(postId: string, sha256: string): MediaRow | undefined {
-  return db.prepare('SELECT * FROM media WHERE post_id=? AND sha256=? ORDER BY sort_order,created_at LIMIT 1')
+  return db.prepare('SELECT * FROM media WHERE post_id=? AND sha256=? AND NOT EXISTS (SELECT 1 FROM content_media cm WHERE cm.media_id=media.id AND cm.role='poster') ORDER BY sort_order,created_at LIMIT 1')
     .get(postId, sha256) as MediaRow | undefined;
 }
 

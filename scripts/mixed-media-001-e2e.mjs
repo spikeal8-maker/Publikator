@@ -75,7 +75,7 @@ try{
  const projectId=db.prepare('SELECT id FROM projects LIMIT 1').get().id;
  const file=path.join(dir,'control.mp4');execFileSync('ffmpeg',['-y','-f','lavfi','-i','color=c=blue:s=640x360:r=24','-t','1','-c:v','libx264','-pix_fmt','yuv420p','-an',file],{stdio:'ignore'});
  const bytes=await fs.readFile(file);
- async function draft(accountIds,title){
+ async function draft(accountIds,title,approve=true){
   const post=await request('POST','/api/posts',{projectId,title,body:'Контрольное видео 🤖',contentFormat:'MEDIA',scheduleMode:'MANUAL'},201);
   const boundary='videoFixtureBoundary',body=Buffer.concat([Buffer.from('--'+boundary+'\r\nContent-Disposition: form-data; name="file"; filename="control.mp4"\r\nContent-Type: video/mp4\r\n\r\n'),bytes,Buffer.from('\r\n--'+boundary+'--\r\n')]);
   const uploaded=await request('POST','/api/posts/'+post.id+'/video',body,201,{'content-type':'multipart/form-data; boundary='+boundary,'x-content-version':String(post.content_version)});
@@ -89,9 +89,22 @@ try{
   const reordered=await request('PUT','/api/posts/'+post.id+'/media-order',{mediaIds:[photoIds[0],uploaded.id,photoIds[1]],expectedContentVersion:version});
   assert.equal(db.prepare('SELECT content_format FROM posts WHERE id=?').get(post.id).content_format,'CAROUSEL');
   const targets=await request('PUT','/api/posts/'+post.id+'/targets',{accountIds,expectedContentVersion:reordered.contentVersion});
+  if(!approve)return {id:post.id,version:targets.contentVersion,uploaded};
   const ready=await request('POST','/api/posts/'+post.id+'/ready',{expectedContentVersion:targets.contentVersion});
   return {id:post.id,ready};
  }
+ const editable=await draft(['video_telegram'],'Generated cover stays separate',false);
+ const cover=editable.uploaded.poster;
+ const coverBytes=await fs.readFile(path.join(dir,'media',cover.relative_path));
+ const coverBoundary='coverBoundary';
+ const coverBody=Buffer.concat([Buffer.from('--'+coverBoundary+'\r\nContent-Disposition: form-data; name="file"; filename="explicit-cover.jpg"\r\nContent-Type: image/jpeg\r\n\r\n'),coverBytes,Buffer.from('\r\n--'+coverBoundary+'--\r\n')]);
+ const explicitCover=await request('POST','/api/posts/'+editable.id+'/media',coverBody,201,{'content-type':'multipart/form-data; boundary='+coverBoundary,'x-content-version':String(editable.version)});
+ assert.notEqual(explicitCover.id,cover.id,'an explicit photo must not deduplicate into an excluded video cover');
+ assert.equal(db.prepare('SELECT role FROM content_media WHERE media_id=?').get(cover.id).role,'poster');
+ const {vkPublisher}=await import('../dist/platforms/vk.js');
+ const mixedInput={postId:editable.id,title:'permission guard',text:'fixture',media:db.prepare("SELECT m.* FROM media m JOIN content_media cm ON cm.media_id=m.id WHERE m.post_id=? AND cm.role<>'poster' ORDER BY m.sort_order").all(editable.id),publicMediaUrls:[],publicationKind:'FEED',contentFormat:'CAROUSEL',credentials:stored};
+ assert.throws(()=>vkPublisher.validate({...mixedInput,credentials:{...stored,videoPublishReady:false}}),/video/);
+ assert.throws(()=>vkPublisher.validate({...mixedInput,credentials:{...stored,photoPublishReady:false}}),/фото/);
  const post=await draft(['video_telegram','video_vk','video_max'],'All three video platforms');
  await request('POST','/api/posts/'+post.id+'/publish-now');
  const targets=db.prepare('SELECT state,external_id FROM post_targets WHERE post_id=?').all(post.id);
