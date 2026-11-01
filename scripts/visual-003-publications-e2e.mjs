@@ -16,7 +16,7 @@ try {
  const headers={cookie:String(login.headers['set-cookie']).split(';')[0]};
  const projectId=db.prepare('SELECT id FROM projects LIMIT 1').get().id;
  const now=new Date().toISOString();
- for(const platform of ['telegram','max','vk'])db.prepare('INSERT INTO social_accounts(id,platform,name,credentials_encrypted,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)')
+ for(const platform of ['telegram','max','vk','instagram'])db.prepare('INSERT INTO social_accounts(id,platform,name,credentials_encrypted,enabled,created_at,updated_at) VALUES (?,?,?,?,1,?,?)')
   .run('chart_'+platform,platform,'Chart '+platform,encryptJson({accessToken:'fixture-no-provider-write'}),now,now);
 
  const seeded=[];
@@ -38,6 +38,12 @@ try {
   db.prepare('INSERT INTO media(id,post_id,original_name,relative_path,mime_type,size_bytes,width,height,sha256,created_at,sort_order) VALUES(?,?,?,?,?,?,?,?,?,?,0)').run('large_fixture_'+index,seeded[index].id,'large.jpg',seeded[index].id+'/large.jpg','image/jpeg',bytes,1200,800,'a'.repeat(64),now);
   db.prepare("UPDATE posts SET content_format='IMAGE' WHERE id=?").run(seeded[index].id);
  }
+ for(let index=1;index<10;index++){
+  const dir=path.join(dataDir,'media',seeded[0].id),name='album-'+index+'.jpg';
+  await sharp({create:{width:1200,height:800,channels:3,background:{r:20*index,g:80,b:200}}}).jpeg().toFile(path.join(dir,name));
+  db.prepare('INSERT INTO media(id,post_id,original_name,relative_path,mime_type,size_bytes,width,height,sha256,created_at,sort_order) VALUES(?,?,?,?,?,?,?,?,?,?,?)').run('album_'+index,seeded[0].id,name,seeded[0].id+'/'+name,'image/jpeg',(await fs.stat(path.join(dir,name))).size,1200,800,String(index).repeat(64),now,index);
+ }
+ db.prepare("UPDATE posts SET content_format='CAROUSEL' WHERE id=?").run(seeded[0].id);
  db.prepare("UPDATE posts SET status='FAILED' WHERE id=?").run(seeded[4].id);
  const projection=await app.inject({method:'GET',url:'/api/posts',headers});
  assert.equal(projection.statusCode,200);
@@ -87,6 +93,31 @@ try {
  const desktopMedia=await page.locator('.editor-media-host .sp-media').boundingBox();
  assert.ok(desktopMedia.width>=450,'Single image must use the main preview width');
  assert.ok(desktopMedia.height>=350,'Single image must have a large preview');
+ await page.waitForFunction(()=>document.querySelector('#post-form')?.dataset.videoAuthoringEnhanced==='1');
+ for(const id of ['chart_vk','chart_instagram'])await page.locator('input[name="accountId"][value="'+id+'"]').check();
+ await page.locator('.editor-media-host [role="tab"][data-account="chart_vk"]').click();
+ await page.waitForFunction(()=>document.querySelector('.editor-media-host .sp-vk'));
+ assert.match(await page.locator('.editor-media-host .sp-text').innerText(),/deepneedle0/);
+ assert.equal(await page.locator('.editor-media-host .sp-media img').count(),5,'Album uses a compact collage, with access to all ten');
+ await page.locator('.editor-media-host .sp-photo').first().click();
+ await page.locator('.sp-lightbox').waitFor();
+ for(let index=0;index<9;index++)await page.locator('.sp-lightbox-next').click();
+ assert.match(await page.locator('.sp-lightbox-head').innerText(),/10 из 10/);
+ await page.locator('.sp-lightbox-close').click();
+ await page.locator('.editor-media-host [data-account="chart_instagram"]').click();
+ assert.equal(await page.locator('.editor-media-host .sp-media img').count(),1,'Instagram shows one carousel slide');
+ await page.locator('.editor-media-host .sp-next').click();
+ assert.match(await page.locator('.editor-media-host .sp-gallery-nav').innerText(),/2 из 10/);
+ await page.locator('.editor-media-host [data-device="phone"]').click();
+ assert.ok((await page.locator('.editor-media-host .sp-device-frame').boundingBox()).width<=360);
+ await page.locator('.editor-media-host [data-account="chart_telegram"]').click();
+ assert.equal(await page.locator('.editor-media-host .sp-content').evaluate(el=>el.querySelector('.sp-media').compareDocumentPosition(el.querySelector('.sp-text'))&Node.DOCUMENT_POSITION_FOLLOWING),4,'Telegram caption follows media');
+ await page.locator('.editor-media-host [data-account="chart_max"]').click();
+ assert.equal(await page.locator('.editor-media-host .sp-max').count(),1);
+ const baseRich=page.locator('#post-form [data-rich-text-editor] [contenteditable="true"]');
+ await baseRich.fill('Live unsaved caption with emoji 🤖');
+ await page.waitForFunction(()=>document.querySelector('.editor-media-host .sp-text')?.textContent.includes('Live unsaved caption'));
+ assert.equal(db.prepare('SELECT body FROM posts WHERE id=?').get(seeded[0].id).body,'Full searchable text 0 deepneedle0','Preview must not save text');
  await page.locator('.publication-editor-close').click();
  await page.locator('[data-editorial-view="archive"]').click();
  await page.waitForFunction(()=>document.querySelector('.posts-table')?.dataset.editorialRenderedView==='archive');
@@ -120,6 +151,17 @@ try {
  assert.equal(await page.locator('#post-form .platform-workspace').getAttribute('open'),null,'Per-platform copies should be optional');
  await page.waitForFunction(()=>document.querySelector('#post-form')?.dataset.videoAuthoringEnhanced==='1');
  await page.locator('#post-form input[name="title"]').fill('UI draft edited through Publications');
+ const uploadPaths=[path.join(dataDir,'upload-a.jpg'),path.join(dataDir,'upload-b.jpg')];
+ for(const [index,file] of uploadPaths.entries())await sharp({create:{width:800,height:600,channels:3,background:index?'#ff8822':'#2288ff'}}).jpeg().toFile(file);
+ const chooserPromise=page.waitForEvent('filechooser');
+ await page.locator('.sp-add-photos').click();const chooser=await chooserPromise;
+ assert.equal(chooser.isMultiple(),true);await chooser.setFiles(uploadPaths);
+ await page.waitForFunction(()=>document.querySelectorAll('#post-form .media-list img').length===2);
+ assert.equal(await page.locator('#post-form input[name="title"]').inputValue(),'UI draft edited through Publications','Batch upload preserves unsaved fields');
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM media WHERE post_id=?').get(saved.id).n,2);
+ assert.equal(await page.locator('.sp-add-video').isDisabled(),true,'Mixed photo/video must not silently replace an album');
+ assert.match(await page.locator('.sp-video-availability').innerText(),/Отправка видео.*пока не подключена/);
+
  await page.locator('#post-form button[type="submit"]').click();
  await page.locator('#post-form').waitFor({state:'detached'});
  await page.locator('tr[data-post-id="'+saved.id+'"]').waitFor();
