@@ -74,6 +74,9 @@ jobs:
       - name: COMPOSER-UNIFIED-001 shared layout media and responsive authoring
         run: node scripts/composer-unified-001-e2e.mjs
 
+      - name: CX3-014 unified operator UI
+        run: node scripts/cx3-014-unified-operator-ui-e2e.mjs
+
       - name: VIDEO-PUBLISH-001 normal service video delivery and credential safety
         run: node scripts/video-publish-001-e2e.mjs
 
@@ -455,9 +458,6 @@ jobs:
 
       - name: CX3-013 routed operator pages
         run: node scripts/cx3-013-operator-pages-e2e.mjs
-
-      - name: CX3-014 unified operator UI
-        run: node scripts/cx3-014-unified-operator-ui-e2e.mjs
 
       - name: Schema v4 content versioning backup and restore
         run: node scripts/backup-v4-content-versioning-e2e.mjs
