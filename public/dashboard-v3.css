@@ -176,3 +176,10 @@ html[data-page="overview"] #view { padding:16px; }
  .overview-v1 .dashboard-v3-metric strong { font-size:18px; }
  .overview-v1 .dashboard-v3-metric > div { font-size:10px; }
 }
+
+.overview-chart .overview-help[open] > div { left:0; right:auto; }
+@media(max-width:640px) {
+ .overview-chart-periods button { font-size:11px; min-height:28px; }
+ .overview-chart-detail { font-size:11px; }
+ .overview-chart .overview-help[open] > div { position:fixed; left:12px; right:12px; top:106px; width:auto; max-height:calc(100dvh - 128px); overflow:auto; z-index:100; }
+}

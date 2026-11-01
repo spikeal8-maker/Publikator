@@ -83,6 +83,10 @@ try {
  const plot=await page.locator('.overview-chart-plot').boundingBox();
  assert.ok(plot.y<=170,'Actual chart must be visible at the top of a phone');
  assert.ok(plot.height>=140,'Chart must be readable');
+ await page.locator('.overview-chart .overview-help summary').click();
+ const mobileHelp=await page.locator('.overview-chart .overview-help[open] > div').boundingBox();
+ assert.ok(mobileHelp.x>=0&&mobileHelp.x+mobileHelp.width<=390,'Detailed help must fit the phone');
+ await page.locator('.overview-chart .overview-help summary').click();
  await page.locator('[data-dashboard-section="review"]').click();
  assert.equal(await page.locator('#overview-review').getAttribute('tabindex'),'-1');
  await page.locator('#calendar-nav').click();
