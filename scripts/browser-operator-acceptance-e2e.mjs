@@ -1689,7 +1689,8 @@ try {
   await page.locator('.dashboard-v3-root').waitFor({ state: 'visible' });
   const problemsMetric = page.locator('.dashboard-v3-metric').filter({ hasText: /^Проблемы/ });
   assert.equal(await problemsMetric.count(), 1, 'Problems metric must render exactly once');
-  assert.equal((await problemsMetric.locator('span').textContent())?.trim(), 'ошибки и публикации, требующие проверки', 'Problems metric note mismatch');
+  const problemCount = Number((await problemsMetric.locator('strong').textContent())?.trim());
+  assert.equal((await problemsMetric.locator(':scope > span').textContent())?.trim(), problemCount ? 'нужно ваше внимание' : 'всё в порядке', 'Problems metric note must match the actual count');
   assert.equal(await page.getByText('ошибки и recovery-состояния', { exact: true }).count(), 0, 'legacy Problems metric note must not be visible');
 
   await page.goto(`${base}/schedule`, { waitUntil: 'domcontentloaded' });
