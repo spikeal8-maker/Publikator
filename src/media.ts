@@ -148,6 +148,8 @@ export async function saveVideoVersioned(
   expectedContentVersion: number
 ): Promise<{ media: MediaRow; poster: MediaRow; contentVersion: number }> {
   assertContentVersion(postId, expectedContentVersion);
+  const kind = (db.prepare('SELECT publication_kind FROM posts WHERE id=?').get(postId) as { publication_kind: string } | undefined)?.publication_kind;
+  if (kind !== 'FEED' && listMedia(postId).length) throw new Error('Смешанные вложения доступны только для обычных публикаций');
   const preparedVideo = await prepareVideoUpload(originalName, input);
   let videoAbsolutePath: string | null = null;
   let posterAbsolutePath: string | null = null;
@@ -211,6 +213,7 @@ export async function saveVideoVersioned(
       db.prepare("UPDATE content_media SET role='video',updated_at=? WHERE post_id=? AND media_id=?").run(createdAt, postId, videoId);
       db.prepare("UPDATE content_media SET role='poster',updated_at=? WHERE post_id=? AND media_id=?")
         .run(createdAt, postId, posterId);
+      db.prepare("UPDATE posts SET publication_kind='FEED' WHERE id=?").run(postId);
       syncImageContentFormat(postId);
       return {
         media: db.prepare('SELECT * FROM media WHERE id=?').get(videoId) as MediaRow,
@@ -271,6 +274,10 @@ function normalizeRemainingMedia(postId: string): void {
   const rest = listMedia(postId);
   const update = db.prepare('UPDATE media SET sort_order=? WHERE id=?');
   rest.forEach((row, index) => update.run(index, row.id));
+  if (!rest.some(row => row.mime_type.startsWith('video/'))) {
+    db.prepare("UPDATE posts SET publication_kind='FEED',content_format=? WHERE id=? AND content_format IN ('VIDEO','VERTICAL_VIDEO')")
+      .run(rest.length > 1 ? 'CAROUSEL' : 'IMAGE', postId);
+  }
   syncImageContentFormat(postId);
 }
 
