@@ -71,6 +71,18 @@ jobs:
           set -euo pipefail
           find public -maxdepth 1 -type f -name '*.js' -print0 | sort -z | xargs -0 -n1 node --check
 
+      - name: VISUAL-003 compact Publications create edit and responsive flow
+        run: node scripts/visual-003-publications-e2e.mjs
+
+      - name: Preserve Publications desktop and mobile screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: publikator-publications-layout-screenshots
+          path: test-results/visual-003-publications-*.png
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: VISUAL-002 responsive Calendar and selected-day workflow
         run: node scripts/visual-002-calendar-e2e.mjs
 

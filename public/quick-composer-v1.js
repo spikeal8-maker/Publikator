@@ -79,6 +79,7 @@ export async function openQuickComposer() {
     overlay.remove();
     document.body.classList.remove('qc-open');
     openDialog = null;
+    if(state?.savedId)document.dispatchEvent(new CustomEvent('publikator:publication-saved',{detail:{postId:state.savedId}}));
   };
   overlay.querySelector('#qc-close').addEventListener('click', dispose);
   overlay.addEventListener('click', (event) => { if (event.target === overlay) dispose(); });

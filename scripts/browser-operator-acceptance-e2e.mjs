@@ -582,7 +582,7 @@ try {
     const scheduleCell = row.locator('td').nth(3);
     assert.equal((await statusBadge.textContent())?.trim(), visibleStatus);
     assert.equal(await statusBadge.getAttribute('data-raw-status'), rawStatus);
-    assert.equal((await scheduleCell.textContent())?.trim(), visibleSchedule);
+    assert.equal((await scheduleCell.locator('.post-schedule-label').textContent())?.trim(), visibleSchedule);
     assert.equal(await scheduleCell.getAttribute('data-raw-schedule'), rawSchedule);
     const visibleText = await row.innerText();
     assert.ok(!visibleText.includes(rawStatus), `Content row exposes raw status: ${rawStatus}`);
@@ -798,6 +798,7 @@ try {
 
   await page.goto(`${base}/content`,{waitUntil:'domcontentloaded'});
   await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Публикации');
+  if(await page.locator('.posts-secondary').getAttribute('open')===null)await page.locator('.posts-secondary > summary').click();
   await page.locator('#new-post').click();
   let newReusablePostForm=page.locator('#post-form');
   await newReusablePostForm.waitFor({state:'visible'});
@@ -831,10 +832,11 @@ try {
 
   await page.goto(`${base}/content`,{waitUntil:'domcontentloaded'});
   await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Публикации');
-  await page.locator('#new-post').waitFor({state:'visible'});
+  await page.locator('.posts-secondary').waitFor({state:'visible'});
 
   // EW4-005: new Post inherits project timezone and targets; per-post override stays isolated.
   const ewInheritedTitle = 'Browser EW4-005 inherited defaults';
+  if(await page.locator('.posts-secondary').getAttribute('open')===null)await page.locator('.posts-secondary > summary').click();
   await page.locator('#new-post').click();
   let ewPostForm = page.locator('#post-form');
   await ewPostForm.waitFor({ state: 'visible' });
@@ -908,6 +910,7 @@ try {
   await ewPostForm.locator('#close-modal').click();
   await page.locator('#post-form').waitFor({ state: 'detached', timeout: 5000 });
 
+  if(await page.locator('.posts-secondary').getAttribute('open')===null)await page.locator('.posts-secondary > summary').click();
   await page.locator('#new-post').click();
   let postForm = page.locator('#post-form');
   await postForm.waitFor({ state: 'visible' });

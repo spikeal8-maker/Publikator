@@ -41,6 +41,7 @@ function formatEditorialTime(value) {
 }
 
 function lifecycleListRows(rows) {
+  if(window.PublikatorPublicationRows)return window.PublikatorPublicationRows(rows);
   return rows.map((post) => `<tr>
     <td><strong>${editorialEscape(post.title)}</strong><div class="small muted">${editorialEscape(String(post.body || '').slice(0, 100))}</div></td>
     <td>${editorialEscape(post.project_name)}</td>
@@ -55,6 +56,7 @@ async function filterLegacyActiveRows() {
   const table = document.querySelector('#view table.table');
   if (!table) return;
   const active = await editorialRequest(EDITORIAL_VIEWS.active.api);
+  if(!table.isConnected||editorialView!=='active')return;
   const allowed = new Set(active.map((post) => post.id));
   table.querySelectorAll('tbody .open-post').forEach((button) => {
     if (!allowed.has(button.dataset.id)) button.closest('tr')?.remove();
@@ -67,6 +69,7 @@ async function renderInactiveList(viewName) {
   const table = document.querySelector('#view table.table');
   if (!table) return;
   const rows = await editorialRequest(EDITORIAL_VIEWS[viewName].api);
+  if(!table.isConnected||editorialView!==viewName)return;
   const tbody = table.querySelector('tbody');
   if (tbody) tbody.innerHTML = lifecycleListRows(rows);
   table.dataset.editorialRenderedView = viewName;
@@ -91,7 +94,7 @@ async function selectEditorialView(viewName) {
 
 async function enhanceContentScreen() {
   if (enhancementBusy) return;
-  if (document.querySelector('#page-title')?.textContent !== 'Контент') return;
+  if (!['Контент','Публикации'].includes(document.querySelector('#page-title')?.textContent)) return;
   const table = document.querySelector('#view table.table');
   if (!table) return;
   enhancementBusy = true;
@@ -102,7 +105,7 @@ async function enhanceContentScreen() {
       bar.innerHTML = Object.entries(EDITORIAL_VIEWS)
         .map(([key, value]) => `<button type="button" class="secondary editorial-filter" data-editorial-view="${key}">${value.label}</button>`)
         .join('');
-      table.before(bar);
+      const toolbar=document.querySelector('.posts-toolbar');if(toolbar)toolbar.append(bar);else table.before(bar);
       bar.querySelectorAll('.editorial-filter').forEach((button) => button.addEventListener('click', () => {
         selectEditorialView(button.dataset.editorialView).catch(showEditorialPageError);
       }));
@@ -172,7 +175,7 @@ async function openContentInspector(postId) {
   overlay.className = 'modal editorial-inspector-overlay';
   overlay.innerHTML = `<div class="modal-card editorial-inspector">
     <div class="inspector-head">
-      <div><div class="small muted">${editorialEscape(post.project_name)}</div><h2>${editorialEscape(post.title)}</h2></div>
+      <button type="button" class="inspector-dismiss" aria-label="Закрыть подробности">×</button><div><div class="small muted">${editorialEscape(post.project_name)}</div><h2>${editorialEscape(post.title)}</h2></div>
       <div class="editorial-badges">${editorialBadge(post.editorial_stage)} ${editorialBadge(post.status)}</div>
     </div>
     ${inspectorMedia(post)}
@@ -190,7 +193,7 @@ async function openContentInspector(postId) {
       </section>
     </div>
     <section class="card inspector-section"><h3>Площадки</h3>${inspectorTargets(post)}</section>
-    <section class="card inspector-section"><h3>Последние события</h3>${inspectorEvents(post)}</section>
+    <details class="card inspector-section inspector-event-details"><summary>Последние события · ${post.recentEvents.length}</summary>${inspectorEvents(post)}</details>
     <div class="row-actions inspector-actions">${actionButtons(post)}<button type="button" class="secondary inspector-close">Закрыть</button></div>
     <div class="error inspector-error"></div>
   </div>`;
@@ -207,6 +210,7 @@ async function openContentInspector(postId) {
     overlay.remove();
   };
   overlay.addEventListener('click', (event) => { if (event.target === overlay) close(); });
+  overlay.querySelector('.inspector-dismiss')?.addEventListener('click',close);
   overlay.querySelector('.inspector-close')?.addEventListener('click', close);
   overlay.querySelector('.inspector-edit')?.addEventListener('click', () => {
     try { close(); legacyEditor(post.id); } catch (error) { window.alert(error instanceof Error ? error.message : String(error)); }

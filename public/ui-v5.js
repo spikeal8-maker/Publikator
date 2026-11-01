@@ -1,7 +1,7 @@
 const UI_ROUTE_META = {
   '/overview': { key: 'overview', group: 'Работа', title: 'Обзор', subtitle: 'Редакционная картина: что выходит сегодня, что готово и где требуется внимание.' },
   '/calendar': { key: 'calendar', group: 'Работа', title: 'Календарь', subtitle: 'Визуальное расписание публикаций по датам и времени.' },
-  '/content': { key: 'content', group: 'Работа', title: 'Контент', subtitle: 'Создание, редактирование и подготовка публикаций к отправке.' },
+  '/content': { key: 'content', group: 'Работа', title: 'Публикации', subtitle: 'Создание, редактирование и подготовка публикаций к отправке.' },
   '/library': { key: 'library', group: 'Работа', title: 'Библиотека', subtitle: 'Весь контент с поиском, фильтрами, статусами и визуальным просмотром.' },
   '/templates': { key: 'templates', group: 'Работа', title: 'Шаблоны', subtitle: 'Повторно используемые заготовки контента и оформления.' },
   '/projects': { key: 'projects', group: 'Работа', title: 'Проекты', subtitle: 'Разделение контента по брендам, продуктам и независимым очередям.' },
@@ -140,13 +140,11 @@ function uiContentFilters() {
   const table = document.querySelector('#view table.table');
   const toolbar = document.querySelector('#view .toolbar');
   if (!table || !toolbar || document.querySelector('#ui-content-filter')) return;
-  uiToolbarCopy(toolbar, 'Публикации', 'Черновики, готовые и опубликованные материалы в одном рабочем списке.');
-  const newButton = document.querySelector('#new-post');
-  if (newButton) newButton.textContent = '+ Создать публикацию';
+
   const filter = document.createElement('div');
   filter.id = 'ui-content-filter';
   filter.className = 'ui-filterbar';
-  filter.innerHTML = `<label class="ui-filter-search">${SEARCH_SVG}<input type="search" placeholder="Поиск по заголовку, тексту или проекту" aria-label="Поиск контента"></label><div class="ui-filter-chips"><button type="button" class="ui-filter-chip active" data-status="ALL">Все</button><button type="button" class="ui-filter-chip" data-status="DRAFT">Черновики</button><button type="button" class="ui-filter-chip" data-status="READY">Готовы</button><button type="button" class="ui-filter-chip" data-status="PUBLISHED">Опубликовано</button><button type="button" class="ui-filter-chip" data-status="PROBLEM">Проблемы</button></div><span class="ui-count-pill"></span>`;
+  filter.innerHTML = `<label class="ui-filter-search">${SEARCH_SVG}<input type="search" placeholder="Текст, проект или площадка" aria-label="Поиск контента"></label><div class="ui-filter-chips"><button type="button" class="ui-filter-chip active" data-status="ALL">Все</button><button type="button" class="ui-filter-chip" data-status="DRAFT">Черновики</button><button type="button" class="ui-filter-chip" data-status="READY">Готовы</button><button type="button" class="ui-filter-chip" data-status="SCHEDULED">Запланированы</button><button type="button" class="ui-filter-chip" data-status="PUBLISHED">Опубликовано</button><button type="button" class="ui-filter-chip" data-status="PROBLEM">Проблемы</button></div><span class="ui-count-pill"></span>`;
   toolbar.after(filter);
   let status = 'ALL';
   const search = filter.querySelector('input');
@@ -158,19 +156,24 @@ function uiContentFilters() {
     for (const row of rows) {
       if (row.querySelector('td[colspan]')) continue;
       const rawStatus = row.querySelector('.badge')?.dataset.rawStatus || '';
-      const matchStatus = status === 'ALL' || rawStatus === status || (status === 'PROBLEM' && ['FAILED','PARTIAL','RECOVERY_NEEDED','RETRY'].includes(rawStatus));
-      const matchSearch = !query || row.textContent.toLowerCase().includes(query);
+      const matchStatus = status === 'ALL' || rawStatus === status || (status === 'SCHEDULED' && row.dataset.schedule === 'AT' && !['PUBLISHED','PARTIAL'].includes(rawStatus)) || (status === 'PROBLEM' && ['FAILED','PARTIAL','RECOVERY_NEEDED','RETRY'].includes(rawStatus));
+      const matchSearch = !query || (row.dataset.search || row.textContent.toLowerCase()).includes(query);
       row.hidden = !(matchStatus && matchSearch);
       if (!row.hidden) visible += 1;
     }
-    count.textContent = `${visible} показано`;
+    const total=rows.filter(r=>!r.querySelector('td[colspan]')).length;
+    count.textContent = `${visible} из ${total}`;
+    const empty=document.querySelector('.posts-filter-empty');if(empty)empty.hidden=!(total>0&&visible===0);
   };
   search.addEventListener('input', apply);
   filter.querySelectorAll('[data-status]').forEach((button) => button.addEventListener('click', () => {
     status = button.dataset.status;
     filter.querySelectorAll('[data-status]').forEach((item) => item.classList.toggle('active', item === button));
+    filter.querySelectorAll('[data-status]').forEach(item=>item.setAttribute('aria-pressed',String(item===button)));
     apply();
   }));
+  filter.querySelectorAll('[data-status]').forEach(item=>item.setAttribute('aria-pressed',String(item.dataset.status==='ALL')));
+  const body=table.querySelector('tbody');if(body)new MutationObserver(apply).observe(body,{childList:true,subtree:true});
   apply();
 }
 
