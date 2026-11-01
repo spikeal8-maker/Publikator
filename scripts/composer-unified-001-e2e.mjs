@@ -24,7 +24,8 @@ try{
  const order=()=>page.locator('.composer-layout').evaluate(el=>[...el.children].map(n=>n.classList.contains('composer-fields')?'fields':n.classList.contains('composer-preview')?'preview':'unexpected'));
  assert.deepEqual(await order(),['fields','preview']);
  assert.match(await page.locator('.composer-media-count').innerText(),/0 \/ 10 фото/);
- assert.ok((await page.locator('.qc-head').boundingBox()).height<70);
+ await fs.mkdir('test-results',{recursive:true});await page.screenshot({path:'test-results/composer-unified-initial.png'});
+ assert.ok((await page.locator('.qc-head').boundingBox()).height<70,JSON.stringify(await page.locator('.qc-head').evaluate(el=>({rect:el.getBoundingClientRect().toJSON(),css:getComputedStyle(el).cssText,children:[...el.children].map(n=>({tag:n.tagName,rect:n.getBoundingClientRect().toJSON()}))}))));
  await page.locator('.composer-help summary').click();
  assert.match(await page.locator('.composer-help[open]').innerText(),/до 10 фотографий/);
  assert.match(await page.locator('.composer-help[open]').innerText(),/Фото и видео в одной отправке сейчас не объединяются/);
