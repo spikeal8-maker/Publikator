@@ -192,3 +192,5 @@ html[data-page="overview"] #view { padding:16px; }
  .overview-chart-periods button { padding:4px 5px; font-size:10px; min-height:28px; }
  .overview-chart-range button { min-height:28px; }
 }
+
+@media(max-width:360px){.overview-chart-toolbar{flex-wrap:wrap}.overview-chart-periods{margin-left:auto}.overview-chart-range{flex-wrap:wrap}.overview-chart-range .overview-create{flex:0 0 28px}}
