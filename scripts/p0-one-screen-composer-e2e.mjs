@@ -95,6 +95,7 @@ try {
   assert.equal(await page.locator('#qc-platform-preview-load').isDisabled(), false);
   assert.equal(await page.locator('#qc-platform-preview-load').textContent(), 'Предпросмотр до сохранения');
   await page.locator('#qc-platform-preview-load').click();
+  await page.waitForFunction(()=>document.querySelector('#qc-platform-preview-load')?.disabled===false);
   await page.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });
   assert.equal(await page.locator('#qc-platform-preview-choice option').count(), 3);
   assert.match(await page.locator('#qc-platform-preview-source').textContent(), /До сохранения.*локальный/);
@@ -124,6 +125,7 @@ try {
   assert.equal(await page.locator('#qc-platform-preview').isVisible(), true,
     'changing local media order refreshes the visible approximate view');
   await page.locator('#qc-platform-preview-load').click();
+  await page.waitForFunction(()=>document.querySelector('#qc-platform-preview-load')?.disabled===false);
   await page.locator('#qc-platform-preview-card [role="tab"][data-account="' + accounts[0].id + '"]').click();
   const reorderedLocal = await page.locator('#qc-platform-preview-card .sp-media img').evaluateAll((images) =>
     images.map((img) => img.getAttribute('src')));
@@ -140,6 +142,7 @@ try {
   assert.match(await page.locator('#qc-variant-status').textContent(), /Отдельный текст подготовлен/);
   assert.equal(await page.locator('#qc-platform-preview').isVisible(), true);
   await page.locator('#qc-platform-preview-load').click();
+  await page.waitForFunction(()=>document.querySelector('#qc-platform-preview-load')?.disabled===false);
   await page.locator('#qc-platform-preview-card [role="tab"][data-account="' + accounts[2].id + '"]').click();
   assert.match(await page.locator('#qc-platform-preview-card .sp-text').textContent(), /Вариант публикации только для VK/);
   await page.locator('#qc-platform-preview-card [role="tab"][data-account="' + accounts[0].id + '"]').click();
@@ -176,6 +179,7 @@ try {
   assert.equal(await page.locator('#qc-platform-preview-load').isDisabled(), false,
     'read-only platform preview is offered after saving the actual server draft');
   await page.locator('#qc-platform-preview-load').click();
+  await page.waitForFunction(()=>document.querySelector('#qc-platform-preview-load')?.disabled===false);
   await page.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });
   assert.equal(await page.locator('#qc-platform-preview-choice option').count(), 3);
   assert.match(await page.locator('#qc-platform-preview-source').textContent(), /сохранённой серверной версии/);
@@ -226,6 +230,7 @@ try {
     'Наша новая публикация\n\nВторой абзац для нескольких площадок.',
     'changing recipient text never mutates canonical content');
   await page.locator('#qc-platform-preview-load').click();
+  await page.waitForFunction(()=>document.querySelector('#qc-platform-preview-load')?.disabled===false);
   await page.locator('#qc-platform-preview-card [role="tab"][data-account="' + accounts[2].id + '"]').click();
   assert.match(await page.locator('#qc-platform-preview-card .sp-text').textContent(), /Наша новая публикация/);
   await page.screenshot({ path: 'test-results/p0-composer-variant-inherited-again.png', fullPage: false });
@@ -257,6 +262,7 @@ try {
     .filter((x) => x.role !== 'poster').map((x) => x.id), baseImageOrder,
     'other accounts still inherit canonical media');
   await page.locator('#qc-platform-preview-load').click();
+  await page.waitForFunction(()=>document.querySelector('#qc-platform-preview-load')?.disabled===false);
   await page.locator('#qc-platform-preview-card [role="tab"][data-account="' + accounts[2].id + '"]').click();
   await page.screenshot({ path: 'test-results/p0-composer-target-photo-order.png', fullPage: false });
 
@@ -290,6 +296,7 @@ try {
     'changing media order refreshes the live approximate preview');
   assert.equal(await page.locator('#qc-platform-preview-load').isDisabled(), false);
   await page.locator('#qc-platform-preview-load').click();
+  await page.waitForFunction(()=>document.querySelector('#qc-platform-preview-load')?.disabled===false);
   await page.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });
   assert.match(await page.locator('#qc-platform-preview-source').textContent(), /Несохранённые изменения/);
   assert.ok((await page.locator('#qc-platform-preview-card .sp-media img').first().getAttribute('src')).startsWith('blob:'),
@@ -925,6 +932,7 @@ try {
     'image picker must block mixing photos with MP4');
   await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
   await page.locator('#qc-platform-preview-load').click();
+  await page.waitForFunction(()=>document.querySelector('#qc-platform-preview-load')?.disabled===false);
   await page.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });
   assert.match(await page.locator('#qc-platform-preview-source').textContent(), /До сохранения/);
   assert.equal(await page.locator('#qc-platform-preview-card .sp-media video').count(), 1,
@@ -1421,6 +1429,7 @@ try {
   assert.match(await mp.locator('#qc-counter').textContent(), /2 выбрано/);
   assert.equal(await mp.locator('#qc-text').inputValue(), 'Новая публикация для всех подключений.');
   await mp.locator('#qc-platform-preview-load').click();
+  await mp.waitForFunction(()=>document.querySelector('#qc-platform-preview-load')?.disabled===false);
   await mp.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });
   assert.equal(await mp.locator('#qc-platform-preview-choice option').count(), 2);
   assert.equal(await mp.locator('#qc-platform-preview-card .sp-media img').count(), 1);
@@ -1437,6 +1446,7 @@ try {
   await mp.screenshot({ path: 'test-results/p0-composer-video-mobile.png', fullPage: false });
   assert.equal(await mp.locator('#qc-video-preview video').count(), 1);
   await mp.locator('#qc-platform-preview-load').click();
+  await mp.waitForFunction(()=>document.querySelector('#qc-platform-preview-load')?.disabled===false);
   await mp.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });
   assert.equal(await mp.locator('#qc-platform-preview-card .sp-media video').count(), 1);
   assert.match(await mp.locator('#qc-platform-preview-source').textContent(), /До сохранения/);
@@ -1445,6 +1455,7 @@ try {
   await mp.locator('#qc-save').click();
   await mp.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 45000 });
   await mp.locator('#qc-platform-preview-load').click();
+  await mp.waitForFunction(()=>document.querySelector('#qc-platform-preview-load')?.disabled===false);
   await mp.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });
   assert.equal(await mp.locator('#qc-platform-preview-choice option').count(), 2);
   const mobilePreviewVisible = await mp.evaluate(() => {
@@ -1531,6 +1542,7 @@ try {
       assert.equal(await rp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
       await rp.screenshot({ path: 'test-results/p0-composer-video-responsive-320.png', fullPage: false });
       await rp.locator('#qc-platform-preview-load').click();
+  await rp.waitForFunction(()=>document.querySelector('#qc-platform-preview-load')?.disabled===false);
       await rp.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });
       assert.equal(await rp.locator('#qc-platform-preview-card .sp-media video').count(), 1);
       assert.equal(await rp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
