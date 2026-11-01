@@ -80,3 +80,30 @@
 .overview-v1 :focus-visible { outline:3px solid #315bea; outline-offset:3px; }
 @media(max-width:1000px) { .overview-grid { grid-template-columns:1fr; } .overview-side { grid-template-columns:1fr 1fr; } .overview-review { grid-column:auto; } }
 @media(max-width:640px) { .overview-heading { align-items:flex-start; flex-direction:column; gap:12px; } .overview-heading h2 { font-size:24px; } .overview-v1 .dashboard-v3-metrics { grid-template-columns:1fr 1fr; } .overview-side,.overview-review .dashboard-v3-list { grid-template-columns:1fr; } .overview-v1 .dashboard-v3-item { grid-template-columns:36px minmax(0,1fr); } .overview-v1 .dashboard-v3-item-side { grid-column:2; justify-items:start; max-width:none; } .overview-calendar { font-size:11px; } }
+
+/* Owner review: mobile first screen prioritizes actual publications. */
+.overview-v1 { gap:16px; }
+.overview-heading { gap:12px; min-height:36px; }
+.overview-heading p { font-size:12px; }
+.overview-create { padding:10px 14px; }
+.overview-v1 .dashboard-v3-metric { padding:13px 16px; }
+.overview-v1 .dashboard-v3-metric strong { margin:9px 0 5px; font-size:28px; }
+@media(max-width:640px) {
+ .overview-v1 { gap:12px; }
+ .overview-heading { flex-direction:row; align-items:center; min-height:34px; }
+ .overview-heading p { font-size:11px; line-height:1.4; }
+ .overview-create { padding:9px 11px; font-size:12px; white-space:nowrap; }
+ .overview-v1 .dashboard-v3-metrics { grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; }
+ .overview-v1 .dashboard-v3-metric { padding:9px 7px; border-radius:9px; min-height:70px; }
+ .overview-v1 .dashboard-v3-metric > div { font-size:10px; line-height:1.25; min-height:25px; }
+ .overview-v1 .dashboard-v3-metric > div > span,.overview-v1 .dashboard-v3-metric > span { display:none; }
+ .overview-v1 .dashboard-v3-metric strong { font-size:22px; line-height:1; margin:3px 0 0; }
+ .overview-v1 .dashboard-v3-panel > header { padding:12px; }
+ .overview-v1 .dashboard-v3-panel header h2 { font-size:14px; }
+ .overview-v1 header > div > span { display:none; }
+ .overview-v1 .dashboard-v3-item { padding:12px; }
+ .overview-v1 .dashboard-v3-item-main strong { white-space:normal; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+ .overview-v1 .dashboard-v3-meta { font-size:10px; }
+ .overview-v1 .dashboard-v3-item-side { display:flex; gap:8px; align-items:center; }
+ .overview-help > summary { width:28px; height:28px; }
+}

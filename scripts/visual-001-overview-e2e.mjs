@@ -37,6 +37,11 @@ try {
  await page.locator('#qc-close').click();
  await page.setViewportSize({width:390,height:844});
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+ assert.equal(await page.locator('.overview-heading h2').count(),0,'No decorative mobile hero');
+ const mobileMetrics = await page.locator('.dashboard-v3-metrics').boundingBox();
+ assert.ok(mobileMetrics.height <= 90, 'Metrics must fit one compact row');
+ const mobileUpcoming = await page.locator('#overview-upcoming').boundingBox();
+ assert.ok(mobileUpcoming.y <= 280, 'Publications must start in the first third of the phone screen');
  await page.locator('[data-dashboard-section="review"]').click();
  assert.equal(await page.locator('#overview-review').getAttribute('tabindex'),'-1');
  assert.deepEqual(errors,[]);

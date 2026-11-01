@@ -108,7 +108,7 @@ async function renderEditorialDashboard() {
       : '<span class="dashboard-v3-platform">Нет запланированных площадок</span>';
     const upcoming = data.weekItems || data.todayItems;
     dashboardView.innerHTML = `<div class="dashboard-v3-root overview-v1">
-      <div class="overview-heading"><div><span class="overview-eyebrow">КОНТЕНТ-ПЛАН</span><h2>Всё под контролем</h2><p>${new Date().toLocaleDateString('ru-RU',{weekday:'long',day:'numeric',month:'long'})} · ближайшие 7 дней</p></div><button type="button" class="overview-create">+ Создать публикацию</button></div>
+      <div class="overview-heading"><p>${new Date().toLocaleDateString('ru-RU',{weekday:'long',day:'numeric',month:'long'})}</p><button type="button" class="overview-create">+ Публикация</button></div>
       <div class="dashboard-v3-metrics">
         ${dashboardMetric('Сегодня', data.metrics.today, 'по расписанию', 'neutral', 'today')}
         ${dashboardMetric('7 дней', data.metrics.next7Days, 'в контент-плане', 'neutral', 'upcoming')}
