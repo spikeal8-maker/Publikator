@@ -698,7 +698,7 @@ try {
   await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Публикации');
   await page.waitForFunction((title)=>[...document.querySelectorAll('#view table.table tbody tr')]
     .some((row)=>row.textContent?.includes(title)),'Browser Reusable Post A');
-  await page.locator('#view table.table tbody tr').filter({hasText:'Browser Reusable Post A'}).locator('.open-post').click();
+  await page.locator('#view table.table tbody tr').filter({hasText:'Browser Reusable Post A'}).locator('.post-inspect').click();
   let reusableInspector=page.locator('.editorial-inspector-overlay');
   await reusableInspector.waitFor({state:'visible',timeout:5000});
   await reusableInspector.locator('.inspector-edit').click();
@@ -857,7 +857,7 @@ try {
     .all(ewPost.id).map((row) => row.account_id);
   assert.deepEqual(ewEnabledTargets, [editorAccountId, browserPlatformAccounts.vk].sort());
 
-  await contentRow(ewInheritedTitle).locator('.open-post').click();
+  await contentRow(ewInheritedTitle).locator('.post-inspect').click();
   let ewInspector = page.locator('.editorial-inspector-overlay');
   await ewInspector.waitFor({ state: 'visible', timeout: 5000 });
   await ewInspector.locator('.inspector-edit').click();
@@ -898,7 +898,7 @@ try {
   );
 
   // Re-open to prove the editor hydrates actual per-post state rather than project defaults.
-  await contentRow(ewInheritedTitle).locator('.open-post').click();
+  await contentRow(ewInheritedTitle).locator('.post-inspect').click();
   ewInspector = page.locator('.editorial-inspector-overlay');
   await ewInspector.waitFor({ state: 'visible', timeout: 5000 });
   await ewInspector.locator('.inspector-edit').click();
@@ -1005,7 +1005,7 @@ try {
   assert.equal(/<(script|b|strong|em|u|s|a)(\s|>)/i.test(richDbPost.body_rich_json), false, 'canonical storage must be AST JSON, not HTML');
 
   const richRow = contentRow(richEditorTitle);
-  await richRow.locator('.open-post').click();
+  await richRow.locator('.post-inspect').click();
   let richInspector = page.locator('.editorial-inspector-overlay');
   await richInspector.waitFor({ state: 'visible', timeout: 5000 });
   assert.equal(await richInspector.locator('[data-inspector-rich-text] strong').count(), 1, 'Content Inspector must render bold from canonical AST');
@@ -1078,7 +1078,7 @@ try {
 
   await postForm.locator('#close-modal').click();
   await page.locator('#post-form').waitFor({ state: 'detached', timeout: 5000 });
-  await contentRow(richEditorTitle).locator('.open-post').click();
+  await contentRow(richEditorTitle).locator('.post-inspect').click();
   richInspector = page.locator('.editorial-inspector-overlay');
   await richInspector.waitFor({ state: 'visible', timeout: 5000 });
   const compilerPreviewSection = richInspector.locator('.platform-preview-section');
@@ -1133,7 +1133,7 @@ try {
   assert.equal(richReadyRevision.body, editorSnapshot.plain);
   assert.deepEqual(JSON.parse(richReadyRevision.body_rich_json), editorSnapshot.document);
 
-  await contentRow(richEditorTitle).locator('.open-post').click();
+  await contentRow(richEditorTitle).locator('.post-inspect').click();
   richInspector = page.locator('.editorial-inspector-overlay');
   await richInspector.waitFor({ state: 'visible', timeout: 5000 });
   await richInspector.locator('.inspector-edit').click();
@@ -1153,7 +1153,7 @@ try {
   assert.equal(changedState.ready_revision_id,null);
   assert.ok(changedState.content_version > richReadyState.content_version);
 
-  await contentRow(richEditorTitle).locator('.open-post').click();
+  await contentRow(richEditorTitle).locator('.post-inspect').click();
   richInspector = page.locator('.editorial-inspector-overlay');
   await richInspector.waitFor({ state: 'visible', timeout: 5000 });
   await richInspector.locator('.inspector-history').click();
@@ -1263,7 +1263,7 @@ try {
   }
   assert.equal(db.prepare('SELECT status FROM posts WHERE id=?').get(richDbPost.id).status, 'PUBLISHED');
 
-  await draftRow.locator('.open-post').click();
+  await draftRow.locator('.post-inspect').click();
   const contentInspector = page.locator('.editorial-inspector-overlay');
   await contentInspector.waitFor({ state: 'visible', timeout: 5000 });
   assert.equal(await contentInspector.locator('.inspector-edit').count(), 1, 'Content Inspector edit action missing');
@@ -1284,7 +1284,7 @@ try {
 
   const revisionRow = contentRow(revisionHistoryTitle);
   assert.equal(await revisionRow.count(), 1, 'Revision History browser fixture must render once');
-  await revisionRow.locator('.open-post').click();
+  await revisionRow.locator('.post-inspect').click();
   let revisionInspector = page.locator('.editorial-inspector-overlay');
   await revisionInspector.waitFor({ state: 'visible', timeout: 5000 });
   assert.equal((await revisionInspector.locator('.inspector-history').textContent())?.trim(), 'История изменений');
@@ -1802,7 +1802,7 @@ try {
     .some((row) => row.textContent?.includes(title)), browserApiTitle);
   const browserApiRow = contentRow(browserApiTitle);
   assert.equal(await browserApiRow.count(), 1, 'Integration API Post must render once in normal Content');
-  await browserApiRow.locator('.open-post').click();
+  await browserApiRow.locator('.post-inspect').click();
   const browserApiInspector = page.locator('.editorial-inspector-overlay');
   await browserApiInspector.waitFor({ state: 'visible', timeout: 5000 });
   assert.equal(await browserApiInspector.locator('[data-inspector-rich-text] strong').filter({ hasText: 'Browser API Bold' }).count(), 1);
@@ -1901,7 +1901,7 @@ try {
     .some((row) => row.textContent?.includes(title)), browserSheetTitle);
   const editorialSheetRow = contentRow(browserSheetTitle);
   assert.equal(await editorialSheetRow.count(), 1, 'Google Sheets v3 Post must render once in Content');
-  await editorialSheetRow.locator('.open-post').click();
+  await editorialSheetRow.locator('.post-inspect').click();
   const editorialSheetInspector = page.locator('.editorial-inspector-overlay');
   await editorialSheetInspector.waitFor({ state: 'visible', timeout: 5000 });
   assert.equal(await editorialSheetInspector.locator('[data-inspector-rich-text] strong').filter({ hasText: 'Новый модуль' }).count(), 1);

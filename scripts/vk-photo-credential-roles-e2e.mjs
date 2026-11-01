@@ -118,7 +118,7 @@ try {
   await form.locator('button[type="submit"]').click();
   await form.waitFor({ state: 'detached' });
   async function edit() {
-    await page.getByRole('row').filter({ hasText: 'Photo with separate roles' }).getByRole('button', { name: 'Открыть', exact: true }).click();
+    await page.getByRole('row').filter({ hasText: 'Photo with separate roles' }).getByRole('button', { name: 'Сведения', exact: true }).click();
     await page.getByRole('button', { name: 'Редактировать', exact: true }).click();
     await page.locator('.platform-workspace > summary').click();
     await page.locator('.platform-editor-card').waitFor({ state: 'visible' });

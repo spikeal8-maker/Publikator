@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { chromium } from 'playwright-core';
+import sharp from 'sharp';
 const dataDir=await fs.mkdtemp(path.join(os.tmpdir(),'publikator-visual-003-'));
 Object.assign(process.env,{NODE_ENV:'test',DATA_DIR:dataDir,ADMIN_PASSWORD:'visual-003-password',APP_MASTER_KEY:'visual-003-master-key-longer-than-thirty-two-characters',PUBLIC_BASE_URL:'http://127.0.0.1:18218'});
 const {migrate,db}=await import('../dist/db.js');
@@ -30,11 +31,19 @@ try {
  db.prepare("UPDATE posts SET status='PUBLISHED',editorial_stage='APPROVED' WHERE id=?").run(seeded[1].id);
  db.prepare("UPDATE posts SET editorial_stage='ARCHIVED' WHERE id=?").run(seeded[2].id);
  db.prepare("UPDATE posts SET editorial_stage='TRASHED' WHERE id=?").run(seeded[3].id);
+ for(const index of [0,1]){
+  const dir=path.join(dataDir,'media',seeded[index].id);await fs.mkdir(dir,{recursive:true});
+  const file=path.join(dir,'large.jpg');await sharp({create:{width:1200,height:800,channels:3,background:'#3478b9'}}).jpeg().toFile(file);
+  const bytes=(await fs.stat(file)).size;
+  db.prepare('INSERT INTO media(id,post_id,original_name,relative_path,mime_type,size_bytes,width,height,sha256,created_at,sort_order) VALUES(?,?,?,?,?,?,?,?,?,?,0)').run('large_fixture_'+index,seeded[index].id,'large.jpg',seeded[index].id+'/large.jpg','image/jpeg',bytes,1200,800,'a'.repeat(64),now);
+  db.prepare("UPDATE posts SET content_format='IMAGE' WHERE id=?").run(seeded[index].id);
+ }
+ db.prepare("UPDATE posts SET status='FAILED' WHERE id=?").run(seeded[4].id);
  const projection=await app.inject({method:'GET',url:'/api/posts',headers});
  assert.equal(projection.statusCode,200);
  const projected=projection.json().find(p=>p.id===seeded[0].id);
  assert.deepEqual(JSON.parse(projected.publication_targets).map(a=>a.name).sort(),['Chart max','Chart telegram']);
- assert.equal(projected.thumbnail_path,null);
+ assert.equal(projected.thumbnail_path,seeded[0].id+'/large.jpg');
  browser=await chromium.launch({channel:'chrome',headless:true});
  const page=await browser.newPage({viewport:{width:1440,height:1000}});
  const errors=[],unsafeWrites=[];page.on('pageerror',e=>errors.push(e.message));
@@ -58,6 +67,26 @@ try {
  await page.locator('[data-status="SCHEDULED"]').click();
  assert.equal(await page.locator('.posts-table tbody tr:visible[data-post-id]').count(),8);
  await page.locator('[data-status="ALL"]').click();
+ await page.locator('[data-post-sort="title"]').click();
+ assert.equal(await page.locator('.posts-table tbody tr[data-post-id]').first().getAttribute('data-post-id'),seeded[0].id);
+ await page.locator('[data-post-sort="title"]').click();
+ assert.equal(await page.locator('.posts-table tbody tr[data-post-id]').first().getAttribute('data-post-id'),seeded[19].id);
+ for(const direction of [1,-1]){
+  await page.locator('[data-post-sort="when"]').click();
+  const dates=await page.locator('.posts-table tbody tr[data-post-id]').evaluateAll(rows=>rows.map(row=>row.dataset.sortWhen));
+  const timed=dates.filter(Boolean).map(Date.parse);
+  assert.ok(timed.every((date,i)=>!i||(date-timed[i-1])*direction>=0),'Date sorting must follow header direction');
+  assert.ok(dates.slice(timed.length).every(value=>!value),'Unscheduled materials stay last');
+ }
+ await page.locator('[data-post-sort="status"]').click();
+ assert.equal(await page.locator('.posts-table tbody tr[data-post-id]').first().getAttribute('data-post-id'),seeded[4].id);
+ await page.locator('tr[data-post-id="'+seeded[0].id+'"] .post-list-main').click();
+ await page.locator('#post-form').waitFor();
+ assert.equal(await page.locator('.editorial-inspector-overlay').count(),0,'Editable row must open the editor directly');
+ const desktopMedia=await page.locator('.editor-media-host .viewer-stage').boundingBox();
+ assert.ok(desktopMedia.width>=450,'Single image must use the main preview width');
+ assert.ok(desktopMedia.height>=350,'Single image must have a large preview');
+ await page.locator('.publication-editor-close').click();
  await page.locator('[data-editorial-view="archive"]').click();
  await page.waitForFunction(()=>document.querySelector('.posts-table')?.dataset.editorialRenderedView==='archive');
  assert.equal(await page.locator('.posts-table tbody tr[data-post-id]').count(),1);
@@ -72,6 +101,7 @@ try {
  await published.locator('.open-post').click();
  await page.locator('.editorial-inspector-overlay').waitFor();
  assert.equal(await page.locator('.inspector-edit').count(),0);
+ const readonlyMedia=await page.locator('.publication-reader .viewer-stage').boundingBox();assert.ok(readonlyMedia.width>=450);
  await page.locator('.inspector-dismiss').click();
  await page.locator('#quick-new-post').click();
  await page.locator('#qc-text').fill('UI draft created through Publications');
@@ -82,7 +112,7 @@ try {
  assert.equal(saved.status,'DRAFT');
  const savedRow=page.locator('tr[data-post-id="'+saved.id+'"]');
  await savedRow.waitFor();
- await savedRow.locator('[data-edit-post]').click();
+ await savedRow.locator('.open-post').click();
  await page.locator('#post-form').waitFor();
  assert.equal(await page.locator('#post-form').getAttribute('data-post-id'),saved.id);
  await page.locator('#post-form .platform-workspace').waitFor();
@@ -108,7 +138,11 @@ try {
   assert.ok(help.x>=0&&help.x+help.width<=width);
   assert.match(await page.locator('.posts-toolbar>.posts-help[open]').innerText(),/повторная отправка/);
   await page.locator('.posts-toolbar>.posts-help summary').click();
-  await savedRow.locator('[data-edit-post]').click();
+  await page.locator('tr[data-post-id="'+seeded[0].id+'"] .open-post').click();
+  await page.locator('.editor-media-host .viewer-stage').waitFor();
+  const phoneMedia=await page.locator('.editor-media-host .viewer-stage').boundingBox();assert.ok(phoneMedia.width>=width-70&&phoneMedia.height>=220,'Phone image must be large');
+  await page.locator('.publication-editor-close').click();
+  await savedRow.locator('.open-post').click();
   await page.locator('#post-form').waitFor();
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'Editor must fit phone');
   await page.locator('#post-form .editor-help summary').first().click();

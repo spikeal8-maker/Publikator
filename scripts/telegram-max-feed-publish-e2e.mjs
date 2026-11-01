@@ -133,7 +133,7 @@ try {
   const imagePath = path.join(dataDir, 'fixture.jpg');
   await sharp({ create: { width: 1200, height: 800, channels: 3, background: '#225588' } }).jpeg().toFile(imagePath);
   async function edit(title) {
-    await page.getByRole('row').filter({ hasText: title }).getByRole('button', { name: 'Открыть', exact: true }).click();
+    await page.getByRole('row').filter({ hasText: title }).getByRole('button', { name: 'Сведения', exact: true }).click();
     await page.getByRole('button', { name: 'Редактировать', exact: true }).click();
     await page.locator('.platform-workspace > summary').click();
     await page.locator('.platform-editor-card').first().waitFor({ state: 'visible' });

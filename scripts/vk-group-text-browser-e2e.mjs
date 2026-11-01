@@ -65,7 +65,7 @@ try {
     return row;
   }
   async function edit(title) {
-    await page.getByRole('row').filter({ hasText: title }).getByRole('button', { name: 'Открыть', exact: true }).click();
+    await page.getByRole('row').filter({ hasText: title }).getByRole('button', { name: 'Сведения', exact: true }).click();
     await page.getByRole('button', { name: 'Редактировать', exact: true }).click();
     await page.locator('.platform-workspace > summary').click();
     await page.locator('.platform-editor-card').waitFor({ state: 'visible' });

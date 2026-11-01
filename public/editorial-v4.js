@@ -202,6 +202,11 @@ async function openContentInspector(postId) {
   if(richHost)renderRichText(richHost,post.bodyRich);
   const mediaCleanup = window.PublikatorMediaViewer?.mount?.(overlay.querySelector('.inspector-media-host'), post) || (() => {});
   const inspectorElement = overlay.querySelector('.editorial-inspector');
+  if(post.media?.length){
+   inspectorElement.classList.add('publication-reader');
+   const host=overlay.querySelector('.inspector-media-host'),grid=overlay.querySelector('.inspector-grid');
+   const layout=document.createElement('div');layout.className='publication-reader-layout';host.before(layout);layout.append(host,grid);
+  }
   const close = () => {
     document.dispatchEvent(new CustomEvent('publikator:editorial-inspector-closed', {
       detail: { postId: post.id, inspector: inspectorElement }
@@ -277,6 +282,15 @@ function showEditorialPageError(error) {
   box.textContent = error instanceof Error ? error.message : String(error);
 }
 
+let publicationOpening=false;
+async function openPublication(postId){
+ if(publicationOpening)return;publicationOpening=true;
+ try{
+  const post=await editorialRequest('/api/editorial/posts/'+encodeURIComponent(postId));
+  if(post.actions.edit&&typeof window.publikatorPostEditor==='function')await window.publikatorPostEditor(postId);
+  else await openContentInspector(postId);
+ }finally{publicationOpening=false;}
+}
 document.addEventListener('click', (event) => {
   const target = event.target instanceof Element ? event.target : null;
   const button = target?.closest('.open-post');
@@ -287,7 +301,7 @@ document.addEventListener('click', (event) => {
   }
   event.preventDefault();
   event.stopImmediatePropagation();
-  openContentInspector(button.dataset.id).catch(showEditorialPageError);
+  (button.dataset.openPublication==='1'?openPublication(button.dataset.id):openContentInspector(button.dataset.id)).catch(showEditorialPageError);
 }, true);
 
 document.addEventListener('click', (event) => {
