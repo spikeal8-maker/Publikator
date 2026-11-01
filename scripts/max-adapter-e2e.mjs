@@ -120,7 +120,7 @@ async function expectPlatformError(promise, expected) {
 }
 
 try {
-  assert.equal(PLATFORM_CAPABILITIES.max.supportsVideo, false, 'MAX video capability must remain gated until live acceptance');
+  assert.equal(PLATFORM_CAPABILITIES.max.supportsVideo, true);
   assert.equal(PLATFORM_CAPABILITIES.max.supportsStories, false);
   assert.equal(PLATFORM_CAPABILITIES.max.supportsShortVideo, false);
   assert.equal(PLATFORM_CAPABILITIES.max.verification.richMediaPendingLiveAcceptance, true);
@@ -380,13 +380,18 @@ try {
         response: { code: 'attachment.not.ready', message: 'Key: errors.process.attachment.file.not.processed' }
       }
     ];
-    mockFetch(steps);
-    await expectPlatformError(maxPublisher.publish(videoInput()), {
+    const rejected=steps.at(-1);steps.push(...Array.from({length:4},()=>({...rejected})));
+    const calls=mockFetch(steps);
+    const oldTimer=globalThis.setTimeout,delays=[];
+    globalThis.setTimeout=(callback,ms,...args)=>{delays.push(ms);return oldTimer(callback,0,...args);};
+    try { await expectPlatformError(maxPublisher.publish(videoInput()), {
       retryable: true,
       outcomeUnknown: false,
       code: 'attachment.not.ready',
       message: /attachment\.not\.ready/
-    });
+    }); } finally {globalThis.setTimeout=oldTimer;}
+    assert.deepEqual(delays,[2000,4000,8000,16000]);
+    assert.equal(calls.filter(call=>call.url.includes('/uploads?')).length,1);
   }
 
   // 19. Video POST /messages 500 may have created the public message and requires recovery.

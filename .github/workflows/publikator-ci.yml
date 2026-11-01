@@ -71,6 +71,9 @@ jobs:
           set -euo pipefail
           find public -maxdepth 1 -type f -name '*.js' -print0 | sort -z | xargs -0 -n1 node --check
 
+      - name: VIDEO-PUBLISH-001 normal service video delivery and credential safety
+        run: node scripts/video-publish-001-e2e.mjs
+
       - name: VISUAL-003 compact Publications create edit and responsive flow
         run: node scripts/visual-003-publications-e2e.mjs
 

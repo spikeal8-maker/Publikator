@@ -129,7 +129,7 @@ async function expectPlatformError(promise, expected) {
 }
 
 try {
-  assert.equal(PLATFORM_CAPABILITIES.telegram.supportsVideo, false, 'Telegram video capability must remain gated until live acceptance');
+  assert.equal(PLATFORM_CAPABILITIES.telegram.supportsVideo, true);
   assert.equal(PLATFORM_CAPABILITIES.telegram.supportsStories, false);
   assert.equal(PLATFORM_CAPABILITIES.telegram.supportsShortVideo, false);
   assert.equal(PLATFORM_CAPABILITIES.telegram.verification.richMediaPendingLiveAcceptance, true);
