@@ -19,6 +19,7 @@ export function mountComposerLayout({root, panel, heading, close, editor, previe
   tabs.classList.add('composer-panes');
   tabs.innerHTML='<button type="button" data-composer-pane="edit" data-pane="edit" aria-pressed="true">Редактировать</button><button type="button" data-composer-pane="preview" data-pane="preview" aria-pressed="false">Предпросмотр</button>';
   layout.dataset.composerPane='edit';
+  layout.dataset.pane='edit';
   // Use one pane contract in both create and edit, without nesting editors.
   tabs.querySelectorAll('button').forEach(button=>button.onclick=()=>{
     layout.dataset.composerPane=button.dataset.composerPane;
