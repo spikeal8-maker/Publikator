@@ -81,7 +81,7 @@ try {
  const header=await page.locator('main > header').boundingBox();
  assert.ok(header.height<=48,'Only a thin title/date row is allowed');
  const plot=await page.locator('.overview-chart-plot').boundingBox();
- assert.ok(plot.y<=170,'Actual chart must be visible at the top of a phone');
+ assert.ok(plot.y<=170,'Actual chart must be visible at the top of a phone: '+JSON.stringify({plot,header}));
  assert.ok(plot.height>=140,'Chart must be readable');
  await page.locator('.overview-chart .overview-help summary').click();
  const mobileHelp=await page.locator('.overview-chart .overview-help[open] > div').boundingBox();
