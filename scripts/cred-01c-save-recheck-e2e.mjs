@@ -206,7 +206,8 @@ setSocialCredentialInspectorForTests(async (platform, credentials) => {
       platform: 'vk',
       credential: { ...base.credential, providerType: 'GROUP' },
       destination: { ...base.destination, kind: 'COMMUNITY', id: String(credentials.groupId) },
-      verifiedVkUploadUserId: paired ? '42' : null
+      verifiedVkUploadUserId: paired ? '42' : null,
+      verifiedVkVideoUploadUserId: paired ? '42' : null
     };
   }
   assert.equal(platform, 'telegram');
@@ -532,7 +533,10 @@ try {
     textPublishReady: true,
     photoPublishReady: true,
     uploadUserId: '42',
-    photoSetupError: null
+    photoSetupError: null,
+    videoPublishReady: true,
+    videoUploadUserId: '42',
+    videoSetupError: null
   });
   assert.equal(JSON.stringify(vk).includes('vk-group-secret'), false);
   assert.equal(JSON.stringify(vk).includes('vk-photo-user-secret'), false);
