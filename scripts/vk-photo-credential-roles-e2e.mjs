@@ -110,6 +110,7 @@ try {
   assert.equal(calls.some(item => ['binaryUpload', 'photos.saveWallPhoto', 'wall.post'].includes(item.method)), false);
 
   await page.goto('http://127.0.0.1:18095/content');
+  if(await page.locator('.posts-secondary').getAttribute('open')===null)await page.locator('.posts-secondary > summary').click();
   await page.locator('#new-post').click();
   let form = page.locator('#post-form');
   await form.locator('input[name="title"]').fill('Photo with separate roles');
@@ -119,6 +120,7 @@ try {
   async function edit() {
     await page.getByRole('row').filter({ hasText: 'Photo with separate roles' }).getByRole('button', { name: 'Открыть', exact: true }).click();
     await page.getByRole('button', { name: 'Редактировать', exact: true }).click();
+    await page.locator('.platform-workspace > summary').click();
     await page.locator('.platform-editor-card').waitFor({ state: 'visible' });
     return page.locator('#post-form');
   }
@@ -129,6 +131,7 @@ try {
   await form.waitFor({ state: 'detached' });
   await page.getByRole('button', { name: 'Редактировать', exact: true }).click();
   await page.locator('#post-form .media-list img').waitFor({ state: 'visible' });
+  await page.locator('.platform-workspace > summary').click();
   await page.locator('.platform-editor-card').waitFor({ state: 'visible' });
   form = page.locator('#post-form');
   await form.locator('#mark-ready').click();
