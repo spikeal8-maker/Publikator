@@ -71,7 +71,8 @@ function inspection(mode, credentials) {
     publicationEvidence: {
       TEXT: { state: 'CONFIRMED', requiredMethods: ['sendMessage'] },
       IMAGE: { state: 'CONFIRMED', requiredMethods: ['sendPhoto'] },
-      CAROUSEL: { state: 'CONFIRMED', requiredMethods: ['sendMediaGroup'] }
+      CAROUSEL: { state: 'CONFIRMED', requiredMethods: ['sendMediaGroup'] },
+      VIDEO: { state: 'CONFIRMED', requiredMethods: ['sendVideo'] }
     },
     runtimePrerequisiteEvidence: [],
     remediation: [],
@@ -98,7 +99,8 @@ function inspection(mode, credentials) {
     base.publicationEvidence = {
       TEXT: { state: 'SETUP_REQUIRED', remediationCodes: ['TELEGRAM_CAN_POST_MESSAGES_REQUIRED'] },
       IMAGE: { state: 'SETUP_REQUIRED', remediationCodes: ['TELEGRAM_CAN_POST_MESSAGES_REQUIRED'] },
-      CAROUSEL: { state: 'SETUP_REQUIRED', remediationCodes: ['TELEGRAM_CAN_POST_MESSAGES_REQUIRED'] }
+      CAROUSEL: { state: 'SETUP_REQUIRED', remediationCodes: ['TELEGRAM_CAN_POST_MESSAGES_REQUIRED'] },
+      VIDEO: { state: 'SETUP_REQUIRED', remediationCodes: ['TELEGRAM_CAN_POST_MESSAGES_REQUIRED'] }
     };
     base.remediation = [{
       code: 'TELEGRAM_CAN_POST_MESSAGES_REQUIRED',
