@@ -1439,6 +1439,7 @@ try {
   assert.equal(await mp.locator('#qc-target-toggle').getAttribute('aria-expanded'), 'false');
   assert.match(await mp.locator('#qc-counter').textContent(), /2 выбрано/);
   assert.equal(await mp.locator('#qc-text').evaluate(el=>el.value), 'Новая публикация для всех подключений.');
+  await mp.locator('.composer-panes [data-pane="preview"]').click();
   await mp.locator('#qc-platform-preview-load').click();
   await mp.waitForFunction(()=>document.querySelector('#qc-platform-preview-load')?.disabled===false);
   await mp.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });
@@ -1448,6 +1449,7 @@ try {
   assert.equal(await mp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
     '390px local image preview must not cause horizontal overflow');
   await mp.screenshot({ path: 'test-results/p0-composer-local-preview-mobile.png', fullPage: false });
+  await mp.locator('.composer-panes [data-pane="edit"]').click();
   await mp.locator('.qc-image button[aria-label^="Удалить"]').click();
   assert.equal(await mp.locator('#qc-video-file').isDisabled(), false);
   await mp.locator('#qc-video-file').setInputFiles([
@@ -1456,6 +1458,7 @@ try {
   await mp.locator('#qc-video-preview video').scrollIntoViewIfNeeded();
   await mp.screenshot({ path: 'test-results/p0-composer-video-mobile.png', fullPage: false });
   assert.equal(await mp.locator('#qc-video-preview video').count(), 1);
+  await mp.locator('.composer-panes [data-pane="preview"]').click();
   await mp.locator('#qc-platform-preview-load').click();
   await mp.waitForFunction(()=>document.querySelector('#qc-platform-preview-load')?.disabled===false);
   await mp.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });
@@ -1465,6 +1468,7 @@ try {
     '390px local MP4 preview must not overflow');
   await mp.locator('#qc-save').click();
   await mp.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 45000 });
+  await mp.locator('.composer-panes [data-pane="preview"]').click();
   await mp.locator('#qc-platform-preview-load').click();
   await mp.waitForFunction(()=>document.querySelector('#qc-platform-preview-load')?.disabled===false);
   await mp.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });
@@ -1485,6 +1489,7 @@ try {
 
   // Mobile C2c: even with the video composer open, the failed readiness
   // explanation must remain available without clipping the action bar.
+  await mp.locator('.composer-panes [data-pane="edit"]').click();
   await mp.locator('.qc-advanced summary').click();
   await mp.locator('#qc-datetime').fill('2027-02-14T14:30');
   await mp.route('**/api/posts/*/ready', async (route) => {
@@ -1552,6 +1557,7 @@ try {
         '320px video preview must fit without clipping');
       assert.equal(await rp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
       await rp.screenshot({ path: 'test-results/p0-composer-video-responsive-320.png', fullPage: false });
+      await rp.locator('.composer-panes [data-pane="preview"]').click();
       await rp.locator('#qc-platform-preview-load').click();
   await rp.waitForFunction(()=>document.querySelector('#qc-platform-preview-load')?.disabled===false);
       await rp.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });
