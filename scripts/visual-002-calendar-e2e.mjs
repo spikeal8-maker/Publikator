@@ -27,6 +27,11 @@ try {
   assert.equal(selected.statusCode,200,selected.body);
  }
 
+ for(let dense=1;dense<=4;dense++){
+  const date=new Date();date.setHours(12+dense,0,0,0);
+  const response=await app.inject({method:'POST',url:'/api/posts',headers,payload:{projectId,title:'Dense calendar material '+dense,body:'Dense fixture',scheduleMode:'AT',scheduledAt:date.toISOString(),contentFormat:'TEXT_ONLY'}});
+  assert.equal(response.statusCode,201,response.body);
+ }
  const queued=await app.inject({method:'POST',url:'/api/posts',headers,payload:{projectId,title:'Queued calendar fixture',body:'Queue fixture',scheduleMode:'QUEUE'}});
  assert.equal(queued.statusCode,201,queued.body);
  browser=await chromium.launch({channel:'chrome',headless:true});
@@ -41,10 +46,23 @@ try {
  const today=new Date();const key=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
  await page.locator('[data-calendar-select="'+key+'"]').first().click();
  assert.match(await page.locator('.calendar-selected-items').innerText(),/Chart 0/);
- await page.locator('.calendar-selected-items .calendar-quick-edit').click();
+ assert.equal(await page.locator('.calendar-selected-items [data-calendar-selected-post]').count(),5);
+ const denseDay=page.locator('.calendar-day-cell[data-calendar-day="'+key+'"]');
+ assert.equal(await denseDay.locator('.calendar-card').count(),2);
+ assert.match(await denseDay.locator('.calendar-more').innerText(),/Ещё 3/);
+ assert.match(await denseDay.locator('.calendar-day-count').innerText(),/5.*публ/);
+ await denseDay.locator('.calendar-more').click();
+ assert.equal(await page.locator('.calendar-selected-items [data-calendar-selected-post]').count(),5);
+ const bounds=await page.locator('.calendar-day-cell').evaluateAll(cells=>cells.map(c=>({h:c.getBoundingClientRect().height,overflow:[...c.querySelectorAll('.calendar-card')].some(card=>card.getBoundingClientRect().right>c.getBoundingClientRect().right||card.getBoundingClientRect().bottom>c.getBoundingClientRect().bottom)})));
+ assert.ok(Math.max(...bounds.map(c=>c.h))-Math.min(...bounds.map(c=>c.h))<1,'Dense day must not stretch its week');
+ assert.ok(bounds.every(c=>!c.overflow),'Compact material rows must fit inside day cells');
+ const side=await page.locator('#calendar-selected-day').boundingBox(),grid=await page.locator('.calendar-grid').boundingBox();
+ assert.ok(side.x>=grid.x+grid.width,'Day details must sit beside the desktop grid');
+ assert.match(await page.locator('.calendar-selected > header').innerText(),/5 публикаций/);
+ await page.locator('.calendar-selected-items .calendar-quick-edit').first().click();
  await page.locator('#calendar-quick-form').waitFor();
  await page.locator('#calendar-quick-cancel').click();
- await page.locator('.calendar-selected-items [data-calendar-selected-post]').click();
+ await page.locator('.calendar-selected-items [data-calendar-selected-post]').first().click();
  await page.locator('.editorial-inspector-overlay').waitFor();
  await page.locator('.inspector-close').click();
  assert.equal(await page.locator('.calendar-queue-lane').getAttribute('open'),null);

@@ -1336,6 +1336,9 @@ try {
   await page.locator('.calendar-help summary').click();
   let calendarFixtureCard = page.locator(`[data-calendar-post="${calendarFixture.id}"]`);
   await calendarFixtureCard.waitFor({ state: 'visible' });
+  const fixtureDay=await calendarFixtureCard.evaluate(node=>node.closest('[data-calendar-day]').dataset.calendarDay);
+  await page.locator('.calendar-day-head[data-calendar-select="'+fixtureDay+'"]').click();
+  calendarFixtureCard=page.locator('[data-calendar-selected-post="'+calendarFixture.id+'"]');
   let calendarFixtureText = await calendarFixtureCard.innerText();
   assert.ok(calendarFixtureText.includes('Google Sheets'));
   assert.ok(calendarFixtureText.includes('Готово'));
@@ -1354,7 +1357,8 @@ try {
   await page.locator('[data-calendar-mode="month"]').click();
   await page.waitForFunction((id) => document.querySelector(`.calendar-card[data-calendar-post="${id}"]`) !== null, calendarFixture.id);
   calendarFixtureCard = page.locator(`.calendar-card[data-calendar-post="${calendarFixture.id}"]`);
-  assert.ok((await calendarFixtureCard.innerText()).includes('Google Sheets'), 'Calendar presentation must survive mode rerender');
+  await page.locator('.calendar-day-head[data-calendar-select="'+fixtureDay+'"]').click();
+  assert.ok((await page.locator('[data-calendar-selected-post="'+calendarFixture.id+'"]').innerText()).includes('Google Sheets'), 'Calendar selected-day presentation must survive mode rerender');
 
 
   // EW4-007: Calendar Editing Core browser acceptance.
