@@ -275,7 +275,8 @@ async function enhanceEditor(form, postId) {
      if(!isVideo&&!String(file.type).startsWith('image/'))throw new Error('Выберите изображения или MP4.');
      setError(form,'Загрузка '+(index+1)+' из '+files.length+'…');
      const data=new FormData();data.set('file',file,file.name);
-     const result=await requestJson('/api/posts/'+encodeURIComponent(post.id)+(isVideo?'/video':'/media'),{method:'POST',body:data,headers:{'x-content-version':String(currentVersion(form))}});
+     const endpoint=isVideo?`/api/posts/${encodeURIComponent(post.id)}/video`:`/api/posts/${encodeURIComponent(post.id)}/media`;
+     const result=await requestJson(endpoint,{method:'POST',body:data,headers:{'x-content-version':String(currentVersion(form))}});
      form.dataset.contentVersion=String(result.contentVersion);uploadedCount++;
     }
     const format=form.querySelector('select[name="postFormat"]');if(format)format.value='MEDIA';
