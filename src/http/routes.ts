@@ -736,7 +736,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     if (query.projectId) { conditions.push('p.project_id=?'); values.push(query.projectId); }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const rows = db.prepare(`SELECT p.*, pr.name AS project_name,
-      (SELECT COUNT(*) FROM media m WHERE m.post_id=p.id) AS media_count,
+      (SELECT COUNT(*) FROM media m WHERE m.post_id=p.id AND NOT EXISTS (SELECT 1 FROM content_media cm WHERE cm.media_id=m.id AND cm.role='poster')) AS media_count,
       (SELECT relative_path FROM media m WHERE m.post_id=p.id AND mime_type LIKE 'image/%' ORDER BY sort_order,id LIMIT 1) AS thumbnail_path,
       (SELECT json_group_array(json_object('platform',a.platform,'name',a.name)) FROM post_targets pt JOIN social_accounts a ON a.id=pt.account_id WHERE pt.post_id=p.id AND pt.enabled=1) AS publication_targets
       FROM posts p JOIN projects pr ON pr.id=p.project_id ${where} ORDER BY p.created_at DESC`).all(...values);

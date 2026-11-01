@@ -89,6 +89,8 @@ try{
   const reordered=await request('PUT','/api/posts/'+post.id+'/media-order',{mediaIds:[photoIds[0],uploaded.id,photoIds[1]],expectedContentVersion:version});
   assert.equal(db.prepare('SELECT content_format FROM posts WHERE id=?').get(post.id).content_format,'CAROUSEL');
   const targets=await request('PUT','/api/posts/'+post.id+'/targets',{accountIds,expectedContentVersion:reordered.contentVersion});
+  const listed=(await request('GET','/api/posts')).find(item=>item.id===post.id);
+  assert.equal(listed.media_count,3,'generated covers are excluded from the operator attachment count');
   if(!approve)return {id:post.id,version:targets.contentVersion,uploaded};
   const ready=await request('POST','/api/posts/'+post.id+'/ready',{expectedContentVersion:targets.contentVersion});
   return {id:post.id,ready};

@@ -128,7 +128,7 @@ function renderAuthoringMedia(form, post) {
     const node=[...list.children].find(element=>element.dataset.authoringMediaId===item.id);
     if(!node)continue;
     const order=document.createElement('div');order.className='sp-image-order';
-    order.innerHTML='<button type="button" class="secondary move-media" data-direction="-1" aria-label="Передвинуть изображение '+(index+1)+' раньше" '+(index===0?'disabled':'')+'>←</button><span>'+(index+1)+'</span><button type="button" class="secondary move-media" data-direction="1" aria-label="Передвинуть изображение '+(index+1)+' позже" '+(index===items.length-1?'disabled':'')+'>→</button>';
+    order.innerHTML='<button type="button" class="secondary move-media" data-direction="-1" aria-label="Передвинуть '+(item.isVideo?'видео':'изображение')+' '+(index+1)+' раньше" '+(index===0?'disabled':'')+'>←</button><span>'+(index+1)+'</span><button type="button" class="secondary move-media" data-direction="1" aria-label="Передвинуть '+(item.isVideo?'видео':'изображение')+' '+(index+1)+' позже" '+(index===items.length-1?'disabled':'')+'>→</button>';
     order.querySelectorAll('button').forEach(button=>button.onclick=async()=>{
      if(form.dataset.mediaBusy==='1')return;
      const next=index+Number(button.dataset.direction),ids=items.map(media=>media.id);
