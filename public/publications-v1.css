@@ -124,3 +124,14 @@ html[data-page="content"] #view .posts-table td:first-child .small{font-size:11p
 }
 
 #post-form .platform-workspace-head>div{display:flex;align-items:center;gap:8px;flex-wrap:wrap}#post-form .platform-workspace-head h3{font-size:14px;margin:0}#post-form .platform-workspace{padding:12px}#post-form .post-editor-section-note{display:none}
+
+#post-form .platform-workspace{border:1px solid var(--border);border-radius:9px;padding:0}
+#post-form .platform-workspace-summary{padding:10px 12px;font-size:12px;cursor:pointer}
+#post-form .platform-workspace-summary>span{margin-left:6px;color:var(--text-secondary)}
+#post-form .platform-workspace[open]>.platform-workspace-head{padding:10px 12px 0}
+#post-form .platform-workspace[open]>.platform-editor-grid{padding:10px 12px}
+#post-form .platform-workspace-head h3,#post-form .platform-workspace-head>.badge{display:none}
+.post-delivery-details{margin-top:10px;border-top:1px solid var(--border);padding-top:10px;font-size:12px}
+.post-delivery-details>summary{cursor:pointer}
+#post-form>.full:has(>.media-list)>strong{display:none}
+@media(min-width:821px){#post-form{grid-template-columns:repeat(3,minmax(0,1fr))}}

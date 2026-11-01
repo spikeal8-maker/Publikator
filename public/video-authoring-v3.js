@@ -132,17 +132,18 @@ function renderAuthoringMedia(form, post) {
   const mediaBlock = list.parentElement;
   const heading = mediaBlock?.querySelector(':scope > strong');
   if (heading) heading.textContent = 'Медиа';
-  let help = mediaBlock?.querySelector('.video-authoring-help');
+  let help = form.querySelector('.video-authoring-help');
   if (!help) {
     help = document.createElement('div');
     help.className = 'video-authoring-help muted small';
-    fileInput.before(help);
+    const host=[...form.querySelectorAll('.ui-editor-section-title')].find(node=>node.querySelector('strong')?.textContent==='Медиа')?.querySelector('.editor-help > div');
+    if(host)host.append(help);else fileInput.before(help);
   }
   help.textContent = hasVideo
-    ? 'Video v1: один MP4 (H.264, AAC или без аудио). Чтобы заменить ролик, сначала удалите текущий.'
+    ? 'Один MP4 (H.264, AAC или без аудио). Чтобы заменить ролик, сначала удалите текущий.'
     : items.length
-      ? 'Можно добавлять изображения. Для MP4 Video v1 пост должен быть без других медиа.'
-      : 'Изображения или MP4 Video v1: H.264, AAC либо без аудио. Poster создаётся автоматически.';
+      ? 'Можно добавлять изображения. Для MP4 публикация должен быть без других медиа.'
+      : 'Изображения или MP4: H.264, AAC либо без аудио. Обложка создаётся автоматически.';
 }
 
 function previewMarkup(post) {

@@ -293,9 +293,9 @@ async function enhancePostEditor(form, postId) {
   const actions = form.querySelector('.row-actions.full');
   if (!actions) return;
 
-  const section = document.createElement('section');
+  const section = document.createElement('details');
   section.className = 'platform-workspace full';
-  section.innerHTML = `<div class="platform-workspace-head">
+  section.innerHTML = `<summary class="platform-workspace-summary">Варианты для площадок <span>${post.targets.length}</span></summary><div class="platform-workspace-head">
       <div>
         <h3>Варианты по площадкам</h3>
         <details class="posts-help editor-help"><summary aria-label="Подсказка: Варианты по площадкам">i</summary><div>По умолчанию все получатели используют основной текст. Для отдельного подключения можно сохранить свой вариант или вернуть общий. Доступное форматирование зависит от площадки. Сохранение варианта не отправляет публикацию; готовность проверяется отдельно.</div></details>

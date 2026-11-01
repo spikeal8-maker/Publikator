@@ -67,6 +67,7 @@ try {
   async function edit(title) {
     await page.getByRole('row').filter({ hasText: title }).getByRole('button', { name: 'Открыть', exact: true }).click();
     await page.getByRole('button', { name: 'Редактировать', exact: true }).click();
+    await page.locator('.platform-workspace > summary').click();
     await page.locator('.platform-editor-card').waitFor({ state: 'visible' });
     return page.locator('#post-form');
   }
@@ -94,6 +95,7 @@ try {
   await form.waitFor({ state: 'detached' });
   await page.getByRole('button', { name: 'Редактировать', exact: true }).click();
   await page.locator('#post-form .media-list img').waitFor({ state: 'visible' });
+  await page.locator('.platform-workspace > summary').click();
   await page.locator('.platform-editor-card').waitFor({ state: 'visible' });
   form = page.locator('#post-form');
   await form.locator('#mark-ready').click();

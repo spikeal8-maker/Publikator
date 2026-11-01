@@ -865,6 +865,7 @@ try {
   ewPostForm = page.locator('#post-form');
   await ewPostForm.waitFor({ state: 'visible', timeout: 5000 });
   await ewPostForm.locator('.platform-workspace').waitFor({ state: 'visible', timeout: 5000 });
+  if(await ewPostForm.locator('.platform-workspace').getAttribute('open')===null)await ewPostForm.locator('.platform-workspace > summary').click();
 
   const ewTelegramBox = ewPostForm.locator(`input[name="accountId"][value="${editorAccountId}"]`);
   const ewVkBox = ewPostForm.locator(`input[name="accountId"][value="${browserPlatformAccounts.vk}"]`);
@@ -1015,6 +1016,7 @@ try {
   postForm = page.locator('#post-form');
   await postForm.waitFor({ state: 'visible', timeout: 5000 });
   await postForm.locator('.platform-workspace').waitFor({ state: 'visible', timeout: 5000 });
+  if(await postForm.locator('.platform-workspace').getAttribute('open')===null)await postForm.locator('.platform-workspace > summary').click();
   for (const selector of ['strong','em','u','s','code','a','blockquote','ul','ol','pre']) {
     assert.ok(await postForm.locator(`[data-rich-text-editor] .rich-text-surface ${selector}`).count() >= 1, `formatting did not hydrate: ${selector}`);
   }
@@ -1094,6 +1096,7 @@ try {
   postForm = page.locator('#post-form');
   await postForm.waitFor({ state: 'visible', timeout: 5000 });
   await postForm.locator('.platform-workspace').waitFor({ state: 'visible', timeout: 5000 });
+  if(await postForm.locator('.platform-workspace').getAttribute('open')===null)await postForm.locator('.platform-workspace > summary').click();
   assert.ok((await postForm.locator('.platform-editor-card[data-platform="telegram"] .rich-text-surface').innerText()).includes('Telegram Browser Bold Link🙂'));
   assert.ok(await postForm.locator('.platform-editor-card[data-platform="telegram"] .rich-text-surface strong').count() >= 1);
   assert.ok(await postForm.locator('.platform-editor-card[data-platform="telegram"] .rich-text-surface a[href^="https://example.test/browser-telegram"]').count() >= 1);
@@ -1271,6 +1274,7 @@ try {
   await postForm.waitFor({ state: 'visible', timeout: 5000 });
   const existingPostModal = postForm.locator('xpath=ancestor::div[contains(@class,"modal-card")]');
   await existingPostModal.locator('.platform-workspace').waitFor({ state: 'visible', timeout: 5000 });
+  if(await existingPostModal.locator('.platform-workspace').getAttribute('open')===null)await existingPostModal.locator('.platform-workspace > summary').click();
   const existingSections = await existingPostModal.locator('.ui-editor-section-title strong').allTextContents();
   for (const section of ['Основное', 'Медиа', 'Площадки']) assert.ok(existingSections.includes(section), `existing editor section missing: ${section}`);
   assert.equal(await postForm.locator('#media-file').count(), 1, 'existing editor media enhancement missing');
