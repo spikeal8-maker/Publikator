@@ -140,6 +140,7 @@ try {
   }
   for (const [title, format] of [['Browser text', 'TEXT_ONLY'], ['Browser image', 'MEDIA']]) {
     await page.goto('http://127.0.0.1:18096/content');
+    if(await page.locator('.posts-secondary').getAttribute('open')===null)await page.locator('.posts-secondary > summary').click();
     await page.locator('#new-post').click();
     let form = page.locator('#post-form');
     await form.locator('input[name="title"]').fill(title);
