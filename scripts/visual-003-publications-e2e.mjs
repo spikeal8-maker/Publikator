@@ -46,6 +46,8 @@ try {
  await page.waitForFunction(()=>document.querySelector('.posts-table')?.dataset.editorialRenderedView==='active');
  assert.equal(await page.locator('.posts-table tbody tr[data-post-id]').count(),18);
  assert.equal(await page.locator('#page-title').innerText(),'Публикации');
+ assert.equal(await page.locator('.post-format').first().innerText(),'Пост · Текст');
+ assert.doesNotMatch(await page.locator('.posts-table').innerText(),/FEED|TEXT_ONLY/);
  assert.equal(await page.locator('#new-post').isVisible(),false);
  const search=page.locator('#ui-content-filter input');
  await search.fill('deepneedle19');
