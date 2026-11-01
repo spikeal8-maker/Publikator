@@ -120,6 +120,14 @@ try {
  await baseRich.fill('Live unsaved caption with emoji 🤖');
  await page.waitForFunction(()=>document.querySelector('.editor-media-host .sp-text')?.textContent.includes('Live unsaved caption'));
  assert.equal(db.prepare('SELECT body FROM posts WHERE id=?').get(seeded[0].id).body,'Full searchable text 0 deepneedle0','Preview must not save text');
+ await page.locator('#post-form .platform-workspace > summary').click();
+ const telegramVariant=page.locator('.platform-editor-card[data-platform="telegram"]');
+ await telegramVariant.locator('.rich-text-surface').fill('A different caption only for Telegram 🤖');
+ await telegramVariant.locator('.save-platform-text').click();
+ await page.locator('.editor-media-host [data-account="chart_telegram"]').click();
+ await page.waitForFunction(()=>document.querySelector('.editor-media-host .sp-text')?.textContent.includes('A different caption only for Telegram'));
+ assert.equal(db.prepare('SELECT body FROM posts WHERE id=?').get(seeded[0].id).body,'Full searchable text 0 deepneedle0','Target override never replaces canonical caption');
+
  await page.locator('.publication-editor-close').click();
  await page.locator('[data-editorial-view="archive"]').click();
  await page.waitForFunction(()=>document.querySelector('.posts-table')?.dataset.editorialRenderedView==='archive');

@@ -359,8 +359,8 @@ async function postEditor(postId,options={}){
     const ownEditor=[...form.querySelectorAll('.platform-editor-card')].find(card=>card.dataset.accountId===account.id)?.richTextEditor;
     const ownDocument=ownEditor?.getDocument?.();
     const ownText=ownEditor?.getPlainText?.();
-    const hasOwn=Boolean(target?.textRich||target?.textPlain||target?.override_text);
-    const localBase=body!==String(post?.body||'');
+    const hasOwn=saved?['platform_override','legacy_override','legacy_rendition_plain'].includes(saved.textSource):Boolean(target?.textRich||target?.textPlain||target?.override_text);
+    const localBase=!hasOwn&&body!==String(post?.body||'');
     const localOwn=hasOwn&&ownText!=null&&ownText!==saved?.text;
     const local=localBase||localOwn||!saved;
     return {...saved,accountId:account.id,accountName:account.name,platform:account.platform,
