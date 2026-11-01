@@ -153,7 +153,7 @@ try {
     if (format === 'MEDIA') {
       await form.locator('#media-file').setInputFiles(imagePath);
       await form.waitFor({ state: 'detached' });
-      await page.getByRole('button', { name: 'Редактировать', exact: true }).click();
+      await page.locator('#post-form').waitFor({state:'visible'});
       await page.locator('#post-form .media-list img').waitFor({ state: 'visible' });
       form = page.locator('#post-form');
     }

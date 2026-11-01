@@ -284,7 +284,7 @@ function showEditorialPageError(error) {
 
 let publicationOpening=false;
 async function openPublication(postId){
- if(publicationOpening)return;publicationOpening=true;
+ if(publicationOpening||document.querySelector('#post-form,.editorial-inspector-overlay'))return;publicationOpening=true;
  try{
   const post=await editorialRequest('/api/editorial/posts/'+encodeURIComponent(postId));
   if(post.actions.edit&&typeof window.publikatorPostEditor==='function')await window.publikatorPostEditor(postId);

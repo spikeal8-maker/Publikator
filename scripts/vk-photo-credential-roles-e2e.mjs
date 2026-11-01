@@ -129,7 +129,7 @@ try {
   await sharp({ create: { width: 1200, height: 800, channels: 3, background: '#225588' } }).jpeg().toFile(imagePath);
   await form.locator('#media-file').setInputFiles(imagePath);
   await form.waitFor({ state: 'detached' });
-  await page.getByRole('button', { name: 'Редактировать', exact: true }).click();
+  await page.locator('#post-form').waitFor({state:'visible'});
   await page.locator('#post-form .media-list img').waitFor({ state: 'visible' });
   await page.locator('.platform-workspace > summary').click();
   await page.locator('.platform-editor-card').waitFor({ state: 'visible' });
