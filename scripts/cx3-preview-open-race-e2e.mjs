@@ -82,7 +82,7 @@ try {
   await page.locator('#login-form button[type="submit"]').click();
   const contentRow = title => page.getByRole('row').filter({ hasText: title });
 
-  await contentRow('Delayed preview inspector').getByRole('button', { name: 'Открыть', exact: true }).click();
+  await contentRow('Delayed preview inspector').getByRole('button', { name: 'Сведения', exact: true }).click();
   let overlay = page.locator('.editorial-inspector-overlay');
   await overlay.waitFor({ state: 'visible', timeout: 9000 });
   let previews = overlay.locator('.platform-preview-section');
@@ -97,7 +97,7 @@ try {
   assert.equal(await page.locator('.platform-preview-section').count(), 0, 'close cleans preview host');
 
   // Subsequent opens must use the NEW post ID, not a stale click/timeout value.
-  await contentRow('Second preview inspector').getByRole('button', { name: 'Открыть', exact: true }).click();
+  await contentRow('Second preview inspector').getByRole('button', { name: 'Сведения', exact: true }).click();
   overlay = page.locator('.editorial-inspector-overlay');
   await overlay.waitFor({ state: 'visible', timeout: 6000 });
   await overlay.locator('.platform-preview-section .platform-preview-card').first().waitFor({ state: 'visible' });
