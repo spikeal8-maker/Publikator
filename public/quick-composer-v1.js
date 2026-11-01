@@ -742,7 +742,9 @@ export async function openQuickComposer(options = {}) {
             setBusy(false);
           }
           URL.revokeObjectURL(item.url);
-          state.pending.splice(state.pending.indexOf(item), 1);
+          const removedIndex = state.pending.indexOf(item);
+          if (state.video?.position != null && removedIndex < state.video.position) state.video.position--;
+          state.pending.splice(removedIndex, 1);
           markDirty();
           redrawPhotos();
         });
@@ -772,6 +774,7 @@ export async function openQuickComposer(options = {}) {
       syncMediaInputs();
       updateCaptionPreview();
       refreshMediaVariantControls();
+      if (state.video) redrawVideo();
     }
     function addFiles(files) {
       if (state.busy || state.finished || state.uncertainPublish) return;
@@ -844,8 +847,9 @@ export async function openQuickComposer(options = {}) {
       const position = Math.min(item.position ?? state.pending.length, state.pending.length);
       order.innerHTML = '<button type="button" class="secondary" aria-label="Передвинуть видео раньше">←</button><span>' + (position + 1) + ' из ' + (state.pending.length + 1) + '</span><button type="button" class="secondary" aria-label="Передвинуть видео позже">→</button>';
       const moves = order.querySelectorAll('button');
-      moves[0].disabled = !position || state.busy; moves[1].disabled = position === state.pending.length || state.busy;
-      moves.forEach((button, index) => button.onclick = () => { item.position = position + (index ? 1 : -1); markDirty(); redrawVideo(); });
+      const locked = state.busy || state.finished || state.uncertainPublish;
+      moves[0].disabled = !position || locked; moves[1].disabled = position === state.pending.length || locked;
+      moves.forEach((button, index) => button.onclick = () => { if (state.busy || state.finished || state.uncertainPublish) return; item.position = position + (index ? 1 : -1); markDirty(); redrawVideo(); });
       meta.append(title, size, order, remove);
       card.append(preview, meta);
       host.append(card);

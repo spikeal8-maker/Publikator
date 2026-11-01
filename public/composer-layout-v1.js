@@ -39,7 +39,7 @@ export function mountMediaGuide(host) {
 }
 export function updateMediaGuide(host,{images=0,video=false}={}) {
   mountMediaGuide(host);
-  host.querySelector('.composer-media-count').textContent=(images + Number(Boolean(video))) + ' / 10 вложений';
+  host.querySelector('.composer-media-count').textContent=(images + Number(video)) + ' / 10 вложений';
   host.querySelector('.composer-media-note').textContent=video
     ? images ? images + ' фото + видео · одна публикация' : 'Видео · одна публикация'
     : images ? 'Альбом: '+images+' фото. Можно добавить MP4.' : '';
