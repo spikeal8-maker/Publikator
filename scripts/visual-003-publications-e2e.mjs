@@ -83,6 +83,7 @@ try {
  await page.locator('tr[data-post-id="'+seeded[0].id+'"] .post-list-main').click();
  await page.locator('#post-form').waitFor();
  assert.equal(await page.locator('.editorial-inspector-overlay').count(),0,'Editable row must open the editor directly');
+ const editorBounds=await page.locator('.publication-editor').boundingBox();assert.ok(editorBounds.width>=1100,'Desktop editor must use the available screen width');
  const desktopMedia=await page.locator('.editor-media-host .viewer-stage').boundingBox();
  assert.ok(desktopMedia.width>=450,'Single image must use the main preview width');
  assert.ok(desktopMedia.height>=350,'Single image must have a large preview');

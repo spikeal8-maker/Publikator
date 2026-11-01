@@ -171,3 +171,10 @@ html[data-page="content"] #view .posts-table td:first-child .small{font-size:11p
  .publication-editor .viewer-stage-wrap:has(.viewer-prev[hidden]),.publication-reader .viewer-stage-wrap:has(.viewer-prev[hidden]){grid-template-columns:minmax(0,1fr)}
  .publication-editor .viewer-nav,.publication-reader .viewer-nav{min-height:36px;height:40px;font-size:23px}
 }
+
+.modal-card.publication-editor.publication-has-media:has(#post-form){width:min(1440px,calc(100vw - 32px));max-width:min(1440px,calc(100vw - 32px))}
+.publication-editor .viewer-stage,.publication-reader .viewer-stage{height:auto;aspect-ratio:var(--viewer-aspect,3/2);min-height:250px}
+@media(max-width:900px){
+ .modal-card.publication-editor.publication-has-media:has(#post-form){width:100%;max-width:100%}
+ .publication-editor .viewer-stage,.publication-reader .viewer-stage{height:auto;min-height:230px;max-height:60dvh}
+}
