@@ -1,3 +1,4 @@
+import { mountSocialPreview } from './social-post-preview-v1.js';
 import { plainTextToRichDocument } from './rich-text-editor-v1.js';
 import { createComposerRecovery } from './quick-composer-recovery-v1.js';
 
@@ -66,6 +67,7 @@ export async function openQuickComposer() {
 
   let state = null;
   let recovery = null;
+  let socialPreview = null;
   const dispose = () => {
     if (state?.busy) return;
     if (state?.uncertainPublish && !window.confirm('Результат последней операции не подтверждён. Проверьте публикации перед повторной отправкой. Закрыть редактор?')) return;
@@ -76,9 +78,11 @@ export async function openQuickComposer() {
     // Keep recovery markers for interrupted/uncertain server operations.
     if (state && !state.savedId && !state.uncertainPublish) recovery?.clear();
     document.body.classList.remove('qc-target-sheet-open');
+    socialPreview?.dispose();
     overlay.remove();
     document.body.classList.remove('qc-open');
     openDialog = null;
+    if(state?.savedId)document.dispatchEvent(new CustomEvent('publikator:publication-saved',{detail:{postId:state.savedId}}));
   };
   overlay.querySelector('#qc-close').addEventListener('click', dispose);
   overlay.addEventListener('click', (event) => { if (event.target === overlay) dispose(); });
@@ -519,7 +523,10 @@ export async function openQuickComposer() {
     const previewContent = root.querySelector('#qc-platform-preview-card');
     const previewButton = root.querySelector('#qc-platform-preview-load');
     const previewSource = root.querySelector('#qc-platform-preview-source');
+    socialPreview=mountSocialPreview(previewContent);
+    previewArea.classList.add('qc-live-preview');
     function updatePreviewButton() {
+      if(socialPreview){previewArea.hidden=false;socialPreview.update(state.savedId&&!state.dirty&&state.previewRows.length?state.previewRows:localPreviewRows());}
       const hasContent = Boolean(text.value.trim() || state.pending.length || state.video);
       previewButton.disabled = state.busy || state.finished || state.uncertainPublish ||
         state.previewLoading || selectedIds().length === 0 || !hasContent;
@@ -534,65 +541,12 @@ export async function openQuickComposer() {
     function clearPlatformPreview() {
       state.previewToken += 1;
       state.previewRows = [];
-      previewArea.hidden = true;
       previewSource.textContent = '';
-      previewChoice.replaceChildren();
-      previewContent.replaceChildren();
+      previewArea.hidden = false;
+      socialPreview?.update(localPreviewRows());
     }
     function renderPlatformPreview() {
-      previewContent.replaceChildren();
-      const selected = state.previewRows.find((item) => item.targetId === previewChoice.value);
-      if (!selected) return;
-      const heading = document.createElement('strong');
-      heading.textContent = (PLATFORM_NAMES[selected.platform] || selected.platform || 'Площадка') +
-        ' · ' + (selected.accountName || 'Подключение');
-      const format = document.createElement('span');
-      format.className = 'qc-muted';
-      format.textContent = FORMAT_NAMES[selected.contentFormat] || selected.contentFormat || 'Пост';
-      const mediaGroup = document.createElement('div');
-      mediaGroup.className = 'qc-platform-media';
-      const media = Array.isArray(selected.media) ? selected.media.filter((item) => item.role !== 'poster') : [];
-      for (const item of media) {
-        if (typeof item.url !== 'string') continue;
-        const trustedSource = selected.localDraft === true
-          ? item.url.startsWith('blob:')
-          : item.url.startsWith('/public-media/');
-        if (!trustedSource) continue;
-        let element;
-        if (item.mimeType === 'video/mp4') {
-          element = document.createElement('video');
-          element.controls = true;
-          element.preload = 'metadata';
-          element.playsInline = true;
-          if (typeof item.posterUrl === 'string' && item.posterUrl.startsWith('/public-media/')) {
-            element.poster = item.posterUrl;
-          }
-        } else if (typeof item.mimeType === 'string' && item.mimeType.startsWith('image/')) {
-          element = document.createElement('img');
-          element.alt = 'Изображение для ' + (selected.accountName || 'площадки');
-          element.loading = 'lazy';
-        } else continue;
-        element.src = item.url;
-        mediaGroup.append(element);
-      }
-      const caption = document.createElement('p');
-      caption.className = 'qc-platform-caption';
-      caption.textContent = String(selected.text || '').trim() || 'Без подписи';
-      previewContent.append(heading, format);
-      if (selected.captionPlacement === 'above') previewContent.append(caption, mediaGroup);
-      else previewContent.append(mediaGroup, caption);
-      const issues = Array.isArray(selected.issues)
-        ? selected.issues.filter((i) => i && ['error', 'warning'].includes(i.severity)) : [];
-      if (issues.length) {
-        const warningList = document.createElement('ul');
-        warningList.className = 'qc-platform-notes';
-        for (const issue of issues) {
-          const row = document.createElement('li');
-          row.textContent = String(issue.message || 'Проверьте требования площадки');
-          warningList.append(row);
-        }
-        previewContent.append(warningList);
-      }
+      socialPreview?.update(state.previewRows);
     }
     function presentPreviewRows(rows, message) {
       state.previewRows = rows;
@@ -606,9 +560,9 @@ export async function openQuickComposer() {
       }
       previewSource.textContent = message;
       previewArea.hidden = false;
-      if (state.previewRows.length) renderPlatformPreview();
-      else previewContent.textContent = 'Нет выбранных получателей для предпросмотра.';
-      previewArea.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+      renderPlatformPreview();
+      previewArea.scrollIntoView({block:'nearest',behavior:'auto'});
+
     }
     function localPreviewRows() {
       // This is a visual approximation from operator-selected local files.

@@ -312,10 +312,6 @@ label { color: var(--text-primary); }
 .dashboard-v3-metric { border-radius: var(--radius-lg) !important; }
 .dashboard-v3-panel { border-radius: var(--radius-lg) !important; }
 .dashboard-v3-item { border-radius: 11px !important; }
-.calendar-shell { display: grid; gap: 16px; }
-.calendar-toolbar { border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); padding: 10px; box-shadow: var(--shadow-sm); }
-.calendar-mode.active { border-color: #b9c8ff !important; background: var(--accent-soft) !important; color: #284eb9 !important; }
-.calendar-day-cell { border-color: var(--border) !important; }
 .calendar-card, .calendar-list-card { border-color: var(--border) !important; }
 .content-library { display: grid; gap: 14px; }
 .library-topbar, .library-filter-row, .library-selection-bar, .library-pager { border-color: var(--border) !important; background: var(--surface) !important; border-radius: var(--radius-md) !important; box-shadow: var(--shadow-sm); }
@@ -371,7 +367,6 @@ label { color: var(--text-primary); }
   .form-grid .row-actions.full { bottom: -18px; margin: 8px -16px -18px; padding: 12px 16px; }
   .form-grid .row-actions.full > button { flex: 1 1 140px; }
   .library-topbar, .library-filter-row, .library-selection-bar, .library-pager { align-items: stretch !important; flex-direction: column !important; }
-  .calendar-toolbar, .calendar-toolbar-group { align-items: stretch !important; flex-wrap: wrap; }
 }
 
 /* Consolidated page-specific and responsive presentation */
@@ -443,29 +438,6 @@ html[data-page="content"] #view .table td:first-child .small { margin-top: 3px; 
 }
 
 @media (max-width: 620px) {
-  html[data-page="calendar"] .calendar-shell,
-  html[data-page="calendar"] .calendar-toolbar,
-  html[data-page="calendar"] .calendar-toolbar-group,
-  html[data-page="calendar"] .calendar-grid {
-    width: 100%; min-width: 0; max-width: 100%;
-  }
-  html[data-page="calendar"] .calendar-toolbar { overflow: hidden; }
-  html[data-page="calendar"] .calendar-toolbar-group { align-items: center !important; }
-  html[data-page="calendar"] .calendar-range-title { min-width: 0; font-size: 16px; }
-  html[data-page="calendar"] .calendar-grid {
-    grid-template-columns: repeat(7, minmax(0, 1fr));
-    overflow: hidden;
-  }
-  html[data-page="calendar"] .calendar-weekday { padding: 6px 1px; font-size: 10px; }
-  html[data-page="calendar"] .calendar-day-cell { min-height: 88px; padding: 4px; gap: 3px; }
-  html[data-page="calendar"] .calendar-day-head { font-size: 10px; }
-  html[data-page="calendar"] .calendar-day-head strong { font-size: 12px; }
-  html[data-page="calendar"] .calendar-card { grid-template-columns: minmax(0,1fr); gap: 2px; padding: 3px; }
-  html[data-page="calendar"] .calendar-thumb,
-  html[data-page="calendar"] .calendar-card-meta,
-  html[data-page="calendar"] .calendar-source { display: none; }
-  html[data-page="calendar"] .calendar-card-title { font-size: 9px; }
-  html[data-page="calendar"] .calendar-more { padding: 1px; font-size: 9px; }
   html[data-page="library"] .content-library,
   html[data-page="library"] .library-topbar,
   html[data-page="library"] .library-filter-row,

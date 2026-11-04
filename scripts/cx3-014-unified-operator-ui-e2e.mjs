@@ -52,7 +52,8 @@ for (const contract of ['.ui-mobile-menu', '@media (max-width: 820px)', '.table-
   assert.ok(css.includes(contract), `missing UI contract ${contract}`);
 }
 assert.ok(css.includes('.brand::after'), 'legacy compact-brand pseudo element must be suppressed');
-assert.ok(css.includes('grid-template-columns: repeat(7, minmax(0, 1fr))'), 'mobile calendar must fit seven columns');
+const calendarCss=await fs.readFile(new URL('../public/calendar-v3.css',import.meta.url),'utf8');
+assert.match(calendarCss,/grid-template-columns:\s*repeat\(7,\s*minmax\(0,\s*1fr\)\)/,'mobile calendar must fit seven columns');
 assert.ok(css.includes('overscroll-behavior-inline: contain'), 'mobile library tabs must scroll internally');
 assert.ok(css.includes('html[data-page="content"] .table tbody tr'), 'mobile content cards contract missing');
 assert.ok(!css.includes('.ui-internal-status'), 'obsolete hidden raw status selector must be removed');
@@ -117,7 +118,7 @@ assert.ok(videoAuthoring.includes('const observer = new MutationObserver(() => t
 
 assert.ok(calendar.includes("import { sourceLabel, statusLabel } from './presentation-labels.js';"), 'Calendar must use shared presentation helpers');
 assert.ok(calendar.includes("agenda:'Список'"), 'Calendar agenda mode must render Список');
-assert.ok(calendar.includes('Часовой пояс: ${calEsc(CALENDAR_DISPLAY_TIMEZONE)}'), 'Calendar toolbar must render human timezone label');
+assert.ok(calendar.includes('Часовой пояс: ')&&calendar.includes('calEsc(CALENDAR_DISPLAY_TIMEZONE)'), 'Calendar help must explain the display timezone');
 assert.ok(calendar.includes("sourceLabel(item.source_type||'manual')"), 'Calendar source must use shared source helper');
 assert.ok(calendar.includes('data-raw-status="${calEsc(raw)}"'), 'Calendar statuses must preserve raw machine value');
 assert.ok(calendar.includes('statusLabel(raw)'), 'Calendar statuses must render human labels');
@@ -157,8 +158,7 @@ assert.ok(slotEditorSource.includes('<h2>Новое время публикац�
 assert.ok(slotEditorSource.includes('<label>Часовой пояс<input name="timezone" value="Europe/Moscow">'), 'schedule timezone label must remain renderer-owned');
 assert.ok(slotEditorSource.includes('<button class="primary">Добавить</button>'), 'schedule primary action must remain renderer-owned');
 
-const overviewProblemsNote = 'ошибки и публикации, требующие проверки';
-assert.ok(dashboard.includes(`dashboardMetric('Проблемы', data.metrics.problems, '${overviewProblemsNote}'`), 'Overview Problems note must remain renderer-owned');
+assert.ok(dashboard.includes("dashboardMetric('Проблемы', data.metrics.problems") && dashboard.includes("'нужно ваше внимание' : 'всё в порядке'"), 'Overview Problems note must remain renderer-owned and reflect its count');
 assert.ok(dashboard.includes("import { publicationFormatLabel, statusLabel } from './presentation-labels.js';"), 'Dashboard must reuse shared presentation labels');
 
 assert.ok(library.includes("import { publicationFormatLabel, sourceLabel, statusLabel } from './presentation-labels.js';"), 'Library must retain shared presentation ownership');

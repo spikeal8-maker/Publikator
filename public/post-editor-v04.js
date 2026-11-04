@@ -258,6 +258,7 @@ function enhanceMediaOrdering(form, post, rerenderAll) {
           if (itemNode) mediaList.append(itemNode);
         });
         sync();
+        form.dispatchEvent(new CustomEvent('publikator:media-order-changed',{bubbles:true}));
         rerenderAll();
       };
 
@@ -293,12 +294,12 @@ async function enhancePostEditor(form, postId) {
   const actions = form.querySelector('.row-actions.full');
   if (!actions) return;
 
-  const section = document.createElement('section');
+  const section = document.createElement('details');
   section.className = 'platform-workspace full';
-  section.innerHTML = `<div class="platform-workspace-head">
+  section.innerHTML = `<summary class="platform-workspace-summary">Варианты для площадок <span>${post.targets.length}</span></summary><div class="platform-workspace-head">
       <div>
         <h3>Варианты по площадкам</h3>
-        <p class="muted small">Rich-варианты сохраняются в TargetRendition. Панель инструментов отражает реальные возможности compiler каждой площадки.</p>
+        <details class="posts-help editor-help"><summary aria-label="Подсказка: Варианты по площадкам">i</summary><div>По умолчанию все получатели используют основной текст. Для отдельного подключения можно сохранить свой вариант или вернуть общий. Доступное форматирование зависит от площадки. Сохранение варианта не отправляет публикацию; готовность проверяется отдельно.</div></details>
       </div>
       <span class="badge">${post.targets.length} подключений</span>
     </div>
@@ -383,8 +384,9 @@ async function enhancePostEditor(form, postId) {
 
 function tryEnhanceVisibleEditor() {
   const form = document.querySelector('.modal-card #post-form');
-  if (!form || form.dataset.v04Enhanced === '1' || !activePostId) return;
-  enhancePostEditor(form, activePostId).catch((error) => {
+  const postId=form?.hasAttribute('data-post-id')?form.dataset.postId:activePostId;
+  if (!form || form.dataset.v04Enhanced === '1' || !postId) return;
+  enhancePostEditor(form, postId).catch((error) => {
     const errorBox = form.closest('.modal-card')?.querySelector('#post-error');
     if (errorBox) errorBox.textContent = `Не удалось загрузить редактор площадок: ${error instanceof Error ? error.message : String(error)}`;
   });

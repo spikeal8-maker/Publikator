@@ -159,6 +159,7 @@ export function mountMediaViewer(root, post) {
     zoom = 1;
     fit = true;
     const item = model.items[index];
+    if(stage&&!model.phoneFrame&&Number(item.width)>0&&Number(item.height)>0)stage.style.setProperty('--viewer-aspect',Number(item.width)+' / '+Number(item.height));
     if (meta) meta.textContent = viewerMeta(item, index, model.items.length);
     if (prev) prev.hidden = model.items.length < 2;
     if (next) next.hidden = model.items.length < 2;

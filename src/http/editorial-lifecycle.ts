@@ -28,7 +28,9 @@ function listCondition(view: EditorialListView): string {
 
 function listPosts(view: EditorialListView): unknown[] {
   return db.prepare(`SELECT p.*, pr.name AS project_name,
-      (SELECT COUNT(*) FROM media m WHERE m.post_id=p.id) AS media_count
+      (SELECT COUNT(*) FROM media m WHERE m.post_id=p.id) AS media_count,
+      (SELECT relative_path FROM media m WHERE m.post_id=p.id AND mime_type LIKE 'image/%' ORDER BY sort_order,id LIMIT 1) AS thumbnail_path,
+      (SELECT json_group_array(json_object('platform',a.platform,'name',a.name)) FROM post_targets pt JOIN social_accounts a ON a.id=pt.account_id WHERE pt.post_id=p.id AND pt.enabled=1) AS publication_targets
     FROM posts p JOIN projects pr ON pr.id=p.project_id
     WHERE ${listCondition(view)}
     ORDER BY p.updated_at DESC,p.created_at DESC`).all();
