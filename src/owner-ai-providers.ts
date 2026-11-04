@@ -4,6 +4,7 @@ import { Agent, request } from 'undici';
 import { db, id, nowIso } from './db.js';
 import { encryptJson, decryptJson } from './crypto.js';
 import { OwnerAutomationError, boundedString, objectValue } from './owner-automation.js';
+import { completeOpenAi, OpenAiProtocolError } from './owner-ai-responses.js';
 
 export type AiConnection = { id: string; owner_id: string; name: string; provider: 'openai'|'deepseek'|'compatible'|'ollama'; base_url: string; model: string; credentials_encrypted: string; revision: number; enabled: number; tool_verified: number };
 const DEFAULT_URLS: Record<string,string> = { openai: 'https://api.openai.com/v1', deepseek: 'https://api.deepseek.com', ollama: 'http://host.docker.internal:11434' };
@@ -101,16 +102,26 @@ export async function listAiModels(connection: AiConnection): Promise<string[]> 
   return rows.map((m:any) => String(m.id || m.name || m.model || '')).filter(Boolean).slice(0,200);
 }
 export async function modelCompletion(connection: AiConnection, messages: any[], tools: any[], signal?: AbortSignal): Promise<any> {
+  if (connection.provider === 'openai') {
+    try {
+      return await completeOpenAi({connectionId:connection.id,revision:connection.revision,model:connection.model},messages,tools,
+        (suffix,body,abort)=>aiRequest(connection,suffix,body,abort),signal);
+    } catch (error) {
+      if (error instanceof OpenAiProtocolError) throw new OwnerAutomationError(error.code,error.message,502);
+      throw error;
+    }
+  }
   const native = connection.provider === 'ollama';
   const normalized = messages.map(m => {
-    const n = {...m}; if(connection.provider!=='deepseek')delete n.reasoning_content; if(!native)delete n.thinking;
+    const n = {...m}; delete n.openai_raw_response;
+    if(connection.provider!=='deepseek')delete n.reasoning_content; if(!native)delete n.thinking;
     if (native && n.tool_calls) n.tool_calls = n.tool_calls.map((c:any) => ({ function:{name:c.function.name,arguments: typeof c.function.arguments === 'string' ? JSON.parse(c.function.arguments) : c.function.arguments} }));
     if (n.role === 'tool') { if(native){n.tool_name = n.name;delete n.tool_call_id;} delete n.name; }
     return n;
   });
   const body: any = { model:connection.model, messages:normalized, tools, stream:false };
   if (native) {body.options = { num_predict:4096, num_ctx:16384 };body.think=false;}
-  else { body.tool_choice = 'auto'; if (connection.provider === 'openai') body.max_completion_tokens = 4096; else body.max_tokens = 4096; }
+  else { body.tool_choice = 'auto'; body.max_tokens = 4096; }
   const r = await aiRequest(connection, native ? '/api/chat' : '/chat/completions', body, signal);
   const message = native ? r.message : r.choices?.[0]?.message;
   if (!message || message.role !== 'assistant') throw new OwnerAutomationError('MODEL_INVALID_RESPONSE','Модель не вернула сообщение.',502);

@@ -7,6 +7,7 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import sharp from 'sharp';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+await import('./owner-ai-responses-e2e.mjs');
 
 const temp=await fs.mkdtemp(path.join(os.tmpdir(),'publikator-owner-mcp-'));
 const reservation=net.createServer();await new Promise(r=>reservation.listen(0,'127.0.0.1',r));const port=reservation.address().port;await new Promise(r=>reservation.close(r));
@@ -29,6 +30,7 @@ const fake=http.createServer(async(req,res)=>{
   if(req.url==='/api/tags'){res.setHeader('content-type','application/json');res.end(JSON.stringify({models:[{name:'test-tool-model'}]}));return;}
   if(req.url!=='/api/chat'){res.writeHead(404).end();return;}
   outbound++;let input='';for await(const chunk of req)input+=chunk;const body=JSON.parse(input);
+  assert.ok(body.messages.every(m=>!Object.hasOwn(m,'openai_raw_response')),'private OpenAI protocol state leaked to Ollama');
   let message;
   if(body.tools?.some(t=>t.function.name==='publikator_connection_probe'))message={role:'assistant',content:'',tool_calls:[{function:{name:'publikator_connection_probe',arguments:{marker:'publikator-ready'}}}]};
   else if(body.messages.at(-1)?.role==='tool')message={role:'assistant',content:'Проверка завершена. Результат указан в журнале.'};
@@ -81,6 +83,7 @@ try{
   const policy=await call('publikator_call_operation',{operation:'post_posts_by_id_ready',path:{id:postId},body:{expectedContentVersion:2},idempotencyKey:'generic-ready-missing-targets'});assert.equal(policy.error.code,'INVALID_TARGETS');check('generic ready cannot bypass exact target guard');
   const unknown=await call('publikator_call_operation',{operation:'post_shell',body:{command:'echo forbidden'},idempotencyKey:'unknown'});assert.equal(unknown.error.code,'UNKNOWN_OPERATION');check('no shell or arbitrary API proxy');
   assert.equal(safeOutput({credentials:{password:'a'},authorization:'Bearer secret',apiKey:'secret'}).apiKey,'[REDACTED]');check('structured secrets are redacted');
+  assert.equal(safeOutput({openai_raw_response:{items:[{encrypted_content:'reasoning-canary'}]}}).openai_raw_response,'[REDACTED]');check('private OpenAI protocol state is redacted from safe output');
   const catalog=await call('publikator_list_operations',{});assert.ok(catalog.operations.length>50);check('installed canonical operation registry is populated');
   const adminAgents=await call('publikator_call_operation',{operation:'get_owner_agents'});assert.equal(adminAgents.status,200,JSON.stringify(adminAgents));check('explicit owner MCP delegation reaches agent administration');
   const bytes=await sharp({create:{width:48,height:32,channels:3,background:{r:60,g:130,b:200}}}).png().toBuffer();
@@ -108,6 +111,8 @@ try{
   const verified=(await browser('POST','/api/assistant/connections/'+connection.id+'/test',{})).json();assert.equal(verified.toolCalling,true,JSON.stringify(verified));check('real HTTP model probe proves tool calling without publication');
   const modelList=(await browser('GET','/api/assistant/connections/'+connection.id+'/models')).json();assert.deepEqual(modelList.models,['test-tool-model']);check('local model discovery works');
   const thread=(await browser('POST','/api/assistant/threads',{})).json();
+  db.prepare('INSERT INTO owner_ai_messages(id,thread_id,sequence,message_encrypted,created_at) VALUES(?,?,?,?,?)').run(id('aim'),thread.id,1,encryptJson({role:'assistant',content:'Previous provider message.',openai_raw_response:{protocol:'responses-v1',items:[{type:'reasoning',encrypted_content:'reasoning-canary-never-public'}]}}),nowIso());
+  const threadView=await browser('GET','/api/assistant/threads/'+thread.id);assert.ok(!threadView.body.includes('reasoning-canary-never-public'));check('encrypted protocol history is hidden from browser readback');
   const count=db.prepare('SELECT COUNT(*) AS n FROM posts').get().n;
   const run=(await browser('POST','/api/assistant/runs',{threadId:thread.id,connectionId:connection.id,message:'CREATE',allowWrites:true,idempotencyKey:'chat-create'})).json();assert.ok(run.id,JSON.stringify(run));
   const finished=await waitRun(run.id);assert.equal(finished.status,'COMPLETED',JSON.stringify(finished));assert.equal(db.prepare('SELECT COUNT(*) AS n FROM posts').get().n,count+1);check('embedded chat executes actual draft tool and returns model answer');
