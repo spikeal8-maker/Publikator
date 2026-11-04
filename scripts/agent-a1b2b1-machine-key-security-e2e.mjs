@@ -118,7 +118,7 @@ try{
   assert.equal(capabilityBoundary.statusCode,200,capabilityBoundary.body);
   assert.equal(capabilityBoundary.json().agentId,n8n.agentId);
   assert.deepEqual(capabilityBoundary.json().scopeIds,['projects:read']);
-  assert.ok(capabilityBoundary.json().blockedReasons.includes('ONLY_PROJECT_AND_ACCOUNT_LIST_READ_ENABLED'),
+  assert.ok(capabilityBoundary.json().blockedReasons.includes('ONLY_PROJECT_ACCOUNT_AND_SOURCE_LIST_READ_ENABLED'),
     'an authenticated capabilities read must not imply agent resource routes are active');
   const list=await send('GET',root,undefined,{cookie});
   assert.equal(list.statusCode,200,list.body);
