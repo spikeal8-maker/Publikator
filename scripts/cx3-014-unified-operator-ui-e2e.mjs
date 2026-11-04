@@ -157,8 +157,7 @@ assert.ok(slotEditorSource.includes('<h2>Новое время публикац�
 assert.ok(slotEditorSource.includes('<label>Часовой пояс<input name="timezone" value="Europe/Moscow">'), 'schedule timezone label must remain renderer-owned');
 assert.ok(slotEditorSource.includes('<button class="primary">Добавить</button>'), 'schedule primary action must remain renderer-owned');
 
-const overviewProblemsNote = 'ошибки и публикации, требующие проверки';
-assert.ok(dashboard.includes(`dashboardMetric('Проблемы', data.metrics.problems, '${overviewProblemsNote}'`), 'Overview Problems note must remain renderer-owned');
+assert.ok(dashboard.includes("dashboardMetric('Проблемы', data.metrics.problems") && dashboard.includes("'нужно ваше внимание' : 'всё в порядке'"), 'Overview Problems note must remain renderer-owned and reflect its count');
 assert.ok(dashboard.includes("import { publicationFormatLabel, statusLabel } from './presentation-labels.js';"), 'Dashboard must reuse shared presentation labels');
 
 assert.ok(library.includes("import { publicationFormatLabel, sourceLabel, statusLabel } from './presentation-labels.js';"), 'Library must retain shared presentation ownership');

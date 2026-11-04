@@ -55,12 +55,13 @@ export async function registerEditorialDashboardRoutes(app: FastifyInstance): Pr
     };
 
     const todayItems = db.prepare(`${itemSelect} WHERE ${ACTIVE_STAGE_SQL} AND p.schedule_mode='AT' AND p.scheduled_at_utc>=? AND p.scheduled_at_utc<? ORDER BY p.scheduled_at_utc LIMIT 12`).all(window.todayFrom, window.todayTo);
+    const weekItems = db.prepare(`${itemSelect} WHERE ${ACTIVE_STAGE_SQL} AND p.schedule_mode='AT' AND p.status NOT IN ('PUBLISHED','PUBLISHING') AND p.scheduled_at_utc>=? AND p.scheduled_at_utc<? ORDER BY p.scheduled_at_utc LIMIT 8`).all(window.todayFrom, window.weekTo);
     const reviewItems = (db.prepare(`${itemSelect} WHERE ${ACTIVE_STAGE_SQL} AND COALESCE(p.editorial_stage,'DRAFT') IN ('IDEA','DRAFT','IN_REVIEW') AND p.status NOT IN ('PUBLISHING','PUBLISHED','PARTIAL') ORDER BY p.updated_at DESC LIMIT 12`).all() as any[])
       .map((item) => ({ ...item, review_code: reviewCode(String(item.editorial_stage)) }));
     const problemItems = db.prepare(`${itemSelect} WHERE ${ACTIVE_STAGE_SQL} AND (p.status IN ('FAILED','PARTIAL') OR EXISTS (SELECT 1 FROM post_targets pt WHERE pt.post_id=p.id AND pt.state IN ('FAILED','RETRY','RECOVERY_NEEDED'))) ORDER BY p.updated_at DESC LIMIT 12`).all();
     const platformDistribution = db.prepare(`SELECT a.platform,COUNT(*) AS count FROM post_targets pt JOIN social_accounts a ON a.id=pt.account_id JOIN posts p ON p.id=pt.post_id WHERE pt.enabled=1 AND ${ACTIVE_STAGE_SQL} AND p.schedule_mode='AT' AND p.scheduled_at_utc>=? AND p.scheduled_at_utc<? GROUP BY a.platform ORDER BY a.platform`).all(window.todayFrom, window.weekTo);
     const recentEvents = db.prepare(`SELECT id,event_type,level,message,created_at,post_id,account_id FROM publication_events ORDER BY created_at DESC LIMIT 12`).all();
 
-    return { window, metrics, platformDistribution, todayItems, reviewItems, problemItems, recentEvents, problemTargetStates: PROBLEM_TARGET_STATES };
+    return { window, metrics, platformDistribution, todayItems, weekItems, reviewItems, problemItems, recentEvents, problemTargetStates: PROBLEM_TARGET_STATES };
   });
 }

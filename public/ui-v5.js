@@ -93,6 +93,17 @@ function uiUpdateHeader() {
   uiEnsureHeader();
   const meta = uiCurrentMeta();
   document.documentElement.dataset.page = meta.key;
+  const heading=document.querySelector('#page-title');
+  let overviewDate=document.querySelector('.ui-overview-date');
+  if(!overviewDate&&heading){
+    overviewDate=document.createElement('span'); overviewDate.className='ui-overview-date';
+    heading.insertAdjacentElement('afterend',overviewDate);
+  }
+  if(overviewDate){
+    const text=new Date().toLocaleDateString('ru-RU',{day:'numeric',month:'long'});
+    if(overviewDate.textContent!==text)overviewDate.textContent=text;
+    overviewDate.hidden=meta.key!=='overview';
+  }
   const kicker = document.querySelector('.ui-header-kicker');
   const subtitle = document.querySelector('.ui-page-subtitle');
   if (kicker) kicker.textContent = meta.group;
