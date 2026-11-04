@@ -20,7 +20,7 @@ const {
 const {encryptJson,decryptJson}=await import('../dist/crypto.js');
 migrate();
 try{
-  assert.equal(DATABASE_SCHEMA_VERSION,17);
+  assert.ok(DATABASE_SCHEMA_VERSION>=17);
   createOrRecoverAdmin('INITIAL',createAdminSetupGrant('INITIAL'),'owner',
     'schema17-admin-password-2026','schema17-admin-password-2026');
   const projectId=db.prepare('SELECT id FROM projects LIMIT 1').get().id;
@@ -38,10 +38,10 @@ try{
     accounts:db.prepare('SELECT * FROM social_accounts ORDER BY id').all(),
     posts:db.prepare('SELECT * FROM posts ORDER BY id').all()
   };
-  db.exec('DROP TABLE agent_machine_keys');
+  db.exec('DROP TRIGGER IF EXISTS trg_agent_draft_initial_no_publish; DROP TRIGGER IF EXISTS trg_agent_receipt_exact_owner; DROP TRIGGER IF EXISTS trg_agent_draft_no_external_publish; DROP TABLE IF EXISTS agent_operation_receipts; DROP TABLE IF EXISTS agent_draft_ownership; DROP TABLE agent_machine_keys;');
   db.pragma('user_version = 16');
   migrate();
-  assert.equal(Number(db.pragma('user_version',{simple:true})),17);
+  assert.equal(Number(db.pragma('user_version',{simple:true})),DATABASE_SCHEMA_VERSION);
   for(const [key,table,order] of [
     ['agents','agent_principals','id'],['grants','agent_grants','agent_id'],
     ['admins','admin_users','id'],['accounts','social_accounts','id'],['posts','posts','id']
@@ -87,9 +87,9 @@ try{
   const snapshot=db.prepare('SELECT * FROM agent_machine_keys ORDER BY id').all();
   migrate();
   assert.deepEqual(db.prepare('SELECT * FROM agent_machine_keys ORDER BY id').all(),snapshot);
-  db.pragma('user_version = 18');
-  assert.throws(()=>migrate(),/новее поддерживаемой 17/);
-  db.pragma('user_version = 17');
+  db.pragma(`user_version = ${DATABASE_SCHEMA_VERSION+1}`);
+  assert.throws(()=>migrate(),new RegExp(`новее поддерживаемой ${DATABASE_SCHEMA_VERSION}`));
+  db.pragma(`user_version = ${DATABASE_SCHEMA_VERSION}`);
   assert.deepEqual(db.pragma('foreign_key_check'),[]);
   console.log(JSON.stringify({ok:true,checkpoint:'AGENT-A1b2b1',from:16,to:17,
     oldOwnerAndReadyPreserved:true,encryptedCredentialsPreserved:true,

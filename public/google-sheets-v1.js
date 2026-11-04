@@ -287,10 +287,36 @@ async function loadGoogleConnectors(host) {
 
 async function renderGoogleConnectForm(host, existingId = '') {
   const formHost = gsDialog(host, 'gs-connect-form-host', 'Подключение Google');
-  formHost.innerHTML = '<p role="status">Загружаю сохранённые подключения Google…</p>';
+  const dialog = formHost.closest('dialog');
+  // Native <dialog> is modal, but Chrome can focus BODY when Tab wraps.
+  // Keep keyboard focus inside for the loading state and the real form.
+  dialog.addEventListener('keydown', event => {
+    if (event.key !== 'Tab') return;
+    const focusable = Array.from(dialog.querySelectorAll(
+      'a[href],button,input,select,textarea,summary,[tabindex]:not([tabindex="-1"])'
+    )).filter(element => element.tabIndex >= 0 && !element.matches(':disabled') &&
+      element.getClientRects().length > 0);
+    const first = focusable[0], last = focusable[focusable.length - 1];
+    if (!first) { event.preventDefault(); dialog.focus(); }
+    else if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog)) {
+      event.preventDefault(); last.focus();
+    } else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialog)) {
+      event.preventDefault(); first.focus();
+    }
+  });
+  // Escape must close the dialog even while connector metadata is loading.
+  dialog.addEventListener('close', () => dialog.remove(), { once: true });
+  formHost.innerHTML = '<p role="status">Загружаю сохранённые подключения Google…</p>' +
+    '<button id="gs-loading-close" class="secondary" type="button">Закрыть</button>';
+  formHost.querySelector('#gs-loading-close').onclick = () => gsCloseDialog(formHost);
+  formHost.querySelector('#gs-loading-close').focus({ preventScroll: true });
   let saved;
-  try { saved = (await googleSheetsApi('/api/google-sheets/connectors')).connectors.filter(item => item.enabled); }
-  catch (error) {
+  try {
+    saved = (await googleSheetsApi('/api/google-sheets/connectors')).connectors.filter(item => item.enabled);
+    if (!dialog.open || !dialog.isConnected) return;
+  } catch (error) {
+    // A completed request must not recreate content in an already closed modal.
+    if (!dialog.open || !dialog.isConnected) return;
     formHost.innerHTML = '<div class="gs-dialog-error"><p role="alert">' + gsEsc(gsActionableError(error)) + '</p><button type="button">Закрыть</button></div>';
     formHost.querySelector('button').onclick = () => gsCloseDialog(formHost);
     formHost.closest('dialog').addEventListener('cancel', event => { event.preventDefault(); gsCloseDialog(formHost); });

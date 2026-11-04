@@ -21,7 +21,7 @@ const {createBackupBundle,resolveBackupBundle,stageRestoreBundle}=await import('
 const {applyPendingRestore}=await import('../dist/restore-bootstrap.js');
 
 migrate();
-assert.equal(DATABASE_SCHEMA_VERSION,17);
+assert.ok(DATABASE_SCHEMA_VERSION>=17);
 createOrRecoverAdmin('INITIAL',createAdminSetupGrant('INITIAL'),'owner',
   'machine-backup-owner-password-2026','machine-backup-owner-password-2026');
 const now=nowIso(),prj=db.prepare('SELECT id FROM projects LIMIT 1').get().id;
@@ -75,14 +75,14 @@ db.prepare("UPDATE posts SET status='DRAFT' WHERE id=?").run(post);
 db.prepare('UPDATE social_accounts SET credentials_encrypted=? WHERE id=?')
   .run(encryptJson({botToken:'changed-credential'}),acc);
 const staged=await stageRestoreBundle(archive);
-assert.equal(staged.manifest.schemaVersion,17);
+assert.equal(staged.manifest.schemaVersion,DATABASE_SCHEMA_VERSION);
 db.close();
 const applied=await applyPendingRestore();
 assert.equal(applied.applied,true);
 const restored=new Database(config.dbPath,{readonly:true,fileMustExist:true});
 try{
   assert.equal(restored.pragma('integrity_check',{simple:true}),'ok');
-  assert.equal(Number(restored.pragma('user_version',{simple:true})),17);
+  assert.equal(Number(restored.pragma('user_version',{simple:true})),DATABASE_SCHEMA_VERSION);
   for(const [key,table,order] of tables){
     assert.deepEqual(restored.prepare('SELECT * FROM '+table+' ORDER BY '+order).all(),before[key],
       'canonical restore must retain '+table);
@@ -98,7 +98,7 @@ try{
     .get(acc).credentials_encrypted),credential);
   assert.equal(restored.prepare('SELECT status FROM posts WHERE id=?').get(post).status,'READY');
   assert.deepEqual(restored.pragma('foreign_key_check'),[]);
-  console.log(JSON.stringify({ok:true,checkpoint:'AGENT-A1b2b1',schema:17,
+  console.log(JSON.stringify({ok:true,checkpoint:'AGENT-A1b2b1',schema:DATABASE_SCHEMA_VERSION,
     machineHashesRestored:true,rotatedRevocationPreserved:true,
     ownerReceiptsAndAuditPreserved:true,encryptedCredentialRestored:true,
     legacyReadyPreserved:true,canonicalBackupRestore:true}));
