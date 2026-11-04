@@ -155,6 +155,9 @@ jobs:
       - name: AGENT-A2b2 safe owner-bound draft text revisions and replay
         run: node scripts/agent-a2b2-owned-draft-edit-e2e.mjs
 
+      - name: AGENT-A2b3 exact owned draft listing and safe detail ACL
+        run: node scripts/agent-a2b3-own-drafts-read-e2e.mjs
+
       - name: GOOGLE-SETUP-001 atomic shared service-account setup
         run: node scripts/google-source-setup-e2e.mjs
 
@@ -661,3 +664,6 @@ jobs:
 
       - name: AGENT-A2b2 safe owner-bound draft text revisions and replay
         run: node scripts/agent-a2b2-owned-draft-edit-e2e.mjs
+
+      - name: AGENT-A2b3 exact owned draft listing and safe detail ACL
+        run: node scripts/agent-a2b3-own-drafts-read-e2e.mjs

@@ -38,3 +38,46 @@ A3a MCP and A3b OAuth require separate issuer/resource metadata, audience, PKCE,
 Canonical focused regression: `scripts/agent-a1b2b2-bearer-boundary-e2e.mjs`. It covers missing/wrong/mixed auth, origin rejection, unknown paths, reserved MCP, cross-agent metadata isolation, scope/resource filtering, token expiry and pause, restart stability, and zero side effects. Keep it in the **single** `Publikator CI / Acceptance`; no second workflow or bypass.
 
 **Release gate:** full exact-head CI, independent Code Review and Security Review, plus integration acceptance of all ancestor PRs. Working Docker/D2-R2 installation is unchanged until a separately approved deployment.
+
+
+## AGENT-A2b3: own text-draft retrieval
+
+The only activated post read operations are GET /api/agent/v1/posts and
+GET /api/agent/v1/posts/{postId}. These are **not** broad feed, publication,
+media, review or owner activity endpoints.
+
+Required conditions, all evaluated in a single SQLite read transaction:
+
+- Current hashed machine Bearer and current saved grant must independently
+  authorize posts:read; posts:write does **not** imply read permission.
+- Immutable agent_draft_ownership.agent_id must equal the server-authenticated
+  agent. A model-supplied agent ID, URL cursor or project ID is not an identity.
+- Project must appear in the live explicit grant allowlist. Every saved target
+  account must be allowed and enabled, including target-row enabled state;
+  mixed-recipient posts are withheld in their entirety.
+- Only DRAFT / DRAFT-stage / MANUAL / agent-api / FEED / TEXT_ONLY content is
+  returned. Posts with any media, content-media, target overrides, target
+  renditions, ready revision, scheduled timestamp or unsupported resources are
+  omitted/404. Manual and unowned drafts are never exposed.
+- The SQL query filters ownership, scopes and target allowlists before
+  selecting text; per-post assertEffectiveAgentGrant then checks the saved
+  policy a second time. The exact filter is reused by the list and detail
+  endpoints, so a direct ID cannot bypass list restrictions.
+- A list uses the established strict limit 1..100 and canonical base64url
+  cursor encoding of ascending post IDs. The cursor is a position only, never
+  an authorization capability. GET detail rejects all unknown query params.
+- Only the safe Post DTO is serialized: post ID, project ID, current title,
+  bodyPlain, canonical contentVersion, explicit targetAccountIds, immutable
+  DRAFT state and no media/schedule/target overrides. Responses are marked
+  Cache-Control: no-store. No social provider credentials, OAuth metadata,
+  raw machine Bearer or publisher execution state.
+
+The endpoints cannot modify a post, send it to a provider, change READY status,
+schedule it, or read unrelated owner/editor drafts. All permission changes or
+token revocation immediately affect the next GET. Only original owner-operated
+publishing remains available through its existing separate control path.
+
+Acceptance: scripts/agent-a2b3-own-drafts-read-e2e.mjs in **both** jobs of the
+single canonical GitHub Acceptance workflow. Main merge remains blocked until
+the exact-head CI, independent Code/Security reviews and all stacked ancestor
+PRs have been accepted and reconciled.
