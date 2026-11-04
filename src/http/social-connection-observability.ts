@@ -37,6 +37,7 @@ function operationFor(method: string, path: string): TrackedOperation | null {
   if (method === 'POST' && path === '/api/accounts/save-and-check') return { route: 'accounts.save-and-check', operation: 'save' };
   if (method === 'POST' && path === '/api/accounts') return { route: 'accounts.create', operation: 'save' };
   if (method === 'PATCH' && /^\/api\/accounts\/[^/]+$/.test(path)) return { route: 'accounts.update', operation: 'update' };
+  if (method === 'POST' && /^\/api\/accounts\/[^/]+\/vk-upload-key$/.test(path)) return { route: 'accounts.vk-upload-key', operation: 'update' };
   if (method === 'POST' && /^\/api\/accounts\/[^/]+\/max-destination$/.test(path)) return { route: 'accounts.max-destination', operation: 'update' };
   if (method === 'POST' && /^\/api\/accounts\/[^/]+\/recheck$/.test(path)) return { route: 'accounts.recheck', operation: 'recheck' };
   if (method === 'POST' && /^\/api\/accounts\/[^/]+\/test$/.test(path)) return { route: 'accounts.saved-test', operation: 'check' };

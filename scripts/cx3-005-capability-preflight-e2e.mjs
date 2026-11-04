@@ -71,7 +71,7 @@ const telegramCapability = capabilityBody.capabilities.find((item) => item.platf
 assert.equal(telegramCapability.supportsFeed, true);
 assert.equal(telegramCapability.supportsImage, true);
 assert.equal(telegramCapability.supportsCarousel, true);
-assert.equal(telegramCapability.supportsVideo, false);
+assert.equal(telegramCapability.supportsVideo, true);
 assert.equal(telegramCapability.supportsStories, false);
 assert.equal(telegramCapability.supportsShortVideo, false);
 assert.equal(telegramCapability.maxMediaPerPublication, 10);

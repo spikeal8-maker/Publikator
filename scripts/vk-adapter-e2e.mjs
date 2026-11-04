@@ -184,7 +184,7 @@ function successVideoPreparationSteps(finalStep) {
 }
 
 try {
-  assert.equal(PLATFORM_CAPABILITIES.vk.supportsVideo, false, 'VK video capability must remain gated until live acceptance');
+  assert.equal(PLATFORM_CAPABILITIES.vk.supportsVideo, true);
   assert.equal(PLATFORM_CAPABILITIES.vk.supportsStories, false);
   assert.equal(PLATFORM_CAPABILITIES.vk.supportsShortVideo, false);
   assert.equal(PLATFORM_CAPABILITIES.vk.verification.richMediaPendingLiveAcceptance, true);

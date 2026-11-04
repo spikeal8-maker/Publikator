@@ -71,7 +71,8 @@ function inspection(mode, credentials) {
     publicationEvidence: {
       TEXT: { state: 'CONFIRMED', requiredMethods: ['sendMessage'] },
       IMAGE: { state: 'CONFIRMED', requiredMethods: ['sendPhoto'] },
-      CAROUSEL: { state: 'CONFIRMED', requiredMethods: ['sendMediaGroup'] }
+      CAROUSEL: { state: 'CONFIRMED', requiredMethods: ['sendMediaGroup'] },
+      VIDEO: { state: 'CONFIRMED', requiredMethods: ['sendVideo'] }
     },
     runtimePrerequisiteEvidence: [],
     remediation: [],
@@ -98,7 +99,8 @@ function inspection(mode, credentials) {
     base.publicationEvidence = {
       TEXT: { state: 'SETUP_REQUIRED', remediationCodes: ['TELEGRAM_CAN_POST_MESSAGES_REQUIRED'] },
       IMAGE: { state: 'SETUP_REQUIRED', remediationCodes: ['TELEGRAM_CAN_POST_MESSAGES_REQUIRED'] },
-      CAROUSEL: { state: 'SETUP_REQUIRED', remediationCodes: ['TELEGRAM_CAN_POST_MESSAGES_REQUIRED'] }
+      CAROUSEL: { state: 'SETUP_REQUIRED', remediationCodes: ['TELEGRAM_CAN_POST_MESSAGES_REQUIRED'] },
+      VIDEO: { state: 'SETUP_REQUIRED', remediationCodes: ['TELEGRAM_CAN_POST_MESSAGES_REQUIRED'] }
     };
     base.remediation = [{
       code: 'TELEGRAM_CAN_POST_MESSAGES_REQUIRED',
@@ -204,7 +206,8 @@ setSocialCredentialInspectorForTests(async (platform, credentials) => {
       platform: 'vk',
       credential: { ...base.credential, providerType: 'GROUP' },
       destination: { ...base.destination, kind: 'COMMUNITY', id: String(credentials.groupId) },
-      verifiedVkUploadUserId: paired ? '42' : null
+      verifiedVkUploadUserId: paired ? '42' : null,
+      verifiedVkVideoUploadUserId: paired ? '42' : null
     };
   }
   assert.equal(platform, 'telegram');
@@ -530,7 +533,10 @@ try {
     textPublishReady: true,
     photoPublishReady: true,
     uploadUserId: '42',
-    photoSetupError: null
+    photoSetupError: null,
+    videoPublishReady: true,
+    videoUploadUserId: '42',
+    videoSetupError: null
   });
   assert.equal(JSON.stringify(vk).includes('vk-group-secret'), false);
   assert.equal(JSON.stringify(vk).includes('vk-photo-user-secret'), false);

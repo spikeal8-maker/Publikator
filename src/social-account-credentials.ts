@@ -308,8 +308,12 @@ function verifiedPublisherCredentials(
     const photosReady = profile.semantic.publicationReadiness.IMAGE.state === 'READY'
       && profile.semantic.publicationReadiness.CAROUSEL.state === 'READY'
       && Boolean(inspection.verifiedVkUploadUserId) && Boolean(raw.uploadAccessToken);
+    const videoReady = profile.semantic.publicationReadiness.VIDEO.state === 'READY' && Boolean(inspection.verifiedVkVideoUploadUserId) && Boolean(raw.uploadAccessToken);
     return {
       ...common,
+      videoPublishReady: videoReady,
+      videoUploadUserId: videoReady ? inspection.verifiedVkVideoUploadUserId : null,
+      videoSetupError: videoReady ? null : (inspection.publicationEvidence.VIDEO?.reason || 'Добавьте USER ключ с правом video'),
       destinationKind: 'COMMUNITY',
       groupId: destination.id,
       destinationName: destination.name || null,
@@ -569,7 +573,7 @@ export async function replaceAndCheckSocialAccount(input: {
           AND p.ready_revision_id IS NOT NULL
           AND p.status IN ('READY','QUEUED','PUBLISHING','PARTIAL','FAILED') LIMIT 1`)
         .get(input.accountId);
-      if (pending) requestError('MAX: для смены чата сначала завершите готовые и незавершённые публикации этого подключения. Можно добавить новый чат.');
+      if (pending) requestError(before.platform === 'max' ? 'MAX: для смены чата сначала завершите готовые и незавершённые публикации этого подключения. Можно добавить новый чат.' : 'VK: для изменения ключа сначала завершите готовые и незавершённые публикации этого подключения.');
     }
     replaceSocialAccountCredentials(input.accountId, encryptJson(normalized));
     db.prepare('UPDATE social_accounts SET name=?,enabled=0,updated_at=? WHERE id=?')
@@ -659,4 +663,17 @@ export async function configureMaxDestination(input: {
     accountId: input.accountId, name, credentials, activateIfReady: true,
     expectedCredentialVersion: before.credential_version, protectPendingPublications: true
   });
+}
+
+/** Add/replace only the uploader key, retaining the encrypted GROUP key and destination. */
+export async function configureVkUploadCredential(input: {accountId: string; uploadAccessToken: unknown; expectedCredentialVersion: unknown}): Promise<SocialCredentialResult> {
+  const before = accountRow(input.accountId);
+  if (before.platform !== 'vk') requestError('Эта операция доступна только для VK.');
+  if (!Number.isSafeInteger(input.expectedCredentialVersion) || input.expectedCredentialVersion !== before.credential_version) throw new SocialCredentialVersionConflictError();
+  const stored = decryptJson<Record<string, unknown>>(before.credentials_encrypted);
+  if (stored.authKind !== 'COMMUNITY') requestError('Нужно сохранённое подключение сообщества VK.');
+  const uploadAccessToken = typeof input.uploadAccessToken === 'string' ? input.uploadAccessToken.trim() : '';
+  if (!uploadAccessToken) requestError('Введите пользовательский ключ VK.');
+  return replaceAndCheckSocialAccount({ accountId: before.id, name: before.name, credentials: {...stored, uploadAccessToken},
+    expectedCredentialVersion: before.credential_version, activateIfReady: before.enabled === 1, protectPendingPublications: true });
 }
