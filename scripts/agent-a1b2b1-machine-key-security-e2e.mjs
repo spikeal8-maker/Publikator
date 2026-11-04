@@ -112,9 +112,14 @@ try{
   assert.equal((await send('GET','/api/integration/v1/drafts',undefined,{
     authorization:'Bearer '+userToken
   })).statusCode,401,'machine bearer cannot become legacy Integration API');
-  assert.equal((await send('GET','/api/agent/v1/capabilities',undefined,{
+  const capabilityBoundary = await send('GET','/api/agent/v1/capabilities',undefined,{
     authorization:'Bearer '+userToken
-  })).statusCode,401,'A2 remote transport is not activated');
+  });
+  assert.equal(capabilityBoundary.statusCode,200,capabilityBoundary.body);
+  assert.equal(capabilityBoundary.json().agentId,n8n.agentId);
+  assert.deepEqual(capabilityBoundary.json().scopeIds,['projects:read']);
+  assert.ok(capabilityBoundary.json().blockedReasons.includes('RESOURCE_OPERATIONS_NOT_YET_ENABLED'),
+    'an authenticated capabilities read must not imply agent resource routes are active');
   const list=await send('GET',root,undefined,{cookie});
   assert.equal(list.statusCode,200,list.body);
   assert.equal(list.json().items.length,1);
