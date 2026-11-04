@@ -21,7 +21,7 @@ const {createBackupBundle,resolveBackupBundle,stageRestoreBundle}=await import('
 const {applyPendingRestore}=await import('../dist/restore-bootstrap.js');
 
 migrate();
-assert.equal(DATABASE_SCHEMA_VERSION,18);
+assert.ok(DATABASE_SCHEMA_VERSION>=18);
 createOrRecoverAdmin('INITIAL',createAdminSetupGrant('INITIAL'),'owner',
   'schema18-backup-owner-password-2026','schema18-backup-owner-password-2026');
 const now=nowIso(),prj=db.prepare('SELECT id FROM projects LIMIT 1').get().id;
@@ -77,7 +77,7 @@ db.prepare("UPDATE social_accounts SET credentials_encrypted=? WHERE id=?")
   .run(encryptJson({botToken:'changed-local-credential'}),account);
 
 const staged=await stageRestoreBundle(archive);
-assert.equal(staged.manifest.schemaVersion,18);
+assert.equal(staged.manifest.schemaVersion,DATABASE_SCHEMA_VERSION);
 db.close();
 const applied=await applyPendingRestore();
 assert.equal(applied.applied,true);
@@ -89,7 +89,7 @@ restored.function('publikator_plain_rich_json',{deterministic:true},
 restored.pragma('foreign_keys = ON');
 try{
   assert.equal(restored.pragma('integrity_check',{simple:true}),'ok');
-  assert.equal(Number(restored.pragma('user_version',{simple:true})),18);
+  assert.equal(Number(restored.pragma('user_version',{simple:true})),DATABASE_SCHEMA_VERSION);
   for(const [key,table,sort]of tables){
     assert.deepEqual(restored.prepare('SELECT * FROM '+table+' ORDER BY '+sort).all(),
       before[key],'canonical backup must preserve '+table);

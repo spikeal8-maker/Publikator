@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { config } from '../config.js';
+import { isOwnerAutomationRequest, ownerAutomationActorSource } from '../owner-automation.js';
 import { isAgentApiPath } from './agent-bearer-boundary.js';
 import { createSessionToken, decryptJson, encryptJson, securePasswordEqual, verifySessionToken } from '../crypto.js';
 import { db, event, id, nowIso, type Platform } from '../db.js';
@@ -281,6 +282,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       || request.url.startsWith('/api/integration/v1/')
       // Only the earlier global mandatory Bearer onRequest hook owns Agent API.
       || isAgentApiPath(request.url)) return;
+    if (isOwnerAutomationRequest(request)) return;
     const cookie = request.cookies.publikator_session;
     if (!sessionAdmin(cookie) && !legacyAuthorized(cookie)) {
       return reply.code(401).send({ error: 'Требуется вход' });
@@ -749,7 +751,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const params = request.params as { id: string };
     const row = db.prepare('SELECT p.*, pr.name AS project_name FROM posts p JOIN projects pr ON pr.id=p.project_id WHERE p.id=?').get(params.id) as any;
     if (!row) return reply.code(404).send({ error: 'Пост не найден' });
-    ensureTargets(params.id);
+    if (!isOwnerAutomationRequest(request)) ensureTargets(params.id);
     return postView(row);
   });
   app.post('/api/posts', async (request, reply) => {
@@ -786,7 +788,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       scheduledAtUtc: schedule.scheduledAtUtc,
       scheduleTimezone: schedule.scheduleTimezone,
       allowMediaOnlyDraft: isExplicitMediaDraft,
-      actorSource: 'manual'
+      ...(isOwnerAutomationRequest(request) ? { targetAccountIds: Array.isArray(body.targetAccountIds) ? body.targetAccountIds : [] } : {}),
+      actorSource: ownerAutomationActorSource(request)
     });
     return reply.code(201).send(postView(created));
   });

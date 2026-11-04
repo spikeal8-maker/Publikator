@@ -14,6 +14,7 @@ import { migrateAgentOwnership, ensureAgentAuditGuards } from './agent-ownership
 import { migrateAgentOwnerReceipts } from './agent-owner-receipt-migration.js';
 import { migrateAgentMachineKeys } from './agent-machine-key-migration.js';
 import { migrateAgentDraftProvenance } from './agent-draft-provenance-migration.js';
+import { migrateOwnerAutomation } from './owner-automation-migration.js';
 import { canonicalPlainRichJson } from './rich-text.js';
 
 export { DATABASE_SCHEMA_VERSION } from './schema.js';
@@ -404,6 +405,7 @@ export function migrate(): void {
   if (currentSchemaVersion < 16) migrateAgentOwnerReceipts(db);
   if (currentSchemaVersion < 17) migrateAgentMachineKeys(db);
   if (currentSchemaVersion < 18) migrateAgentDraftProvenance(db);
+  if (currentSchemaVersion < 19) migrateOwnerAutomation(db);
 
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_posts_status_schedule ON posts(status, schedule_mode, scheduled_at);
