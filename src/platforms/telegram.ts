@@ -245,9 +245,9 @@ function assertImagePublication(input: PublishInput): void {
     throw new Error(`Telegram: в одной медиагруппе допускается не более ${TELEGRAM_MEDIA_GROUP_LIMIT} файлов`);
   }
   for (const media of input.media) {
-    if (media.mime_type !== 'image/jpeg') {
-      throw new Error(`Telegram: image publication требует image/jpeg, получен ${media.mime_type}`);
-    }
+    if (media.mime_type === 'video/mp4' && input.contentFormat === 'CAROUSEL') {
+      assertFeedVideo({ ...input, contentFormat: 'VIDEO', media: [media] });
+    } else if (media.mime_type !== 'image/jpeg') throw new Error('Допустимы JPEG и MP4 в обычной публикации');
   }
 }
 
@@ -342,10 +342,12 @@ async function publishImages(token: string, chatId: string, mediaRows: MediaRow[
   for (let index = 0; index < mediaRows.length; index += 1) {
     const media = mediaRows[index]!;
     const name = `media${index}`;
-    const bytes = await readMediaBytes(mediaAbsolutePath(media));
-    data.set(name, new Blob([bytes], { type: 'image/jpeg' }), `${name}.jpg`);
+    const isVideo = media.mime_type === 'video/mp4';
+    const bytes = await readMediaBytes(mediaAbsolutePath(media), isVideo ? TELEGRAM_VIDEO_MAX_BYTES : undefined);
+    data.set(name, new Blob([bytes], { type: media.mime_type }), name + (isVideo ? '.mp4' : '.jpg'));
     descriptors.push({
-      type: 'photo',
+      type: media.mime_type === 'video/mp4' ? 'video' : 'photo',
+      ...(media.mime_type === 'video/mp4' ? { supports_streaming: true } : {}),
       media: `attach://${name}`,
       ...(index === 0 && compiled.text ? {
         caption: compiled.text,
@@ -358,7 +360,13 @@ async function publishImages(token: string, chatId: string, mediaRows: MediaRow[
     method: 'POST',
     body: data
   }, 'Telegram sendMediaGroup');
-  return body.result?.[0];
+  if (!Array.isArray(body.result) || body.result.length !== mediaRows.length ||
+      body.result.some((message: any) => !message?.message_id)) {
+    throw new PlatformError('Telegram: медиагруппа не подтвердила все вложения; проверьте результат перед повтором', {
+      retryable: false, outcomeUnknown: true
+    });
+  }
+  return { ...body.result[0], mediaGroupMessages: body.result };
 }
 
 function assertStoryResult(result: any): PublishResult {

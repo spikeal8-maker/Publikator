@@ -935,8 +935,8 @@ try {
   assert.match(await page.locator('#qc-video-preview').textContent(), /lesson-clip\.mp4/);
   assert.match(await page.locator('#qc-video-preview').textContent(), /(?:КБ|МБ)/,
     'file size must be displayed accurately in KB or MB');
-  assert.equal(await page.locator('#qc-files').isDisabled(), true,
-    'image picker must block mixing photos with MP4');
+  assert.equal(await page.locator('#qc-files').isDisabled(), false,
+    'photos may be added to MP4');
   await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
   await page.locator('#qc-platform-preview-load').click();
   await page.waitForFunction(()=>document.querySelector('#qc-platform-preview-load')?.disabled===false);
@@ -977,8 +977,8 @@ try {
   await page.locator('#qc-files').setInputFiles([
     { name: 'now-a-photo.png', mimeType: 'image/png', buffer: image2 }
   ]);
-  assert.equal(await page.locator('#qc-video-file').isDisabled(), true,
-    'video picker must block the reverse mixed-media selection');
+  assert.equal(await page.locator('#qc-video-file').isDisabled(), false,
+    'MP4 may be added to photos');
   await closeComposer();
 
   // C1: MP4 bytes cannot survive reload. Recovery must prevent a silent
@@ -998,7 +998,7 @@ try {
   assert.equal(await page.locator('#qc-missing-video').isVisible(), true);
   assert.equal(await page.locator('#qc-video-preview video').count(), 0);
   assert.equal(await page.locator('#qc-video-file').isDisabled(), false);
-  assert.equal(await page.locator('#qc-files').isDisabled(), true);
+  assert.equal(await page.locator('#qc-files').isDisabled(), false);
   await page.locator('#qc-save').click();
   assert.match(await page.locator('#qc-status').textContent(), /Снова выберите MP4/);
   assert.equal(db.prepare('SELECT COUNT(*) n FROM posts').get().n, beforeMp4Restore);
@@ -1116,16 +1116,26 @@ try {
     .get(clipboardPostId, '%publish%').n, 0, 'clipboard paste and Save never publish externally');
   await closeComposer();
 
-  // Pasting an image must not bypass the no-mixed-photo/video safety rule.
+  // Clipboard photos join the same video draft; cover assets remain private.
   await page.locator('#quick-compose-nav').click();
   await page.locator('#qc-text').fill('Видеопубликация без смешанных вложений');
   await page.locator('#qc-video-file').setInputFiles([
     { name: 'only-video.mp4', mimeType: 'video/mp4', buffer: mp4 }
   ]);
   assert.equal(await pasteImage(image1, 'blocked-clipboard.png'), true);
-  assert.equal(await page.locator('.qc-image').count(), 0);
-  assert.match(await page.locator('#qc-status').textContent(), /Смешивание фото и видео/);
+  assert.equal(await page.locator('.qc-image').count(), 1);
   assert.equal(await page.locator('#qc-video-preview video').count(), 1);
+  await page.locator('#qc-files').setInputFiles([{name:'second-mixed.png',mimeType:'image/png',buffer:image2}]);
+  await page.locator('#qc-video-preview button[aria-label="Передвинуть видео раньше"]').click();
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({hasText:'Черновик сохранён'}).waitFor({timeout:45000});
+  const mixedPost=db.prepare('SELECT * FROM posts ORDER BY rowid DESC LIMIT 1').get();
+  assert.equal(mixedPost.content_format,'CAROUSEL');
+  const mixedMedia=db.prepare("SELECT m.mime_type FROM media m JOIN content_media cm ON cm.media_id=m.id WHERE m.post_id=? AND cm.role<>'poster' ORDER BY m.sort_order").all(mixedPost.id);
+  assert.deepEqual(mixedMedia.map(m=>m.mime_type),['image/jpeg','video/mp4','image/jpeg']);
+  await page.locator('#qc-save').click();
+  await page.locator('#qc-status').filter({hasText:'Черновик сохранён'}).waitFor({timeout:30000});
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM media WHERE post_id=?').get(mixedPost.id).n,4,'repeat Save must not duplicate mixed assets or video cover');
   await closeComposer();
 
   // C2b: empty text without any media remains invalid; caption-free images

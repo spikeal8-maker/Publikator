@@ -79,7 +79,7 @@ export const PLATFORM_CAPABILITIES: Record<Platform, PlatformCapability> = {
     supportsImage: true,
     supportsVideo: true,
     supportsCarousel: true,
-    supportsMixedCarousel: false,
+    supportsMixedCarousel: true,
     supportsStorySequence: false,
     maxMediaPerPublication: 10,
     allowedMimeTypes: ['image/jpeg', 'video/mp4'],
@@ -104,7 +104,7 @@ export const PLATFORM_CAPABILITIES: Record<Platform, PlatformCapability> = {
     supportsImage: true,
     supportsVideo: true,
     supportsCarousel: true,
-    supportsMixedCarousel: false,
+    supportsMixedCarousel: true,
     supportsStorySequence: false,
     maxMediaPerPublication: null,
     allowedMimeTypes: ['image/jpeg', 'video/mp4'],
@@ -129,7 +129,7 @@ export const PLATFORM_CAPABILITIES: Record<Platform, PlatformCapability> = {
     supportsImage: true,
     supportsVideo: true,
     supportsCarousel: true,
-    supportsMixedCarousel: false,
+    supportsMixedCarousel: true,
     supportsStorySequence: false,
     maxMediaPerPublication: 12,
     allowedMimeTypes: ['image/jpeg', 'video/mp4'],
@@ -239,6 +239,9 @@ export function capabilityIssues(platform: Platform, input: PublishInput): Capab
     issues.push({ code: 'UNSUPPORTED_COMPOSITION', message: `${kind}/${format} не поддерживается текущим adapter ${platform}` });
   }
 
+  if (!capability.supportsVideo && input.media.some(media => media.mime_type.startsWith('video/'))) {
+    issues.push({ code: 'VIDEO_UNSUPPORTED', message: 'Площадка не поддерживает отправку видео' });
+  }
   if (format === 'TEXT_ONLY' && input.media.length !== 0) {
     issues.push({ code: 'TEXT_ONLY_WITH_MEDIA', message: 'TEXT_ONLY не должен содержать media' });
   }

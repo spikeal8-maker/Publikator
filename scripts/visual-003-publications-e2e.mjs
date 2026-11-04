@@ -244,13 +244,25 @@ try {
  await page.locator('.editor-media-host .sp-media video').waitFor();
  assert.equal(await page.locator('#post-form .media-list video').count(),1);
  assert.equal(await page.locator('#post-form .media-list img').count(),0,'Generated video poster must not appear as a second attachment');
- assert.equal(await page.locator('.sp-add-photos').isDisabled(),true);
+ assert.equal(await page.locator('.sp-add-photos').isDisabled(),false);
  assert.equal(await page.locator('#post-form input[name="title"]').inputValue(),'Video editor preserves unsaved caption');
+ const mixedChooserPromise=page.waitForEvent('filechooser');
+ await page.locator('.sp-add-photos').click();
+ await (await mixedChooserPromise).setFiles([path.join(dataDir,'media',seeded[0].id,'large.jpg'),path.join(dataDir,'media',seeded[0].id,'album-1.jpg')]);
+ await page.waitForFunction(()=>document.querySelectorAll('#post-form .media-list img').length===2);
+ assert.equal(await page.locator('#post-form .media-list video').count(),1);
+ assert.match(await page.locator('.composer-media-count').innerText(),/3 \/ 10 вложений/);
+ await page.locator('#post-form .media-list .move-media[data-direction="1"]').first().click();
+ await page.waitForFunction(()=>document.querySelector('#post-form .media-list .video-authoring-item')?.querySelector('img'));
+ assert.deepEqual(db.prepare("SELECT m.mime_type FROM media m JOIN content_media cm ON cm.media_id=m.id WHERE m.post_id=? AND cm.role<>'poster' ORDER BY m.sort_order").all(videoPostId).map(m=>m.mime_type),['image/jpeg','video/mp4','image/jpeg']);
+ assert.equal(await page.locator('#post-form input[name="title"]').inputValue(),'Video editor preserves unsaved caption');
+ await page.screenshot({path:'test-results/visual-003-publications-mixed-edit.png'});
+
  const videoSave=page.waitForResponse(response=>response.request().method()==='PATCH'&&new URL(response.url()).pathname==='/api/posts/'+videoPostId);
  await page.locator('#post-form button[type="submit"]').click();
  const videoSaved=await videoSave;assert.equal(videoSaved.status(),200,await videoSaved.text());
  await page.locator('#post-form').waitFor({state:'detached'});
- assert.equal(db.prepare('SELECT content_format FROM posts WHERE id=?').get(videoPostId).content_format,'VIDEO');
+ assert.equal(db.prepare('SELECT content_format FROM posts WHERE id=?').get(videoPostId).content_format,'CAROUSEL');
  await page.setViewportSize({width:390,height:844});
  await page.screenshot({path:'test-results/visual-003-publications-mobile.png'});
  assert.deepEqual(errors,[]);

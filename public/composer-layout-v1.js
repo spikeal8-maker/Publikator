@@ -33,14 +33,14 @@ export function mountMediaGuide(host) {
   if(host.querySelector('.composer-media-guide'))return;
   const bar=document.createElement('div');
   bar.className='composer-media-guide';
-  bar.innerHTML='<strong>Вложения</strong><span class="composer-media-count" role="status" aria-live="polite">0 / 10 фото</span><details class="composer-help"><summary aria-label="Как добавить фото и видео">i</summary><div><strong>Фото и видео</strong><ol><li>Нажмите «Добавить фото» и выберите сразу несколько файлов. Можно добавлять порциями, до 10 фотографий. Меняйте порядок стрелками; ненужные удаляйте.</li><li>Для видеопубликации нажмите «Добавить видео» и выберите один MP4: H.264, звук AAC или без звука. Чтобы сменить тип вложений, удалите прежние файлы.</li><li>Фото и видео в одной отправке сейчас не объединяются. Создайте отдельные публикации. Обложка ролика создаётся автоматически и не считается второй фотографией.</li><li>Выберите получателей и проверьте полный пост в предпросмотре. Сохранение не отправляет публикацию. Перед отправкой сервер проверит размер, формат и права каждого подключения; общая подсказка не гарантирует доступность формата.</li></ol></div></details>';
+  bar.innerHTML='<strong>Вложения</strong><span class="composer-media-count" role="status" aria-live="polite">0 / 10 фото</span><details class="composer-help"><summary aria-label="Как добавить фото и видео">i</summary><div><strong>Фото и видео</strong><ol><li>Нажмите «Добавить фото» и выберите сразу несколько файлов. Можно добавлять порциями: до 10 вложений всего — фотографии и MP4 вместе. Меняйте порядок стрелками; ненужные удаляйте.</li><li>Для видеопубликации нажмите «Добавить видео» и выберите один MP4: H.264, звук AAC или без звука. Фотографии можно оставить: они отправятся вместе с роликом.</li><li>Фото и видео отправляются одной публикацией в Telegram, VK и MAX. Стрелками задайте порядок вложений. Обложка ролика создаётся автоматически и не считается второй фотографией.</li><li>Выберите получателей и проверьте полный пост в предпросмотре. Сохранение не отправляет публикацию. Перед отправкой сервер проверит размер, формат и права каждого подключения; общая подсказка не гарантирует доступность формата.</li></ol></div></details>';
   host.prepend(bar);
   const note=document.createElement('p');note.className='composer-media-note';note.setAttribute('role','status');bar.after(note);
 }
 export function updateMediaGuide(host,{images=0,video=false}={}) {
   mountMediaGuide(host);
-  host.querySelector('.composer-media-count').textContent=video?'1 / 1 видео':images+' / 10 фото';
+  host.querySelector('.composer-media-count').textContent=(images + Number(video)) + ' / 10 вложений';
   host.querySelector('.composer-media-note').textContent=video
-    ? 'Выбран MP4. Для альбома сначала удалите видео.'
-    : images ? 'Альбом: '+images+' фото. Для MP4 сначала удалите фотографии.' : '';
+    ? images ? images + ' фото + видео · одна публикация' : 'Видео · одна публикация'
+    : images ? 'Альбом: '+images+' фото. Можно добавить MP4.' : '';
 }

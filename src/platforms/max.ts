@@ -118,7 +118,9 @@ function assertImagePublication(input: PublishInput): void {
   if (input.media.length < 1) throw new Error('MAX: требуется минимум одно изображение');
   if (input.media.length > MAX_ATTACHMENTS) throw new Error(`MAX: не более ${MAX_ATTACHMENTS} вложений в одном сообщении`);
   for (const media of input.media) {
-    if (media.mime_type !== 'image/jpeg') throw new Error(`MAX: image publication требует image/jpeg, получен ${media.mime_type}`);
+    if (media.mime_type === 'video/mp4' && input.contentFormat === 'CAROUSEL') {
+      assertFeedVideo({ ...input, contentFormat: 'VIDEO', media: [media] });
+    } else if (media.mime_type !== 'image/jpeg') throw new Error('Допустимы JPEG и MP4 в обычной публикации');
   }
   // Explicit legacy URL inputs remain supported. Ordinary publishing uploads local files.
   if (input.publicMediaUrls.length > 0 && input.publicMediaUrls.length !== input.media.length) {
@@ -350,6 +352,15 @@ async function postMessage(
   }
 }
 
+async function prepareMixedPayloads(accessToken: string, mediaRows: MediaRow[]) {
+  const attachments: Array<{ type: string; payload: Record<string, string> }> = [];
+  for (const media of mediaRows) {
+    if (media.mime_type === 'video/mp4') attachments.push({ type: 'video', payload: { token: await prepareVideoToken(accessToken, media) } });
+    else attachments.push(...await prepareImagePayloads(accessToken, [media]));
+  }
+  return attachments;
+}
+
 export const maxPublisher: SocialPublisher = {
   platform: 'max',
   validate(input) {
@@ -370,6 +381,8 @@ export const maxPublisher: SocialPublisher = {
     const attachments = input.contentFormat === 'TEXT_ONLY' ? []
       : isVideoPublication(input)
       ? [{ type: 'video', payload: { token: await prepareVideoToken(accessToken, assertFeedVideo(input)) } }]
+      : input.media.some(media => media.mime_type === 'video/mp4')
+        ? await prepareMixedPayloads(accessToken, input.media)
       : input.publicMediaUrls.length
         ? input.publicMediaUrls.map((url) => ({ type: 'image', payload: { url } }))
         : await prepareImagePayloads(accessToken, input.media);
@@ -380,7 +393,7 @@ export const maxPublisher: SocialPublisher = {
       catch (error) {
         // MAX explicitly refused creation while processing this attachment.
         // Keep the same prepared token; never retry an unknown public outcome.
-        if (!isVideoPublication(input) || !(error instanceof PlatformError)
+        if (!input.media.some(media => media.mime_type === 'video/mp4') || !(error instanceof PlatformError)
           || error.code !== 'attachment.not.ready' || error.outcomeUnknown || attempt >= 4) throw error;
         await new Promise(resolve => setTimeout(resolve, 2000 * (2 ** attempt)));
       }
