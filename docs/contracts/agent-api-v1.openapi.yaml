@@ -1101,7 +1101,7 @@
         ],
         "responses": {
           "200": {
-            "description": "OK",
+            "description": "Updated safe agent-owned DRAFT or durable idempotent replay of original version",
             "content": {
               "application/json": {
                 "schema": {
@@ -1180,6 +1180,30 @@
               }
             }
           }
+        },
+        "x-publikator-implementation-stage": "A2b2_TEXT_ONLY_AGENT_OWNED_DRAFT",
+        "x-publikator-implemented-request-subset": {
+          "required": [
+            "expectedContentVersion"
+          ],
+          "optional": [
+            "internalTitle",
+            "bodyPlain"
+          ],
+          "forbidden": [
+            "status",
+            "schedule",
+            "mediaAssetIds",
+            "targetAccountIds",
+            "targetTextOverrides",
+            "projectId",
+            "publicationKind",
+            "contentFormat",
+            "agentId",
+            "approval",
+            "publish"
+          ],
+          "note": "Only same-agent, current-scope TEXT_ONLY/FEED/DRAFT/MANUAL edits; optimistic version, durable idempotent replay. Future media/target/lifecycle writes remain inactive."
         }
       }
     },

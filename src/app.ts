@@ -11,6 +11,7 @@ import { registerAgentProjectReadRoutes } from './http/agent-projects.js';
 import { registerAgentAccountReadRoutes } from './http/agent-accounts.js';
 import { registerAgentSourceReadRoutes } from './http/agent-sources.js';
 import { registerAgentTextDraftRoutes } from './http/agent-text-drafts.js';
+import { registerAgentDraftEditRoutes } from './http/agent-draft-edits.js';
 import { registerMaintenanceGuard } from './http/maintenance.js';
 import { registerLegacyBackupBlocker } from './http/legacy-backups.js';
 import { registerRoutes } from './http/routes.js';
@@ -71,6 +72,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await registerAgentAccountReadRoutes(app);
   await registerAgentSourceReadRoutes(app);
   await registerAgentTextDraftRoutes(app);
+  await registerAgentDraftEditRoutes(app);
   await registerOwnerAgentRegistryRoutes(app);
   await registerVkOauthRoutes(app);
   await registerIntegrationApiRoutes(app);
