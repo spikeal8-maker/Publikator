@@ -95,11 +95,36 @@ export async function aiRequest(connection: AiConnection, suffix: string, body?:
     throw new OwnerAutomationError('MODEL_UNAVAILABLE','Модель не ответила. Проверьте адрес и доступность сервера.',502);
   } finally { await dispatcher.close(); }
 }
-export async function listAiModels(connection: AiConnection): Promise<string[]> {
-  const r = await aiRequest(connection, connection.provider === 'ollama' ? '/api/tags' : '/models');
-  const rows = connection.provider === 'ollama' ? r.models : r.data;
+type DiscoveredModel = {
+  id: string; label: string; parameterSize?: string; sizeBytes?: number;
+  contextWindow?: number; inputModalities?: string[]; cloud: boolean;
+};
+async function queryAvailableModels(connection: AiConnection): Promise<DiscoveredModel[]> {
+  const result = await aiRequest(connection, connection.provider === 'ollama' ? '/api/tags' : '/models');
+  const rows = connection.provider === 'ollama' ? result.models : result.data;
   if (!Array.isArray(rows)) throw new OwnerAutomationError('MODEL_INVALID_RESPONSE','Провайдер не вернул список моделей.',502);
-  return rows.map((m:any) => String(m.id || m.name || m.model || '')).filter(Boolean).slice(0,200);
+  const items: DiscoveredModel[] = []; const seen = new Set<string>();
+  for (const row of rows.slice(0,300)) {
+    if (!row || typeof row !== 'object') continue;
+    const id = String(row.id || row.name || row.model || '');
+    if (!id || id.length > 160 || !/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(id) || seen.has(id)) continue;
+    seen.add(id);
+    const label = typeof row.name === 'string' && row.name.length <= 160
+      && connection.provider !== 'ollama' ? row.name : id;
+    items.push({
+      id, label,
+      ...(typeof row.details?.parameter_size === 'string' ? {parameterSize:row.details.parameter_size.slice(0,40)} : {}),
+      ...(Number.isSafeInteger(row.size) && row.size > 0 ? {sizeBytes:row.size} : {}),
+      ...(Number.isSafeInteger(row.context_window) && row.context_window > 0 ? {contextWindow:row.context_window} : {}),
+      ...(Array.isArray(row.input_modalities) ? {inputModalities:row.input_modalities.filter((v:unknown)=>typeof v==='string').slice(0,8)} : {}),
+      cloud: connection.provider === 'ollama' && /-cloud(?::|$)/i.test(id)
+    });
+    if (items.length >= 200) break;
+  }
+  return items;
+}
+export async function listAiModels(connection: AiConnection): Promise<string[]> {
+  return (await queryAvailableModels(connection)).map(m=>m.id);
 }
 export async function modelCompletion(connection: AiConnection, messages: any[], tools: any[], signal?: AbortSignal): Promise<any> {
   if (connection.provider === 'openai') {
@@ -153,7 +178,8 @@ export async function discoverAiModels(ownerId:string,value:unknown):Promise<any
   if(b.provider!=='ollama'&&!apiKey)throw new OwnerAutomationError('KEY_REQUIRED','Введите API-ключ для получения списка моделей.');
   if(apiKey.length>8192||/[\r\n\u0000]/.test(apiKey))throw new OwnerAutomationError('INVALID_KEY','Некорректный API-ключ.');
   const ephemeral:AiConnection={id:'discovery',owner_id:ownerId,name:'discovery',provider:b.provider,base_url:baseUrl,model:'discovery',credentials_encrypted:encryptJson({apiKey}),revision:1,enabled:1,tool_verified:0};
-  const models=await listAiModels(ephemeral);
+  const details=await queryAvailableModels(ephemeral);
+  const models=details.map(m=>m.id);
   const candidates=models.filter(name=>!/(?:embed|whisper|tts|audio|realtime|transcrib|moderation|dall-e|image|sora|babbage|davinci|instruct)/i.test(name));
   const order=(name:string):number=>{
     if(b.provider==='ollama'&&name==='gemma4:12b')return 0;
@@ -163,5 +189,5 @@ export async function discoverAiModels(ownerId:string,value:unknown):Promise<any
     return 3;
   };
   candidates.sort((a,b)=>order(a)-order(b)||a.localeCompare(b));
-  return {models,suggestedModel:candidates[0]||models[0]||null,toolCallingVerified:false};
+  return {models,modelDetails:details,suggestedModel:candidates[0]||models[0]||null,toolCallingVerified:false,reachable:true};
 }
