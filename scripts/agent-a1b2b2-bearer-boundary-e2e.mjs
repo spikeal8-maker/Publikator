@@ -98,7 +98,7 @@ try {
   assert.deepEqual(capabilities.projectIds, [project1]);
   assert.deepEqual(capabilities.accountIds, [account1]);
   assert.deepEqual(capabilities.sourceConnectorIds, [source1]);
-  assert.ok(capabilities.blockedReasons.includes('ONLY_PROJECT_LIST_READ_ENABLED'));
+  assert.ok(capabilities.blockedReasons.includes('ONLY_PROJECT_AND_ACCOUNT_LIST_READ_ENABLED'));
   assert.ok(capabilities.blockedReasons.includes('MACHINE_KEYS_CANNOT_PUBLISH_OR_SCHEDULE'));
   assert.ok(!knownGood.body.includes(firstKey.bearerToken));
   assert.ok(!knownGood.body.includes(restrictedKey.bearerToken));
