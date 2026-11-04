@@ -14,6 +14,7 @@ process.env.NODE_ENV='test';process.env.DATA_DIR=temp;delete process.env.ADMIN_P
 const {db,migrate}=await import('../dist/db.js');const {buildApp}=await import('../dist/app.js');const {createAdminSetupGrant,createOrRecoverAdmin}=await import('../dist/admin-auth.js');
 migrate();createOrRecoverAdmin('INITIAL',createAdminSetupGrant('INITIAL'),'owner','browser-owner-fixture-20261104','browser-owner-fixture-20261104');
 const projectId=db.prepare('SELECT id FROM projects LIMIT 1').get().id;
+const formattedAnswer=['## Готово','**Тестовый черновик** создан. Отправки в социальные сети не было.','','- Получателей нет.','- Состояние: `DRAFT`.','','1. Проверить материал.','2. Указать получателей.','','[Публикации](/content)','[Документация](https://example.test/info)','[Запрещённая ссылка](javascript:alert(1))','[Закрытая ссылка](https://user:pass@example.test/)','<img src=x onerror="window.__markdownExecuted=true">','','```html','<script>window.__markdownExecuted=true</script>','x'.repeat(480),'```'].join('\n');
 const mock=http.createServer(async(req,res)=>{
   res.setHeader('content-type','application/json');
   if(req.url==='/api/tags'){res.end(JSON.stringify({models:[{name:'fixture-model'}]}));return;}
@@ -21,7 +22,7 @@ const mock=http.createServer(async(req,res)=>{
   let data='';for await(const chunk of req)data+=chunk;const b=JSON.parse(data);
   let message;
   if(b.tools.some(t=>t.function.name==='publikator_connection_probe'))message={role:'assistant',content:'',tool_calls:[{function:{name:'publikator_connection_probe',arguments:{marker:'publikator-ready'}}}]};
-  else if(b.messages.at(-1)?.role==='tool')message={role:'assistant',content:'Готово. Тестовый черновик создан; отправки в социальные сети не было.'};
+  else if(b.messages.at(-1)?.role==='tool')message={role:'assistant',content:formattedAnswer};
   else message={role:'assistant',content:'',tool_calls:[{function:{name:'publikator_create_post',arguments:{projectId,title:'Browser assistant fixture',body:'Synthetic browser text',contentFormat:'TEXT_ONLY',targetAccountIds:[]}}}]};
   res.end(JSON.stringify({message,done:true}));
 });await new Promise(r=>mock.listen(0,'127.0.0.1',r));const modelUrl='http://127.0.0.1:'+mock.address().port;
@@ -45,7 +46,9 @@ try{
   const count=db.prepare('SELECT COUNT(*) AS n FROM posts').get().n;
   await page.locator('#message-input').fill('Создай тестовый черновик без получателей, ничего не публикуй.');await page.locator('#send-message').click();
   await page.waitForFunction(()=>document.querySelector('#run-state')?.textContent==='Готово',{},{timeout:20000});assert.equal(db.prepare('SELECT COUNT(*) AS n FROM posts').get().n,count+1);assert.ok(await page.locator('.message.tool').count());pass('browser chat executes visible commands and shows actual results');
-  await page.reload();await page.locator('#messages .message.assistant').last().waitFor({state:'visible'});assert.ok((await page.locator('#messages').innerText()).includes('Тестовый черновик'));pass('conversation survives reload');
+  const answer=page.locator('.message.assistant .text').last();assert.equal(await answer.locator('strong').innerText(),'Тестовый черновик');assert.equal(await answer.locator('h3').innerText(),'Готово');assert.equal(await answer.locator('ul li').count(),2);assert.equal(await answer.locator('ol li').count(),2);assert.ok((await answer.locator('pre code').innerText()).includes('<script>'));pass('assistant Markdown renders headings, emphasis, lists and code');
+  assert.equal(await answer.locator('script,img,iframe,svg').count(),0);assert.equal(await answer.locator('a[href^="javascript:"],a[href^="data:"],a[href^="https://user:"]').count(),0);assert.equal(await page.evaluate(()=>Boolean(window.__markdownExecuted)),false);assert.ok((await answer.innerText()).includes('<img src=x'));assert.equal(await answer.locator('a').count(),2);assert.equal(await answer.locator('a').first().getAttribute('rel'),'noopener noreferrer');pass('model HTML stays text and unsafe links cannot execute');
+  await page.reload();await page.locator('#messages .message.assistant').last().waitFor({state:'visible'});assert.ok((await page.locator('#messages').innerText()).includes('Тестовый черновик'));assert.equal(await page.locator('.message.assistant strong').last().innerText(),'Тестовый черновик');pass('formatted conversation survives reload');
   const filePath=path.join(temp,'upload.png');await sharp({create:{width:32,height:32,channels:3,background:{r:210,g:220,b:230}}}).png().toFile(filePath);await page.locator('#file-input').setInputFiles(filePath);await page.locator('.file-chip').waitFor({state:'visible'});assert.equal(db.prepare('SELECT COUNT(*) AS n FROM owner_ai_uploads').get().n,1);pass('authenticated media upload from chat works');
   for(const width of [1440,390,320]){
     await page.setViewportSize({width,height:900});
