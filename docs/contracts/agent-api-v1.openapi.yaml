@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Publikator Agent API (PLANNED — NOT DEPLOYED)",
-    "version": "1.0.0-a0b",
-    "description": "Contract stage only; no runtime endpoint is implemented by this document."
+    "version": "1.0.0-a1b2b1",
+    "description": "Overall Agent REST/MCP contract remains planned. Owner-only control routes are progressively implemented in A1; no remote Agent API or MCP integration is enabled by this contract."
   },
   "x-publikator-contract-status": "PLANNED_NOT_IMPLEMENTED",
   "x-publikator-source-issue": "https://github.com/spikeal8-maker/Publikator/issues/174",
@@ -3922,6 +3922,513 @@
           }
         }
       }
+    },
+    "/api/owner/agents/{agentId}/machine-keys": {
+      "get": {
+        "operationId": "listOwnerMachineKeys",
+        "summary": "List saved machine keys without bearer secrets",
+        "tags": [
+          "Owner"
+        ],
+        "security": [
+          {
+            "ownerSession": []
+          }
+        ],
+        "x-publikator-required-scopes": [],
+        "x-publikator-auth-kind": "OWNER_COOKIE",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentMachineKeyList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error 400",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Error 401",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Error 403",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Error 404",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Error 409",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Error 429",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "issueOwnerMachineKey",
+        "summary": "Issue a machine key once (replay returns no bearer)",
+        "tags": [
+          "Owner"
+        ],
+        "security": [
+          {
+            "ownerSession": []
+          }
+        ],
+        "x-publikator-required-scopes": [],
+        "x-publikator-auth-kind": "OWNER_COOKIE",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OwnerMachineKeyIssue"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnerMachineKeyOneTime"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Issued, one-time bearer secret",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnerMachineKeyOneTime"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error 400",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Error 401",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Error 403",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Error 404",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Error 409",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Error 429",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/owner/agents/{agentId}/machine-keys/{keyId}/revoke": {
+      "post": {
+        "operationId": "revokeOwnerMachineKey",
+        "summary": "Revoke one machine key",
+        "tags": [
+          "Owner"
+        ],
+        "security": [
+          {
+            "ownerSession": []
+          }
+        ],
+        "x-publikator-required-scopes": [],
+        "x-publikator-auth-kind": "OWNER_COOKIE",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            }
+          },
+          {
+            "name": "keyId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OwnerMachineKeyControl"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentMachineKey"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error 400",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Error 401",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Error 403",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Error 404",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Error 409",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Error 429",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/owner/agents/{agentId}/machine-keys/{keyId}/rotate": {
+      "post": {
+        "operationId": "rotateOwnerMachineKey",
+        "summary": "Atomically revoke and replace machine key",
+        "tags": [
+          "Owner"
+        ],
+        "security": [
+          {
+            "ownerSession": []
+          }
+        ],
+        "x-publikator-required-scopes": [],
+        "x-publikator-auth-kind": "OWNER_COOKIE",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            }
+          },
+          {
+            "name": "keyId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OwnerMachineKeyRotate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnerMachineKeyOneTime"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Issued, one-time bearer secret",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnerMachineKeyOneTime"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error 400",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Error 401",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Error 403",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Error 404",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Error 409",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Error 429",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -6340,6 +6847,188 @@
           },
           "pagination": {
             "$ref": "#/components/schemas/Pagination"
+          }
+        }
+      },
+      "AgentMachineKey": {
+        "type": "object",
+        "required": [
+          "keyId",
+          "agentId",
+          "prefix",
+          "scopeIds",
+          "tokenVersion",
+          "grantVersion",
+          "expiresAt",
+          "revokedAt",
+          "createdAt",
+          "lastUsedAt"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "keyId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "agentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "prefix": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 24
+          },
+          "scopeIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            },
+            "minItems": 1,
+            "maxItems": 13,
+            "uniqueItems": true
+          },
+          "tokenVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "grantVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "revokedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastUsedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AgentMachineKeyList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/AgentMachineKey"
+            }
+          }
+        }
+      },
+      "OwnerMachineKeyIssue": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expectedGrantVersion",
+          "scopeIds",
+          "ttlHours"
+        ],
+        "properties": {
+          "expectedGrantVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "scopeIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            },
+            "minItems": 1,
+            "maxItems": 13,
+            "uniqueItems": true
+          },
+          "ttlHours": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 720
+          }
+        }
+      },
+      "OwnerMachineKeyRotate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expectedGrantVersion",
+          "ttlHours",
+          "confirm"
+        ],
+        "properties": {
+          "expectedGrantVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "ttlHours": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 720
+          },
+          "confirm": {
+            "const": true
+          }
+        }
+      },
+      "OwnerMachineKeyControl": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "confirm"
+        ],
+        "properties": {
+          "confirm": {
+            "const": true
+          }
+        }
+      },
+      "OwnerMachineKeyOneTime": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "machineKey",
+          "bearerToken",
+          "secretAvailable"
+        ],
+        "properties": {
+          "machineKey": {
+            "$ref": "#/components/schemas/AgentMachineKey"
+          },
+          "bearerToken": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 64
+          },
+          "secretAvailable": {
+            "type": "boolean"
           }
         }
       }

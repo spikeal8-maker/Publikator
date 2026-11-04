@@ -12,6 +12,7 @@ import { migrateSocialCredentialCapability } from './social-credential-capabilit
 import { migrateAdminAuth } from './admin-auth-migration.js';
 import { migrateAgentOwnership, ensureAgentAuditGuards } from './agent-ownership-migration.js';
 import { migrateAgentOwnerReceipts } from './agent-owner-receipt-migration.js';
+import { migrateAgentMachineKeys } from './agent-machine-key-migration.js';
 import { canonicalPlainRichJson } from './rich-text.js';
 
 export { DATABASE_SCHEMA_VERSION } from './schema.js';
@@ -400,6 +401,7 @@ export function migrate(): void {
   if (currentSchemaVersion < 15) migrateAgentOwnership(db);
   else db.transaction(() => ensureAgentAuditGuards(db)).immediate();
   if (currentSchemaVersion < 16) migrateAgentOwnerReceipts(db);
+  if (currentSchemaVersion < 17) migrateAgentMachineKeys(db);
 
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_posts_status_schedule ON posts(status, schedule_mode, scheduled_at);

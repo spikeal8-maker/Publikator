@@ -17,7 +17,7 @@ const { createOwnerAgent, controlOwnerAgent } = await import('../dist/agent-owne
 
 migrate();
 try {
-  assert.equal(DATABASE_SCHEMA_VERSION, 16);
+  assert.ok(DATABASE_SCHEMA_VERSION >= 16);
   createOrRecoverAdmin('INITIAL', createAdminSetupGrant('INITIAL'),
     'owner', 'schema16-owner-password-2026', 'schema16-owner-password-2026');
   const now = nowIso();
@@ -36,10 +36,10 @@ try {
   };
 
   // Simulate a real N-1 schema 15 database: principals/grants/audit exist.
-  db.exec('DROP TABLE agent_owner_operation_receipts');
+  db.exec('DROP TABLE agent_machine_keys; DROP TABLE agent_owner_operation_receipts;');
   db.pragma('user_version = 15');
   migrate();
-  assert.equal(Number(db.pragma('user_version', { simple: true })), 16);
+  assert.equal(Number(db.pragma('user_version', { simple: true })), DATABASE_SCHEMA_VERSION);
   assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='agent_owner_operation_receipts'").get());
   assert.equal(db.prepare('SELECT count(*) AS n FROM agent_owner_operation_receipts').get().n, 0);
   assert.deepEqual(db.prepare('SELECT * FROM agent_principals WHERE id=?').get(agent), before.agent);
@@ -84,9 +84,9 @@ try {
   migrate();
   assert.deepEqual(db.prepare('SELECT * FROM agent_owner_operation_receipts ORDER BY request_id').all(), snapshot,
     're-running latest migration cannot alter immutable receipts');
-  db.pragma('user_version = 17');
-  assert.throws(() => migrate(), /новее поддерживаемой 16/);
-  db.pragma('user_version = 16');
+  db.pragma(`user_version = ${DATABASE_SCHEMA_VERSION+1}`);
+  assert.throws(() => migrate(),new RegExp(`новее поддерживаемой ${DATABASE_SCHEMA_VERSION}`));
+  db.pragma(`user_version = ${DATABASE_SCHEMA_VERSION}`);
   assert.deepEqual(db.pragma('foreign_key_check'), []);
 
   console.log(JSON.stringify({

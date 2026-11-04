@@ -19,7 +19,8 @@ export const SCHEMA_MILESTONES = [
   { version: 13, key: 'social-credential-capability-profile', migrationRegression: 'scripts/schema-v13-social-credential-capability-e2e.mjs', backupRegression: 'scripts/backup-v13-social-credential-capability-e2e.mjs' },
   { version: 14, key: 'admin-local-accounts', migrationRegression: 'scripts/schema-v14-admin-auth-e2e.mjs', backupRegression: 'scripts/backup-v14-admin-auth-e2e.mjs' },
   { version: 15, key: 'agent-ownership-audit', migrationRegression: 'scripts/schema-v15-agent-ownership-e2e.mjs', backupRegression: 'scripts/backup-v15-agent-ownership-e2e.mjs' },
-  { version: 16, key: 'agent-owner-idempotency-receipts', migrationRegression: 'scripts/schema-v16-agent-owner-receipts-e2e.mjs', backupRegression: 'scripts/backup-v16-agent-owner-receipts-e2e.mjs' }
+  { version: 16, key: 'agent-owner-idempotency-receipts', migrationRegression: 'scripts/schema-v16-agent-owner-receipts-e2e.mjs', backupRegression: 'scripts/backup-v16-agent-owner-receipts-e2e.mjs' },
+  { version: 17, key: 'agent-machine-key-digests', migrationRegression: 'scripts/schema-v17-agent-machine-keys-e2e.mjs', backupRegression: 'scripts/backup-v17-agent-machine-keys-e2e.mjs' }
 ] as const satisfies readonly SchemaMilestone[];
 
 export const DATABASE_SCHEMA_VERSION = SCHEMA_MILESTONES[SCHEMA_MILESTONES.length - 1]!.version;
