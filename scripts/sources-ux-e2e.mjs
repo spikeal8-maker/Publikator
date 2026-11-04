@@ -125,9 +125,12 @@ try {
   releaseGoogleList();
   releaseGoogleList = null;
 
-  // Fast fixture response: the rendered form must trap forward and reverse Tab.
+  // Fast fixture response: wait for the rendered form AND the focus hand-off.
+  // The saved main fix #238 prevents Tab assertions from running on the async
+  // loading placeholder before renderGoogleConnectForm finishes.
   await page.locator('#gs-open-connect').click();
-  await page.locator('#gs-connect-form').waitFor();
+  await page.locator('#gs-connect-form').waitFor({ state: 'visible' });
+  await page.waitForFunction(() => document.activeElement?.id === 'gs-close-connect');
   assert.equal(await page.evaluate(() => window.scrollY), initialScroll);
   await verifyModalTabs('loaded', 'Tab');
   await verifyModalTabs('loaded', 'Shift+Tab');
