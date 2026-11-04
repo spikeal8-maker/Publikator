@@ -74,7 +74,10 @@ try {
 
   const image1 = await sharp({ create: { width: 120, height: 110, channels: 3, background: '#ff6600' } }).png().toBuffer();
   const image2 = await sharp({ create: { width: 160, height: 130, channels: 3, background: '#0055ff' } }).png().toBuffer();
-  await page.locator('#qc-text').fill('Наша новая публикация\n\nВторой абзац для нескольких площадок.');
+  await page.locator('#qc-text').evaluate(el=>{
+    const text='Наша новая публикация\n\nВторой абзац для нескольких площадок.';
+    el.closest('[data-rich-text-editor]').richTextEditor.setDocument(window.PublikatorRichText.plainTextToRichDocument(text));
+  });
   await page.locator('#qc-files').setInputFiles([
     { name: 'first.png', mimeType: 'image/png', buffer: image1 },
     { name: 'second.png', mimeType: 'image/png', buffer: image2 }
@@ -158,6 +161,7 @@ try {
   assert.ok(post?.id, 'post created');
   assert.equal(post.title, 'Наша новая публикация');
   assert.equal(post.status, 'DRAFT');
+  assert.equal(post.body,'Наша новая публикация\n\nВторой абзац для нескольких площадок.','canonical rich paragraphs preserve the initial caption');
   assert.equal(post.content_format, 'CAROUSEL');
   assert.equal(db.prepare('SELECT COUNT(*) n FROM media WHERE post_id=?').get(post.id).n,2);
   const selected = db.prepare('SELECT account_id FROM post_targets WHERE post_id=? AND enabled=1 ORDER BY account_id')
@@ -394,6 +398,7 @@ try {
   await page.locator('.qc-advanced summary').click();
   await page.locator('#qc-project').selectOption(projectId);
   await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
+  await page.locator('#qc-mode').selectOption('AT');
   await page.locator('#qc-datetime').fill('2026-11-12T10:00');
   const imageForRetry = await sharp({ create: { width: 100, height: 100, channels: 3,
     background: '#99bbdd' } }).png().toBuffer();
@@ -439,6 +444,7 @@ try {
   await page.locator('.qc-advanced summary').click();
   await page.locator('#qc-project').selectOption(dstProjectId);
   await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
+  await page.locator('#qc-mode').selectOption('AT');
   await page.locator('#qc-datetime').fill('2026-11-01T01:30');
   page.once('dialog', (dialog) => dialog.accept());
   await page.locator('#qc-schedule').click();
@@ -549,7 +555,7 @@ try {
   ]);
   page.once('dialog', (dialog) => dialog.dismiss());
   await page.locator('#qc-connect').click();
-  assert.equal(await page.locator('#qc-text').inputValue(), 'Не терять черновик при переходе к соцсетям');
+  assert.equal(await page.locator('#qc-text').evaluate(el=>el.value), 'Не терять черновик при переходе к соцсетям');
   assert.equal(await page.locator('.qc-image').count(), 1);
   await closeComposer();
   db.prepare('UPDATE social_accounts SET enabled=1').run();
@@ -564,6 +570,7 @@ try {
   await page.locator('#qc-variant-text').fill('Личный вариант перед перезагрузкой');
   await page.locator('.qc-advanced summary').click();
   await page.locator('#qc-project').selectOption(projectId);
+  await page.locator('#qc-mode').selectOption('AT');
   await page.locator('#qc-datetime').fill('2026-11-16T18:30');
   await page.locator('#qc-files').setInputFiles([
     { name: 'offline-file.png', mimeType: 'image/png', buffer: image2 }
@@ -576,7 +583,7 @@ try {
   page.once('dialog', (dialog) => dialog.accept());
   await page.locator('#quick-compose-nav').click();
   await page.locator('#qc-text').waitFor();
-  assert.equal(await page.locator('#qc-text').inputValue(), 'Черновик на телефоне до перезагрузки');
+  assert.equal(await page.locator('#qc-text').evaluate(el=>el.value), 'Черновик на телефоне до перезагрузки');
   assert.equal(await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').isChecked(), true);
   await page.locator('#qc-variant-editor summary').click();
   assert.equal(await page.locator('#qc-variant-text').inputValue(),
@@ -598,7 +605,7 @@ try {
   page.once('dialog', (dialog) => dialog.accept());
   await page.locator('#quick-compose-nav').click();
   await page.locator('#qc-text').waitFor();
-  assert.equal(await page.locator('#qc-text').inputValue(),
+  assert.equal(await page.locator('#qc-text').evaluate(el=>el.value),
     'Черновик на телефоне до перезагрузки — исправлен');
   assert.equal(await page.locator('#qc-missing-media').isVisible(), true,
     'second reload must retain missing-photo warning after text edits');
@@ -631,7 +638,7 @@ try {
   await closeComposer();
   await page.locator('#quick-compose-nav').click();
   await page.locator('#qc-text').waitFor();
-  assert.equal(await page.locator('#qc-text').inputValue(), '',
+  assert.equal(await page.locator('#qc-text').evaluate(el=>el.value), '',
     'confirmed server save must clear tab recovery data');
   await closeComposer();
 
@@ -987,7 +994,7 @@ try {
   page.once('dialog', (dialog) => dialog.accept());
   await page.locator('#quick-compose-nav').click();
   await page.locator('#qc-text').waitFor();
-  assert.equal(await page.locator('#qc-text').inputValue(), 'Восстановление видео после обновления');
+  assert.equal(await page.locator('#qc-text').evaluate(el=>el.value), 'Восстановление видео после обновления');
   assert.equal(await page.locator('#qc-missing-video').isVisible(), true);
   assert.equal(await page.locator('#qc-video-preview video').count(), 0);
   assert.equal(await page.locator('#qc-video-file').isDisabled(), false);
@@ -1033,7 +1040,7 @@ try {
   page.once('dialog', (dialog) => dialog.accept());
   await page.locator('#quick-compose-nav').click();
   await page.locator('#qc-text').waitFor();
-  assert.equal(await page.locator('#qc-text').inputValue(),
+  assert.equal(await page.locator('#qc-text').evaluate(el=>el.value),
     'Проверка восстановления MP4 после отказа сервера');
   assert.equal(await page.locator('#qc-missing-video').isVisible(), true,
     'definitive 4xx must retain video-required across refresh');
@@ -1059,8 +1066,10 @@ try {
     document.querySelector('#qc-text').dispatchEvent(event);
     return event.defaultPrevented;
   });
-  assert.equal(textPastePrevented, false,
-    'text-only clipboard paste remains native; do not hijack normal text editing');
+  assert.equal(textPastePrevented, true,
+    'canonical rich editor consumes text paste as safe plain text');
+  assert.match(await page.locator('#qc-text').evaluate(el=>el.value),/Обычный текст/);
+  assert.equal(await page.locator('.qc-image').count(),0,'text paste must not add media');
   async function pasteImage(buffer, filename) {
     return page.evaluate(({ bytes, name }) => {
       const clipboard = new DataTransfer();
@@ -1068,13 +1077,18 @@ try {
       const event = new ClipboardEvent('paste', {
         bubbles: true, cancelable: true, clipboardData: clipboard
       });
-      document.querySelector('#qc-text').dispatchEvent(event);
+      const surface=document.querySelector('#qc-text');
+      const range=document.createRange();range.selectNodeContents(surface);
+      const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);
+      surface.dispatchEvent(event);
       return event.defaultPrevented;
     }, { bytes: Array.from(buffer), name: filename });
   }
+  const captionBeforeImagePaste=await page.locator('#qc-text').evaluate(el=>el.value);
   assert.equal(await pasteImage(image1, 'clipboard-one.png'), true,
     'image clipboard paste must be consumed inside the composer');
   assert.equal(await page.locator('.qc-image').count(), 1);
+  assert.equal(await page.locator('#qc-text').evaluate(el=>el.value),captionBeforeImagePaste,'image paste must not erase a selected caption');
   assert.match(await page.locator('#qc-status').textContent(), /из буфера обмена/i);
   await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
   const beforeClipboardPost = db.prepare('SELECT COUNT(*) n FROM posts').get().n;
@@ -1219,6 +1233,7 @@ try {
     await page.locator('input[name="qc-account"][value="' + account.id + '"]').check();
   }
   await page.locator('.qc-advanced summary').click();
+  await page.locator('#qc-mode').selectOption('AT');
   await page.locator('#qc-datetime').fill('2027-02-14T14:30');
   const readyIssues = [
     {
@@ -1291,7 +1306,7 @@ try {
   // publication. It must not leave a false unknown-outcome guard.
   assert.equal(await page.locator('#qc-recovery-warning').isVisible(), false,
     'definitive READY 409 must not block the next unrelated composer');
-  assert.equal(await page.locator('#qc-text').isEnabled(), true,
+  assert.equal(await page.locator('#qc-text').evaluate(el=>el.contentEditable==='true'), true,
     'an operator may start a new material without reconciling a known refusal');
   await page.locator('#qc-text').fill('Отдельный вариант после отклонённого создания');
   await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
@@ -1315,7 +1330,7 @@ try {
   page.once('dialog', (dialog) => dialog.accept());
   await page.locator('#quick-compose-nav').click();
   await page.locator('#qc-text').waitFor();
-  assert.equal(await page.locator('#qc-text').inputValue(),
+  assert.equal(await page.locator('#qc-text').evaluate(el=>el.value),
     'Отдельный вариант после отклонённого создания');
   assert.equal(await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').isChecked(), true);
   await page.locator('#qc-variant-editor summary').click();
@@ -1332,6 +1347,7 @@ try {
   await page.locator('#qc-text').fill('Неопределённый результат проверки готовности');
   await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
   await page.locator('.qc-advanced summary').click();
+  await page.locator('#qc-mode').selectOption('AT');
   await page.locator('#qc-datetime').fill('2027-03-14T14:30');
   await page.route('**/api/posts/*/ready', async (route) => {
     if (route.request().method() === 'POST') {
@@ -1354,10 +1370,10 @@ try {
   await page.locator('#qc-text').waitFor({ state: 'visible', timeout: 30000 });
   assert.equal(await page.locator('#qc-recovery-warning').isVisible(), true,
     'unknown READY HTTP503 retains the durable operator reconciliation guard');
-  assert.equal(await page.locator('#qc-text').isEnabled(), false);
+  assert.equal(await page.locator('#qc-text').evaluate(el=>el.contentEditable==='true'), false);
   page.once('dialog', (dialog) => dialog.accept());
   await page.locator('#qc-start-new').click();
-  assert.equal(await page.locator('#qc-text').isEnabled(), true);
+  assert.equal(await page.locator('#qc-text').evaluate(el=>el.contentEditable==='true'), true);
   await closeComposer();
 
   // A bare READY 409 can mean immutable/PUBLISHED post or version conflict:
@@ -1367,6 +1383,7 @@ try {
   await page.locator('#qc-text').fill('READY 409 без списка ошибок площадок');
   await page.locator('input[name="qc-account"][value="' + accounts[0].id + '"]').check();
   await page.locator('.qc-advanced summary').click();
+  await page.locator('#qc-mode').selectOption('AT');
   await page.locator('#qc-datetime').fill('2027-03-16T14:30');
   await page.route('**/api/posts/*/ready', async (route) => {
     if (route.request().method() === 'POST') {
@@ -1384,7 +1401,7 @@ try {
   await page.locator('#qc-text').waitFor({ state: 'visible', timeout: 30000 });
   assert.equal(await page.locator('#qc-recovery-warning').isVisible(), true,
     'bare READY HTTP409 without structured preflight evidence keeps reconciliation guard');
-  assert.equal(await page.locator('#qc-text').isEnabled(), false);
+  assert.equal(await page.locator('#qc-text').evaluate(el=>el.contentEditable==='true'), false);
   page.once('dialog', (dialog) => dialog.accept());
   await page.locator('#qc-start-new').click();
   await closeComposer();
@@ -1411,7 +1428,7 @@ try {
   await mp.locator('#qc-text').fill('Новая публикация для всех подключений.');
   await mp.locator('#qc-files').setInputFiles([{ name: 'mobile.png', mimeType: 'image/png', buffer: image1 }]);
   await mp.screenshot({ path: 'test-results/p0-composer-mobile.png', fullPage: false });
-  await mp.locator('.qc-right').scrollIntoViewIfNeeded();
+  await mp.locator('#qc-target-toggle').scrollIntoViewIfNeeded();
   assert.equal(await mp.locator('#qc-target-toggle').isVisible(), true,
     'mobile offers a compact recipient chooser');
   assert.equal(await mp.locator('#qc-target-picker').isVisible(), false,
@@ -1427,7 +1444,8 @@ try {
   assert.equal(await mp.locator('#qc-target-picker').isVisible(), false);
   assert.equal(await mp.locator('#qc-target-toggle').getAttribute('aria-expanded'), 'false');
   assert.match(await mp.locator('#qc-counter').textContent(), /2 выбрано/);
-  assert.equal(await mp.locator('#qc-text').inputValue(), 'Новая публикация для всех подключений.');
+  assert.equal(await mp.locator('#qc-text').evaluate(el=>el.value), 'Новая публикация для всех подключений.');
+  await mp.locator('.composer-panes [data-pane="preview"]').click();
   await mp.locator('#qc-platform-preview-load').click();
   await mp.waitForFunction(()=>document.querySelector('#qc-platform-preview-load')?.disabled===false);
   await mp.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });
@@ -1437,6 +1455,7 @@ try {
   assert.equal(await mp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true,
     '390px local image preview must not cause horizontal overflow');
   await mp.screenshot({ path: 'test-results/p0-composer-local-preview-mobile.png', fullPage: false });
+  await mp.locator('.composer-panes [data-pane="edit"]').click();
   await mp.locator('.qc-image button[aria-label^="Удалить"]').click();
   assert.equal(await mp.locator('#qc-video-file').isDisabled(), false);
   await mp.locator('#qc-video-file').setInputFiles([
@@ -1445,6 +1464,7 @@ try {
   await mp.locator('#qc-video-preview video').scrollIntoViewIfNeeded();
   await mp.screenshot({ path: 'test-results/p0-composer-video-mobile.png', fullPage: false });
   assert.equal(await mp.locator('#qc-video-preview video').count(), 1);
+  await mp.locator('.composer-panes [data-pane="preview"]').click();
   await mp.locator('#qc-platform-preview-load').click();
   await mp.waitForFunction(()=>document.querySelector('#qc-platform-preview-load')?.disabled===false);
   await mp.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });
@@ -1454,6 +1474,7 @@ try {
     '390px local MP4 preview must not overflow');
   await mp.locator('#qc-save').click();
   await mp.locator('#qc-status').filter({ hasText: 'Черновик сохранён' }).waitFor({ timeout: 45000 });
+  await mp.locator('.composer-panes [data-pane="preview"]').click();
   await mp.locator('#qc-platform-preview-load').click();
   await mp.waitForFunction(()=>document.querySelector('#qc-platform-preview-load')?.disabled===false);
   await mp.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });
@@ -1474,7 +1495,9 @@ try {
 
   // Mobile C2c: even with the video composer open, the failed readiness
   // explanation must remain available without clipping the action bar.
+  await mp.locator('.composer-panes [data-pane="edit"]').click();
   await mp.locator('.qc-advanced summary').click();
+  await mp.locator('#qc-mode').selectOption('AT');
   await mp.locator('#qc-datetime').fill('2027-02-14T14:30');
   await mp.route('**/api/posts/*/ready', async (route) => {
     if (route.request().method() !== 'POST') { await route.continue(); return; }
@@ -1541,6 +1564,7 @@ try {
         '320px video preview must fit without clipping');
       assert.equal(await rp.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
       await rp.screenshot({ path: 'test-results/p0-composer-video-responsive-320.png', fullPage: false });
+      await rp.locator('.composer-panes [data-pane="preview"]').click();
       await rp.locator('#qc-platform-preview-load').click();
   await rp.waitForFunction(()=>document.querySelector('#qc-platform-preview-load')?.disabled===false);
       await rp.locator('#qc-platform-preview:not([hidden])').waitFor({ timeout: 30000 });

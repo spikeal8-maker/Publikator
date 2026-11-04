@@ -110,13 +110,16 @@ try {
   assert.equal(calls.some(item => ['binaryUpload', 'photos.saveWallPhoto', 'wall.post'].includes(item.method)), false);
 
   await page.goto('http://127.0.0.1:18095/content');
-  if(await page.locator('.posts-secondary').getAttribute('open')===null)await page.locator('.posts-secondary > summary').click();
-  await page.locator('#new-post').click();
-  let form = page.locator('#post-form');
-  await form.locator('input[name="title"]').fill('Photo with separate roles');
-  await form.locator('[contenteditable="true"]').first().fill('Photo-role acceptance through the ordinary editor');
-  await form.locator('button[type="submit"]').click();
-  await form.waitFor({ state: 'detached' });
+  await page.locator('#quick-new-post').click();
+  await page.locator('#qc-text').fill('Photo with separate roles\nPhoto-role acceptance through the ordinary editor');
+  await page.locator('input[name="qc-account"][value="'+account.id+'"]').check();
+  const imagePath=path.join(dataDir,'image.jpg');
+  await sharp({create:{width:1200,height:800,channels:3,background:'#225588'}}).jpeg().toFile(imagePath);
+  await page.locator('#qc-files').setInputFiles(imagePath);
+  await page.locator('#qc-save').click();
+  await page.waitForFunction(()=>document.querySelector('#qc-status')?.textContent.includes('Черновик сохранён'));
+  await page.locator('#qc-close').click();
+  let form;
   async function edit() {
     await page.getByRole('row').filter({ hasText: 'Photo with separate roles' }).getByRole('button', { name: 'Сведения', exact: true }).click();
     await page.getByRole('button', { name: 'Редактировать', exact: true }).click();
@@ -125,15 +128,6 @@ try {
     return page.locator('#post-form');
   }
   form = await edit();
-  const imagePath = path.join(dataDir, 'image.jpg');
-  await sharp({ create: { width: 1200, height: 800, channels: 3, background: '#225588' } }).jpeg().toFile(imagePath);
-  await form.locator('#media-file').setInputFiles(imagePath);
-  await page.locator('#post-form .media-list img').first().waitFor({state:'visible'});
-  await page.locator('#post-form').waitFor({state:'visible'});
-  await page.locator('#post-form .media-list img').waitFor({ state: 'visible' });
-  await page.locator('.platform-workspace > summary').click();
-  await page.locator('.platform-editor-card').waitFor({ state: 'visible' });
-  form = page.locator('#post-form');
   await form.locator('#mark-ready').click();
   await form.waitFor({ state: 'detached' });
   assert.equal(calls.some(item => ['binaryUpload', 'photos.saveWallPhoto', 'wall.post'].includes(item.method)), false);

@@ -1,3 +1,4 @@
+import { normalizeRichDocument } from './rich-text-editor-v1.js';
 // Same-tab-only recovery for unfinished composer text and choices.
 // No credentials or image bytes are persisted here. Confirmed server drafts
 // are tracked by ID to prevent silent duplicate creation after interruption.
@@ -65,6 +66,9 @@ export function createComposerRecovery(identity) {
     return write({
       kind: 'local',
       body: String(draft.body || '').slice(0, 200000),
+      title:String(draft.title||'').slice(0,500),
+      scheduleMode:['MANUAL','AT','QUEUE'].includes(draft.scheduleMode)?draft.scheduleMode:'MANUAL',
+      bodyRich: draft.bodyRich ? normalizeRichDocument(draft.bodyRich) : null,
       projectId: String(draft.projectId || '').slice(0, 200),
       scheduledAtLocal: String(draft.scheduledAtLocal || '').slice(0, 32),
       scheduleTimezone: String(draft.scheduleTimezone || '').slice(0, 90),

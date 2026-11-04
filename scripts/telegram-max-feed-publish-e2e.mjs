@@ -141,22 +141,16 @@ try {
   }
   for (const [title, format] of [['Browser text', 'TEXT_ONLY'], ['Browser image', 'MEDIA']]) {
     await page.goto('http://127.0.0.1:18096/content');
-    if(await page.locator('.posts-secondary').getAttribute('open')===null)await page.locator('.posts-secondary > summary').click();
-    await page.locator('#new-post').click();
-    let form = page.locator('#post-form');
-    await form.locator('input[name="title"]').fill(title);
-    await form.locator('[contenteditable="true"]').first().fill('Тест полного пути Telegram и MAX\nПеренос строки сохраняется');
-    await form.locator('select[name="postFormat"]').selectOption(format);
-    await form.locator('button[type="submit"]').click();
-    await form.waitFor({ state: 'detached' });
-    form = await edit(title);
-    if (format === 'MEDIA') {
-      await form.locator('#media-file').setInputFiles(imagePath);
-      await page.locator('#post-form .media-list img').first().waitFor({state:'visible'});
-      await page.locator('#post-form').waitFor({state:'visible'});
-      await page.locator('#post-form .media-list img').waitFor({ state: 'visible' });
-      form = page.locator('#post-form');
+    await page.locator('#quick-new-post').click();
+    await page.locator('#qc-text').fill(title+'\nТест полного пути Telegram и MAX\nПеренос строки сохраняется');
+    for(const account of db.prepare('SELECT id FROM social_accounts WHERE enabled=1').all()){
+      await page.locator('input[name="qc-account"][value="'+account.id+'"]').check();
     }
+    if(format==='MEDIA')await page.locator('#qc-files').setInputFiles(imagePath);
+    await page.locator('#qc-save').click();
+    await page.waitForFunction(()=>document.querySelector('#qc-status')?.textContent.includes('Черновик сохранён'));
+    await page.locator('#qc-close').click();
+    let form=await edit(title);
     const before = writes();
     await form.locator('#mark-ready').click();
     await form.waitFor({ state: 'detached' });
