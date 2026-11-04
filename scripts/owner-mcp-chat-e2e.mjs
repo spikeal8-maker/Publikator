@@ -62,6 +62,8 @@ try{
   await client.connect(new StreamableHTTPClientTransport(new URL(origin+'/mcp'),{requestInit:{headers:{authorization:'Bearer '+created.token}}}));
   const tools=await client.listTools();assert.ok(tools.tools.some(t=>t.name==='publikator_publish_now'));assert.ok(tools.tools.some(t=>t.name==='publikator_call_operation'));assert.ok(tools.tools.length>=18);check('actual official SDK client discovers protected MCP tools');
   const projects=await call('publikator_list_projects',{});assert.equal(projects.status,200);assert.ok(projects.data.some(p=>p.id===projectId));check('SDK tools/call executes canonical read');
+  const read=await call('publikator_read_operation',{operation:'get_projects'});assert.equal(read.status,200);check('read-only generic operation reaches canonical GET');
+  const deniedWrite=await call('publikator_read_operation',{operation:'post_projects'});assert.equal(deniedWrite.error.code,'READ_OPERATION_REQUIRED');check('read-only generic operation refuses mutations');
   const accounts=await call('publikator_list_accounts',{});assert.equal(accounts.status,200);assert.ok(!JSON.stringify(accounts).includes('synthetic-bot-secret'));check('social credentials not exposed');
   const draftArgs={projectId,title:'Owner MCP fixture',body:'Text',contentFormat:'TEXT_ONLY',targetAccountIds:[],idempotencyKey:'draft-one'};
   const post=await call('publikator_create_post',draftArgs);assert.equal(post.status,201,JSON.stringify(post));const postId=post.data.id;

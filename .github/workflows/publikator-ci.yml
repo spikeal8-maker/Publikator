@@ -191,6 +191,7 @@ jobs:
           node scripts/schema-v19-owner-automation-e2e.mjs
           node scripts/backup-v19-owner-automation-e2e.mjs
           node scripts/owner-mcp-chat-e2e.mjs
+          node scripts/owner-mcp-publish-e2e.mjs
 
       - name: AGENT-A2b3 exact owned draft listing and safe detail ACL
         run: node scripts/agent-a2b3-own-drafts-read-e2e.mjs
@@ -701,6 +702,7 @@ jobs:
           node scripts/schema-v19-owner-automation-e2e.mjs
           node scripts/backup-v19-owner-automation-e2e.mjs
           node scripts/owner-mcp-chat-e2e.mjs
+          node scripts/owner-mcp-publish-e2e.mjs
 
       - name: AGENT-A2b3 exact owned draft listing and safe detail ACL
         run: node scripts/agent-a2b3-own-drafts-read-e2e.mjs

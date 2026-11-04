@@ -24,3 +24,6 @@ Typecheck/build, focused auth/Origin/key/revoke/receipt/GET purity tests, actual
 
 ## Initial focused evidence
 Actual official SDK HTTP client: 45 assertions PASS, 28 tools, scoped legacy-key denial, owner-admin delegation, chunk upload/attachment, read-pure preview, idempotency, model loop and cancellation. Schema18→19 migration and canonical backup/restore: PASS. Real Chrome: 12 assertions PASS at 1440/390/320px. Local Ollama gemma4:12b: harmless tool probe and synthetic read/result roundtrip PASS, no real social writes. Cloud models have mock/adapter acceptance only until an owner-supplied provider key is tested. Full canonical CI and deployment evidence remain separate.
+
+## Additional execution proof
+Actual MCP client through the canonical publisher: image attachment→ready→send, persisted per-target outcome, exact recipient selection, duplicate request replay, scheduled AT execution and cancellation all PASS (7 checks, 2 fake-provider sends, 0 live social posts). Read-only clients have a separate generic GET tool; the catalog is not limited to mutation-enabled chat. Old schema18 future-version rejection now tests CURRENT+1; the visual publication regression waits for the final mounted preview while retaining its minimum width/height assertions.

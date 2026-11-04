@@ -201,9 +201,9 @@ try {
   assert.deepEqual(db.prepare('SELECT * FROM agent_operation_receipts ORDER BY receipt_id').all(),
     snapshot.receipts);
   assert.ok(!JSON.stringify(snapshot).includes(secret.botToken));
-  db.pragma('user_version = 19');
-  assert.throws(()=>migrate(),/новее поддерживаемой 18/);
-  db.pragma('user_version = 18');
+  db.pragma('user_version = '+(DATABASE_SCHEMA_VERSION+1));
+  assert.throws(()=>migrate(),new RegExp('новее поддерживаемой '+DATABASE_SCHEMA_VERSION));
+  db.pragma('user_version = '+DATABASE_SCHEMA_VERSION);
   assert.deepEqual(db.pragma('foreign_key_check'),[]);
   console.log(JSON.stringify({ok:true,checkpoint:'AGENT-A2b0',from:17,to:18,
     manualReadyPreserved:true,encryptedProviderCredentialsPreserved:true,
