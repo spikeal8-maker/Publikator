@@ -27,3 +27,6 @@ Actual official SDK HTTP client: 45 assertions PASS, 28 tools, scoped legacy-key
 
 ## Additional execution proof
 Actual MCP client through the canonical publisher: image attachment→ready→send, persisted per-target outcome, exact recipient selection, duplicate request replay, scheduled AT execution and cancellation all PASS (7 checks, 2 fake-provider sends, 0 live social posts). Read-only clients have a separate generic GET tool; the catalog is not limited to mutation-enabled chat. Old schema18 future-version rejection now tests CURRENT+1; the visual publication regression waits for the final mounted preview while retaining its minimum width/height assertions.
+
+## Dependency security gate
+Runtime MCP server/client pinned to 2.4.0, Zod 4.6.7, static middleware 10.1.9; compatible Fastify/URI patch updates locked. Production npm audit: zero known vulnerabilities. SDK handler body limit explicitly matches the bounded 10 MiB application envelope; a >4 MiB encoded upload regression proves the SDK security fix does not break approved uploads. Official SDK real-client suite: 48 checks PASS. Actual embedded Gemma4:12b chat with full tool registry read projects and created one exact DRAFT in an isolated database; no live social posts.

@@ -68,7 +68,7 @@ export async function registerOwnerAssistant(app:FastifyInstance,registry:Regist
           });
         }
         return server;
-      },{legacy:'stateless'});
+      },{legacy:'stateless',maxRequestBodySize:10*1024*1024});
       const headers=new Headers();for(const key of ['content-type','accept','mcp-protocol-version','mcp-method','mcp-session-id','last-event-id']){const v=req.headers[key];if(typeof v==='string')headers.set(key,v);}
       const request=new Request(new URL('/mcp',base),{method:req.method,headers,...(req.method==='POST'?{body:JSON.stringify(req.body)}:{})});
       const response=await handler.fetch(request,{parsedBody:req.body});
