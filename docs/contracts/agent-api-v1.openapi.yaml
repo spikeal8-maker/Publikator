@@ -3,7 +3,7 @@
   "info": {
     "title": "Publikator Agent API (PLANNED — NOT DEPLOYED)",
     "version": "1.0.0-a1b2b1",
-    "description": "Overall Agent REST/MCP contract remains planned. Owner-only control routes are progressively implemented in A1; no remote Agent API or MCP integration is enabled by this contract."
+    "description": "Agent API contract remains partially implemented; only read-only capabilities/projects/accounts/sources and A2b1 text-only DRAFT creation are live in the stacked branch. OAuth/MCP, media and publish remain unavailable."
   },
   "x-publikator-contract-status": "PLANNED_NOT_IMPLEMENTED",
   "x-publikator-source-issue": "https://github.com/spikeal8-maker/Publikator/issues/174",
@@ -846,6 +846,16 @@
           }
         ],
         "responses": {
+          "200": {
+            "description": "Idempotent replay of the original safely created draft (no new write)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Post"
+                }
+              }
+            }
+          },
           "201": {
             "description": "Created",
             "content": {
@@ -926,6 +936,15 @@
               }
             }
           }
+        },
+        "x-publikator-implementation-stage": "A2b1_TEXT_ONLY_DRAFT_ONLY",
+        "x-publikator-implemented-request-subset": {
+          "contentFormat": "TEXT_ONLY",
+          "publicationKind": "FEED",
+          "schedule": null,
+          "mediaAssetIds": [],
+          "targetAccountIds": "1–20 distinct pre-granted and enabled accounts; no wildcard",
+          "noReadyNoPublisher": true
         }
       }
     },
