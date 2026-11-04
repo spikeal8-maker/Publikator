@@ -37,6 +37,11 @@ try{
   await page.locator('#settings-open').click();await page.locator('#settings').waitFor({state:'visible'});await page.locator('#provider-kind').selectOption('ollama');await page.locator('#provider-url').fill(modelUrl);
   await page.locator('#provider-name').focus();
   await page.waitForFunction(()=>document.querySelector('#models-status')?.textContent?.includes('Найдено моделей: 1'));
+  await page.locator('#provider-url').fill('http://127.0.0.1:9');
+  assert.equal(await page.locator('#provider-model').inputValue(),'');
+  await page.locator('#provider-url').fill(modelUrl);
+  await page.locator('#provider-name').focus();
+  await page.waitForFunction(()=>document.querySelector('#models-status')?.textContent?.includes('Найдено моделей: 1') && document.querySelector('#provider-model')?.value==='fixture-model');
   assert.equal(await page.locator('#provider-model').inputValue(),'fixture-model');
   assert.equal(await page.locator('#provider-model option').count(),2);
   assert.equal(await page.locator('#provider-manual-model').inputValue(),'');

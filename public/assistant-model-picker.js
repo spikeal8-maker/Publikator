@@ -64,6 +64,7 @@ export function createModelPicker({api, getConnections, getEditId}) {
   }
   async function discover({quiet = false} = {}) {
     const id = ++serial;
+    if (timer) { clearTimeout(timer); timer = null; }
     if (!canQuery(true)) { setOptions([], currentModel); return []; }
     const existing = oldConnection();
     const body = {
@@ -117,6 +118,13 @@ export function createModelPicker({api, getConnections, getEditId}) {
       ? 'Подключение сохранено, вызовы инструментов ещё не проверены.' : '';
     $('provider-test-result').className = 'test-result ' + (c?.toolVerified ? 'ok' : '');
   }
+  function onEndpointChange() {
+    cancel();
+    $('provider-manual-model').value = '';
+    setOptions([], '');
+    message('Адрес или ключ изменён. Обновляю список моделей…', 'pending');
+    schedule();
+  }
   function onProviderChange() {
     cancel();
     $('provider-manual-model').value='';
@@ -124,6 +132,6 @@ export function createModelPicker({api, getConnections, getEditId}) {
     providerHint();
     schedule();
   }
-  return {discover, schedule, cancel, selectExisting, onProviderChange,
+  return {discover, schedule, cancel, selectExisting, onProviderChange, onEndpointChange,
     selected, providerHint, canQuery, message};
 }

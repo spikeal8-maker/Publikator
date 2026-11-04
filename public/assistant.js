@@ -93,10 +93,8 @@ $('provider-kind').addEventListener('change',()=>{
   $('provider-key').value='';
   modelPicker.onProviderChange();
 });
-$('provider-url').addEventListener('change',()=>modelPicker.schedule());
-$('provider-url').addEventListener('blur',()=>modelPicker.schedule());
-$('provider-key').addEventListener('change',()=>modelPicker.schedule());
-$('provider-key').addEventListener('blur',()=>modelPicker.schedule());
+$('provider-url').addEventListener('input',()=>modelPicker.onEndpointChange());
+$('provider-key').addEventListener('input',()=>modelPicker.onEndpointChange());
 $('load-models').addEventListener('click',guarded(()=>modelPicker.discover({quiet:false})));
 $('provider-manual-model').addEventListener('change',()=>{
   if($('provider-manual-model').value.trim())modelPicker.message('Используется вручную указанная модель. Проверка инструментов выполняется после сохранения.','info');
