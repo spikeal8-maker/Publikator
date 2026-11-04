@@ -1,0 +1,33 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+const temp=await fs.mkdtemp(path.join(os.tmpdir(),'publikator-schema19-'));
+process.env.NODE_ENV='test';process.env.DATA_DIR=temp;delete process.env.ADMIN_PASSWORD;process.env.APP_MASTER_KEY='schema19-migration-fixture-master-key-long-enough';process.env.PUBLIC_BASE_URL='http://127.0.0.1:8080';
+const {db,migrate,nowIso}=await import('../dist/db.js');
+const {DATABASE_SCHEMA_VERSION,SCHEMA_MILESTONES}=await import('../dist/schema.js');
+const {createAdminSetupGrant,createOrRecoverAdmin}=await import('../dist/admin-auth.js');
+const {createOwnerAutomationKey,authenticateOwnerKey,assertOwnerActor,revokeOwnerAutomationKey}=await import('../dist/owner-automation.js');
+const {saveAiConnection}=await import('../dist/owner-ai-providers.js');
+const {encryptJson}=await import('../dist/crypto.js');
+try{
+  migrate();assert.ok(DATABASE_SCHEMA_VERSION>=19);assert.ok(SCHEMA_MILESTONES.some(x=>x.version===19&&x.key==='owner-mcp-chat'));
+  createOrRecoverAdmin('INITIAL',createAdminSetupGrant('INITIAL'),'owner','owner-schema19-password','owner-schema19-password');
+  const before={admin:db.prepare('SELECT * FROM admin_users').all(),projects:db.prepare('SELECT * FROM projects').all(),grants:db.prepare('SELECT * FROM agent_grants').all()};
+  const newTables=['owner_automation_events','owner_automation_receipts','owner_ai_runs','owner_ai_messages','owner_ai_threads','owner_ai_uploads','owner_ai_connections','owner_automation_keys'];
+  for(const table of newTables)db.exec('DROP TABLE '+table);
+  db.pragma('user_version = 18');migrate();
+  assert.equal(Number(db.pragma('user_version',{simple:true})),DATABASE_SCHEMA_VERSION);
+  assert.deepEqual(db.prepare('SELECT * FROM admin_users').all(),before.admin);assert.deepEqual(db.prepare('SELECT * FROM projects').all(),before.projects);assert.deepEqual(db.prepare('SELECT * FROM agent_grants').all(),before.grants);
+  for(const table of newTables)assert.equal(db.prepare('SELECT COUNT(*) AS n FROM '+table).get().n,0,'migration must not issue grants or enable AI');
+  const key=createOwnerAutomationKey('owner',{name:'Synthetic owner bot',days:1,confirmOwnerAdmin:true});const actor=authenticateOwnerKey('Bearer '+key.token);assertOwnerActor(actor);
+  assert.ok(!JSON.stringify(db.prepare('SELECT * FROM owner_automation_keys').all()).includes(key.token));
+  const connection=saveAiConnection('owner',{provider:'ollama',name:'Synthetic model',baseUrl:'http://127.0.0.1:11434',model:'fixture',apiKey:'fixture-credential-raw-canary'});
+  assert.ok(!JSON.stringify(db.prepare('SELECT * FROM owner_ai_connections').all()).includes('fixture-credential-raw-canary'));
+  const snapshot=db.prepare('SELECT * FROM owner_ai_connections').all();migrate();assert.deepEqual(db.prepare('SELECT * FROM owner_ai_connections').all(),snapshot,'rerun preserves encrypted settings');
+  assert.throws(()=>db.prepare("INSERT INTO owner_automation_keys(id,owner_id,name,prefix,key_hash,role,created_at,expires_at) VALUES('bad','missing','bad','bad',?,'OWNER_ADMIN',?,?)").run('a'.repeat(64),nowIso(),nowIso()),/FOREIGN KEY/);
+  revokeOwnerAutomationKey('owner',key.id);assert.throws(()=>assertOwnerActor(actor),/Ключ/);assert.throws(()=>authenticateOwnerKey('Bearer '+key.token));
+  const partial=encryptJson({text:'encrypted history fixture'});assert.ok(!partial.includes('encrypted history fixture'));
+  assert.deepEqual(db.pragma('foreign_key_check'),[]);assert.equal(db.pragma('integrity_check',{simple:true}),'ok');
+  console.log(JSON.stringify({suite:'schema19-owner-automation',schema:DATABASE_SCHEMA_VERSION,tables:newTables.length,previousRowsPreserved:true,keysNotAutoIssued:true,rerun:true,result:'PASS'}));
+}finally{db.close();await fs.rm(temp,{recursive:true,force:true,maxRetries:5,retryDelay:200});}

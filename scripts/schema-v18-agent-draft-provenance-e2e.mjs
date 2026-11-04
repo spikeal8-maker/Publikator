@@ -17,7 +17,7 @@ const { encryptJson,decryptJson }=await import('../dist/crypto.js');
 
 migrate();
 try {
-  assert.equal(DATABASE_SCHEMA_VERSION,18);
+  assert.ok(DATABASE_SCHEMA_VERSION>=18);
   createOrRecoverAdmin('INITIAL',createAdminSetupGrant('INITIAL'),
     'owner','schema18-owner-password-2026','schema18-owner-password-2026');
   const time=nowIso();
@@ -47,7 +47,7 @@ try {
   ].join('\n'));
   db.pragma('user_version = 17');
   migrate();
-  assert.equal(Number(db.pragma('user_version',{simple:true})),18);
+  assert.equal(Number(db.pragma('user_version',{simple:true})),DATABASE_SCHEMA_VERSION);
   assert.deepEqual(db.prepare('SELECT * FROM admin_users ORDER BY id').all(),before.admin);
   assert.deepEqual(db.prepare('SELECT * FROM social_accounts ORDER BY id').all(),before.accounts);
   assert.deepEqual(db.prepare('SELECT * FROM posts ORDER BY id').all(),before.posts);
@@ -201,9 +201,9 @@ try {
   assert.deepEqual(db.prepare('SELECT * FROM agent_operation_receipts ORDER BY receipt_id').all(),
     snapshot.receipts);
   assert.ok(!JSON.stringify(snapshot).includes(secret.botToken));
-  db.pragma('user_version = 19');
-  assert.throws(()=>migrate(),/новее поддерживаемой 18/);
-  db.pragma('user_version = 18');
+  db.pragma('user_version = '+(DATABASE_SCHEMA_VERSION+1));
+  assert.throws(()=>migrate(),new RegExp('новее поддерживаемой '+DATABASE_SCHEMA_VERSION));
+  db.pragma('user_version = '+DATABASE_SCHEMA_VERSION);
   assert.deepEqual(db.pragma('foreign_key_check'),[]);
   console.log(JSON.stringify({ok:true,checkpoint:'AGENT-A2b0',from:17,to:18,
     manualReadyPreserved:true,encryptedProviderCredentialsPreserved:true,

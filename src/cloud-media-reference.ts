@@ -12,7 +12,7 @@ const MAX_REFERENCES = 20;
 const MAX_PATH_LENGTH = 512;
 const MAX_SOURCE_LENGTH = 120;
 
-function normalizeRelativePath(value: unknown): string {
+export function normalizeRelativePath(value: unknown): string {
   const raw = String(value ?? '').trim();
   if (!raw || raw.length > MAX_PATH_LENGTH) throw new Error(`media path must be 1-${MAX_PATH_LENGTH} characters`);
   if (/^[A-Za-z]:[\\/]/.test(raw) || raw.startsWith('/') || raw.startsWith('\\')) throw new Error(`media path must be relative: ${raw}`);

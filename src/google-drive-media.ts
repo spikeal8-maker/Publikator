@@ -265,3 +265,25 @@ export async function downloadGoogleDriveMedia(resolved: ResolvedGoogleDriveMedi
     cleanup: async () => { await fs.rm(tempPath, { force: true }).catch(() => undefined); }
   };
 }
+
+/** Bounded owner-side browsing, always anchored to the saved connector root. */
+export async function listGoogleDriveFolder(connectorId: string, relativeFolder = '', cursor?: string): Promise<any> {
+  const { normalizeRelativePath } = await import('./cloud-media-reference.js');
+  const folder = relativeFolder ? normalizeRelativePath(relativeFolder) : '';
+  if (folder.includes('%')) throw new Error('Encoded paths are not accepted');
+  if (cursor !== undefined && (typeof cursor !== 'string' || cursor.length > 2048 || /[\r\n\u0000]/.test(cursor))) throw new Error('Invalid page cursor');
+  const row = connectorRow(connectorId);
+  const connector = connectorMetadata(row);
+  const token = await googleServiceAccountAccessToken(readIngestionConnectorCredentials(connectorId), DRIVE_READ_SCOPE);
+  let parentId = connector.config.rootFolderId;
+  for (const segment of folder ? folder.split('/') : []) {
+    const child = await exactChild(token, parentId, segment);
+    if (child.mimeType !== GOOGLE_FOLDER_MIME) throw new Error('Requested path is not a directory');
+    parentId = child.id;
+  }
+  const params = new URLSearchParams({ q: `'${qEscape(parentId)}' in parents and trashed = false`, fields: 'nextPageToken,files(id,name,mimeType,size,modifiedTime,parents)', pageSize: '100', supportsAllDrives: 'true', includeItemsFromAllDrives: 'true', orderBy: 'folder,name', spaces: 'drive' });
+  if (cursor) params.set('pageToken', cursor);
+  const page = await driveJson(`${GOOGLE_DRIVE_ROOT}?${params}`, token);
+  const items = (Array.isArray(page.files) ? page.files : []).filter((f: any) => Array.isArray(f.parents) && f.parents.includes(parentId) && typeof f.name === 'string' && !/[\\/%\u0000-\u001f]/.test(f.name) && !['.','..'].includes(f.name)).map((f: any) => ({ id: f.id, name: f.name, relativePath: folder ? folder + '/' + f.name : f.name, isDirectory: f.mimeType === GOOGLE_FOLDER_MIME, mimeType: f.mimeType, sizeBytes: Number(f.size || 0), modifiedAt: f.modifiedTime || null }));
+  return { connectorId, folder, items, nextCursor: typeof page.nextPageToken === 'string' ? page.nextPageToken : null };
+}

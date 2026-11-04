@@ -1,3 +1,4 @@
+import { DATABASE_SCHEMA_VERSION } from '../dist/schema.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -30,7 +31,7 @@ const send=(body,head,url=endpoint)=>app.inject({method:'POST',url,headers:head,
 const count=table=>db.prepare('SELECT COUNT(*) AS n FROM '+table).get().n;
 
 try{
-  assert.equal(Number(db.pragma('user_version',{simple:true})),18);
+  assert.equal(Number(db.pragma('user_version',{simple:true})),DATABASE_SCHEMA_VERSION);
   const project=db.prepare('SELECT id,slug FROM projects LIMIT 1').get();
   const otherProject=id('prj');
   db.prepare('INSERT INTO projects(id,name,slug,created_at) VALUES (?,?,?,?)')

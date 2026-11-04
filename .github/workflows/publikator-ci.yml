@@ -112,6 +112,20 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+      - name: Owner assistant real Chrome desktop and mobile
+        env:
+          OWNER_UI_EVIDENCE_DIR: test-results/owner-assistant
+        run: node scripts/owner-assistant-browser-e2e.mjs
+
+      - name: Preserve owner assistant browser evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: publikator-owner-assistant-ui
+          path: test-results/owner-assistant/*.png
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: UI-FAVICON-001 generated browser icons and real Chrome
         run: node scripts/ui-brand-favicon-e2e.mjs
 
@@ -171,6 +185,13 @@ jobs:
 
       - name: AGENT-A2b2 safe owner-bound draft text revisions and replay
         run: node scripts/agent-a2b2-owned-draft-edit-e2e.mjs
+
+      - name: Owner administrative MCP, embedded chat and schema 19 preservation
+        run: |
+          node scripts/schema-v19-owner-automation-e2e.mjs
+          node scripts/backup-v19-owner-automation-e2e.mjs
+          node scripts/owner-mcp-chat-e2e.mjs
+          node scripts/owner-mcp-publish-e2e.mjs
 
       - name: AGENT-A2b3 exact owned draft listing and safe detail ACL
         run: node scripts/agent-a2b3-own-drafts-read-e2e.mjs
@@ -675,6 +696,13 @@ jobs:
 
       - name: AGENT-A2b2 safe owner-bound draft text revisions and replay
         run: node scripts/agent-a2b2-owned-draft-edit-e2e.mjs
+
+      - name: Owner administrative MCP, embedded chat and schema 19 preservation
+        run: |
+          node scripts/schema-v19-owner-automation-e2e.mjs
+          node scripts/backup-v19-owner-automation-e2e.mjs
+          node scripts/owner-mcp-chat-e2e.mjs
+          node scripts/owner-mcp-publish-e2e.mjs
 
       - name: AGENT-A2b3 exact owned draft listing and safe detail ACL
         run: node scripts/agent-a2b3-own-drafts-read-e2e.mjs

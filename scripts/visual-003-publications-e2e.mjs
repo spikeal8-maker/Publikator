@@ -91,8 +91,10 @@ try {
  await page.locator('#post-form').waitFor();
  assert.equal(await page.locator('.editorial-inspector-overlay').count(),0,'Editable row must open the editor directly');
  const editorBounds=await page.locator('.publication-editor').boundingBox();assert.ok(editorBounds.width>=1100,'Desktop editor must use the available screen width');
- await page.locator('.editor-media-host .sp-media').waitFor();
- const desktopMedia=await page.locator('.editor-media-host .sp-media').boundingBox();
+ // Preview mounts, then is replaced by the platform-authoring enhancement.
+ // Wait for the final visible large media instead of measuring a detached transient node.
+ await page.waitForFunction(()=>{const e=document.querySelector('.editor-media-host .sp-media');const r=e?.getBoundingClientRect();return !!r&&r.width>=450&&r.height>=350;});
+ const desktopMedia=await page.locator('.editor-media-host .sp-media').evaluate(el=>{const r=el.getBoundingClientRect();return {width:r.width,height:r.height};});
  assert.ok(desktopMedia.width>=450,'Single image must use the main preview width');
  assert.ok(desktopMedia.height>=350,'Single image must have a large preview');
  await page.waitForFunction(()=>document.querySelector('#post-form')?.dataset.videoAuthoringEnhanced==='1');

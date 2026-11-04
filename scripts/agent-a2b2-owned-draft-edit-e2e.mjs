@@ -1,3 +1,4 @@
+import { DATABASE_SCHEMA_VERSION } from '../dist/schema.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -30,7 +31,7 @@ const n=table=>db.prepare('SELECT COUNT(*) AS n FROM '+table).get().n;
 const postRow=postId=>db.prepare('SELECT * FROM posts WHERE id=?').get(postId);
 
 try {
-  assert.equal(Number(db.pragma('user_version',{simple:true})),18);
+  assert.equal(Number(db.pragma('user_version',{simple:true})),DATABASE_SCHEMA_VERSION);
   const main=db.prepare('SELECT id FROM projects LIMIT 1').get().id,foreignProject=id('prj');
   db.prepare('INSERT INTO projects(id,name,slug,created_at) VALUES (?,?,?,?)')
     .run(foreignProject,'Foreign draft project','a2b2-foreign',nowIso());

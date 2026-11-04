@@ -6,6 +6,7 @@ export const EDITABLE_POST_STATUSES = new Set(['DRAFT', 'READY', 'FAILED']);
 
 export type RevisionActorSource =
   | 'manual'
+  | 'owner_assistant'
   | 'manual_restore'
   | 'content_plan'
   | 'google_sheets'

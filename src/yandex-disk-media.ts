@@ -272,3 +272,23 @@ export async function downloadYandexDiskMedia(resolved: ResolvedYandexDiskMedia)
     cleanup: async () => { await fs.rm(tempPath, { force: true }).catch(() => undefined); }
   };
 }
+
+/** List direct children under the configured root, without exposing the OAuth credential. */
+export async function listYandexDiskFolder(connectorId: string, relativeFolder = '', cursor?: string): Promise<any> {
+  const { normalizeRelativePath } = await import('./cloud-media-reference.js');
+  const folder = relativeFolder ? normalizeRelativePath(relativeFolder) : '';
+  if (folder.includes('%')) throw new Error('Encoded paths are not accepted');
+  if (cursor !== undefined && !/^\d{1,7}$/.test(cursor)) throw new Error('Invalid page cursor');
+  const offset = Number(cursor || 0);
+  const connector = connectorMetadata(connectorRow(connectorId));
+  const credentials = normalizeCredentials(readIngestionConnectorCredentials(connectorId));
+  const diskPath = folder ? fullPath(connector.config.rootPath, folder) : connector.config.rootPath;
+  const params = new URLSearchParams({ path: diskPath, limit: '100', offset: String(offset), sort: 'name', fields: 'type,_embedded.items,_embedded.total,_embedded.limit,_embedded.offset' });
+  const page = await apiJson(`${YANDEX_DISK_ROOT}/resources?${params}`, credentials.oauthToken);
+  if (page.type !== 'dir') throw new Error('Requested path is not a directory');
+  const prefix = diskPath.replace(/\/$/,'') + '/';
+  const raw = Array.isArray(page._embedded?.items) ? page._embedded.items : [];
+  const items = raw.filter((f: any) => typeof f.name === 'string' && !/[\\/%\u0000-\u001f]/.test(f.name) && !['.','..'].includes(f.name) && f.path === prefix + f.name).map((f: any) => ({ id: f.resource_id || f.path, name: f.name, relativePath: folder ? folder + '/' + f.name : f.name, isDirectory: f.type === 'dir', mimeType: f.mime_type || null, sizeBytes: Number(f.size || 0), modifiedAt: f.modified || null }));
+  const total = Number(page._embedded?.total || 0);
+  return { connectorId, folder, items, nextCursor: offset + raw.length < total && raw.length ? String(offset + raw.length) : null };
+}

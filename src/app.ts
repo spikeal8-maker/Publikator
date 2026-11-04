@@ -1,4 +1,6 @@
 import fs from 'node:fs';
+import { createOwnerTools } from './owner-tools.js';
+import { registerOwnerAssistant } from './http/owner-assistant.js';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
 import multipart from '@fastify/multipart';
@@ -57,6 +59,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     bodyLimit: 2 * 1024 * 1024,
     trustProxy: config.trustProxy
   });
+  const ownerTools = createOwnerTools(app);
   // Mandatory Agent Bearer barrier precedes the legacy admin-cookie hook.
   await registerAgentBearerBoundary(app);
   await registerBrowserSecurity(app);
@@ -98,10 +101,11 @@ export async function buildApp(): Promise<FastifyInstance> {
   await registerGoogleSheetsRoutes(app);
   await registerDiagnosticsRoutes(app);
   await registerReleaseGateRoutes(app);
+  await registerOwnerAssistant(app, ownerTools);
 
   app.setNotFoundHandler((request, reply) => {
     const pathname=request.url.split(/[?#]/, 1)[0] ?? '';
-    // No MCP transport is deployed: never serve the SPA at the reserved /mcp.
+    // Unknown MCP paths must never fall back to the browser SPA.
     if (pathname === '/mcp' || pathname.startsWith('/mcp/')
       || request.url.startsWith('/api/') || request.url.startsWith('/public-media/')) {
       return reply.code(404).send({ error: 'Not found' });

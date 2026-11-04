@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { sessionAdmin } from '../admin-auth.js';
+import { isOwnerAutomationRequest } from '../owner-automation.js';
 import { id } from '../db.js';
 import {
   AgentRegistryError, controlOwnerAgent, createOwnerAgent, getOwnerAgent,
@@ -34,6 +35,7 @@ function fail(reply: FastifyReply, error: unknown) {
  * The existing browser security hook additionally enforces same-origin.
  */
 async function ownerOnly(request: FastifyRequest, reply: FastifyReply) {
+  if (isOwnerAutomationRequest(request)) return;
   if (request.headers.authorization !== undefined
     || !sessionAdmin(request.cookies?.publikator_session)) {
     return apiError(reply, 401, 'UNAUTHORIZED',

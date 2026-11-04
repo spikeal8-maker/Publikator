@@ -89,3 +89,6 @@ Additive migrations are preferred. A destructive migration requires a separate A
 ## 6. Agent rule
 
 A coding agent adding schema `N+1` must update the migration ledger and satisfy the policy regression before opening the PR. Missing migration or backup evidence is a hard Acceptance failure, not a documentation TODO.
+
+## Schema 19 — owner-mcp-chat
+Additive owner-issued administrative MCP key hashes, encrypted AI provider configuration, encrypted chat history, durable chat runs and operation receipts. Existing schema 17/18 agent grants remain restricted; no key is issued or elevated during migration. Pending chat uploads are temporary (24 hours) and are not part of a canonical backup; attached canonical media are backed up normally. Downgrading to schema 16 requires restoring the verified pre-upgrade bundle, not starting an older image on the upgraded database.
