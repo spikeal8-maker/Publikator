@@ -1,3 +1,4 @@
+import { mountSocialPreview } from './social-post-preview-v1.js';
 import { publicationFormatLabel, scheduleModeLabel, sourceLabel, statusLabel } from './presentation-labels.js';
 import { openRevisionHistory } from './revision-history-v1.js';
 import { renderRichText } from './rich-text-editor-v1.js';
@@ -41,6 +42,7 @@ function formatEditorialTime(value) {
 }
 
 function lifecycleListRows(rows) {
+  if(window.PublikatorPublicationRows)return window.PublikatorPublicationRows(rows);
   return rows.map((post) => `<tr>
     <td><strong>${editorialEscape(post.title)}</strong><div class="small muted">${editorialEscape(String(post.body || '').slice(0, 100))}</div></td>
     <td>${editorialEscape(post.project_name)}</td>
@@ -55,6 +57,7 @@ async function filterLegacyActiveRows() {
   const table = document.querySelector('#view table.table');
   if (!table) return;
   const active = await editorialRequest(EDITORIAL_VIEWS.active.api);
+  if(!table.isConnected||editorialView!=='active')return;
   const allowed = new Set(active.map((post) => post.id));
   table.querySelectorAll('tbody .open-post').forEach((button) => {
     if (!allowed.has(button.dataset.id)) button.closest('tr')?.remove();
@@ -67,6 +70,7 @@ async function renderInactiveList(viewName) {
   const table = document.querySelector('#view table.table');
   if (!table) return;
   const rows = await editorialRequest(EDITORIAL_VIEWS[viewName].api);
+  if(!table.isConnected||editorialView!==viewName)return;
   const tbody = table.querySelector('tbody');
   if (tbody) tbody.innerHTML = lifecycleListRows(rows);
   table.dataset.editorialRenderedView = viewName;
@@ -91,7 +95,7 @@ async function selectEditorialView(viewName) {
 
 async function enhanceContentScreen() {
   if (enhancementBusy) return;
-  if (document.querySelector('#page-title')?.textContent !== 'Контент') return;
+  if (!['Контент','Публикации'].includes(document.querySelector('#page-title')?.textContent)) return;
   const table = document.querySelector('#view table.table');
   if (!table) return;
   enhancementBusy = true;
@@ -102,7 +106,7 @@ async function enhanceContentScreen() {
       bar.innerHTML = Object.entries(EDITORIAL_VIEWS)
         .map(([key, value]) => `<button type="button" class="secondary editorial-filter" data-editorial-view="${key}">${value.label}</button>`)
         .join('');
-      table.before(bar);
+      const toolbar=document.querySelector('.posts-toolbar');if(toolbar)toolbar.append(bar);else table.before(bar);
       bar.querySelectorAll('.editorial-filter').forEach((button) => button.addEventListener('click', () => {
         selectEditorialView(button.dataset.editorialView).catch(showEditorialPageError);
       }));
@@ -172,7 +176,7 @@ async function openContentInspector(postId) {
   overlay.className = 'modal editorial-inspector-overlay';
   overlay.innerHTML = `<div class="modal-card editorial-inspector">
     <div class="inspector-head">
-      <div><div class="small muted">${editorialEscape(post.project_name)}</div><h2>${editorialEscape(post.title)}</h2></div>
+      <button type="button" class="inspector-dismiss" aria-label="Закрыть подробности">×</button><div><div class="small muted">${editorialEscape(post.project_name)}</div><h2>${editorialEscape(post.title)}</h2></div>
       <div class="editorial-badges">${editorialBadge(post.editorial_stage)} ${editorialBadge(post.status)}</div>
     </div>
     ${inspectorMedia(post)}
@@ -190,15 +194,23 @@ async function openContentInspector(postId) {
       </section>
     </div>
     <section class="card inspector-section"><h3>Площадки</h3>${inspectorTargets(post)}</section>
-    <section class="card inspector-section"><h3>Последние события</h3>${inspectorEvents(post)}</section>
+    <details class="card inspector-section inspector-event-details"><summary>Последние события · ${post.recentEvents.length}</summary>${inspectorEvents(post)}</details>
     <div class="row-actions inspector-actions">${actionButtons(post)}<button type="button" class="secondary inspector-close">Закрыть</button></div>
     <div class="error inspector-error"></div>
   </div>`;
   document.body.append(overlay);
   const richHost=overlay.querySelector('[data-inspector-rich-text]');
   if(richHost)renderRichText(richHost,post.bodyRich);
-  const mediaCleanup = window.PublikatorMediaViewer?.mount?.(overlay.querySelector('.inspector-media-host'), post) || (() => {});
+  const mediaHost=overlay.querySelector('.inspector-media-host');
+  const socialPreview=mountSocialPreview(mediaHost);
+  editorialRequest('/api/posts/'+encodeURIComponent(post.id)+'/platform-previews').then(payload=>{
+   if(overlay.isConnected)socialPreview.update((payload.previews||[]).filter(item=>item.enabled));
+  }).catch(error=>{if(overlay.isConnected)mediaHost.textContent='Не удалось загрузить предпросмотр: '+error.message;});
+  const mediaCleanup=()=>socialPreview.dispose();
   const inspectorElement = overlay.querySelector('.editorial-inspector');
+  inspectorElement.classList.add('publication-reader');
+  const grid=overlay.querySelector('.inspector-grid');
+  const readerLayout=document.createElement('div');readerLayout.className='publication-reader-layout';mediaHost.before(readerLayout);readerLayout.append(mediaHost,grid);
   const close = () => {
     document.dispatchEvent(new CustomEvent('publikator:editorial-inspector-closed', {
       detail: { postId: post.id, inspector: inspectorElement }
@@ -207,6 +219,7 @@ async function openContentInspector(postId) {
     overlay.remove();
   };
   overlay.addEventListener('click', (event) => { if (event.target === overlay) close(); });
+  overlay.querySelector('.inspector-dismiss')?.addEventListener('click',close);
   overlay.querySelector('.inspector-close')?.addEventListener('click', close);
   overlay.querySelector('.inspector-edit')?.addEventListener('click', () => {
     try { close(); legacyEditor(post.id); } catch (error) { window.alert(error instanceof Error ? error.message : String(error)); }
@@ -273,6 +286,15 @@ function showEditorialPageError(error) {
   box.textContent = error instanceof Error ? error.message : String(error);
 }
 
+let publicationOpening=false;
+async function openPublication(postId){
+ if(publicationOpening||document.querySelector('#post-form,.editorial-inspector-overlay'))return;publicationOpening=true;
+ try{
+  const post=await editorialRequest('/api/editorial/posts/'+encodeURIComponent(postId));
+  if(post.actions.edit&&typeof window.publikatorPostEditor==='function')await window.publikatorPostEditor(postId);
+  else await openContentInspector(postId);
+ }finally{publicationOpening=false;}
+}
 document.addEventListener('click', (event) => {
   const target = event.target instanceof Element ? event.target : null;
   const button = target?.closest('.open-post');
@@ -283,7 +305,7 @@ document.addEventListener('click', (event) => {
   }
   event.preventDefault();
   event.stopImmediatePropagation();
-  openContentInspector(button.dataset.id).catch(showEditorialPageError);
+  (button.dataset.openPublication==='1'?openPublication(button.dataset.id):openContentInspector(button.dataset.id)).catch(showEditorialPageError);
 }, true);
 
 document.addEventListener('click', (event) => {

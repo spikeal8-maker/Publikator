@@ -18,6 +18,9 @@ export const STATUS_LABELS = Object.freeze({
 });
 
 export const PUBLICATION_FORMAT_LABELS = Object.freeze({
+  'FEED / TEXT_ONLY': 'Пост · Текст',
+  'FEED / CAROUSEL': 'Пост · Альбом',
+  'FEED / MEDIA': 'Пост · Медиа',
   'FEED / IMAGE': 'Пост · Изображение',
   'FEED / VIDEO': 'Пост · Видео',
   'SHORT / VERTICAL_VIDEO': 'Короткое видео',

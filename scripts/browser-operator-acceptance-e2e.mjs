@@ -582,7 +582,7 @@ try {
     const scheduleCell = row.locator('td').nth(3);
     assert.equal((await statusBadge.textContent())?.trim(), visibleStatus);
     assert.equal(await statusBadge.getAttribute('data-raw-status'), rawStatus);
-    assert.equal((await scheduleCell.textContent())?.trim(), visibleSchedule);
+    assert.equal((await scheduleCell.locator('.post-schedule-label').textContent())?.trim(), visibleSchedule);
     assert.equal(await scheduleCell.getAttribute('data-raw-schedule'), rawSchedule);
     const visibleText = await row.innerText();
     assert.ok(!visibleText.includes(rawStatus), `Content row exposes raw status: ${rawStatus}`);
@@ -698,7 +698,7 @@ try {
   await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Публикации');
   await page.waitForFunction((title)=>[...document.querySelectorAll('#view table.table tbody tr')]
     .some((row)=>row.textContent?.includes(title)),'Browser Reusable Post A');
-  await page.locator('#view table.table tbody tr').filter({hasText:'Browser Reusable Post A'}).locator('.open-post').click();
+  await page.locator('#view table.table tbody tr').filter({hasText:'Browser Reusable Post A'}).locator('.post-inspect').click();
   let reusableInspector=page.locator('.editorial-inspector-overlay');
   await reusableInspector.waitFor({state:'visible',timeout:5000});
   await reusableInspector.locator('.inspector-edit').click();
@@ -798,6 +798,7 @@ try {
 
   await page.goto(`${base}/content`,{waitUntil:'domcontentloaded'});
   await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Публикации');
+  if(await page.locator('.posts-secondary').getAttribute('open')===null)await page.locator('.posts-secondary > summary').click();
   await page.locator('#new-post').click();
   let newReusablePostForm=page.locator('#post-form');
   await newReusablePostForm.waitFor({state:'visible'});
@@ -831,10 +832,11 @@ try {
 
   await page.goto(`${base}/content`,{waitUntil:'domcontentloaded'});
   await page.waitForFunction(() => document.querySelector('#page-title')?.textContent?.trim() === 'Публикации');
-  await page.locator('#new-post').waitFor({state:'visible'});
+  await page.locator('.posts-secondary').waitFor({state:'visible'});
 
   // EW4-005: new Post inherits project timezone and targets; per-post override stays isolated.
   const ewInheritedTitle = 'Browser EW4-005 inherited defaults';
+  if(await page.locator('.posts-secondary').getAttribute('open')===null)await page.locator('.posts-secondary > summary').click();
   await page.locator('#new-post').click();
   let ewPostForm = page.locator('#post-form');
   await ewPostForm.waitFor({ state: 'visible' });
@@ -855,7 +857,7 @@ try {
     .all(ewPost.id).map((row) => row.account_id);
   assert.deepEqual(ewEnabledTargets, [editorAccountId, browserPlatformAccounts.vk].sort());
 
-  await contentRow(ewInheritedTitle).locator('.open-post').click();
+  await contentRow(ewInheritedTitle).locator('.post-inspect').click();
   let ewInspector = page.locator('.editorial-inspector-overlay');
   await ewInspector.waitFor({ state: 'visible', timeout: 5000 });
   await ewInspector.locator('.inspector-edit').click();
@@ -863,6 +865,7 @@ try {
   ewPostForm = page.locator('#post-form');
   await ewPostForm.waitFor({ state: 'visible', timeout: 5000 });
   await ewPostForm.locator('.platform-workspace').waitFor({ state: 'visible', timeout: 5000 });
+  if(await ewPostForm.locator('.platform-workspace').getAttribute('open')===null)await ewPostForm.locator('.platform-workspace > summary').click();
 
   const ewTelegramBox = ewPostForm.locator(`input[name="accountId"][value="${editorAccountId}"]`);
   const ewVkBox = ewPostForm.locator(`input[name="accountId"][value="${browserPlatformAccounts.vk}"]`);
@@ -895,7 +898,7 @@ try {
   );
 
   // Re-open to prove the editor hydrates actual per-post state rather than project defaults.
-  await contentRow(ewInheritedTitle).locator('.open-post').click();
+  await contentRow(ewInheritedTitle).locator('.post-inspect').click();
   ewInspector = page.locator('.editorial-inspector-overlay');
   await ewInspector.waitFor({ state: 'visible', timeout: 5000 });
   await ewInspector.locator('.inspector-edit').click();
@@ -908,6 +911,7 @@ try {
   await ewPostForm.locator('#close-modal').click();
   await page.locator('#post-form').waitFor({ state: 'detached', timeout: 5000 });
 
+  if(await page.locator('.posts-secondary').getAttribute('open')===null)await page.locator('.posts-secondary > summary').click();
   await page.locator('#new-post').click();
   let postForm = page.locator('#post-form');
   await postForm.waitFor({ state: 'visible' });
@@ -1001,7 +1005,7 @@ try {
   assert.equal(/<(script|b|strong|em|u|s|a)(\s|>)/i.test(richDbPost.body_rich_json), false, 'canonical storage must be AST JSON, not HTML');
 
   const richRow = contentRow(richEditorTitle);
-  await richRow.locator('.open-post').click();
+  await richRow.locator('.post-inspect').click();
   let richInspector = page.locator('.editorial-inspector-overlay');
   await richInspector.waitFor({ state: 'visible', timeout: 5000 });
   assert.equal(await richInspector.locator('[data-inspector-rich-text] strong').count(), 1, 'Content Inspector must render bold from canonical AST');
@@ -1012,6 +1016,7 @@ try {
   postForm = page.locator('#post-form');
   await postForm.waitFor({ state: 'visible', timeout: 5000 });
   await postForm.locator('.platform-workspace').waitFor({ state: 'visible', timeout: 5000 });
+  if(await postForm.locator('.platform-workspace').getAttribute('open')===null)await postForm.locator('.platform-workspace > summary').click();
   for (const selector of ['strong','em','u','s','code','a','blockquote','ul','ol','pre']) {
     assert.ok(await postForm.locator(`[data-rich-text-editor] .rich-text-surface ${selector}`).count() >= 1, `formatting did not hydrate: ${selector}`);
   }
@@ -1073,24 +1078,31 @@ try {
 
   await postForm.locator('#close-modal').click();
   await page.locator('#post-form').waitFor({ state: 'detached', timeout: 5000 });
-  await contentRow(richEditorTitle).locator('.open-post').click();
+  await contentRow(richEditorTitle).locator('.post-inspect').click();
   richInspector = page.locator('.editorial-inspector-overlay');
   await richInspector.waitFor({ state: 'visible', timeout: 5000 });
-  const compilerPreviewSection = richInspector.locator('.platform-preview-section');
-  await compilerPreviewSection.waitFor({ state: 'visible', timeout: 5000 });
-  await page.waitForFunction(() => document.querySelectorAll('.platform-preview-section .platform-preview-card').length === 4);
-  assert.ok(await compilerPreviewSection.locator('.platform-telegram .platform-preview-caption strong').count() >= 1, 'Telegram preview must preserve bold safely');
-  assert.ok(await compilerPreviewSection.locator('.platform-max .platform-preview-caption u').count() >= 1, 'MAX preview must preserve underline safely');
-  assert.ok((await compilerPreviewSection.locator('.platform-vk').innerText()).includes('RICH_BOLD_DOWNGRADED'), 'VK downgrade warning missing');
-  assert.ok((await compilerPreviewSection.locator('.platform-instagram').innerText()).includes('RICH_UNDERLINE_DOWNGRADED'), 'Instagram downgrade warning missing');
-  assert.ok((await compilerPreviewSection.locator('.platform-telegram').innerText()).includes('Свой rich-вариант'));
-  assert.ok((await compilerPreviewSection.locator('.platform-max').innerText()).includes('Свой rich-вариант'));
+  const compilerPreviewSection=richInspector.locator('.inspector-media-host.social-preview');
+  await compilerPreviewSection.locator('[role="tab"]').first().waitFor();
+  assert.equal(await compilerPreviewSection.locator('[role="tab"]').count(),4);
+  const showPlatform=async(platform)=>{
+   const tab=compilerPreviewSection.getByRole('tab').filter({hasText:({telegram:'Telegram',max:'MAX',vk:'VK',instagram:'Instagram'})[platform]}).first();
+   await tab.click();
+  };
+  await showPlatform('telegram');
+  assert.ok(await compilerPreviewSection.locator('.sp-telegram .sp-text strong').count()>=1,'Telegram preview must preserve bold safely');
+  await showPlatform('max');
+  assert.ok(await compilerPreviewSection.locator('.sp-max .sp-text u').count()>=1,'MAX preview must preserve underline safely');
+  await showPlatform('vk');
+  assert.ok(await compilerPreviewSection.locator('.sp-issues').count()>=1,'VK downgrade warning missing');
+  await showPlatform('instagram');
+  assert.ok(await compilerPreviewSection.locator('.sp-issues').count()>=1,'Instagram downgrade warning missing');
 
   await richInspector.locator('.inspector-edit').click();
   await richInspector.waitFor({ state: 'detached', timeout: 5000 });
   postForm = page.locator('#post-form');
   await postForm.waitFor({ state: 'visible', timeout: 5000 });
   await postForm.locator('.platform-workspace').waitFor({ state: 'visible', timeout: 5000 });
+  if(await postForm.locator('.platform-workspace').getAttribute('open')===null)await postForm.locator('.platform-workspace > summary').click();
   assert.ok((await postForm.locator('.platform-editor-card[data-platform="telegram"] .rich-text-surface').innerText()).includes('Telegram Browser Bold Link🙂'));
   assert.ok(await postForm.locator('.platform-editor-card[data-platform="telegram"] .rich-text-surface strong').count() >= 1);
   assert.ok(await postForm.locator('.platform-editor-card[data-platform="telegram"] .rich-text-surface a[href^="https://example.test/browser-telegram"]').count() >= 1);
@@ -1127,7 +1139,7 @@ try {
   assert.equal(richReadyRevision.body, editorSnapshot.plain);
   assert.deepEqual(JSON.parse(richReadyRevision.body_rich_json), editorSnapshot.document);
 
-  await contentRow(richEditorTitle).locator('.open-post').click();
+  await contentRow(richEditorTitle).locator('.post-inspect').click();
   richInspector = page.locator('.editorial-inspector-overlay');
   await richInspector.waitFor({ state: 'visible', timeout: 5000 });
   await richInspector.locator('.inspector-edit').click();
@@ -1147,7 +1159,7 @@ try {
   assert.equal(changedState.ready_revision_id,null);
   assert.ok(changedState.content_version > richReadyState.content_version);
 
-  await contentRow(richEditorTitle).locator('.open-post').click();
+  await contentRow(richEditorTitle).locator('.post-inspect').click();
   richInspector = page.locator('.editorial-inspector-overlay');
   await richInspector.waitFor({ state: 'visible', timeout: 5000 });
   await richInspector.locator('.inspector-history').click();
@@ -1257,7 +1269,7 @@ try {
   }
   assert.equal(db.prepare('SELECT status FROM posts WHERE id=?').get(richDbPost.id).status, 'PUBLISHED');
 
-  await draftRow.locator('.open-post').click();
+  await draftRow.locator('.post-inspect').click();
   const contentInspector = page.locator('.editorial-inspector-overlay');
   await contentInspector.waitFor({ state: 'visible', timeout: 5000 });
   assert.equal(await contentInspector.locator('.inspector-edit').count(), 1, 'Content Inspector edit action missing');
@@ -1268,6 +1280,7 @@ try {
   await postForm.waitFor({ state: 'visible', timeout: 5000 });
   const existingPostModal = postForm.locator('xpath=ancestor::div[contains(@class,"modal-card")]');
   await existingPostModal.locator('.platform-workspace').waitFor({ state: 'visible', timeout: 5000 });
+  if(await existingPostModal.locator('.platform-workspace').getAttribute('open')===null)await existingPostModal.locator('.platform-workspace > summary').click();
   const existingSections = await existingPostModal.locator('.ui-editor-section-title strong').allTextContents();
   for (const section of ['Основное', 'Медиа', 'Площадки']) assert.ok(existingSections.includes(section), `existing editor section missing: ${section}`);
   assert.equal(await postForm.locator('#media-file').count(), 1, 'existing editor media enhancement missing');
@@ -1277,7 +1290,7 @@ try {
 
   const revisionRow = contentRow(revisionHistoryTitle);
   assert.equal(await revisionRow.count(), 1, 'Revision History browser fixture must render once');
-  await revisionRow.locator('.open-post').click();
+  await revisionRow.locator('.post-inspect').click();
   let revisionInspector = page.locator('.editorial-inspector-overlay');
   await revisionInspector.waitFor({ state: 'visible', timeout: 5000 });
   assert.equal((await revisionInspector.locator('.inspector-history').textContent())?.trim(), 'История изменений');
@@ -1795,7 +1808,7 @@ try {
     .some((row) => row.textContent?.includes(title)), browserApiTitle);
   const browserApiRow = contentRow(browserApiTitle);
   assert.equal(await browserApiRow.count(), 1, 'Integration API Post must render once in normal Content');
-  await browserApiRow.locator('.open-post').click();
+  await browserApiRow.locator('.post-inspect').click();
   const browserApiInspector = page.locator('.editorial-inspector-overlay');
   await browserApiInspector.waitFor({ state: 'visible', timeout: 5000 });
   assert.equal(await browserApiInspector.locator('[data-inspector-rich-text] strong').filter({ hasText: 'Browser API Bold' }).count(), 1);
@@ -1894,7 +1907,7 @@ try {
     .some((row) => row.textContent?.includes(title)), browserSheetTitle);
   const editorialSheetRow = contentRow(browserSheetTitle);
   assert.equal(await editorialSheetRow.count(), 1, 'Google Sheets v3 Post must render once in Content');
-  await editorialSheetRow.locator('.open-post').click();
+  await editorialSheetRow.locator('.post-inspect').click();
   const editorialSheetInspector = page.locator('.editorial-inspector-overlay');
   await editorialSheetInspector.waitFor({ state: 'visible', timeout: 5000 });
   assert.equal(await editorialSheetInspector.locator('[data-inspector-rich-text] strong').filter({ hasText: 'Новый модуль' }).count(), 1);

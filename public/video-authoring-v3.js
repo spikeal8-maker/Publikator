@@ -74,10 +74,9 @@ function currentVersion(form) {
 }
 
 function reopenEditor(postId) {
-  const modal = document.querySelector('.modal-card #post-form')?.closest('.modal');
-  modal?.remove();
-  const button = [...document.querySelectorAll('.open-post')].find((item) => item.dataset.id === postId);
-  if (button) button.click();
+ if(window.publikatorReopenEditor)return window.publikatorReopenEditor(postId);
+ const modal=document.querySelector('.modal-card #post-form')?.closest('.modal');modal?.remove();
+ return window.publikatorPostEditor?.(postId);
 }
 
 function mediaItemHtml(item) {
@@ -123,26 +122,63 @@ function renderAuthoringMedia(form, post) {
   list.classList.add('video-authoring-list');
   list.innerHTML = items.map(mediaItemHtml).join('') || '<div class="muted small">Медиа пока не добавлено.</div>';
   bindDeleteButtons(form, post);
+  if(!items.some(item=>item.isVideo)){
+   for(const [index,item] of items.entries()){
+    const node=[...list.children].find(element=>element.dataset.authoringMediaId===item.id);
+    if(!node)continue;
+    const order=document.createElement('div');order.className='sp-image-order';
+    order.innerHTML='<button type="button" class="secondary move-media" data-direction="-1" aria-label="Передвинуть изображение '+(index+1)+' раньше" '+(index===0?'disabled':'')+'>←</button><span>'+(index+1)+'</span><button type="button" class="secondary move-media" data-direction="1" aria-label="Передвинуть изображение '+(index+1)+' позже" '+(index===items.length-1?'disabled':'')+'>→</button>';
+    order.querySelectorAll('button').forEach(button=>button.onclick=async()=>{
+     if(form.dataset.mediaBusy==='1')return;
+     const next=index+Number(button.dataset.direction),ids=items.map(media=>media.id);
+     [ids[index],ids[next]]=[ids[next],ids[index]];
+     form.dataset.mediaBusy='1';
+     try{
+      const result=await requestJson('/api/posts/'+encodeURIComponent(post.id)+'/media-order',{method:'PUT',body:JSON.stringify({mediaIds:ids,expectedContentVersion:currentVersion(form)})});
+      form.dataset.contentVersion=String(result.contentVersion);post.media=result.media;
+      renderAuthoringMedia(form,post);
+      form.dispatchEvent(new CustomEvent('publikator:media-order-changed',{bubbles:true}));
+     }catch(error){setError(form,error instanceof Error?error.message:String(error));}
+     finally{form.dataset.mediaBusy='';}
+    });
+    node.append(order);
+   }
+  }
 
   fileInput.accept = 'image/*,video/mp4';
+  fileInput.multiple = true;
   const hasVideo = items.some((item) => item.isVideo);
   fileInput.disabled = hasVideo;
   fileInput.title = hasVideo ? 'Video v1 содержит один ролик. Сначала удалите текущее видео.' : 'JPEG/PNG/WebP или MP4 H.264 + AAC';
 
+  let actions=form.querySelector('.sp-media-actions');
+  if(!actions){
+   actions=document.createElement('div');actions.className='sp-media-actions';
+   actions.innerHTML='<button type="button" class="secondary sp-add-photos">+ Добавить фото</button><button type="button" class="secondary sp-add-video">+ Добавить видео</button><span class="small muted" data-media-count></span><input id="editor-video-file" type="file" accept="video/mp4" hidden>';
+   list.before(actions);
+   actions.querySelector('.sp-add-photos').onclick=()=>{fileInput.accept='image/*';fileInput.multiple=true;fileInput.click();};
+   actions.querySelector('.sp-add-video').onclick=()=>actions.querySelector('#editor-video-file').click();
+   actions.querySelector('#editor-video-file').onchange=event=>form.uploadPublicationFiles?.([...event.target.files]);
+  }
+  actions.querySelector('[data-media-count]').textContent=items.length+' файлов';
+  actions.querySelector('.sp-add-photos').disabled=hasVideo;
+  actions.querySelector('.sp-add-video').disabled=items.length>0;
+  actions.querySelector('.sp-add-video').title=items.length?'Для видео создайте отдельную публикацию или удалите фотографии':'Выбрать MP4 (H.264, AAC или без звука)';
   const mediaBlock = list.parentElement;
   const heading = mediaBlock?.querySelector(':scope > strong');
   if (heading) heading.textContent = 'Медиа';
-  let help = mediaBlock?.querySelector('.video-authoring-help');
+  let help = form.querySelector('.video-authoring-help');
   if (!help) {
     help = document.createElement('div');
     help.className = 'video-authoring-help muted small';
-    fileInput.before(help);
+    const host=[...form.querySelectorAll('.ui-editor-section-title')].find(node=>node.querySelector('strong')?.textContent==='Медиа')?.querySelector('.editor-help > div');
+    if(host)host.append(help);else fileInput.before(help);
   }
   help.textContent = hasVideo
-    ? 'Video v1: один MP4 (H.264, AAC или без аудио). Чтобы заменить ролик, сначала удалите текущий.'
+    ? 'Один MP4 (H.264, AAC или без аудио). Чтобы заменить ролик, сначала удалите текущий.'
     : items.length
-      ? 'Можно добавлять изображения. Для MP4 Video v1 пост должен быть без других медиа.'
-      : 'Изображения или MP4 Video v1: H.264, AAC либо без аудио. Poster создаётся автоматически.';
+      ? 'Можно добавлять изображения. Для MP4 публикация должен быть без других медиа.'
+      : 'Изображения или MP4: H.264, AAC либо без аудио. Обложка создаётся автоматически.';
 }
 
 function previewMarkup(post) {
@@ -207,47 +243,56 @@ function queueSync() {
 }
 
 async function enhanceEditor(form, postId) {
-  if (form.dataset.videoAuthoringEnhanced === '1') return;
+  if (form.dataset.videoAuthoringEnhanced) return;
+  form.dataset.videoAuthoringEnhanced='loading';
   const post = await requestJson(`/api/posts/${encodeURIComponent(postId)}`);
   if (!form.isConnected) return;
   form.dataset.videoAuthoringEnhanced = '1';
   editorStates.set(form, { post });
   renderAuthoringMedia(form, post);
+  requestJson('/api/platform-capabilities').then(availability=>{
+   if(!form.isConnected)return;
+   const supported=(availability.capabilities||[]).filter(item=>item.supportsVideo).map(item=>({telegram:'Telegram',vk:'VK',max:'MAX',instagram:'Instagram'})[item.platform]||item.platform);
+   const note=document.createElement('div');note.className='sp-video-availability';
+   note.textContent=supported.length?'Отправка видео: '+supported.join(', ')+'.':'MP4 можно сохранить и посмотреть. Отправка видео на площадки пока не подключена.';
+   form.querySelector('.sp-media-actions')?.after(note);
+  }).catch(()=>{});
 
   const fileInput = form.querySelector('#media-file');
-  if (fileInput) {
-    fileInput.onchange = async () => {
-      try {
-        setError(form, '');
-        const file = fileInput.files?.[0];
-        if (!file) return;
-        const projection = publicationMediaProjection(post);
-        const isVideo = file.type === 'video/mp4';
-        const isImage = String(file.type || '').startsWith('image/');
-        if (!isVideo && !isImage) throw new Error('Поддерживаются изображения и MP4 video/mp4.');
-        if (isVideo && projection.items.length) {
-          throw new Error('Для Video v1 пост должен быть без других медиа. Сначала удалите текущие изображения/видео.');
-        }
-        if (projection.items.some((item) => item.isVideo)) {
-          throw new Error('Video v1 содержит один ролик. Сначала удалите текущее видео.');
-        }
-        const data = new FormData();
-        data.set('file', file, file.name);
-        const endpoint = isVideo ? `/api/posts/${encodeURIComponent(post.id)}/video` : `/api/posts/${encodeURIComponent(post.id)}/media`;
-        const uploaded = await requestJson(endpoint, {
-          method: 'POST',
-          body: data,
-          headers: { 'x-content-version': String(currentVersion(form)) }
-        });
-        form.dataset.contentVersion = String(uploaded.contentVersion);
-        reopenEditor(post.id);
-      } catch (error) {
-        fileInput.value = '';
-        setError(form, error instanceof Error ? error.message : String(error));
-      }
-    };
-  }
-
+  const uploadFiles=async(files)=>{
+   if(!files.length||form.dataset.mediaBusy==='1')return;
+   form.dataset.mediaBusy='1';
+   const controls=[...form.closest('.modal').querySelectorAll('button[type="submit"],#mark-ready,#publish-now,.sp-media-actions button,.delete-authoring-media,.move-media,.publication-editor-close,#close-modal')];
+   const previous=controls.map(button=>button.disabled);controls.forEach(button=>button.disabled=true);
+   let uploadedCount=0;
+   try{
+    setError(form,'');
+    const projection=publicationMediaProjection(post);
+    if(projection.items.some(item=>item.isVideo))throw new Error('Видеопубликация содержит один ролик. Сначала удалите текущее видео.');
+    if(files.some(file=>file.type==='video/mp4')&&(files.length!==1||projection.items.length))throw new Error('Видео добавляется отдельно от фотографий. Создайте отдельную публикацию или удалите фотографии.');
+    for(const [index,file] of files.entries()){
+     const isVideo=file.type==='video/mp4';
+     if(!isVideo&&!String(file.type).startsWith('image/'))throw new Error('Выберите изображения или MP4.');
+     setError(form,'Загрузка '+(index+1)+' из '+files.length+'…');
+     const data=new FormData();data.set('file',file,file.name);
+     const endpoint=isVideo?`/api/posts/${encodeURIComponent(post.id)}/video`:`/api/posts/${encodeURIComponent(post.id)}/media`;
+     const result=await requestJson(endpoint,{method:'POST',body:data,headers:{'x-content-version':String(currentVersion(form))}});
+     form.dataset.contentVersion=String(result.contentVersion);uploadedCount++;
+    }
+    const format=form.querySelector('select[name="postFormat"]');if(format)format.value='MEDIA';
+    setError(form,'');reopenEditor(post.id);
+   }catch(error){
+    const message=error instanceof Error?error.message:String(error);
+    if(uploadedCount){const format=form.querySelector('select[name="postFormat"]');if(format)format.value='MEDIA';}
+    await reopenEditor(post.id);
+    const currentForm=document.querySelector('#post-form');if(currentForm?.dataset.postId===post.id)setError(currentForm,message+' Уже загруженные файлы сохранены; повторно добавляйте только недостающие.');
+   }finally{
+    form.dataset.mediaBusy='';controls.forEach((button,index)=>button.disabled=previous[index]);if(fileInput)fileInput.value='';
+   }
+  };
+  // The shared controls are rendered below after uploadFiles has been initialized.
+  form.uploadPublicationFiles=uploadFiles;
+  if(fileInput)fileInput.onchange=()=>uploadFiles([...fileInput.files||[]]);
   const rerenderTriggers = form.querySelectorAll('textarea, input[name="accountId"], select[name="postFormat"]');
   rerenderTriggers.forEach((node) => node.addEventListener('input', queueSync));
   rerenderTriggers.forEach((node) => node.addEventListener('change', queueSync));
@@ -256,12 +301,13 @@ async function enhanceEditor(form, postId) {
 
 function tryEnhanceVisibleEditor() {
   const form = document.querySelector('.modal-card #post-form');
-  if (!form || !activePostId) {
+  const postId=form?.hasAttribute('data-post-id')?form.dataset.postId:activePostId;
+  if (!form || !postId) {
     queueSync();
     return;
   }
-  if (form.dataset.videoAuthoringEnhanced !== '1') {
-    enhanceEditor(form, activePostId).catch((error) => {
+  if (!form.dataset.videoAuthoringEnhanced) {
+    enhanceEditor(form, postId).catch((error) => {
       setError(form, `Не удалось загрузить video authoring: ${error instanceof Error ? error.message : String(error)}`);
     });
   } else {

@@ -135,6 +135,7 @@ document.addEventListener('publikator:editorial-inspector-opened', (event) => {
   const { postId, inspector } = event.detail || {};
   if (typeof postId !== 'string' || !postId || !(inspector instanceof Element) || !inspector.isConnected) return;
   if (!inspector.classList.contains('editorial-inspector')) return;
+  if(inspector.querySelector('.social-preview'))return;
   const previous = inspector.querySelector('.platform-preview-section');
   if (previous) return;
 
