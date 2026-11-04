@@ -6,6 +6,11 @@ import {
   listOwnerAgentActivity, listOwnerAgents
 } from '../agent-owner-registry.js';
 import { ownerMutationOriginMatches } from './security.js';
+import { previewOwnerAgentGrant, updateOwnerAgentGrant } from '../agent-owner-grants.js';
+import {
+  issueOwnerMachineKey, listOwnerMachineKeys, revokeOwnerMachineKey,
+  rotateOwnerMachineKey
+} from '../agent-machine-keys.js';
 
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -85,6 +90,29 @@ export async function registerOwnerAgentRegistryRoutes(app: FastifyInstance): Pr
     } catch (error) { return fail(reply, error); }
   });
 
+
+  // Preview is POST for parity with the published OpenAPI operation; it is
+  // side-effect free but still requires the owner's actual session + Origin.
+  app.post('/api/owner/agents/:agentId/grant-preview', auth, async (request, reply) => {
+    const key = requiredKey(request, reply);
+    if (key === null) return;
+    try {
+      return previewOwnerAgentGrant(
+        (request.params as { agentId: string }).agentId, request.body
+      );
+    } catch (error) { return fail(reply, error); }
+  });
+
+  app.put('/api/owner/agents/:agentId/grant', auth, async (request, reply) => {
+    const key = requiredKey(request, reply);
+    if (key === null) return;
+    try {
+      return updateOwnerAgentGrant(
+        (request.params as { agentId: string }).agentId, request.body, key
+      );
+    } catch (error) { return fail(reply, error); }
+  });
+
   app.post('/api/owner/agents/:agentId/pause', auth, async (request, reply) => {
     const key = requiredKey(request, reply);
     if (key === null) return;
@@ -102,6 +130,46 @@ export async function registerOwnerAgentRegistryRoutes(app: FastifyInstance): Pr
       return controlOwnerAgent(agentId, 'revoke', request.body, key);
     } catch (error) { return fail(reply, error); }
   });
+
+  app.get('/api/owner/agents/:agentId/machine-keys', auth, async (request, reply) => {
+    try {
+      return listOwnerMachineKeys((request.params as { agentId: string }).agentId);
+    } catch (error) { return fail(reply, error); }
+  });
+
+  app.post('/api/owner/agents/:agentId/machine-keys', auth, async (request, reply) => {
+    const key=requiredKey(request,reply);
+    if (key===null) return;
+    try {
+      const result=issueOwnerMachineKey(
+        (request.params as { agentId: string }).agentId,request.body,key
+      );
+      reply.header('cache-control','no-store');
+      return reply.code(result.secretAvailable?201:200).send(result);
+    } catch (error) { return fail(reply, error); }
+  });
+
+  app.post('/api/owner/agents/:agentId/machine-keys/:keyId/revoke',
+    auth, async (request, reply) => {
+      const key=requiredKey(request,reply);
+      if (key===null) return;
+      try {
+        const {agentId,keyId}=request.params as {agentId:string;keyId:string};
+        return revokeOwnerMachineKey(agentId,keyId,request.body,key);
+      } catch (error) { return fail(reply, error); }
+    });
+
+  app.post('/api/owner/agents/:agentId/machine-keys/:keyId/rotate',
+    auth, async (request, reply) => {
+      const key=requiredKey(request,reply);
+      if (key===null) return;
+      try {
+        const {agentId,keyId}=request.params as {agentId:string;keyId:string};
+        const result=rotateOwnerMachineKey(agentId,keyId,request.body,key);
+        reply.header('cache-control','no-store');
+        return reply.code(result.secretAvailable?201:200).send(result);
+      } catch (error) { return fail(reply, error); }
+    });
 
   app.get('/api/owner/agents/:agentId/activity', auth, async (request, reply) => {
     try {

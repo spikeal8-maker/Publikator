@@ -5,6 +5,14 @@ import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import { config } from './config.js';
 import { registerBrowserSecurity } from './http/security.js';
+import { registerAgentBearerBoundary } from './http/agent-bearer-boundary.js';
+import { registerAgentMachineReadRoutes } from './http/agent-machine-capabilities.js';
+import { registerAgentProjectReadRoutes } from './http/agent-projects.js';
+import { registerAgentAccountReadRoutes } from './http/agent-accounts.js';
+import { registerAgentSourceReadRoutes } from './http/agent-sources.js';
+import { registerAgentTextDraftRoutes } from './http/agent-text-drafts.js';
+import { registerAgentDraftEditRoutes } from './http/agent-draft-edits.js';
+import { registerAgentOwnedDraftReadRoutes } from './http/agent-owned-drafts.js';
 import { registerMaintenanceGuard } from './http/maintenance.js';
 import { registerLegacyBackupBlocker } from './http/legacy-backups.js';
 import { registerRoutes } from './http/routes.js';
@@ -49,6 +57,8 @@ export async function buildApp(): Promise<FastifyInstance> {
     bodyLimit: 2 * 1024 * 1024,
     trustProxy: config.trustProxy
   });
+  // Mandatory Agent Bearer barrier precedes the legacy admin-cookie hook.
+  await registerAgentBearerBoundary(app);
   await registerBrowserSecurity(app);
   await app.register(cookie);
   await app.register(multipart);
@@ -58,6 +68,13 @@ export async function buildApp(): Promise<FastifyInstance> {
   await registerLegacyBackupBlocker(app);
   registerSocialConnectionObservability(app);
   await registerRoutes(app);
+  await registerAgentMachineReadRoutes(app);
+  await registerAgentProjectReadRoutes(app);
+  await registerAgentAccountReadRoutes(app);
+  await registerAgentSourceReadRoutes(app);
+  await registerAgentTextDraftRoutes(app);
+  await registerAgentDraftEditRoutes(app);
+  await registerAgentOwnedDraftReadRoutes(app);
   await registerOwnerAgentRegistryRoutes(app);
   await registerVkOauthRoutes(app);
   await registerIntegrationApiRoutes(app);
@@ -83,7 +100,12 @@ export async function buildApp(): Promise<FastifyInstance> {
   await registerReleaseGateRoutes(app);
 
   app.setNotFoundHandler((request, reply) => {
-    if (request.url.startsWith('/api/') || request.url.startsWith('/public-media/')) return reply.code(404).send({ error: 'Not found' });
+    const pathname=request.url.split(/[?#]/, 1)[0] ?? '';
+    // No MCP transport is deployed: never serve the SPA at the reserved /mcp.
+    if (pathname === '/mcp' || pathname.startsWith('/mcp/')
+      || request.url.startsWith('/api/') || request.url.startsWith('/public-media/')) {
+      return reply.code(404).send({ error: 'Not found' });
+    }
     return reply.type('text/html').send(fs.createReadStream(`${config.publicDir}/index.html`));
   });
 

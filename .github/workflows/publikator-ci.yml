@@ -136,6 +136,45 @@ jobs:
       - name: AGENT-A1b1 owner-only agent registry and policy controls
         run: node scripts/agent-a1b1-owner-registry-e2e.mjs
 
+      - name: AGENT-A1b2a owner grants and exact resource ACL
+        run: node scripts/agent-a1b2a-owner-grants-acl-e2e.mjs
+
+      - name: AGENT-A1b2b1 schema 17 machine token migration
+        run: node scripts/schema-v17-agent-machine-keys-e2e.mjs
+
+      - name: AGENT-A1b2b1 schema 17 machine token canonical backup
+        run: node scripts/backup-v17-agent-machine-keys-e2e.mjs
+
+      - name: AGENT-A2b0 schema 18 agent ownership migration
+        run: node scripts/schema-v18-agent-draft-provenance-e2e.mjs
+
+      - name: AGENT-A2b0 schema 18 canonical agent draft backup
+        run: node scripts/backup-v18-agent-draft-provenance-e2e.mjs
+
+      - name: AGENT-A1b2b1 machine keys owner API and auth security
+        run: node scripts/agent-a1b2b1-machine-key-security-e2e.mjs
+
+      - name: AGENT-A1b2b2 machine Bearer security boundary and scoped capabilities
+        run: node scripts/agent-a1b2b2-bearer-boundary-e2e.mjs
+
+      - name: AGENT-A2a1 exact project SQL allowlist and pagination
+        run: node scripts/agent-a2a1-scoped-projects-e2e.mjs
+
+      - name: AGENT-A2a2 scoped account metadata and verified capability
+        run: node scripts/agent-a2a2-scoped-accounts-e2e.mjs
+
+      - name: AGENT-A2a3 scoped sources without connector secrets
+        run: node scripts/agent-a2a3-scoped-sources-e2e.mjs
+
+      - name: AGENT-A2b1 text-only scoped drafts and durable receipts
+        run: node scripts/agent-a2b1-text-draft-only-e2e.mjs
+
+      - name: AGENT-A2b2 safe owner-bound draft text revisions and replay
+        run: node scripts/agent-a2b2-owned-draft-edit-e2e.mjs
+
+      - name: AGENT-A2b3 exact owned draft listing and safe detail ACL
+        run: node scripts/agent-a2b3-own-drafts-read-e2e.mjs
+
       - name: GOOGLE-SETUP-001 atomic shared service-account setup
         run: node scripts/google-source-setup-e2e.mjs
 
@@ -563,3 +602,79 @@ jobs:
 
       - name: Acceptance passed
         run: echo 'Publikator acceptance passed'
+  agent_security_fast:
+    name: Agent auth security (focused, no video provisioning)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      PUBLIKATOR_TEST_ADMIN_PASSWORD: acceptance-password-value
+      PUBLIKATOR_TEST_MASTER_KEY: acceptance-master-key-value-longer-than-thirty-two-characters
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Use pinned Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.23.2
+
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: TypeScript strict check
+        run: npm run typecheck
+
+      - name: Build application
+        run: npm run build
+
+      - name: REST/MCP planned contract and owner additions
+        run: node scripts/agent-contract-a0b-e2e.mjs
+
+      - name: Schema v15 identity and owner backup
+        run: |
+          node scripts/schema-v15-agent-ownership-e2e.mjs
+          node scripts/backup-v15-agent-ownership-e2e.mjs
+
+      - name: Schema v16 immutable owner receipts and backup
+        run: |
+          node scripts/schema-v16-agent-owner-receipts-e2e.mjs
+          node scripts/backup-v16-agent-owner-receipts-e2e.mjs
+
+      - name: Schema v17 machine-key digests and backup
+        run: |
+          node scripts/schema-v17-agent-machine-keys-e2e.mjs
+          node scripts/backup-v17-agent-machine-keys-e2e.mjs
+
+      - name: Schema v18 draft provenance and canonical backup
+        run: |
+          node scripts/schema-v18-agent-draft-provenance-e2e.mjs
+          node scripts/backup-v18-agent-draft-provenance-e2e.mjs
+
+      - name: Owner principal and exact grant guards
+        run: |
+          node scripts/agent-a1b1-owner-registry-e2e.mjs
+          node scripts/agent-a1b2a-owner-grants-acl-e2e.mjs
+
+      - name: Machine key issue, rotation and revoke
+        run: node scripts/agent-a1b2b1-machine-key-security-e2e.mjs
+
+      - name: Mandatory machine Bearer and capabilities E2E
+        run: node scripts/agent-a1b2b2-bearer-boundary-e2e.mjs
+
+      - name: AGENT-A2a1 exact project SQL allowlist and pagination
+        run: node scripts/agent-a2a1-scoped-projects-e2e.mjs
+
+      - name: AGENT-A2a2 scoped account metadata and verified capability
+        run: node scripts/agent-a2a2-scoped-accounts-e2e.mjs
+
+      - name: AGENT-A2a3 scoped sources without connector secrets
+        run: node scripts/agent-a2a3-scoped-sources-e2e.mjs
+
+      - name: AGENT-A2b1 text-only scoped drafts and durable receipts
+        run: node scripts/agent-a2b1-text-draft-only-e2e.mjs
+
+      - name: AGENT-A2b2 safe owner-bound draft text revisions and replay
+        run: node scripts/agent-a2b2-owned-draft-edit-e2e.mjs
+
+      - name: AGENT-A2b3 exact owned draft listing and safe detail ACL
+        run: node scripts/agent-a2b3-own-drafts-read-e2e.mjs

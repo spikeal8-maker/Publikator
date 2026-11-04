@@ -22,7 +22,7 @@ const { createBackupBundle, resolveBackupBundle, stageRestoreBundle } =
 const { applyPendingRestore } = await import('../dist/restore-bootstrap.js');
 
 migrate();
-assert.equal(DATABASE_SCHEMA_VERSION, 16);
+assert.ok(DATABASE_SCHEMA_VERSION >= 16);
 createOrRecoverAdmin('INITIAL', createAdminSetupGrant('INITIAL'),
   'owner', 'schema16-backup-owner-password-2026', 'schema16-backup-owner-password-2026');
 const timestamp = nowIso();
@@ -74,14 +74,14 @@ db.prepare('UPDATE social_accounts SET credentials_encrypted=? WHERE id=?')
   .run(encryptJson({ botToken: 'mutated-test-key' }), accountId);
 
 const staged = await stageRestoreBundle(archive);
-assert.equal(staged.manifest.schemaVersion, 16);
+assert.equal(staged.manifest.schemaVersion, DATABASE_SCHEMA_VERSION);
 db.close();
 const result = await applyPendingRestore();
 assert.equal(result.applied, true);
 const restored = new Database(config.dbPath, { readonly: true, fileMustExist: true });
 try {
   assert.equal(restored.pragma('integrity_check', { simple: true }), 'ok');
-  assert.equal(Number(restored.pragma('user_version', { simple: true })), 16);
+  assert.equal(Number(restored.pragma('user_version', { simple: true })), DATABASE_SCHEMA_VERSION);
   for (const [field, table, order] of [
     ['principals','agent_principals','id'],
     ['grants','agent_grants','agent_id'],
@@ -105,7 +105,7 @@ try {
   assert.deepEqual(JSON.parse(originalPause.response_json), paused);
   assert.deepEqual(restored.pragma('foreign_key_check'), []);
   console.log(JSON.stringify({
-    ok: true, checkpoint: 'AGENT-A1b1-schema16', schema: 16,
+    ok: true, checkpoint: 'AGENT-A1b1-schema16', schema: DATABASE_SCHEMA_VERSION,
     immutableReceiptsRestored: true, originalReplayPreserved: true,
     legacyReadyAndEncryptedCredentialsRestored: true, ownerAndAuditRestored: true
   }));
