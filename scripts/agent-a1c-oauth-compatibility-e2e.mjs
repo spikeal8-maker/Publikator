@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import Fastify from 'fastify';
@@ -27,6 +29,9 @@ let provideOAuth;
 let issuer;
 let resource;
 let redirect;
+let fixtureDirectory;
+let fixtureDatabase;
+let fixtureAdapter;
 
 for (const [method, url] of [
   ['GET', metadataPath],
@@ -80,10 +85,24 @@ app.get(resourceMetadataPath, (_request, reply) => reply.send({
 }));
 
 try {
+  if (process.argv[3] === '--sqlite') {
+    fixtureDirectory = await mkdtemp(join(tmpdir(), 'publikator-oidc-sqlite-'));
+    process.env.NODE_ENV = 'test';
+    process.env.DATA_DIR = fixtureDirectory;
+    process.env.APP_MASTER_KEY = 'oauth-compatibility-fixture-key-long-enough';
+    process.env.PUBLIC_BASE_URL = 'http://127.0.0.1:8080';
+    delete process.env.ADMIN_PASSWORD;
+    const { db, migrate } = await import('../dist/db.js');
+    const { createSQLiteOAuthAdapter } = await import('../dist/agent-oauth-adapter.js');
+    fixtureDatabase = db;
+    migrate();
+    fixtureAdapter = createSQLiteOAuthAdapter(db);
+  }
   issuer = await app.listen({ host: '127.0.0.1', port: 0 });
   resource = issuer + '/mcp';
   redirect = issuer + '/__oauth_fixture_callback';
   provider = new Provider(issuer, {
+    ...(fixtureAdapter ? { adapter: fixtureAdapter } : {}),
     clients: [{
       client_id: clientId,
       client_secret: clientSecret,
@@ -128,6 +147,7 @@ try {
   assert.equal(advertised.token_endpoint, issuer + tokenPath);
   assert.equal(advertised.revocation_endpoint, issuer + revocationPath);
   assert.ok(advertised.code_challenge_methods_supported.includes('S256'));
+  assert.equal(advertised.authorization_response_iss_parameter_supported, true);
   assert.ok(advertised.token_endpoint_auth_methods_supported.includes('client_secret_post'));
   assert.equal(advertised.registration_endpoint, undefined);
   const advertisedResource = await fetch(issuer + resourceMetadataPath).then((response) => response.json());
@@ -182,6 +202,7 @@ try {
       assert.equal(destination.origin, issuer);
       if (destination.pathname === new URL(redirect).pathname) {
         assert.equal(destination.searchParams.get('state'), state);
+        assert.equal(destination.searchParams.get('iss'), issuer);
         assert.equal(destination.searchParams.has('error'), false);
         const code = destination.searchParams.get('code');
         assert.ok(code, 'Expected an OAuth authorization code');
@@ -220,7 +241,9 @@ try {
   assert.equal(badRedirect.headers.get('location'), null);
   await badRedirect.body?.cancel();
   const badResource = await fetch(authorize({ resource: issuer + '/elsewhere' }), { redirect: 'manual' });
-  assert.equal(new URL(badResource.headers.get('location') ?? '', issuer).searchParams.get('error'), 'invalid_target');
+  const resourceError = new URL(badResource.headers.get('location') ?? '', issuer).searchParams;
+  assert.equal(resourceError.get('error'), 'invalid_target');
+  assert.equal(resourceError.get('iss'), issuer);
   await badResource.body?.cancel();
 
   const wrongVerifier = await exchange(codeRequest(await authorizeFixture(), {
@@ -258,4 +281,6 @@ try {
   console.log('OAuth compatibility: Fastify, metadata, static authentication, S256 PKCE, resource, refresh, and revocation PASS');
 } finally {
   await app.close();
+  if (fixtureDatabase) fixtureDatabase.close();
+  if (fixtureDirectory) await rm(fixtureDirectory, { recursive: true, force: true, maxRetries: 5 });
 }
