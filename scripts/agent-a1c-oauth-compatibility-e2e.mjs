@@ -62,6 +62,7 @@ app.get(interactionPath + '/:uid', async (request, reply) => {
     assert.equal(details.prompt.name, 'consent');
     assert.equal(details.session.accountId, ownerId);
     const grant = new provider.Grant({ accountId: ownerId, clientId });
+    grant.addOIDCScope('offline_access');
     grant.addResourceScope(resource, grantedScopes.join(' '));
     result = { consent: { grantId: await grant.save() } };
   }
@@ -115,7 +116,6 @@ try {
       },
     },
     interactions: { url: (_context, interaction) => interactionPath + '/' + interaction.uid },
-    issueRefreshToken: async () => true,
     rotateRefreshToken: true,
     pkce: { required: () => true },
     routes: { authorization: authorizationPath, token: tokenPath, revocation: revocationPath },
@@ -140,7 +140,8 @@ try {
   const authorization = {
     client_id: clientId,
     response_type: 'code',
-    scope: grantedScopes.join(' '),
+    scope: ['offline_access', ...grantedScopes].join(' '),
+    prompt: 'consent',
     redirect_uri: redirect,
     resource,
     state,
@@ -239,17 +240,17 @@ try {
   assert.equal(stored?.clientId, clientId);
   assert.deepEqual(stored?.scope.split(' ').sort(), [...grantedScopes].sort());
 
+  const refresh = { grant_type: 'refresh_token', refresh_token: refreshToken, resource };
+  const renewed = await exchange(refresh);
+  assert.equal(renewed.status, 200, renewed.payload.error_description);
+  assert.ok(renewed.payload.refresh_token);
+  assert.notEqual(renewed.payload.refresh_token, refreshToken);
+  assert.equal((await provider.AccessToken.find(renewed.payload.access_token))?.aud, resource);
   const revoked = await post(revocationPath, { token: accessToken });
   assert.equal(revoked.status, 200);
   await revoked.body?.cancel();
   assert.equal(await provider.AccessToken.find(accessToken), undefined);
 
-  const refresh = { grant_type: 'refresh_token', refresh_token: refreshToken, resource };
-  const renewed = await exchange(refresh);
-  assert.equal(renewed.status, 200);
-  assert.ok(renewed.payload.refresh_token);
-  assert.notEqual(renewed.payload.refresh_token, refreshToken);
-  assert.equal((await provider.AccessToken.find(renewed.payload.access_token))?.aud, resource);
   const reused = await exchange(refresh);
   assert.equal(reused.status, 400);
   assert.equal(reused.payload.error, 'invalid_grant');
