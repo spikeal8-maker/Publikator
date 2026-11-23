@@ -23,6 +23,7 @@ import { registerRoutes } from './http/routes.js';
 import { registerOwnerAgentRegistryRoutes } from './http/owner-agent-registry.js';
 import { registerTargetOverrideRoutes } from './http/target-overrides.js';
 import { registerMediaOrderRoutes } from './http/media-order.js';
+import { registerPublicationMediaFiles } from './http/publication-media-files.js';
 import { registerBackupBundleRoutes } from './http/backup-bundles.js';
 import { registerContentPlanRoutes } from './http/content-plan.js';
 import { registerContentPlanV3Routes } from './http/content-plan-v3.js';
@@ -68,7 +69,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(cookie);
   await app.register(multipart);
   await app.register(fastifyStatic, { root: config.publicDir, prefix: '/' });
-  await app.register(fastifyStatic, { root: config.mediaDir, prefix: '/public-media/', decorateReply: false, index: false });
+  await registerPublicationMediaFiles(app);
   await registerMaintenanceGuard(app);
   await registerLegacyBackupBlocker(app);
   registerSocialConnectionObservability(app);
