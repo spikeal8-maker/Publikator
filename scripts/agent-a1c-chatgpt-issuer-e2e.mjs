@@ -12,7 +12,7 @@ await once(reservation, 'listening');
 const port = reservation.address().port;
 await new Promise((resolve) => reservation.close(resolve));
 const origin = 'http://127.0.0.1:' + port;
-const resource = origin + '/mcp';
+const resource = origin + '/mcp/chatgpt';
 const callback = origin + '/oauth-test-callback';
 const clientId = 'test-static-client';
 const clientSecret = randomBytes(32).toString('base64url');
@@ -57,7 +57,7 @@ try {
   const metadata = await json('/.well-known/oauth-authorization-server');
   assert.equal(metadata.issuer, origin);
   assert.equal(metadata.authorization_response_iss_parameter_supported, true);
-  assert.deepEqual((await json('/.well-known/oauth-protected-resource/mcp')).authorization_servers, [origin]);
+  assert.deepEqual((await json('/.well-known/oauth-protected-resource/mcp/chatgpt')).authorization_servers, [origin]);
   const { keys } = await json('/oauth/jwks');
   assert.ok(keys.length && keys.every((key) => !key.d));
 
