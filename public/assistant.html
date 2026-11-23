@@ -10,22 +10,43 @@
 <div id="shell" class="shell" hidden>
 <aside><button id="new-thread" class="primary wide" type="button">+ Новый диалог</button><h2>Диалоги</h2><nav id="threads" aria-label="Диалоги"></nav><p class="aside-note">Помощник работает с вашими публикациями, проектами, аккаунтами и расписанием. Все действия выполняются на сервере.</p></aside>
 <main>
-<div class="chat-head"><h1 id="thread-title">Новый диалог</h1><label class="model-select"><span class="sr-only">Подключение модели</span><select id="connection-select"><option value="">Подключите модель</option></select></label></div>
+<div class="chat-head"><h1 id="thread-title">Новый диалог</h1><label class="model-select"><span>Модель чата</span><select id="connection-select"><option value="">Подключите модель</option></select></label></div>
 <section id="messages" class="messages" aria-label="Переписка" aria-live="polite"><div class="empty"><h2>Что нужно сделать?</h2><p>Попросите проверить публикации, подготовить материал с фотографиями или настроить расписание.</p><div class="examples"><button type="button" data-prompt="Покажи ближайшие запланированные публикации и возможные проблемы.">Проверить расписание</button><button type="button" data-prompt="Какие аккаунты подключены и какие форматы публикаций доступны?">Проверить подключения</button></div></div></section>
 <div id="run-state" class="run-state" role="status"></div>
 <form id="composer" class="composer"><div id="attachments" class="attachments"></div><label class="sr-only" for="message-input">Сообщение</label><textarea id="message-input" placeholder="Напишите задачу для Publikator…" rows="3" maxlength="20000" required></textarea><div class="composer-bottom"><div class="composer-options"><label class="attach-button" for="file-input" title="Загрузить фото или MP4">＋ Вложение</label><input id="file-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4" multiple hidden><label class="write-option"><input type="checkbox" id="allow-writes" checked> Разрешить действия</label></div><div class="send-actions"><button id="stop-run" type="button" hidden>Остановить</button><button id="send-message" class="primary" type="submit">Отправить</button></div></div><p class="hint">Enter — отправить, Shift+Enter — новая строка. Без «Разрешить действия» помощник только читает данные.</p></form>
 </main>
 </div>
 <div id="toast" role="status" hidden></div>
-<dialog id="settings"><div class="dialog-head"><h2>Подключения и MCP</h2><button type="button" id="settings-close" aria-label="Закрыть настройки">✕</button></div><div class="dialog-body">
-<section><h3>Подключения моделей</h3><p class="muted">Сначала выберите провайдер и адрес. Список моделей подгружается с сервера автоматически. Затем проверьте, что выбранная модель умеет вызывать инструменты. API-ключи сохраняются зашифрованными.</p><label>Сохранённое подключение<select id="edit-connection"><option value="">Новое подключение</option></select></label>
-<form id="connection-form">
+<dialog id="settings" aria-labelledby="settings-title">
+<div class="dialog-head"><h2 id="settings-title">Настройки ИИ</h2><button type="button" id="settings-close" aria-label="Закрыть настройки">✕</button></div>
+<div class="settings-tabs" role="tablist" aria-label="Разделы настроек ИИ">
+  <button type="button" role="tab" id="settings-tab-general" aria-selected="true" aria-controls="settings-panel-general">Общие</button>
+  <button type="button" role="tab" id="settings-tab-local" aria-selected="false" aria-controls="settings-panel-local" tabindex="-1">Локальные модели</button>
+  <button type="button" role="tab" id="settings-tab-cloud" aria-selected="false" aria-controls="settings-panel-cloud" tabindex="-1">Облачные API</button>
+  <button type="button" role="tab" id="settings-tab-mcp" aria-selected="false" aria-controls="settings-panel-mcp" tabindex="-1">MCP</button>
+  <button type="button" role="tab" id="settings-tab-access" aria-selected="false" aria-controls="settings-panel-access" tabindex="-1">Доступы</button>
+</div>
+<div class="dialog-body">
+<section role="tabpanel" id="settings-panel-general" aria-labelledby="settings-tab-general">
+  <h3>Модель по умолчанию</h3>
+  <label>Для чата в этом браузере<select id="default-connection"></select></label>
+  <p class="hint">Переключить модель для следующего сообщения можно над перепиской.</p>
+  <div class="buttons">
+    <button type="button" data-settings-tab="local">Настроить Ollama</button>
+    <button type="button" data-settings-tab="cloud">Подключить облачный API</button>
+  </div>
+</section>
+<section role="tabpanel" id="settings-panel-local" aria-labelledby="settings-tab-local" hidden>
+  <h3>Ollama на вашем компьютере или в локальной сети</h3>
+  <p class="muted">Укажите адрес, по которому сервер Publikator может достучаться до Ollama, затем выберите модель из списка.</p>
+  <div id="model-editor"><label>Что настроить<select id="edit-connection"><option value="">Новое подключение</option></select></label>
+  <form id="connection-form">
 <div class="form-grid">
 <label>Название подключения<input id="provider-name" maxlength="120" placeholder="Например: Gemma на сервере"></label>
-<label>Провайдер<select id="provider-kind"><option value="ollama">Ollama — локальная сеть</option><option value="deepseek">DeepSeek API</option><option value="openai">OpenAI API</option><option value="compatible">Другой совместимый API</option></select></label>
+<label id="provider-kind-row">Провайдер<select id="provider-kind"></select></label>
 </div>
-<label>Адрес API<input id="provider-url" type="url" required value="http://host.docker.internal:11434" placeholder="http://192.168.1.112:11434"></label>
-<p class="provider-guide" id="provider-guide">Ollama определяет установленные модели через сервер, в том числе на другом компьютере локальной сети.</p>
+<label><span id="provider-url-label">Адрес Ollama</span><input id="provider-url" type="url" required aria-describedby="provider-guide"></label>
+<p class="provider-guide" id="provider-guide"></p>
 <label id="provider-key-row">API-ключ<input id="provider-key" type="password" autocomplete="new-password" placeholder="Для Ollama обычно не нужен"></label>
 <div class="models-chooser">
 <label>Доступная модель<select id="provider-model"><option value="">Загрузка списка моделей…</option></select></label>
@@ -34,8 +55,15 @@
 <p id="models-status" class="models-status" role="status">Модели будут получены с выбранного сервера автоматически.</p>
 <details class="manual-model"><summary>Модель не появилась в списке?</summary><p class="hint">Только для API, не поддерживающих список моделей. В обычной ситуации вводить имя не требуется.</p><label>Ручной идентификатор модели<input id="provider-manual-model" maxlength="160" autocomplete="off" placeholder="Только если провайдер не возвращает /models"></label></details>
 <div class="buttons"><button class="primary" type="submit">Сохранить и проверить</button><button id="test-connection" type="button">Проверить повторно</button><button id="delete-connection" class="danger" type="button">Удалить</button></div>
-<p id="provider-test-result" class="test-result" role="status"></p></form></section>
-<section class="mcp-settings"><h3>ChatGPT через MCP</h3>
+<p id="provider-test-result" class="test-result" role="status"></p></form></div>
+</section>
+<section role="tabpanel" id="settings-panel-cloud" aria-labelledby="settings-tab-cloud" hidden>
+  <h3>OpenAI, DeepSeek и совместимые API</h3>
+  <p class="muted">Выберите провайдер и введите его API-ключ. Сохранённое подключение появится в списке «Модель чата».</p>
+</section>
+<section role="tabpanel" id="settings-panel-mcp" aria-labelledby="settings-tab-mcp" hidden>
+<div class="mcp-settings"><h3>Подключить ChatGPT к Publikator</h3>
+<p class="muted">Плагин даёт внешнему чату инструменты Publikator. Выбирать модель встроенного чата можно во вкладках «Локальные модели» и «Облачные API».</p>
 <p id="chatgpt-mcp-state" class="hint" role="status">Проверяем настройку сервера…</p>
 <div id="chatgpt-mcp-guide" hidden>
 <label>Адрес для ChatGPT<input id="chatgpt-mcp-url" readonly></label>
@@ -43,6 +71,14 @@
 <ol><li>В ChatGPT откройте «Плагины», нажмите «+» и добавьте собственный MCP-сервер.</li><li>Вставьте адрес, выберите OAuth и укажите данные зарегистрированного OAuth-клиента.</li><li>Войдите в Publikator и подтвердите нужные разрешения. Проверьте подключение командой «Покажи доступные проекты».</li></ol>
 <a href="https://developers.openai.com/api/docs/guides/custom-mcp-server" target="_blank" rel="noopener noreferrer">Инструкция ChatGPT</a>
 </div>
+<button type="button" data-settings-tab="access">Настроить права ChatGPT</button>
+</div>
+<details class="settings-section"><summary>Административные ключи MCP</summary><p class="muted">Эти ключи дают административный доступ. Используйте их в клиенте с поддержкой ключа Bearer.</p><label>Адрес для клиентов с ключом<input id="mcp-url" readonly></label>
+<form id="key-form"><div class="form-grid"><label>Название бота<input id="key-name" maxlength="120" required placeholder="Мой бот"></label><label>Срок, дней<input id="key-days" type="number" min="1" max="366" value="90" required></label></div><label class="confirm-owner"><input id="confirm-owner" type="checkbox" required> Предоставляю этому боту административный доступ</label><button type="submit">Создать ключ MCP</button></form><div id="new-key" class="new-key" hidden><strong>Скопируйте ключ сейчас — повторно он не показывается.</strong><input id="new-key-value" type="password" readonly autocomplete="off"><div class="buttons"><button id="copy-key" type="button">Скопировать</button><button id="hide-key" type="button">Скрыть</button></div></div><div id="key-list" class="key-list"></div></details>
+</section>
+<section role="tabpanel" id="settings-panel-access" aria-labelledby="settings-tab-access" hidden>
+<h3>Полномочия помощников</h3>
+<p class="muted">Встроенная модель работает от имени владельца. Перед отправкой сообщения снимите флажок «Разрешить действия», если нужно только чтение.</p>
 <details id="chatgpt-permissions">
 <summary>Управлять доступом ChatGPT</summary>
 <div id="chatgpt-profile-setup" hidden>
@@ -60,10 +96,9 @@
 <label><input id="chatgpt-grant-confirm" type="checkbox" required> Подтверждаю выбранные права</label>
 <div class="buttons"><button id="chatgpt-grant-all" type="button">Выбрать все показанные</button><button type="submit">Сохранить права</button></div>
 </form>
-</details></section>
-<section class="mcp-settings"><h3>Ключи MCP для доверенных клиентов</h3><p class="muted">Эти ключи дают административный доступ. Используйте их в клиенте с поддержкой ключа Bearer.</p><label>Адрес для клиентов с ключом<input id="mcp-url" readonly></label>
-<form id="key-form"><div class="form-grid"><label>Название бота<input id="key-name" maxlength="120" required placeholder="Мой бот"></label><label>Срок, дней<input id="key-days" type="number" min="1" max="366" value="90" required></label></div><label class="confirm-owner"><input id="confirm-owner" type="checkbox" required> Предоставляю этому боту административный доступ</label><button type="submit">Создать ключ MCP</button></form><div id="new-key" class="new-key" hidden><strong>Скопируйте ключ сейчас — повторно он не показывается.</strong><input id="new-key-value" type="password" readonly autocomplete="off"><div class="buttons"><button id="copy-key" type="button">Скопировать</button><button id="hide-key" type="button">Скрыть</button></div></div><div id="key-list" class="key-list"></div></section>
-<details><summary>Последние действия помощника</summary><button type="button" id="reload-actions">Обновить журнал</button><div id="actions-list"></div></details>
+</details>
+<details class="settings-section"><summary>Последние действия помощника</summary><button type="button" id="reload-actions">Обновить журнал</button><div id="actions-list"></div></details>
+</section>
 </div></dialog>
 <script type="module" src="/assistant.js"></script>
 </body></html>
