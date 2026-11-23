@@ -71,3 +71,20 @@
 - https://ts.sdk.modelcontextprotocol.io/v2/migration/support-2026-07-28
 - https://developers.openai.com/plugins/build/auth
 - https://github.com/panva/node-oidc-provider
+
+## AGENT-A1c issuer checkpoint
+
+The issuer is opt-in. Configure `PUBLIKATOR_CHATGPT_OAUTH_CLIENT_ID`,
+`PUBLIKATOR_CHATGPT_OAUTH_CLIENT_SECRET` and `PUBLIKATOR_CHATGPT_AGENT_ID` together.
+The agent must be an active existing `chatgpt` principal with an explicit saved grant.
+`PUBLIKATOR_CHATGPT_OAUTH_REDIRECT_URI` can pin the exact ChatGPT callback when the
+workspace uses a callback-specific URL. Provision the OAuth client secret separately from
+Publikator's administrator, social, integration and model credentials.
+
+The owner approves the requested scope intersection in their local browser session.
+The OAuth binding records the exact grant and token versions. The verifier rejects a stale
+binding after grant changes, pause, or revoke. Canonical startup restore invalidates
+restored OAuth sessions and tokens while retaining signing material. The issuer is separate
+from the MCP tool authorization checkpoint. Do not enable public ingress or register the
+live ChatGPT plugin until the MCP enforcement and real workspace acceptance are complete.
+

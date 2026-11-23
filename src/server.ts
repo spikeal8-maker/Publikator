@@ -11,6 +11,10 @@ const { googleSheetsPollingTick } = await import('./google-sheets-polling.js');
 const { googleSheetsPublicationWriteBackTick } = await import('./google-sheets-publication-writeback.js');
 
 migrate();
+if (restoreResult.applied) {
+  const { clearRestoredOAuthSessions } = await import('./http/agent-oauth.js');
+  clearRestoredOAuthSessions();
+}
 await cleanupVideoTemp();
 const app = await buildApp();
 
