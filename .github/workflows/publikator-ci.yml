@@ -65,6 +65,11 @@ jobs:
       - name: Build application
         run: npm run build
 
+      - name: AGENT-A1c OAuth schema 20 migration and canonical backup
+        run: |
+          node scripts/schema-v20-agent-oauth-storage-e2e.mjs
+          node scripts/backup-v20-agent-oauth-storage-e2e.mjs
+
       - name: Frontend syntax
         shell: bash
         run: |
