@@ -3,7 +3,7 @@
  * discovery works. Tool-use readiness is verified separately by the saved
  * connection's harmless publikator_connection_probe.
  */
-export function createModelPicker({api, getConnections, getEditId}) {
+export function createModelPicker({api, getConnections, getEditId, onDiscoveryFailure}) {
   const $ = id => document.getElementById(id);
   let serial = 0, timer = null, last = [], currentModel = '';
   const kind = () => $('provider-kind').value;
@@ -77,7 +77,6 @@ export function createModelPicker({api, getConnections, getEditId}) {
       ...(existing?.id ? {id:existing.id} : {})
     };
     message('Получаю установленные и доступные модели…', 'pending');
-    $('load-models').disabled = true;
     try {
       const response = await api('/api/assistant/discover-models',
         {method:'POST', body:JSON.stringify(body)});
@@ -97,31 +96,26 @@ export function createModelPicker({api, getConnections, getEditId}) {
       if (id === serial) {
         const reason = error instanceof Error ? error.message : 'Ошибка соединения';
         message('Не удалось получить список: ' + reason, 'error');
+        if (existing?.baseUrl.replace(/\/$/, '') === body.baseUrl.replace(/\/$/, '')) onDiscoveryFailure(existing.id);
         if (!quiet) throw error;
       }
       return [];
-    } finally {
-      if (id === serial) $('load-models').disabled = false;
     }
   }
-  function cancel() { ++serial; if (timer) clearTimeout(timer); timer = null; $('load-models').disabled = false; }
+  function cancel() { ++serial; if (timer) clearTimeout(timer); timer = null; }
   function schedule() {
     cancel();
     if (!canQuery(true)) return;
     timer = setTimeout(() => { timer=null; void discover({quiet:true}); }, 400);
   }
-  function selectExisting(c) {
+  function selectExisting(c, {discoverModels = true} = {}) {
     cancel();
     $('provider-manual-model').value = '';
     currentModel = c?.model || '';
     setOptions([], currentModel);
     providerHint();
-    if (canQuery(false)) schedule();
-    else canQuery(true);
-    $('provider-test-result').textContent = c?.toolVerified
-      ? 'Ранее проверено: модель умеет вызывать инструменты.' : c
-      ? 'Подключение сохранено, вызовы инструментов ещё не проверены.' : '';
-    $('provider-test-result').className = 'test-result ' + (c?.toolVerified ? 'ok' : '');
+    if (discoverModels) schedule();
+
   }
   function onEndpointChange() {
     cancel();

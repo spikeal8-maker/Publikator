@@ -61,12 +61,12 @@
 <label id="provider-key-row">API-ключ<input id="provider-key" type="password" autocomplete="new-password" placeholder="Введите ключ провайдера"></label>
 <div class="models-chooser">
 <label>Модель<select id="provider-model"><option value="">Загрузка списка моделей…</option></select></label>
-<button id="load-models" type="button">Найти модели</button>
+
 </div>
 <p id="models-status" class="models-status" role="status">Укажите данные подключения.</p>
 <details class="manual-model"><summary>Модель не появилась в списке?</summary><p class="hint">Только для API, не поддерживающих список моделей. В обычной ситуации вводить имя не требуется.</p><label>Ручной идентификатор модели<input id="provider-manual-model" maxlength="160" autocomplete="off" placeholder="Только если провайдер не возвращает /models"></label></details>
-<div class="buttons"><button class="primary" type="submit">Сохранить и проверить</button><button id="test-connection" type="button">Проверить соединение</button><button id="delete-connection" class="danger" type="button">Удалить</button></div>
-<p id="provider-test-result" class="test-result" role="status"></p></form>
+<div class="buttons"><button class="primary" type="submit">Проверить и сохранить</button><button id="delete-connection" class="danger" type="button">Удалить</button></div>
+</form>
   </section>
 </section>
 <section role="tabpanel" id="settings-panel-cloud" aria-labelledby="settings-tab-cloud" hidden>

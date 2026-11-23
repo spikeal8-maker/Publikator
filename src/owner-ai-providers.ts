@@ -58,7 +58,7 @@ export function getAiConnection(ownerId: string, connectionId: string): AiConnec
   if (!c) throw new OwnerAutomationError('CONNECTION_NOT_FOUND', 'Подключение модели не найдено или выключено.', 404);
   return c;
 }
-export function saveAiConnection(ownerId: string, value: unknown): any {
+function prepareAiConnection(ownerId: string, value: unknown) {
   const b = objectValue(value);
   if (!AI_PROVIDERS.includes(b.provider)) throw new OwnerAutomationError('INVALID_PROVIDER', 'Выберите провайдера модели.');
   const name = boundedString(b.name, 'name', 120), model = boundedString(b.model, 'model', 160);
@@ -71,16 +71,57 @@ export function saveAiConnection(ownerId: string, value: unknown): any {
   if (b.clearKey === true) apiKey = '';
   if (!localProvider(b.provider) && !apiKey) throw new OwnerAutomationError('KEY_REQUIRED', 'Введите API-ключ. При изменении адреса старый ключ не переносится.');
   if (apiKey.length > 8192 || /[\r\n\u0000]/.test(apiKey)) throw new OwnerAutomationError('INVALID_KEY', 'Некорректный API-ключ.');
-  const connectionId = old?.id || id('aic'), now = nowIso();
-  const credentials = encryptJson({ apiKey });
-  if (old) {
-    const r = db.prepare(`UPDATE owner_ai_connections SET name=?,provider=?,base_url=?,model=?,credentials_encrypted=?,revision=revision+1,tool_verified=0,enabled=?,updated_at=? WHERE id=? AND owner_id=? AND revision=?`)
-      .run(name,b.provider,baseUrl,model,credentials,b.enabled === false ? 0 : 1,now,connectionId,ownerId,old.revision);
-    if (!r.changes) throw new OwnerAutomationError('VERSION_CONFLICT', 'Настройки изменены.', 409);
-  } else db.prepare(`INSERT INTO owner_ai_connections(id,owner_id,name,provider,base_url,model,credentials_encrypted,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`)
-    .run(connectionId,ownerId,name,b.provider,baseUrl,model,credentials,now,now);
-  return connectionView(db.prepare('SELECT * FROM owner_ai_connections WHERE id=?').get(connectionId) as AiConnection);
+  const connection: AiConnection = {
+    id: old?.id || id('aic'), owner_id: ownerId, name, provider: b.provider, base_url: baseUrl, model,
+    credentials_encrypted: encryptJson({ apiKey }), revision: (old?.revision ?? 0) + 1,
+    enabled: b.enabled === false ? 0 : 1, tool_verified: 0, access_mode: old?.access_mode ?? 'OWNER_TOOLS',
+  };
+  return { connection, old };
 }
+
+function persistAiConnection({connection: c, old}: ReturnType<typeof prepareAiConnection>) {
+  const now = nowIso();
+  if (old) {
+    const r = db.prepare(`UPDATE owner_ai_connections SET name=?,provider=?,base_url=?,model=?,credentials_encrypted=?,
+      revision=revision+1,tool_verified=?,enabled=?,updated_at=? WHERE id=? AND owner_id=? AND revision=?`)
+      .run(c.name,c.provider,c.base_url,c.model,c.credentials_encrypted,c.tool_verified,c.enabled,now,c.id,c.owner_id,old.revision);
+    if (!r.changes) throw new OwnerAutomationError('VERSION_CONFLICT', 'Настройки изменены.', 409);
+  } else db.prepare(`INSERT INTO owner_ai_connections(id,owner_id,name,provider,base_url,model,credentials_encrypted,enabled,tool_verified,created_at,updated_at)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(c.id,c.owner_id,c.name,c.provider,c.base_url,c.model,c.credentials_encrypted,c.enabled,c.tool_verified,now,now);
+  return connectionView(db.prepare('SELECT * FROM owner_ai_connections WHERE id=?').get(c.id) as AiConnection);
+}
+
+export function saveAiConnection(ownerId: string, value: unknown) {
+  return persistAiConnection(prepareAiConnection(ownerId,value));
+}
+
+export async function saveVerifiedAiConnection(ownerId: string, value: unknown) {
+  const request = prepareAiConnection(ownerId,value);
+  const verification = await probeAiConnection(request.connection);
+  request.connection.tool_verified = Number(verification.toolCalling);
+  return { ...persistAiConnection(request), verification };
+}
+
+export async function probeAiConnection(connection: AiConnection) {
+  const probe = {type:'function',function:{
+    name:'publikator_connection_probe',description:'Return the marker unchanged.',
+    parameters:{type:'object',properties:{marker:{type:'string',enum:['publikator-ready']}},required:['marker'],additionalProperties:false},
+  }};
+  const result = await modelCompletion(connection,[
+    {role:'system',content:'Call publikator_connection_probe exactly once with marker publikator-ready.'},
+    {role:'user',content:'Call the probe now.'},
+  ],[probe]);
+  const call = result.tool_calls?.find((item: {function: {name: string}}) => item.function.name === probe.function.name);
+  let toolCalling = false;
+  try { toolCalling = Boolean(call && JSON.parse(call.function.arguments).marker === 'publikator-ready'); }
+  catch { /* No tool was verified. */ }
+  return {
+    connected:true, toolCalling, model:connection.model,
+    message:toolCalling ? 'Модель отвечает и умеет вызывать инструменты.' : 'Модель отвечает. Вызов инструментов не подтверждён.',
+  };
+}
+
 export function updateAiConnectionAccess(ownerId: string, connectionId: string, value: unknown): ReturnType<typeof connectionView> {
   const input = objectValue(value);
   if (input.accessMode !== 'READ_ONLY' && input.accessMode !== 'OWNER_TOOLS') {
