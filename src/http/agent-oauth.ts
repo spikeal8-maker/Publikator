@@ -286,6 +286,7 @@ export async function registerChatGPTIssuer(app: FastifyInstance) {
 
   return {
     resource,
+    agentId: settings.agentId,
     async authenticate(bearer: string): Promise<VerifiedChatGPTGrant | null> {
       const access = await provider.AccessToken.find(bearer);
       if (access?.aud !== resource || access.clientId !== settings.clientId || access.accountId !== 'owner' || !access.grantId) return null;
