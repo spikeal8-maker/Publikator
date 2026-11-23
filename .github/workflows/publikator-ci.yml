@@ -666,6 +666,10 @@ jobs:
         run: |
           node scripts/schema-v21-ai-connection-access-e2e.mjs
           node scripts/backup-v21-ai-connection-access-e2e.mjs
+      - name: Local llama.cpp protocol, schema 22 and canonical backup
+        run: |
+          node scripts/schema-v22-llamacpp-e2e.mjs
+          node scripts/backup-v22-llamacpp-e2e.mjs
 
       - name: REST/MCP planned contract and owner additions
         run: node scripts/agent-contract-a0b-e2e.mjs

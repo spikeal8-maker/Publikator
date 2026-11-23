@@ -8,7 +8,8 @@ export function createModelPicker({api, getConnections, getEditId}) {
   let serial = 0, timer = null, last = [], currentModel = '';
   const kind = () => $('provider-kind').value;
   const url = () => $('provider-url').value.trim();
-  const key = () => $(kind() === 'ollama' ? 'local-provider-key' : 'provider-key').value.trim();
+  const isLocal = () => ['ollama','llamacpp'].includes(kind());
+  const key = () => $(isLocal() ? 'local-provider-key' : 'provider-key').value.trim();
   const oldConnection = () => getConnections().find(x => x.id === getEditId());
   const message = (text, level='') => {
     $('models-status').textContent = text;
@@ -40,7 +41,7 @@ export function createModelPicker({api, getConnections, getEditId}) {
   }
   function canQuery(showReason = true) {
     if (!url()) { if (showReason) message('Введите сетевой адрес сервера.', 'info'); return false; }
-    if (kind() !== 'ollama' && !key() && !compatibleSavedKey()) {
+    if (!isLocal() && !key() && !compatibleSavedKey()) {
       if (showReason) message('Для ' + $('provider-kind').selectedOptions[0].text +
         ' нужен API-ключ. Укажите его, и список моделей загрузится автоматически.', 'info');
       return false;
@@ -54,13 +55,14 @@ export function createModelPicker({api, getConnections, getEditId}) {
     const p=kind();
     const hostHint=p === 'ollama'
       ? 'Пример для соседнего компьютера: http://192.168.1.50:11434. Проверьте, что Ollama принимает подключения из сети сервера Publikator.'
+      : p === 'llamacpp' ? 'Введите адрес запущенного llama-server. Для работы с Publikator модель должна поддерживать вызовы инструментов.'
       : p === 'deepseek' ? 'DeepSeek: используется ваш ключ API. Доступные именно ему модели определяются запросом к DeepSeek.'
       : p === 'openai' ? 'OpenAI: введите API-ключ аккаунта OpenAI Platform. Список моделей определяется по этому ключу.'
       : 'Совместимый HTTPS API: провайдер должен поддерживать GET /models и вызов инструментов.';
     $('provider-guide').textContent = hostHint;
-    $('provider-key').required = p !== 'ollama' && !compatibleSavedKey();
-    $('provider-key-row').hidden = p === 'ollama';
-    $('local-provider-key-row').hidden = p !== 'ollama';
+    $('provider-key').required = !isLocal() && !compatibleSavedKey();
+    $('provider-key-row').hidden = isLocal();
+    $('local-provider-key-row').hidden = !isLocal();
     const placeholder = compatibleSavedKey() ? 'Ключ сохранён' : '';
     $('provider-key').placeholder = placeholder || 'Введите API-ключ';
     $('local-provider-key').placeholder = placeholder;

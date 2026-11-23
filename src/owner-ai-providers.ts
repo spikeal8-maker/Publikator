@@ -8,7 +8,13 @@ import { completeOpenAi, OpenAiProtocolError } from './owner-ai-responses.js';
 
 export type AiAccessMode = 'READ_ONLY' | 'OWNER_TOOLS';
 
-export type AiConnection = { id: string; owner_id: string; name: string; provider: 'openai'|'deepseek'|'compatible'|'ollama'; base_url: string; model: string; credentials_encrypted: string; revision: number; enabled: number; tool_verified: number; access_mode: AiAccessMode };
+const AI_PROVIDERS = ['openai','deepseek','compatible','ollama','llamacpp'] as const;
+type AiProvider = typeof AI_PROVIDERS[number];
+function localProvider(provider: AiProvider): boolean {
+  return provider === 'ollama' || provider === 'llamacpp';
+}
+
+export type AiConnection = { id: string; owner_id: string; name: string; provider: AiProvider; base_url: string; model: string; credentials_encrypted: string; revision: number; enabled: number; tool_verified: number; access_mode: AiAccessMode };
 const DEFAULT_URLS: Record<string,string> = { openai: 'https://api.openai.com/v1', deepseek: 'https://api.deepseek.com', ollama: 'http://host.docker.internal:11434' };
 function addressForbidden(address: string, localAllowed: boolean): boolean {
   const a = address.toLowerCase().replace(/^::ffff:/, '');
@@ -17,7 +23,13 @@ function addressForbidden(address: string, localAllowed: boolean): boolean {
   return /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|0\.|224\.|255\.)/.test(a)
     || a === '::1' || /^f[cd]/.test(a) || !net.isIP(a);
 }
-function normalizedEndpoint(provider: string, input: unknown): string {
+function localModelAddress(address: string): boolean {
+  const value = address.toLowerCase().replace(/^::ffff:/, '');
+  return /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/.test(value)
+    || value === '::1' || /^f[cd]/.test(value);
+}
+
+function normalizedEndpoint(provider: AiProvider, input: unknown): string {
   const value = typeof input === 'string' && input.trim() ? input.trim() : DEFAULT_URLS[provider];
   if (!value) throw new OwnerAutomationError('INVALID_ENDPOINT', 'Укажите адрес API.');
   let url: URL;
@@ -25,8 +37,12 @@ function normalizedEndpoint(provider: string, input: unknown): string {
   if (!['http:','https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new OwnerAutomationError('INVALID_ENDPOINT', 'Адрес API не должен содержать пароль или параметры.');
   if (provider === 'openai' && (url.origin !== 'https://api.openai.com' || !['/v1','/v1/'].includes(url.pathname))) throw new OwnerAutomationError('INVALID_ENDPOINT', 'OpenAI использует https://api.openai.com/v1.');
   if (provider === 'deepseek' && (url.origin !== 'https://api.deepseek.com' || !['/','/v1','/v1/'].includes(url.pathname))) throw new OwnerAutomationError('INVALID_ENDPOINT', 'DeepSeek использует https://api.deepseek.com.');
-  if (provider !== 'ollama' && url.protocol !== 'https:') throw new OwnerAutomationError('INVALID_ENDPOINT', 'Для облачного провайдера требуется HTTPS.');
+  if (!localProvider(provider) && url.protocol !== 'https:') throw new OwnerAutomationError('INVALID_ENDPOINT', 'Для облачного провайдера требуется HTTPS.');
   if (provider === 'ollama' && !['/','/api','/api/'].includes(url.pathname)) throw new OwnerAutomationError('INVALID_ENDPOINT', 'Для Ollama укажите адрес сервера без /v1.');
+  if (provider === 'llamacpp') {
+    if (!['/','/v1','/v1/'].includes(url.pathname)) throw new OwnerAutomationError('INVALID_ENDPOINT','Для llama.cpp укажите адрес сервера или адрес с /v1.');
+    return url.origin + '/v1';
+  }
   return provider === 'ollama' ? url.origin : url.toString().replace(/\/$/, '');
 }
 export function connectionView(c: AiConnection): any {
@@ -44,7 +60,7 @@ export function getAiConnection(ownerId: string, connectionId: string): AiConnec
 }
 export function saveAiConnection(ownerId: string, value: unknown): any {
   const b = objectValue(value);
-  if (!['openai','deepseek','compatible','ollama'].includes(b.provider)) throw new OwnerAutomationError('INVALID_PROVIDER', 'Выберите провайдера модели.');
+  if (!AI_PROVIDERS.includes(b.provider)) throw new OwnerAutomationError('INVALID_PROVIDER', 'Выберите провайдера модели.');
   const name = boundedString(b.name, 'name', 120), model = boundedString(b.model, 'model', 160);
   const baseUrl = normalizedEndpoint(b.provider, b.baseUrl);
   const old = typeof b.id === 'string' ? db.prepare('SELECT * FROM owner_ai_connections WHERE id=? AND owner_id=?').get(b.id, ownerId) as AiConnection|undefined : undefined;
@@ -53,7 +69,7 @@ export function saveAiConnection(ownerId: string, value: unknown): any {
   let apiKey = typeof b.apiKey === 'string' ? b.apiKey.trim() : '';
   if (!apiKey && old && old.provider === b.provider && old.base_url === baseUrl) apiKey = decryptJson<any>(old.credentials_encrypted).apiKey || '';
   if (b.clearKey === true) apiKey = '';
-  if (b.provider !== 'ollama' && !apiKey) throw new OwnerAutomationError('KEY_REQUIRED', 'Введите API-ключ. При изменении адреса старый ключ не переносится.');
+  if (!localProvider(b.provider) && !apiKey) throw new OwnerAutomationError('KEY_REQUIRED', 'Введите API-ключ. При изменении адреса старый ключ не переносится.');
   if (apiKey.length > 8192 || /[\r\n\u0000]/.test(apiKey)) throw new OwnerAutomationError('INVALID_KEY', 'Некорректный API-ключ.');
   const connectionId = old?.id || id('aic'), now = nowIso();
   const credentials = encryptJson({ apiKey });
@@ -90,17 +106,20 @@ export function updateAiConnectionAccess(ownerId: string, connectionId: string, 
 
 export async function aiRequest(connection: AiConnection, suffix: string, body?: unknown, signal?: AbortSignal): Promise<any> {
   const url = new URL(connection.base_url + suffix);
-  const local = connection.provider === 'ollama';
+  const local = localProvider(connection.provider);
   const host = url.hostname.replace(/^\[|\]$/g,'');
   const addresses = await (net.isIP(host)
     ? Promise.resolve([{ address:host, family:net.isIP(host) }])
     : dns.lookup(host,{all:true}).catch(() => {
         const hint = local
-          ? 'Publikator не находит сервер по этому имени. Укажите адрес Ollama, доступный из сети Publikator.'
+          ? 'Publikator не находит сервер по этому имени. Укажите адрес локальной модели, доступный из сети Publikator.'
           : 'Publikator не находит адрес облачного провайдера.';
         throw new OwnerAutomationError('MODEL_HOST_NOT_FOUND',hint,502);
       }));
   if (!addresses.length || addresses.some(a => addressForbidden(a.address, local))) throw new OwnerAutomationError('ENDPOINT_BLOCKED', 'Адрес провайдера недопустим. Метаданные облака и непредусмотренные внутренние адреса запрещены.');
+  if (connection.provider === 'llamacpp' && addresses.some(({address}) => !localModelAddress(address))) {
+    throw new OwnerAutomationError('ENDPOINT_BLOCKED', 'Для llama.cpp укажите адрес в локальной сети или Tailscale.');
+  }
   const pinned = addresses[0]!;
   const dispatcher = new Agent({ connect: { lookup: ((_hostname: string, options: any, callback: any) => options?.all ? callback(null, [{address:pinned.address,family:pinned.family}]) : callback(null, pinned.address, pinned.family)) as any } });
   const key = decryptJson<any>(connection.credentials_encrypted).apiKey;
@@ -200,14 +219,14 @@ export async function modelCompletion(connection: AiConnection, messages: any[],
 /** Discover models before saving; credentials are used only for this owner-requested lookup. */
 export async function discoverAiModels(ownerId:string,value:unknown):Promise<any>{
   const b=objectValue(value);
-  if(!['openai','deepseek','compatible','ollama'].includes(b.provider))throw new OwnerAutomationError('INVALID_PROVIDER','Выберите провайдера.');
+  if(!AI_PROVIDERS.includes(b.provider))throw new OwnerAutomationError('INVALID_PROVIDER','Выберите провайдера.');
   const baseUrl=normalizedEndpoint(b.provider,b.baseUrl);
   let apiKey=typeof b.apiKey==='string'?b.apiKey.trim():'';
   if(!apiKey&&typeof b.id==='string'){
     const old=db.prepare('SELECT * FROM owner_ai_connections WHERE id=? AND owner_id=?').get(b.id,ownerId) as AiConnection|undefined;
     if(old&&old.provider===b.provider&&old.base_url===baseUrl)apiKey=decryptJson<any>(old.credentials_encrypted).apiKey||'';
   }
-  if(b.provider!=='ollama'&&!apiKey)throw new OwnerAutomationError('KEY_REQUIRED','Введите API-ключ для получения списка моделей.');
+  if(!localProvider(b.provider)&&!apiKey)throw new OwnerAutomationError('KEY_REQUIRED','Введите API-ключ для получения списка моделей.');
   if(apiKey.length>8192||/[\r\n\u0000]/.test(apiKey))throw new OwnerAutomationError('INVALID_KEY','Некорректный API-ключ.');
   const ephemeral:AiConnection={id:'discovery',owner_id:ownerId,name:'discovery',provider:b.provider,base_url:baseUrl,model:'discovery',credentials_encrypted:encryptJson({apiKey}),revision:1,enabled:1,tool_verified:0,access_mode:'READ_ONLY'};
   const details=await queryAvailableModels(ephemeral);

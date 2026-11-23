@@ -9,7 +9,7 @@ Object.assign(process.env, {
   APP_MASTER_KEY: 'ai-connection-access-fixture-secret-at-least-32-characters',
 });
 delete process.env.ADMIN_PASSWORD;
-const { db, migrate } = await import('../dist/db.js');
+const { db, migrate, DATABASE_SCHEMA_VERSION } = await import('../dist/db.js');
 const { createAdminSetupGrant, createOrRecoverAdmin } = await import('../dist/admin-auth.js');
 const { saveAiConnection, updateAiConnectionAccess } = await import('../dist/owner-ai-providers.js');
 
@@ -26,7 +26,7 @@ try {
   db.exec('ALTER TABLE owner_ai_connections DROP COLUMN access_mode');
   db.pragma('user_version = 20');
   migrate();
-  assert.equal(db.pragma('user_version', { simple: true }), 21);
+  assert.equal(db.pragma('user_version', { simple: true }), DATABASE_SCHEMA_VERSION);
   assert.equal(db.prepare('SELECT access_mode FROM owner_ai_connections WHERE id=?').get(connection.id).access_mode, 'OWNER_TOOLS');
   const readOnly = updateAiConnectionAccess('owner', connection.id, { accessMode:'READ_ONLY',expectedRevision:1 });
   assert.equal(readOnly.accessMode,'READ_ONLY');
