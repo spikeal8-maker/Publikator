@@ -99,7 +99,7 @@ try{
   pass('discovery supplies real server metadata, not a hardcoded option list');
   await page.locator('#connection-form button[type=submit]').click();
   await page.waitForFunction(()=>document.querySelector('#connection-select')?.value?.startsWith('aic_'));
-  await page.waitForFunction(()=>document.querySelector('#provider-test-result')?.classList.contains('ok'));
+  await page.waitForFunction(()=>document.querySelector('#models-status')?.classList.contains('ok') && document.querySelector('#models-status')?.textContent?.includes('Сохранено.'));
   assert.equal(await page.locator('#provider-model').inputValue(),'fixture-model');
   assert.equal(await page.locator('#provider-key').inputValue(),'');
   pass('save automatically selects model and verifies a real tool roundtrip');
@@ -109,7 +109,7 @@ try{
   await page.locator('#provider-url').fill(secondModelUrl);
   await page.waitForFunction(()=>document.querySelector('#provider-model')?.value==='fixture-model');
   await page.locator('#connection-form button[type=submit]').click();
-  await page.waitForFunction(()=>document.querySelector('#provider-test-result')?.textContent?.includes('Подключение и вызов инструмента проверены'));
+  await page.waitForFunction(()=>document.querySelector('#models-status')?.textContent?.includes('Сохранено. Модель отвечает и умеет вызывать инструменты.'));
   assert.equal(await page.locator('#local-connections .connection-card').count(),2);
   await tabs.getByRole('tab', { name: 'Облачные модели', exact: true }).click();
   assert.equal(await page.locator('#connection-form').isVisible(),false);
@@ -127,6 +127,16 @@ try{
   await page.waitForFunction(()=>document.querySelector('#provider-model')?.value==='fixture-model');
   assert.equal(await page.locator('#provider-url').inputValue(),modelUrl);
   pass('two Ollama endpoints are saved independently and can be reopened');
+  const good = db.prepare('SELECT * FROM owner_ai_connections WHERE id=?').get(savedId);
+  const failed = await context.request.post(base+'/api/assistant/connections',{headers:{origin:base},data:{
+    verify:true,id:savedId,expectedRevision:good.revision,provider:'ollama',baseUrl:'http://127.0.0.1:9',
+    name:'Unreachable candidate',model:'fixture-model',
+  }});
+  assert.equal(failed.status(),502);
+  assert.deepEqual(db.prepare('SELECT * FROM owner_ai_connections WHERE id=?').get(savedId),good);
+  assert.equal(await page.getByRole('button',{name:'Проверить и сохранить',exact:true}).count(),1);
+  assert.equal(await page.getByRole('button',{name:'Проверить соединение',exact:true}).count(),0);
+  pass('failed provider verification leaves the stored model and revision intact');
   await general.click();
   assert.equal(await page.locator('#overview-models .connection-card').count(),2);
   assert.equal(await page.locator('#overview-local-count').innerText(),'2');

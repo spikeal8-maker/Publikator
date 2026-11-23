@@ -10,9 +10,14 @@ const providerGroups = { local: { ollama: 'Ollama', llamacpp: 'llama.cpp' }, clo
 const connectionChecks = new Map();
 const defaultConnectionKey = 'publikator.assistant.defaultConnection';
 let modelPanel = null;
+let connectionEditorVersion = 0;
+let pendingConnectionSave = false;
 let defaultConnectionId = '';
 try { defaultConnectionId = localStorage.getItem(defaultConnectionKey) || ''; } catch {}
-const modelPicker=createModelPicker({api,getConnections:()=>connections,getEditId:()=>editId});
+const modelPicker=createModelPicker({api,getConnections:()=>connections,getEditId:()=>editId,onDiscoveryFailure:id=>{
+  connectionChecks.set(id,'Сервер модели недоступен');
+  renderConnectionCards();
+}});
 const toolLabels={publikator_list_projects:'Чтение проектов',publikator_list_accounts:'Проверка подключений',publikator_list_posts:'Чтение публикаций',publikator_get_post:'Чтение материала',publikator_preview_post:'Предпросмотр',publikator_create_post:'Создание черновика',publikator_update_post:'Редактирование материала',publikator_set_targets:'Выбор получателей',publikator_mark_ready:'Проверка готовности',publikator_publish_now:'Отправка публикации',publikator_set_schedule:'Изменение расписания',publikator_import_cloud_media:'Импорт вложения',publikator_attach_uploaded_media:'Прикрепление файла',publikator_call_operation:'Операция Publikator',publikator_list_operations:'Поиск доступных операций',publikator_list_uploads:'Чтение вложений',model:'Модель готовит ответ'};
 function toast(text,error=false){$('toast').textContent=text;$('toast').classList.toggle('error',error);$('toast').hidden=false;clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('toast').hidden=true,6500);}
 async function api(url,options={}){const headers={...(options.body instanceof FormData?{}:{'content-type':'application/json'}),...options.headers};const response=await fetch(url,{...options,headers,credentials:'same-origin'});let data;try{data=await response.json();}catch{throw new Error('Сервер вернул непонятный ответ.');}if(response.status===401){$('login-notice').hidden=false;$('shell').hidden=true;throw new Error('Сессия завершена. Войдите в Publikator.');}if(!response.ok)throw new Error(typeof data.error==='string'?data.error:data.error?.message||data.message||'Не удалось выполнить запрос.');return data;}
@@ -57,7 +62,7 @@ function connectionGroup(connection) {
 function renderConnectionCards() {
   const statusText = (c) => {
     if (!c.enabled) return 'Выключено';
-    return connectionChecks.get(c.id) || (c.toolVerified ? 'Инструменты проверены ранее' : 'Требуется проверка');
+    return connectionChecks.get(c.id) || ('Требуется проверка подключения');
   };
   const local = connections.filter(c => connectionGroup(c) === 'local');
   const cloud = connections.filter(c => connectionGroup(c) === 'cloud');
@@ -144,13 +149,15 @@ $('model-access-form').addEventListener('submit', guarded(async (event) => {
 
 async function refreshConnections(){connections=(await api('/api/assistant/connections')).connections;renderConnections();}
 function closeConnectionEditor() {
+  connectionEditorVersion++;
   $('model-editor').hidden = true;
   $('provider-key').value = '';
   $('local-provider-key').value = '';
   modelPicker.cancel();
   editId = null;
 }
-function openConnectionEditor(provider, id = null) {
+function openConnectionEditor(provider, id = null, options = {}) {
+  connectionEditorVersion++;
   const group = connectionGroup({provider});
   if (modelPanel !== group) activateSettings(group);
   const connection = connections.find(c => c.id === id && c.provider === provider);
@@ -169,10 +176,8 @@ function openConnectionEditor(provider, id = null) {
   $('model-editor-title').textContent = connection ? 'Настроить ' + connection.name : 'Подключить ' + label;
   $('settings-panel-' + group).append($('model-editor'));
   $('model-editor').hidden = false;
-  $('test-connection').hidden = !connection;
-  $('test-connection').disabled = false;
   $('delete-connection').hidden = !connection;
-  modelPicker.selectExisting(connection);
+  modelPicker.selectExisting(connection,options);
 }
 
 const settingsTabs = [...$('settings').querySelectorAll('[role="tab"]')];
@@ -407,76 +412,48 @@ $('chatgpt-grant-form').addEventListener('submit', guarded(async (event) => {
   toast('Права ChatGPT сохранены.');
 }));
 
-async function saveConnection(event){
+async function saveConnection(event) {
   event.preventDefault();
-  const editingGroup = modelPanel;
-  const editingConnection = editId;
-  let model=modelPicker.selected();
-  if(!model){
-    await modelPicker.discover({quiet:false});
-    if (modelPanel !== editingGroup || editId !== editingConnection) return;
-    model=modelPicker.selected();
-  }
-  if(!model)throw new Error('Сервер не вернул доступных моделей. Откройте диагностику или обновите список.');
-  const old=connections.find(c=>c.id===editId);
-  const data={
-    name:$('provider-name').value.trim()||$('provider-kind').selectedOptions[0].text,
-    provider:$('provider-kind').value,baseUrl:$('provider-url').value,
-    model,apiKey:modelPicker.key(),...(old?{id:old.id,expectedRevision:old.revision,enabled:old.enabled}:{})
-  };
-  const btn=$('connection-form').querySelector('button[type=submit]');
-  btn.disabled=true;
-  try{
-    modelPicker.message('Сохраняю подключение…','pending');
-    const saved=await api('/api/assistant/connections',{method:'POST',body:JSON.stringify(data)});
-    $('provider-key').value='';
-    $('local-provider-key').value='';
-    connectionChecks.delete(saved.id);
+  if (pendingConnectionSave) return;
+  const editorVersion = connectionEditorVersion;
+  const isCurrent = () => connectionEditorVersion === editorVersion;
+  const old = connections.find(c => c.id === editId);
+  const provider = $('provider-kind').value;
+  const form = $('connection-form');
+  const inputs = [...form.querySelectorAll('input,select,button')].filter(input => !input.disabled);
+  pendingConnectionSave = true;
+  for (const input of inputs) input.disabled = true;
+  try {
+    if (!modelPicker.selected()) await modelPicker.discover({quiet:false});
+    if (!isCurrent()) return;
+    const model = modelPicker.selected();
+    if (!model) throw new Error('Выберите модель.');
+    modelPicker.cancel();
+    modelPicker.message('Проверяем ответ модели…','pending');
+    const data = {
+      name:$('provider-name').value.trim() || $('provider-kind').selectedOptions[0].text,
+      provider,baseUrl:$('provider-url').value,model,apiKey:modelPicker.key(),verify:true,
+      ...(old ? {id:old.id,expectedRevision:old.revision,enabled:old.enabled} : {}),
+    };
+    const saved = await api('/api/assistant/connections',{method:'POST',body:JSON.stringify(data)});
+    connectionChecks.set(saved.id,saved.verification.toolCalling ? 'Модель и инструменты проверены' : 'Модель отвечает');
     await refreshConnections();
-    if (modelPanel !== editingGroup || editId !== editingConnection) {
-      toast('Подключение сохранено. Проверку можно запустить в его разделе.');
-      return;
-    }
-    openConnectionEditor(data.provider, saved.id);
+    if (!isCurrent()) return;
+    openConnectionEditor(provider,saved.id,{discoverModels:false});
     $('connection-select').value=saved.id;
     updateChatAccess();
-    try{
-      await testConnection();
-      toast('Подключение сохранено. Результат проверки показан ниже.');
-    }catch(error){
-      const message=error instanceof Error?error.message:'Ошибка';
-      if (editId !== saved.id) return;
-      $('provider-test-result').textContent='Подключение сохранено, но вызов инструмента не подтверждён: '+message;
-      $('provider-test-result').className='test-result error';
-      toast('Подключение сохранено, но модель ещё не проверена.',true);
+    modelPicker.message('Сохранено. '+saved.verification.message,saved.verification.toolCalling ? 'ok' : 'info');
+  } catch (error) {
+    if (!isCurrent()) return;
+    if (old) {
+      connectionChecks.set(old.id,'Последняя проверка завершилась ошибкой');
+      renderConnectionCards();
     }
-  }finally{btn.disabled=false;}
-}
-async function testConnection(){
-  if(!editId)throw new Error('Сначала сохраните подключение.');
-  const checkingId = editId;
-  const result = $('provider-test-result');
-  $('test-connection').disabled=true;
-  result.textContent='Проверяем ответ модели и вызов инструмента…';
-  result.className='test-result';
-  try{
-    const r=await api('/api/assistant/connections/'+encodeURIComponent(checkingId)+'/test',
-      {method:'POST',body:'{}'});
-    connectionChecks.set(checkingId,r.toolCalling ? 'Инструменты проверены' : 'Отвечает, инструменты не подтверждены');
-    if (editId === checkingId) {
-      result.textContent=r.message;
-      result.className='test-result '+(r.toolCalling?'ok':'error');
-    }
-    await refreshConnections();
-  }catch(error){
-    connectionChecks.set(checkingId,'Проверка завершилась ошибкой');
-    renderConnectionCards();
-    if (editId === checkingId) {
-      result.textContent=error.message;
-      result.className='test-result error';
-    }
-    throw error;
-  }finally{if (editId === checkingId) $('test-connection').disabled=false;}
+    modelPicker.message(error.message,'error');
+  } finally {
+    pendingConnectionSave = false;
+    for (const input of inputs) input.disabled = false;
+  }
 }
 async function refreshKeys(){const keys=(await api('/api/assistant/keys')).keys;const root=$('key-list');root.replaceChildren();for(const k of keys){const row=element('div','key-row');const info=element('div','',k.name);info.append(element('small','',k.revoked_at?'Отключён':`${k.prefix}… · до ${new Date(k.expires_at).toLocaleDateString('ru-RU')}`));row.append(info);if(!k.revoked_at){const b=element('button','danger','Отозвать');b.type='button';b.addEventListener('click',guarded(async()=>{if(!confirm('Отключить доступ этому боту?'))return;await api('/api/assistant/keys/'+encodeURIComponent(k.id)+'/revoke',{method:'POST',body:'{}'});await refreshKeys();}));row.append(b);}root.append(row);}}
 function renderAttachments(){const root=$('attachments');root.replaceChildren();for(const file of attachments){const chip=element('span','file-chip',file.name);const remove=element('button','','×');remove.type='button';remove.setAttribute('aria-label','Не использовать '+file.name);remove.addEventListener('click',()=>{attachments=attachments.filter(x=>x.id!==file.id);renderAttachments();});chip.append(remove);root.append(chip);}}
@@ -488,11 +465,9 @@ $('connection-form').addEventListener('submit',guarded(saveConnection));
 $('provider-url').addEventListener('input',()=>modelPicker.onEndpointChange());
 $('provider-key').addEventListener('input',()=>modelPicker.onEndpointChange());
 $('local-provider-key').addEventListener('input',()=>modelPicker.onEndpointChange());
-$('load-models').addEventListener('click',guarded(()=>modelPicker.discover({quiet:false})));
 $('provider-manual-model').addEventListener('change',()=>{
   if($('provider-manual-model').value.trim())modelPicker.message('Используется вручную указанная модель. Проверка инструментов выполняется после сохранения.','info');
 });
-$('test-connection').addEventListener('click',guarded(testConnection));
 $('delete-connection').addEventListener('click',guarded(async()=>{
  if(!editId||!confirm('Удалить это подключение модели?'))return;
  await api('/api/assistant/connections/'+encodeURIComponent(editId),{method:'DELETE'});

@@ -6,7 +6,7 @@ import { db, nowIso } from '../db.js';
 import { config } from '../config.js';
 import { authenticateOwnerKey, createOwnerAutomationKey, listOwnerAutomationKeys, revokeOwnerAutomationKey, sessionActor, safeOutput, OwnerAutomationError, objectValue, boundedString, type OwnerActor } from '../owner-automation.js';
 import { ownerMutationOriginMatches } from './security.js';
-import { listAiConnections, saveAiConnection, getAiConnection, listAiModels, discoverAiModels, updateAiConnectionAccess } from '../owner-ai-providers.js';
+import { listAiConnections, saveAiConnection, saveVerifiedAiConnection, getAiConnection, listAiModels, discoverAiModels, updateAiConnectionAccess } from '../owner-ai-providers.js';
 import { createAiThread, listAiThreads, getAiThread, startAiRun, getAiRun, stopAiRun, testAiConnection, recoverInterruptedAiRuns, stopAllAiRuns } from '../owner-ai-chat.js';
 import { stageOwnerUpload, cleanupOwnerUploads } from '../owner-ai-uploads.js';
 import type { createOwnerTools } from '../owner-tools.js';
@@ -30,7 +30,7 @@ export async function registerOwnerAssistant(app:FastifyInstance,registry:Regist
   app.get('/api/assistant/status',async(req,reply)=>{try{owner(req);return {enabled:true,role:'OWNER_ADMIN',mcpPath:'/mcp',mcpUrl:(config.publicBaseUrl||'http://127.0.0.1:8080')+'/mcp',authentication:'owner-issued bearer key',oauthAvailable:Boolean(chatgpt),chatgptMcpUrl:chatgpt?.url??null,chatgptAgentId:chatgpt?.agentId??null,tools:registry.tools.map(t=>({name:t.name,description:t.description,readOnly:t.readOnly})),operationCount:registry.operations.size,cloudClientConnectionVerified:false};}catch(e){return fail(reply,e);}});
   app.get('/api/assistant/connections',async(req,reply)=>{try{const a=owner(req);return {connections:listAiConnections(a.ownerId)};}catch(e){return fail(reply,e);}});
   app.post('/api/assistant/discover-models',{bodyLimit:16384},async(req,reply)=>{try{const a=owner(req,true);return await discoverAiModels(a.ownerId,req.body);}catch(e){return fail(reply,e);}});
-  app.post('/api/assistant/connections',{bodyLimit:16384},async(req,reply)=>{try{const a=owner(req,true);return saveAiConnection(a.ownerId,req.body);}catch(e){return fail(reply,e);}});
+  app.post('/api/assistant/connections',{bodyLimit:16384},async(req,reply)=>{try{const a=owner(req,true);return (req.body as { verify?: boolean } | undefined)?.verify === true ? await saveVerifiedAiConnection(a.ownerId,req.body) : saveAiConnection(a.ownerId,req.body);}catch(e){return fail(reply,e);}});
   app.patch<{ Params: { id: string } }>('/api/assistant/connections/:id/access',{bodyLimit:4096},async(req,reply)=>{
     try {
       const actor = owner(req, true);

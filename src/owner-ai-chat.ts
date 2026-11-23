@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { db, id, nowIso } from './db.js';
 import { decryptJson, encryptJson } from './crypto.js';
 import { assertOwnerActor, boundedString, canonicalJson, digest, objectValue, OwnerAutomationError, safeOutput, type OwnerActor } from './owner-automation.js';
-import { getAiConnection, modelCompletion } from './owner-ai-providers.js';
+import { getAiConnection, modelCompletion, probeAiConnection } from './owner-ai-providers.js';
 import type { createOwnerTools } from './owner-tools.js';
 
 type Registry = ReturnType<typeof createOwnerTools>;
@@ -84,13 +84,10 @@ function cleanMessages(messages:any[]):any[] {
 }
 export async function testAiConnection(ownerId:string,connectionId:string):Promise<any> {
   const c=getAiConnection(ownerId,connectionId);
-  const probe={type:'function',function:{name:'publikator_connection_probe',description:'Harmless connection test: return the marker unchanged.',parameters:{type:'object',properties:{marker:{type:'string',enum:['publikator-ready']}},required:['marker'],additionalProperties:false}}};
-  const message=await modelCompletion(c,[{role:'system',content:'You are testing function calling. Call publikator_connection_probe exactly once with marker publikator-ready. Do not answer in prose.'},{role:'user',content:'Call the probe now.'}],[probe]);
-  const call=message.tool_calls?.find((x:any)=>x.function.name==='publikator_connection_probe');
-  let valid=false;try{valid=Boolean(call&&JSON.parse(call.function.arguments).marker==='publikator-ready');}catch{/* remain unverified */}
-  if(!valid) return {connected:true,toolCalling:false,message:'Модель отвечает, но вызов инструмента не подтверждён. Выберите модель с поддержкой tools.'};
-  db.prepare('UPDATE owner_ai_connections SET tool_verified=1,updated_at=? WHERE id=? AND owner_id=? AND revision=?').run(nowIso(),connectionId,ownerId,c.revision);
-  return {connected:true,toolCalling:true,model:c.model,message:'Подключение и вызов инструмента проверены. Публикации не отправлялись.'};
+  const result=await probeAiConnection(c);
+  db.prepare('UPDATE owner_ai_connections SET tool_verified=?,updated_at=? WHERE id=? AND owner_id=? AND revision=?')
+    .run(Number(result.toolCalling),nowIso(),connectionId,ownerId,c.revision);
+  return result;
 }
 export function startAiRun(app:FastifyInstance,registry:Registry,actor:OwnerActor,value:unknown):any {
   assertOwnerActor(actor);
