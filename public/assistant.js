@@ -72,6 +72,7 @@ const chatGPTScopeLabels = new Map([
 let editingChatGPTGrant = null;
 let preparedChatGPTAgentId = '';
 let chatGPTProfileRequestId = null;
+let chatGPTGrantLoad = 0;
 
 function renderGrantOptions(container, entries, selected) {
   const chosen = new Set(selected);
@@ -110,6 +111,7 @@ async function selectChatGPTProfile() {
 }
 
 async function loadChatGPTGrant() {
+  const run = ++chatGPTGrantLoad;
   const status = $('chatgpt-permission-status');
   const form = $('chatgpt-grant-form');
   form.hidden = true;
@@ -117,6 +119,7 @@ async function loadChatGPTGrant() {
   status.textContent = 'Загружаем текущие права…';
   try {
     const agentId = await selectChatGPTProfile();
+    if (run !== chatGPTGrantLoad) return;
     if (!agentId) {
       status.textContent = 'Создайте профиль, чтобы выбрать его права.';
       return;
@@ -125,6 +128,7 @@ async function loadChatGPTGrant() {
       api('/api/owner/agents/' + encodeURIComponent(agentId)),
       api('/api/projects'), api('/api/accounts'),
     ]);
+    if (run !== chatGPTGrantLoad) return;
     const grant = agent.grant;
     if (agent.status !== 'ACTIVE' || grant.publishMode === 'PREAPPROVED_POLICY') {
       status.textContent = 'Для этого подключения требуется проверка настроек владельцем.';
@@ -138,7 +142,7 @@ async function loadChatGPTGrant() {
     status.textContent = 'После изменения прав ChatGPT потребуется заново подключить. Права отправки здесь не меняются.';
     form.hidden = false;
   } catch (error) {
-    status.textContent = error.message;
+    if (run === chatGPTGrantLoad) status.textContent = error.message;
   }
 }
 
