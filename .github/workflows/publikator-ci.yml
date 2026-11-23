@@ -28,6 +28,12 @@ jobs:
       - name: Install exact dependency graph
         run: npm ci --no-audit --no-fund
 
+      - name: Build application for production restore diagnosis
+        run: npm run build
+
+      - name: Production Docker and full restore
+        run: bash scripts/core-docker-restore-e2e.sh
+
       - name: Provision host video tools
         shell: bash
         run: |
@@ -64,9 +70,6 @@ jobs:
 
       - name: Build application
         run: npm run build
-
-      - name: Production Docker and full restore
-        run: bash scripts/core-docker-restore-e2e.sh
 
       - name: Frontend syntax
         shell: bash
