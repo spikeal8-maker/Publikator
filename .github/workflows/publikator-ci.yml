@@ -623,6 +623,31 @@ jobs:
 
       - name: Acceptance passed
         run: echo 'Publikator acceptance passed'
+
+      - name: Export tested image for 1Panel
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          set -euo pipefail
+          image_tag="publikator-live:${GITHUB_SHA:0:8}"
+          archive="publikator-${GITHUB_SHA}.tar.gz"
+          mkdir -p deployment-image
+          docker image tag publikator-release-identity "$image_tag"
+          docker save "$image_tag" | gzip -1 > "deployment-image/$archive"
+          (
+            cd deployment-image
+            sha256sum "$archive" > "$archive.sha256"
+          )
+
+      - name: Store the 1Panel deployment image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: publikator-1panel-image-${{ github.sha }}
+          path: deployment-image/
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
   agent_security_fast:
     name: Agent auth security (focused, no video provisioning)
     runs-on: ubuntu-24.04
