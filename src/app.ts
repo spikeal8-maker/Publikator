@@ -105,7 +105,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await registerReleaseGateRoutes(app);
   const issuer = await registerChatGPTIssuer(app);
   await registerChatGPTMcp(app, issuer);
-  await registerOwnerAssistant(app, ownerTools, issuer?.resource);
+  await registerOwnerAssistant(app, ownerTools, issuer ? { url: issuer.resource, agentId: issuer.agentId } : null);
 
   app.setNotFoundHandler((request, reply) => {
     const pathname=request.url.split(/[?#]/, 1)[0] ?? '';

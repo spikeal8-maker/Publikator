@@ -29,7 +29,7 @@ function selectConnection(id){
   $('test-connection').disabled=!c;
   $('delete-connection').disabled=!c;
 }
-async function openSettings(){$('settings').showModal();await Promise.all([refreshConnections(),refreshKeys()]);selectConnection(editId||$('connection-select').value);$('edit-connection').value=editId||'';statusInfo=await api('/api/assistant/status');$('mcp-url').value=statusInfo.mcpUrl;renderChatGPTMcp();}
+async function openSettings(){$('settings').showModal();await Promise.all([refreshConnections(),refreshKeys()]);selectConnection(editId||$('connection-select').value);$('edit-connection').value=editId||'';statusInfo=await api('/api/assistant/status');$('mcp-url').value=statusInfo.mcpUrl;renderChatGPTMcp();if($('chatgpt-permissions').open)await loadChatGPTGrant();}
 function renderChatGPTMcp(){
   const url=statusInfo?.chatgptMcpUrl||'';
   $('chatgpt-mcp-url').value=url;
@@ -42,6 +42,154 @@ $('copy-chatgpt-url').addEventListener('click',guarded(async()=>{
   await navigator.clipboard.writeText($('chatgpt-mcp-url').value);
   toast('Адрес ChatGPT MCP скопирован.');
 }));
+$('test-chatgpt-url').addEventListener('click',guarded(async()=>{
+  const status=$('chatgpt-mcp-state');
+  const address=statusInfo?.chatgptMcpUrl;
+  if(!address||new URL(address).origin!==location.origin)return;
+  status.textContent='Проверяем адрес…';
+  try {
+    const response=await fetch(address,{
+      method:'POST',credentials:'omit',
+      headers:{'Content-Type':'application/json',Accept:'application/json, text/event-stream'},
+      body:JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{
+        protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'publikator-setup',version:'1'},
+      }}),
+    });
+    const challenge=response.headers.get('www-authenticate')||'';
+    await response.body?.cancel();
+    status.textContent=response.status===401&&challenge.includes('resource_metadata=')
+      ? 'Адрес доступен и запрашивает OAuth. Теперь можно добавить его в ChatGPT.'
+      : `Адрес MCP ещё не готов (HTTP ${response.status}). Проверьте настройку сервера и прокси.`;
+  } catch {
+    status.textContent='Не удалось связаться с адресом MCP.';
+  }
+}));
+const chatGPTScopeLabels = new Map([
+  ['projects:read', 'Просматривать проекты'],
+  ['accounts:read', 'Просматривать аккаунты и доступные форматы'],
+  ['posts:write', 'Создавать текстовые черновики'],
+]);
+let editingChatGPTGrant = null;
+let preparedChatGPTAgentId = '';
+let chatGPTProfileRequestId = null;
+let chatGPTGrantLoad = 0;
+
+function renderGrantOptions(container, entries, selected) {
+  const chosen = new Set(selected);
+  container.replaceChildren(...entries.map(([value, text]) => {
+    const label = element('label', '');
+    const input = element('input', '');
+    input.type = 'checkbox';
+    input.value = value;
+    input.checked = chosen.has(value);
+    label.append(input, ' ' + text);
+    return label;
+  }));
+  if (!entries.length) container.textContent = 'Пока нет доступных вариантов.';
+}
+
+async function selectChatGPTProfile() {
+  const configured = statusInfo?.chatgptAgentId;
+  $('chatgpt-profile-setup').hidden = Boolean(configured);
+  if (configured) return configured;
+  const { items } = await api('/api/owner/agents?limit=100');
+  const agents = items.filter((agent) => agent.clientKind === 'chatgpt' && agent.status === 'ACTIVE');
+  const select = $('chatgpt-profile-select');
+  select.replaceChildren(...agents.map((agent) => {
+    const option = element('option', '', agent.name);
+    option.value = agent.agentId;
+    return option;
+  }));
+  if (agents.some((agent) => agent.agentId === preparedChatGPTAgentId)) {
+    select.value = preparedChatGPTAgentId;
+  }
+  preparedChatGPTAgentId = select.value;
+  $('chatgpt-create-profile').hidden = agents.length > 0;
+  $('chatgpt-profile-id').value = preparedChatGPTAgentId;
+  $('chatgpt-profile-id-row').hidden = !preparedChatGPTAgentId;
+  return preparedChatGPTAgentId;
+}
+
+async function loadChatGPTGrant() {
+  const run = ++chatGPTGrantLoad;
+  const status = $('chatgpt-permission-status');
+  const form = $('chatgpt-grant-form');
+  form.hidden = true;
+  editingChatGPTGrant = null;
+  status.textContent = 'Загружаем текущие права…';
+  try {
+    const agentId = await selectChatGPTProfile();
+    if (run !== chatGPTGrantLoad) return;
+    if (!agentId) {
+      status.textContent = 'Создайте профиль, чтобы выбрать его права.';
+      return;
+    }
+    const [agent, projects, accounts] = await Promise.all([
+      api('/api/owner/agents/' + encodeURIComponent(agentId)),
+      api('/api/projects'), api('/api/accounts'),
+    ]);
+    if (run !== chatGPTGrantLoad) return;
+    const grant = agent.grant;
+    if (agent.status !== 'ACTIVE' || grant.publishMode === 'PREAPPROVED_POLICY') {
+      status.textContent = 'Для этого подключения требуется проверка настроек владельцем.';
+      return;
+    }
+    editingChatGPTGrant = grant;
+    renderGrantOptions($('chatgpt-grant-scopes'), [...chatGPTScopeLabels], grant.scopeIds);
+    renderGrantOptions($('chatgpt-grant-projects'), projects.map(({id, name}) => [id, name]), grant.projectIds);
+    renderGrantOptions($('chatgpt-grant-accounts'), accounts.map(({id, name}) => [id, name]), grant.accountIds);
+    $('chatgpt-grant-confirm').checked = false;
+    status.textContent = 'После изменения прав ChatGPT потребуется заново подключить. Права отправки здесь не меняются.';
+    form.hidden = false;
+  } catch (error) {
+    if (run === chatGPTGrantLoad) status.textContent = error.message;
+  }
+}
+
+$('chatgpt-profile-select').addEventListener('change', () => {
+  preparedChatGPTAgentId = $('chatgpt-profile-select').value;
+  void loadChatGPTGrant();
+});
+$('chatgpt-create-profile').addEventListener('click',guarded(async()=>{
+  const button = $('chatgpt-create-profile');
+  button.disabled = true;
+  chatGPTProfileRequestId ||= crypto.randomUUID();
+  try {
+    const agent = await api('/api/owner/agents', {
+      method: 'POST', headers: { 'Idempotency-Key': chatGPTProfileRequestId },
+      body: JSON.stringify({ name: 'ChatGPT', clientKind: 'chatgpt' }),
+    });
+    preparedChatGPTAgentId = agent.agentId;
+    chatGPTProfileRequestId = null;
+    await loadChatGPTGrant();
+  } finally {
+    button.disabled = false;
+  }
+}));
+$('chatgpt-permissions').addEventListener('toggle', () => {
+  if ($('chatgpt-permissions').open) void loadChatGPTGrant();
+});
+$('chatgpt-grant-all').addEventListener('click', () => {
+  for (const field of $('chatgpt-grant-form').querySelectorAll('fieldset input[type="checkbox"]')) field.checked = true;
+});
+$('chatgpt-grant-form').addEventListener('submit', guarded(async (event) => {
+  event.preventDefault();
+  const grant = editingChatGPTGrant;
+  if (!grant || !$('chatgpt-grant-confirm').checked) return;
+  const selected = (name) => [...$(name).querySelectorAll('input:checked')].map((field) => field.value);
+  const scopeIds = [...grant.scopeIds.filter((scope) => !chatGPTScopeLabels.has(scope)), ...selected('chatgpt-grant-scopes')];
+  await api('/api/owner/agents/' + encodeURIComponent(grant.agentId) + '/grant', {
+    method: 'PUT', headers: { 'Idempotency-Key': crypto.randomUUID() },
+    body: JSON.stringify({
+      expectedGrantVersion: grant.grantVersion, presetId: 'CUSTOM', publishMode: grant.publishMode,
+      scopeIds, projectIds: selected('chatgpt-grant-projects'), accountIds: selected('chatgpt-grant-accounts'),
+      sourceConnectorIds: grant.sourceConnectorIds, confirmElevation: true,
+    }),
+  });
+  await loadChatGPTGrant();
+  toast('Права ChatGPT сохранены.');
+}));
+
 async function saveConnection(event){
   event.preventDefault();
   let model=modelPicker.selected();

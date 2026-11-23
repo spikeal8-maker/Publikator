@@ -120,7 +120,16 @@ export async function registerChatGPTIssuer(app: FastifyInstance) {
   type ProviderConfig = NonNullable<ConstructorParameters<typeof Provider>[1]>;
   const signingKey = key as NonNullable<ProviderConfig['jwks']>['keys'][number];
 
-  const provider = new Provider(issuer, {
+  async function verifyBinding(grantId: string) {
+    const link = await bindings.find(grantId);
+    const live = currentGrant(settings!.agentId);
+    if (!live || link?.agentId !== live.agentId || link.tokenVersion !== live.tokenVersion
+      || link.grantVersion !== live.grantVersion || !Array.isArray(link.scopeIds)) return null;
+    const boundScopes = new Set(link.scopeIds);
+    return { ...live, scopeIds: live.scopeIds.filter((scope) => boundScopes.has(scope)) };
+  }
+
+  const provider: Provider = new Provider(issuer, {
     adapter,
     jwks: { keys: [signingKey] },
     clients: [{
@@ -157,6 +166,11 @@ export async function registerChatGPTIssuer(app: FastifyInstance) {
       },
     },
     interactions: { url: (_context, prompt) => interaction + '/' + prompt.uid },
+    async loadExistingGrant(context) {
+      const grantId = context.oidc.result?.consent?.grantId
+        || context.oidc.session?.grantIdFor(context.oidc.client!.clientId);
+      return grantId && await verifyBinding(grantId) ? provider.Grant.find(grantId) : undefined;
+    },
     pkce: { required: () => true },
     rotateRefreshToken: true,
     routes: { authorization, token, revocation: revoke, jwks: jwksPath },
@@ -286,15 +300,14 @@ export async function registerChatGPTIssuer(app: FastifyInstance) {
 
   return {
     resource,
+    agentId: settings.agentId,
     async authenticate(bearer: string): Promise<VerifiedChatGPTGrant | null> {
       const access = await provider.AccessToken.find(bearer);
       if (access?.aud !== resource || access.clientId !== settings.clientId || access.accountId !== 'owner' || !access.grantId) return null;
-      const link = await bindings.find(access.grantId);
-      const live = currentGrant(settings.agentId);
-      if (!live || link?.agentId !== live.agentId || link.tokenVersion !== live.tokenVersion
-        || link.grantVersion !== live.grantVersion || !Array.isArray(link.scopeIds)) return null;
+      const live = await verifyBinding(access.grantId);
+      if (!live) return null;
       const issued = new Set(access.scope?.split(' ') ?? []);
-      const scopeIds = live.scopeIds.filter((scope) => issued.has(scope) && (link.scopeIds as unknown[]).includes(scope));
+      const scopeIds = live.scopeIds.filter((scope) => issued.has(scope));
       return scopeIds.length ? { ...live, scopeIds } : null;
     },
   };
