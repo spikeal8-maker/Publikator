@@ -96,3 +96,7 @@ A coding agent adding schema `N+1` must update the migration ledger and satisfy 
 
 ## Schema 19 — owner-mcp-chat
 Additive owner-issued administrative MCP key hashes, encrypted AI provider configuration, encrypted chat history, durable chat runs and operation receipts. Existing schema 17/18 agent grants remain restricted; no key is issued or elevated during migration. Pending chat uploads are temporary (24 hours) and are not part of a canonical backup; attached canonical media are backed up normally. Downgrading to schema 16 requires restoring the verified pre-upgrade bundle, not starting an older image on the upgraded database.
+
+### Schema 21 — agent publication intents
+
+This additive migration records immutable requests tied to an exact agent draft revision, active grant, target accounts, credential and capability fingerprints, and requested UTC time. It does not enable READY or scheduler execution. A pending request remains non-executable after restore. Upgrade from schema 20 with the normal startup migrator and retain a canonical pre-upgrade bundle for rollback.

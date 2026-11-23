@@ -261,7 +261,7 @@ try {
       'publikator_attach_cloud_media', 'publikator_create_text_draft', 'publikator_edit_text_draft',
       'publikator_get_publication', 'publikator_get_publication_analytics', 'publikator_get_text_draft',
       'publikator_list_accounts', 'publikator_list_media_sources', 'publikator_list_projects',
-      'publikator_list_publications', 'publikator_list_text_drafts',
+      'publikator_list_publications', 'publikator_list_text_drafts', 'publikator_request_publication',
     ]);
     const projects = await client.callTool({ name: 'publikator_list_projects', arguments: {} });
     assert.equal(JSON.parse(projects.content[0].text).items[0].id, projectId);
@@ -292,6 +292,12 @@ try {
     const replay = await client.callTool({ name: 'publikator_create_text_draft', arguments: args });
     assert.equal(JSON.parse(replay.content[0].text).postId, doc.postId);
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM posts').get().n, before + 1);
+    const publishDenied = await client.callTool({ name: 'publikator_request_publication', arguments: {
+      postId: doc.postId, expectedContentVersion: doc.contentVersion, targetAccountIds: [accountId],
+      idempotencyKey: 'public-mcp-request-denied', when: { mode: 'NOW' },
+    } });
+    assert.equal(publishDenied.isError, true);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM agent_publication_intents').get().n, 0);
     assert.equal(db.prepare('SELECT origin FROM agent_activity_events WHERE post_id=?').get(doc.postId).origin, 'MCP');
     const listed = await client.callTool({ name: 'publikator_list_text_drafts', arguments: {} });
     assert.deepEqual(JSON.parse(listed.content[0].text).items.map((item) => item.postId), [doc.postId]);
