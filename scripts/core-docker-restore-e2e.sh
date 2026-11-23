@@ -6,6 +6,7 @@ set -Eeuo pipefail
 
 IMAGE_NAME="publikator-acceptance"
 CONTAINER_NAME="publikator-acceptance-smoke"
+VOLUME_NAME="publikator-acceptance-data-$$-$RANDOM"
 PORT="18080"
 PASSWORD="$PUBLIKATOR_TEST_ADMIN_PASSWORD"
 MASTER_KEY="$PUBLIKATOR_TEST_MASTER_KEY"
@@ -14,6 +15,7 @@ CURRENT_SCHEMA_VERSION="$(node scripts/current-schema-version.mjs)"
 
 cleanup() {
   docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+  docker volume rm "$VOLUME_NAME" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 trap 'printf "Production Docker restore acceptance failed near script line %s\n" "$LINENO" >&2' ERR
@@ -23,7 +25,11 @@ rm -rf /tmp/publikator-bundle-check /tmp/publikator-wrong-key
 rm -f "$COOKIE_FILE" /tmp/publikator-full.tgz /tmp/publikator-*.png
 
 docker build --pull=false -t "$IMAGE_NAME" .
+# Production Compose mounts /app/data. Exercise restore on the same writable
+# filesystem so replacing the media directory never renames an image-layer directory.
+docker volume create "$VOLUME_NAME" >/dev/null
 docker run -d --name "$CONTAINER_NAME" --restart unless-stopped -p "${PORT}:8080" \
+  --mount type=volume,source="$VOLUME_NAME",target=/app/data \
   -e ADMIN_PASSWORD="$PASSWORD" \
   -e APP_MASTER_KEY="$MASTER_KEY" \
   "$IMAGE_NAME" >/dev/null
