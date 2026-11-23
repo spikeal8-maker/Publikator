@@ -10,14 +10,14 @@ export function createModelPicker({api, getConnections, getEditId, onDiscoveryFa
   const rawUrl = () => $('provider-url').value.trim();
   const address = () => {
     const value = rawUrl();
-    if (kind() !== 'ollama' || !value || value.includes('://')) return value;
+    if (!isLocal() || !value || value.includes('://')) return value;
     const server = new URL('http://' + value);
-    if (!server.port && !/:(?:80)$/.test(value.split('/')[0])) server.port = '11434';
+    if (!server.port && !/:(?:80)$/.test(value.split('/')[0])) server.port = kind() === 'ollama' ? '11434' : '8080';
     return server.href;
   };
   const url = () => { try { return address(); } catch { return ''; } };
   const isLocal = () => ['ollama','llamacpp'].includes(kind());
-  const key = () => kind() === 'ollama' ? '' : $(isLocal() ? 'local-provider-key' : 'provider-key').value.trim();
+  const key = () => isLocal() ? '' : $('provider-key').value.trim();
   const oldConnection = () => getConnections().find(x => x.id === getEditId());
   const message = (text, level='') => {
     $('models-status').textContent = text;
@@ -27,7 +27,7 @@ export function createModelPicker({api, getConnections, getEditId, onDiscoveryFa
     const select = $('provider-model');
     select.replaceChildren(new Option('Выберите модель', ''));
     for (const m of models) {
-      const description = kind() === 'ollama' ? m.id : [
+      const description = isLocal() ? m.id : [
         m.label && m.label !== m.id ? m.label : m.id,
         m.parameterSize,
         m.cloud ? 'облачная модель Ollama' : null,
@@ -35,12 +35,12 @@ export function createModelPicker({api, getConnections, getEditId, onDiscoveryFa
       ].filter(Boolean).join(' · ');
       select.add(new Option(description, m.id));
     }
-    if (kind() !== 'ollama' && selected && !models.some(m => m.id === selected)) {
+    if (!isLocal() && selected && !models.some(m => m.id === selected)) {
       select.add(new Option(selected + ' (сохранённая модель, не обнаружена)', selected));
     }
     select.value = selected || '';
     last = models;
-    $('provider-model-row').hidden = kind() === 'ollama' && !models.length;
+    $('provider-model-row').hidden = isLocal() && !models.length;
     onModelsChange();
   }
   function compatibleSavedKey() {
@@ -49,7 +49,7 @@ export function createModelPicker({api, getConnections, getEditId, onDiscoveryFa
       existing.baseUrl.replace(/\/$/, '') === url().replace(/\/$/, ''));
   }
   function canQuery(showReason = true) {
-    if (!url()) { if (showReason) message(rawUrl() ? 'Проверьте адрес Ollama.' : (kind() === 'ollama' ? '' : 'Введите адрес сервера.'), 'info'); return false; }
+    if (!url()) { if (showReason) message(rawUrl() ? 'Проверьте адрес сервера.' : (isLocal() ? '' : 'Введите адрес сервера.'), 'info'); return false; }
     if (!isLocal() && !key() && !compatibleSavedKey()) {
       if (showReason) message('Для ' + $('provider-kind').selectedOptions[0].text +
         ' нужен API-ключ. Укажите его, и список моделей загрузится автоматически.', 'info');
@@ -58,7 +58,7 @@ export function createModelPicker({api, getConnections, getEditId, onDiscoveryFa
     return true;
   }
   function selected() {
-    return (kind() === 'ollama' ? '' : $('provider-manual-model').value.trim()) || $('provider-model').value || '';
+    return (isLocal() ? '' : $('provider-manual-model').value.trim()) || $('provider-model').value || '';
   }
   function providerHint() {
     const p=kind();
@@ -71,10 +71,8 @@ export function createModelPicker({api, getConnections, getEditId, onDiscoveryFa
     $('provider-guide').textContent = hostHint;
     $('provider-key').required = !isLocal() && !compatibleSavedKey();
     $('provider-key-row').hidden = isLocal();
-    $('local-provider-key-row').hidden = !isLocal();
     const placeholder = compatibleSavedKey() ? 'Ключ сохранён' : '';
     $('provider-key').placeholder = placeholder || 'Введите API-ключ';
-    $('local-provider-key').placeholder = placeholder;
   }
   async function discover({quiet = false} = {}) {
     const id = ++serial;
@@ -94,14 +92,14 @@ export function createModelPicker({api, getConnections, getEditId, onDiscoveryFa
         response.models.map(name=>({id:name,label:name,cloud:false}));
       const previouslySelected = selected() || currentModel;
       const candidate = details.some(x=>x.id === previouslySelected) ?
-        previouslySelected : (kind() === 'ollama' && details.length !== 1 ? '' : (response.suggestedModel || details[0]?.id || ''));
+        previouslySelected : (isLocal() && details.length !== 1 ? '' : (response.suggestedModel || details[0]?.id || ''));
       setOptions(details, candidate);
-      message(details.length && kind() === 'ollama' ? '' : (details.length ? 'Найдено моделей: '+details.length+'.' : 'На сервере нет моделей.'), details.length ? 'ok' : 'info');
+      message(details.length && isLocal() ? '' : (details.length ? 'Найдено моделей: '+details.length+'.' : 'На сервере нет моделей.'), details.length ? 'ok' : 'info');
       if (!quiet && !details.length) throw new Error('Провайдер не вернул доступных моделей.');
       return details;
     } catch(error) {
       if (id === serial) {
-        if (kind() === 'ollama') setOptions([], '');
+        if (isLocal()) setOptions([], '');
         const reason = error instanceof Error ? error.message : 'Ошибка соединения';
         message('Не удалось получить список: ' + reason, 'error');
         if (existing?.baseUrl.replace(/\/$/, '') === body.baseUrl.replace(/\/$/, '')) onDiscoveryFailure(existing.id);

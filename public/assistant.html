@@ -35,28 +35,25 @@
   </div>
   <h3>Модели в чате</h3>
   <div id="overview-models" class="settings-connections"></div>
+  <button type="button" id="add-local-server" hidden>Добавить ещё один локальный сервер</button>
   <label>Модель по умолчанию для этого браузера<select id="default-connection"></select></label>
 </section>
 <section role="tabpanel" id="settings-panel-local" aria-labelledby="settings-tab-local" hidden>
-  <div class="settings-section-head"><h3>Подключения в локальной сети</h3>
-    <div class="provider-actions">
-      <button type="button" class="primary" data-new-provider="ollama">Добавить Ollama</button>
-      <button type="button" data-new-provider="llamacpp">Добавить llama.cpp</button>
-    </div>
+  <div class="form-grid">
+    <label>Провайдер<select id="local-provider"><option value="ollama">Ollama</option><option value="llamacpp">llama.cpp</option></select></label>
+    <label id="local-server-row" hidden>Сохранённый сервер<select id="local-server"></select></label>
   </div>
-  <div id="local-connections" class="settings-connections"></div>
   <section id="model-editor" class="model-editor" hidden aria-labelledby="model-editor-title">
-    <div class="settings-section-head"><h4 id="model-editor-title">Подключение</h4><button id="model-editor-close" type="button">Закрыть форму</button></div>
+    <div class="settings-section-head" id="model-editor-head"><h4 id="model-editor-title">Подключение</h4><button id="model-editor-close" type="button">Закрыть форму</button></div>
     <select id="provider-kind" hidden aria-label="Провайдер"></select>
   <form id="connection-form">
 <div class="form-grid" id="provider-name-row">
-<label>Название в чате <span class="muted">(необязательно)</span><input id="provider-name" maxlength="120" placeholder="Например: Ollama — рабочий компьютер"></label>
+<label>Название в чате <span class="muted">(необязательно)</span><input id="provider-name" maxlength="120" placeholder="Например: DeepSeek для редакции"></label>
 </div>
 <label id="provider-url-row"><span id="provider-url-label">Адрес Ollama</span><input id="provider-url" type="url" required aria-describedby="provider-guide"></label>
 <details id="provider-help" class="connection-help">
   <summary aria-label="Как настроить адрес и ключ" title="Как настроить адрес и ключ">ⓘ <span>Справка по подключению</span></summary>
   <p class="provider-guide" id="provider-guide"></p>
-  <label id="local-provider-key-row" hidden>Ключ сервера <span class="muted">(если настроен)</span><input id="local-provider-key" type="password" autocomplete="new-password"></label>
 </details>
 <label id="provider-key-row">API-ключ<input id="provider-key" type="password" autocomplete="new-password" placeholder="Введите ключ провайдера"></label>
 <div class="models-chooser" id="provider-model-row">

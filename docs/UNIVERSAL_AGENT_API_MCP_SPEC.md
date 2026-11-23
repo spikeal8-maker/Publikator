@@ -18,7 +18,7 @@
 
 Используемые клиенты не обязаны знать слова `ContentRevision`, `READY`, `Queue`, `TargetRendition` и устройство SQLite. API может содержать эти понятия внутри, но возвращает понятно названные действия, статусы и инструкции исправления.
 
-**MUST:** одна каноническая бизнес-операция и единая проверка прав для Web UI, REST API и MCP. **MUST NOT:** самостоятельный publisher в MCP, отдельный scheduler, вторая runtime-БД, дублирующий контур публикации. **MUST NOT:** отправлять реальные публичные посты по умолчанию или менять рабочий D2-R2 в ходе разработки/тестов.
+**MUST:** одна каноническая бизнес-операция и единая проверка прав для Web UI, REST API и MCP. **MUST NOT:** самостоятельный publisher в MCP, отдельный scheduler, вторая runtime-БД, дублирующий контур публикации. **MUST NOT:** отправлять реальные публичные посты по умолчанию или менять рабочий экземпляр Publikator в ходе разработки/тестов.
 
 ### 0.1 Что уже существует: не реализовывать повторно
 
@@ -151,9 +151,9 @@ Client ID Metadata Documents (CIMD) — приоритетный способ р
 
 ### 4.3 Деплой транспорта
 
-Вариант A: HTTPS remote `/mcp` за доверенным reverse proxy с OAuth. Вариант B: официально поддерживаемый Secure MCP Tunnel для приватного D2-R2. Вариант C: локальный stdio bridge у поддерживаемого клиента, вызывающий те же application services/REST с собственным credential.
+Вариант A: HTTPS remote `/mcp` за доверенным reverse proxy с OAuth. Вариант B: официально поддерживаемый Secure MCP Tunnel для приватного экземпляра. Вариант C: локальный stdio bridge у поддерживаемого клиента, вызывающий те же application services/REST с собственным credential.
 
-На D2-R2 текущий Publikator слушает `127.0.0.1:8080` — НЕ открывать напрямую на `0.0.0.0` ради агента. При публичном ingress публиковать только утверждённые пути, сохранить loopback внутренней службы, SSL/TLS, exact forwarded proxy trust, request limits. Настройка tunnel/domain — отдельное acceptance, не часть фиктивного «CI уже подключил ChatGPT».
+Если Publikator слушает `127.0.0.1:8080`, не открывать напрямую на `0.0.0.0` ради агента. При публичном ingress публиковать только утверждённые пути, сохранить loopback внутренней службы, SSL/TLS, exact forwarded proxy trust, request limits. Настройка tunnel/domain — отдельное acceptance, не часть фиктивного «CI уже подключил ChatGPT».
 
 ## 5. REST Agent API — контракт
 
@@ -337,7 +337,7 @@ Desktop — плотная таблица, телефон 320/390px — комп
 - На каждый milestone выполнить реальную миграцию из N−1, idempotency, dedicated `schema-vN`, канонический `backup-vN`, restart/rollback по `RELEASE_MIGRATION_POLICY.md`. Не делать silent downgrade или `docker compose down -v`.
 - Canonical backup включает SQLite + media + manifest; новым таблицам нельзя исчезнуть из restore. `APP_MASTER_KEY` остаётся отдельно и не публикуется.
 - В существующем Docker image зафиксировать build SHA/schema; staging release health + API/MCP readiness, затем авторизованная live-проверка.
-- Доступность D2-R2 = только `127.0.0.1:8080`, пока владелец отдельно не одобрит ingress/tunnel; в документационном пакете серверные настройки не менять.
+- Приватный экземпляр доступен только через `127.0.0.1:8080`, пока владелец отдельно не одобрит ingress/tunnel; в документационном пакете серверные настройки не менять.
 - OAuth/provider credentials/Google SDK и любые secrets не записывать в GitHub/CI/log/PR. Проверить threat model до открытия внешнего MCP endpoint.
 
 ## 12. Стандартизованные проверки

@@ -12,6 +12,7 @@ const defaultConnectionKey = 'publikator.assistant.defaultConnection';
 let modelPanel = null;
 let connectionEditorVersion = 0;
 let pendingConnectionSave = false;
+let addingLocalServer = false;
 let defaultConnectionId = '';
 try { defaultConnectionId = localStorage.getItem(defaultConnectionKey) || ''; } catch {}
 const modelPicker=createModelPicker({api,getConnections:()=>connections,getEditId:()=>editId,onModelsChange:syncModelSave,onDiscoveryFailure:id=>{
@@ -40,7 +41,7 @@ function renderConnections(){
     const label = group === 'local' ? 'Локальные модели' : 'Облачные модели';
     const optionGroup = document.createElement('optgroup');
     optionGroup.label = label;
-    optionGroup.append(...choices.map((connection) => new Option(connection.name + ' · ' + connection.model, connection.id)));
+    optionGroup.append(...choices.map((connection) => new Option(connectionOption(connection), connection.id)));
     return [optionGroup];
   });
   picker.replaceChildren(...(enabled.length ? options() : [new Option('Подключите модель', '')]));
@@ -65,34 +66,27 @@ function renderConnectionCards() {
     return connectionChecks.get(c.id) || ('Требуется проверка подключения');
   };
   const local = connections.filter(c => connectionGroup(c) === 'local');
+  $('add-local-server').hidden = !local.length;
   const cloud = connections.filter(c => connectionGroup(c) === 'cloud');
   $('overview-local-count').textContent = local.filter(c => c.enabled).length;
   $('overview-cloud-count').textContent = cloud.filter(c => c.enabled).length;
-  const card = (c, allowRemove) => {
+  const card = c => {
     const item = element('div','connection-card');
     const info = element('div','connection-card-info');
     const provider = providerGroups[connectionGroup(c)][c.provider];
-    info.append(element('strong','',c.name),
-      element('span','muted',provider + ' · ' + c.model),
+    info.append(element('strong','',connectionTitle(c)),
+      element('span','muted',connectionGroup(c) === 'local' ? c.model : provider + ' · ' + c.model),
       element('span','connection-check',statusText(c)));
-    const edit = element('button','','Настроить');
+    const edit = element('button','','Открыть');
     edit.type = 'button';
-    edit.setAttribute('aria-label','Настроить ' + c.name);
+    edit.setAttribute('aria-label','Открыть ' + connectionOption(c));
     edit.onclick = () => openConnectionEditor(c.provider,c.id);
     item.append(info,edit);
-    if (allowRemove && c.provider === 'ollama') {
-      const remove = element('button','danger','Удалить');
-      remove.type = 'button';
-      remove.setAttribute('aria-label','Удалить ' + c.name);
-      remove.onclick = guarded(() => removeConnection(c.id));
-      item.append(remove);
-    }
     return item;
   };
-  const fill = (id, items, empty) => $(id).replaceChildren(...(items.length ? items.map(c => card(c,id === 'local-connections')) :
+  const fill = (id, items, empty) => $(id).replaceChildren(...(items.length ? items.map(card) :
     [element('p','muted',empty)]));
   fill('overview-models', connections.filter(c => c.enabled), 'Добавьте модель во вкладке локальных или облачных моделей.');
-  fill('local-connections', local, 'Локальных подключений пока нет.');
   fill('cloud-connections', cloud, 'Облачных подключений пока нет.');
 }
 function updateChatAccess() {
@@ -120,8 +114,7 @@ function syncAccessForm() {
 function renderModelAccessConnections() {
   const picker = $('model-access-connection');
   const previous = picker.value;
-  picker.replaceChildren(...(connections.length ? connections.map(({ id, name, model }) =>
-    new Option(name + ' · ' + model, id)) : [new Option('Нет подключений', '')]));
+  picker.replaceChildren(...(connections.length ? connections.map(c => new Option(connectionOption(c),c.id)) : [new Option('Нет подключений', '')]));
   if (connections.some(({ id }) => id === previous)) picker.value = previous;
   syncAccessForm();
 }
@@ -155,54 +148,85 @@ $('model-access-form').addEventListener('submit', guarded(async (event) => {
 }));
 
 async function refreshConnections(){connections=(await api('/api/assistant/connections')).connections;renderConnections();}
+function connectionTitle(connection) {
+  if (connectionGroup(connection) !== 'local') return connection.name;
+  const provider = providerGroups.local[connection.provider];
+  const same = connections.filter(c => c.provider === connection.provider && c.model === connection.model)
+    .sort((left,right) => left.id.localeCompare(right.id));
+  return same.length > 1 ? provider + ' ' + (same.findIndex(c => c.id === connection.id) + 1) : provider;
+}
+
+function connectionOption(connection) {
+  return connectionTitle(connection) + ' · ' + connection.model;
+}
+
+function localConnections(provider) {
+  return connections.filter(c => c.provider === provider);
+}
+
+function showDefaultLocalConnection() {
+  const local = connections.filter(c => connectionGroup(c) === 'local');
+  const connection = local.find(c => c.id === $('connection-select').value) || local[0];
+  openConnectionEditor(connection?.provider || 'ollama',connection?.id);
+}
+
 function closeConnectionEditor() {
   connectionEditorVersion++;
   $('model-editor').hidden = true;
   $('provider-key').value = '';
-  $('local-provider-key').value = '';
   modelPicker.cancel();
   editId = null;
 }
 function syncModelSave() {
-  $('save-connection').disabled = pendingConnectionSave || ($('provider-kind').value === 'ollama' && !modelPicker.selected());
+  $('save-connection').disabled = pendingConnectionSave || (connectionGroup({provider:$('provider-kind').value}) === 'local' && !modelPicker.selected());
 }
 $('provider-model').addEventListener('change',syncModelSave);
 
 function openConnectionEditor(provider, id = null, options = {}) {
   connectionEditorVersion++;
   const group = connectionGroup({provider});
-  if (modelPanel !== group) activateSettings(group);
+  if (modelPanel !== group) activateSettings(group,{openLocal:false});
   const connection = connections.find(c => c.id === id && c.provider === provider);
   editId = connection?.id || null;
   const label = providerGroups[group][provider];
   $('provider-kind').replaceChildren(new Option(label, provider));
   const local = group === 'local';
-  const ollama = provider === 'ollama';
-  $('provider-name-row').hidden = ollama;
-  $('provider-help').hidden = ollama;
-  $('manual-model-options').hidden = ollama;
-  $('save-connection').textContent = ollama ? 'Сохранить' : 'Проверить и сохранить';
-  $('provider-url').type = ollama ? 'text' : 'url';
-  $('provider-name').value = connection?.name || '';
+  $('provider-name-row').hidden = local;
+  $('provider-help').hidden = local;
+  $('manual-model-options').hidden = local;
+  $('save-connection').textContent = local ? 'Сохранить' : 'Проверить и сохранить';
+  $('provider-url').type = local ? 'text' : 'url';
+  if (local) $('provider-url').removeAttribute('aria-describedby');
+  else $('provider-url').setAttribute('aria-describedby','provider-guide');
+  $('provider-name').value = local ? '' : connection?.name || '';
+  $('model-editor-head').hidden = local;
+  if (local) {
+    $('local-provider').value = provider;
+    const servers = localConnections(provider);
+    const server = $('local-server');
+    server.replaceChildren(...(connection ? [] : [new Option('Новый адрес','')]),
+      ...servers.map(c => new Option(c.baseUrl,c.id)));
+    server.value = editId || '';
+    $('local-server-row').hidden = servers.length < 2 && Boolean(connection || !servers.length);
+  }
   $('provider-url').value = connection?.baseUrl || defaults[provider];
-  $('provider-url-label').textContent = ollama ? 'Адрес Ollama' : local ? 'Сетевой адрес сервера' : 'Адрес API';
+  $('provider-url-label').textContent = local ? 'Адрес сервера' : 'Адрес API';
   $('provider-url-row').hidden = !local && provider !== 'compatible';
   $('provider-url').placeholder = local ? (provider === 'ollama' ? '192.168.1.50:11434' : 'http://192.168.1.50:8080') : 'https://example.com/v1';
   $('provider-key').value = '';
-  $('local-provider-key').value = '';
   $('provider-help').open = false;
-  $('model-editor-title').textContent = connection ? 'Настроить ' + connection.name : 'Подключить ' + label;
+  $('model-editor-title').textContent = local ? label : (connection ? 'Настроить ' + connection.name : 'Подключить ' + label);
   $('settings-panel-' + group).append($('model-editor'));
-  $('model-editor').dataset.provider = provider;
+  $('model-editor').classList.toggle('local-model-editor',local);
   $('model-editor').hidden = false;
-  $('delete-connection').hidden = !connection || ollama;
+  $('delete-connection').hidden = !connection || local;
   modelPicker.selectExisting(connection,options);
 }
 
 const settingsTabs = [...$('settings').querySelectorAll('[role="tab"]')];
 let chatGPTGrantLoaded = false;
 
-function activateSettings(tabName, { focus = false } = {}) {
+function activateSettings(tabName, { focus = false, openLocal = true } = {}) {
   const selected = $('settings-tab-' + tabName);
   for (const tab of settingsTabs) {
     const active = tab === selected;
@@ -211,8 +235,13 @@ function activateSettings(tabName, { focus = false } = {}) {
     $(tab.getAttribute('aria-controls')).hidden = !active;
   }
   if (tabName !== 'mcp') clearNewMcpKey();
-  if (modelPanel !== tabName) closeConnectionEditor();
+  const changed = modelPanel !== tabName;
+  if (changed) {
+    closeConnectionEditor();
+    addingLocalServer = false;
+  }
   modelPanel = tabName;
+  if (changed && tabName === 'local' && openLocal) showDefaultLocalConnection();
   if (tabName === 'access' && !chatGPTGrantLoaded) {
     chatGPTGrantLoaded = true;
     void loadChatGPTGrant();
@@ -225,6 +254,7 @@ async function openSettings(tab = 'general'){
   activateSettings(tab);
   $('settings').showModal();
   await Promise.all([refreshConnections(), refreshKeys()]);
+  if ($('settings').open && modelPanel === 'local' && !editId && !addingLocalServer && !$('provider-url').value) showDefaultLocalConnection();
   statusInfo = await api('/api/assistant/status');
   $('mcp-url').value = statusInfo.mcpUrl;
   renderChatGPTMcp();
@@ -236,6 +266,19 @@ document.querySelectorAll('[data-new-provider]').forEach(button =>
     $('model-editor').querySelector('input:not([type=hidden])').focus();
   }));
 $('model-editor-close').onclick = closeConnectionEditor;
+$('local-provider').addEventListener('change', event => {
+  const provider = event.target.value;
+  openConnectionEditor(provider,addingLocalServer ? null : localConnections(provider)[0]?.id);
+});
+$('local-server').addEventListener('change', event => {
+  addingLocalServer = !event.target.value;
+  openConnectionEditor($('local-provider').value,event.target.value);
+});
+$('add-local-server').onclick = () => {
+  openConnectionEditor($('local-provider').value);
+  addingLocalServer = true;
+  $('provider-url').focus();
+};
 
 function clearNewMcpKey() {
   $('new-key-value').value = '';
@@ -450,7 +493,7 @@ async function saveConnection(event) {
     modelPicker.cancel();
     modelPicker.message('Проверяем ответ модели…','pending');
     const data = {
-      name:provider === 'ollama' ? (old?.name || 'Ollama · '+new URL(modelPicker.address()).host) : ($('provider-name').value.trim() || $('provider-kind').selectedOptions[0].text),
+      name:connectionGroup({provider}) === 'local' ? providerGroups.local[provider] : ($('provider-name').value.trim() || $('provider-kind').selectedOptions[0].text),
       provider,baseUrl:modelPicker.address(),model,apiKey:modelPicker.key(),verify:true,
       ...(old ? {id:old.id,expectedRevision:old.revision,enabled:old.enabled} : {}),
     };
@@ -458,6 +501,7 @@ async function saveConnection(event) {
     connectionChecks.set(saved.id,saved.verification.toolCalling ? 'Модель и инструменты проверены' : 'Модель отвечает');
     await refreshConnections();
     if (!isCurrent()) return;
+    addingLocalServer = false;
     openConnectionEditor(provider,saved.id,{discoverModels:false,models:modelPicker.models()});
     $('connection-select').value=saved.id;
     updateChatAccess();
@@ -484,7 +528,6 @@ $('new-thread').addEventListener('click',guarded(newThread));$('settings-open').
 $('connection-form').addEventListener('submit',guarded(saveConnection));
 $('provider-url').addEventListener('input',()=>modelPicker.onEndpointChange());
 $('provider-key').addEventListener('input',()=>modelPicker.onEndpointChange());
-$('local-provider-key').addEventListener('input',()=>modelPicker.onEndpointChange());
 $('provider-manual-model').addEventListener('change',()=>{
   if($('provider-manual-model').value.trim())modelPicker.message('Используется вручную указанная модель. Проверка инструментов выполняется после сохранения.','info');
 });
