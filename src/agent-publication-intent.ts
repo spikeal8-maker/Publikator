@@ -16,7 +16,7 @@ type Request = {
 };
 type Preflight = {
   ok: boolean;
-  issues: Array<{ accountId: string; code: string; severity: 'error' | 'warning' }>;
+  issues: Array<{ accountId: string; code: string; severity: 'error' | 'warning' | 'info' }>;
 };
 type IntentRow = {
   id: string; post_id: string; revision_id: string; content_version: number; target_ids_json: string;
