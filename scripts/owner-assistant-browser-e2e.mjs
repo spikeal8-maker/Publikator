@@ -18,7 +18,7 @@ const formattedAnswer=['## Готово','**Тестовый черновик** 
 let advertisedWrites;
 const mock=http.createServer(async(req,res)=>{
   res.setHeader('content-type','application/json');
-  if(req.url==='/api/tags'){res.end(JSON.stringify({models:[{name:'fixture-model'}]}));return;}
+  if(req.url==='/api/tags'){const models=[{name:'fixture-model'}];if(req.socket.localPort===secondMock.address()?.port)models.push({name:'second-fixture'});res.end(JSON.stringify({models}));return;}
   if(req.url!=='/api/chat'){res.writeHead(404).end();return;}
   let data='';for await(const chunk of req)data+=chunk;const b=JSON.parse(data);
   let message;
@@ -78,21 +78,20 @@ try{
   await page.getByRole('button',{name:'Добавить Ollama',exact:true}).click();
   assert.equal(await page.locator('#provider-kind').inputValue(), 'ollama');
   assert.equal(await page.locator('#provider-key').isVisible(),false);
-  await page.locator('#provider-name').fill('Ollama первый');
+  for (const id of ['provider-help','provider-name','local-provider-key','provider-manual-model','provider-model']) {
+    assert.equal(await page.locator('#'+id).isVisible(),false);
+  }
   assert.equal(await page.locator('#provider-url').inputValue(), '');
-  await page.locator('#provider-url').fill(modelUrl);
-  await page.locator('#provider-name').focus();
-  await page.waitForFunction(()=>document.querySelector('#models-status')?.textContent?.includes('Найдено моделей: 1'));
-  await page.locator('#provider-url').fill('http://127.0.0.1:9');
-  assert.equal(await page.locator('#provider-model').inputValue(),'');
+  await page.locator('#provider-url').fill(new URL(modelUrl).host);
+  await page.waitForFunction(()=>document.querySelector('#provider-model')?.value==='fixture-model');
+  await page.locator('#provider-url').fill('127.0.0.1:9');
+  assert.equal(await page.locator('#provider-model').isVisible(),false);
   await page.waitForFunction(()=>document.querySelector('#models-status')?.textContent?.includes('Модель не ответила'));
-  await page.locator('#provider-url').fill(modelUrl);
-  await page.locator('#provider-name').focus();
-  await page.waitForFunction(()=>document.querySelector('#models-status')?.textContent?.includes('Найдено моделей: 1') && document.querySelector('#provider-model')?.value==='fixture-model');
-  assert.equal(await page.locator('#provider-model').inputValue(),'fixture-model');
+  assert.equal(await page.getByRole('button',{name:'Сохранить',exact:true}).isEnabled(),false);
+  await page.locator('#provider-url').fill(new URL(modelUrl).host);
+  await page.waitForFunction(()=>document.querySelector('#provider-model')?.value==='fixture-model');
   assert.equal(await page.locator('#provider-model option').count(),2);
-  assert.equal(await page.locator('#provider-manual-model').inputValue(),'');
-  pass('Ollama model list appears automatically as a real select, with no manual ID');
+  pass('Ollama accepts address without scheme and only shows models returned by that server');
   const metadata=await context.request.post(base+'/api/assistant/discover-models',{headers:{origin:base},data:{provider:'ollama',baseUrl:modelUrl}});
   assert.equal(metadata.status(),200);const details=await metadata.json();
   assert.equal(details.modelDetails[0].id,'fixture-model');assert.equal(details.reachable,true);
@@ -105,9 +104,11 @@ try{
   pass('save automatically selects model and verifies a real tool roundtrip');
   const savedId=await page.locator('#connection-select').inputValue();
   await page.getByRole('button',{name:'Добавить Ollama',exact:true}).click();
-  await page.locator('#provider-name').fill('Ollama второй');
   await page.locator('#provider-url').fill(secondModelUrl);
-  await page.waitForFunction(()=>document.querySelector('#provider-model')?.value==='fixture-model');
+  await page.waitForFunction(()=>document.querySelector('#provider-model option[value="second-fixture"]'));
+  assert.equal(await page.locator('#provider-model').inputValue(),'');
+  assert.equal(await page.getByRole('button',{name:'Сохранить',exact:true}).isEnabled(),false);
+  await page.locator('#provider-model').selectOption('second-fixture');
   await page.locator('#connection-form button[type=submit]').click();
   await page.waitForFunction(()=>document.querySelector('#models-status')?.textContent?.includes('Сохранено. Модель отвечает и умеет вызывать инструменты.'));
   assert.equal(await page.locator('#local-connections .connection-card').count(),2);
@@ -123,7 +124,7 @@ try{
   assert.equal(await page.locator('#provider-model').inputValue(),'');
   pass('OpenAI and DeepSeek have distinct entry points and preset endpoints');
   await tabs.getByRole('tab', { name: 'Локальные модели', exact: true }).click();
-  await page.getByRole('button',{name:'Настроить Ollama первый',exact:true}).click();
+  await page.getByRole('button',{name:'Настроить Ollama · '+new URL(modelUrl).host,exact:true}).click();
   await page.waitForFunction(()=>document.querySelector('#provider-model')?.value==='fixture-model');
   assert.equal(await page.locator('#provider-url').inputValue(),modelUrl);
   pass('two Ollama endpoints are saved independently and can be reopened');
@@ -134,7 +135,7 @@ try{
   }});
   assert.equal(failed.status(),502);
   assert.deepEqual(db.prepare('SELECT * FROM owner_ai_connections WHERE id=?').get(savedId),good);
-  assert.equal(await page.getByRole('button',{name:'Проверить и сохранить',exact:true}).count(),1);
+  assert.equal(await page.getByRole('button',{name:'Сохранить',exact:true}).count(),1);
   assert.equal(await page.getByRole('button',{name:'Проверить соединение',exact:true}).count(),0);
   pass('failed provider verification leaves the stored model and revision intact');
   await general.click();

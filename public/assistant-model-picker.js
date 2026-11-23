@@ -3,13 +3,21 @@
  * discovery works. Tool-use readiness is verified separately by the saved
  * connection's harmless publikator_connection_probe.
  */
-export function createModelPicker({api, getConnections, getEditId, onDiscoveryFailure}) {
+export function createModelPicker({api, getConnections, getEditId, onDiscoveryFailure, onModelsChange}) {
   const $ = id => document.getElementById(id);
   let serial = 0, timer = null, last = [], currentModel = '';
   const kind = () => $('provider-kind').value;
-  const url = () => $('provider-url').value.trim();
+  const rawUrl = () => $('provider-url').value.trim();
+  const address = () => {
+    const value = rawUrl();
+    if (kind() !== 'ollama' || !value || value.includes('://')) return value;
+    const server = new URL('http://' + value);
+    if (!server.port && !/:(?:80)$/.test(value.split('/')[0])) server.port = '11434';
+    return server.href;
+  };
+  const url = () => { try { return address(); } catch { return ''; } };
   const isLocal = () => ['ollama','llamacpp'].includes(kind());
-  const key = () => $(isLocal() ? 'local-provider-key' : 'provider-key').value.trim();
+  const key = () => kind() === 'ollama' ? '' : $(isLocal() ? 'local-provider-key' : 'provider-key').value.trim();
   const oldConnection = () => getConnections().find(x => x.id === getEditId());
   const message = (text, level='') => {
     $('models-status').textContent = text;
@@ -19,7 +27,7 @@ export function createModelPicker({api, getConnections, getEditId, onDiscoveryFa
     const select = $('provider-model');
     select.replaceChildren(new Option('Выберите модель', ''));
     for (const m of models) {
-      const description = [
+      const description = kind() === 'ollama' ? m.id : [
         m.label && m.label !== m.id ? m.label : m.id,
         m.parameterSize,
         m.cloud ? 'облачная модель Ollama' : null,
@@ -27,12 +35,13 @@ export function createModelPicker({api, getConnections, getEditId, onDiscoveryFa
       ].filter(Boolean).join(' · ');
       select.add(new Option(description, m.id));
     }
-    if (selected && !models.some(m => m.id === selected)) {
+    if (kind() !== 'ollama' && selected && !models.some(m => m.id === selected)) {
       select.add(new Option(selected + ' (сохранённая модель, не обнаружена)', selected));
     }
     select.value = selected || '';
-    currentModel = select.value;
     last = models;
+    $('provider-model-row').hidden = kind() === 'ollama' && !models.length;
+    onModelsChange();
   }
   function compatibleSavedKey() {
     const existing = oldConnection();
@@ -40,7 +49,7 @@ export function createModelPicker({api, getConnections, getEditId, onDiscoveryFa
       existing.baseUrl.replace(/\/$/, '') === url().replace(/\/$/, ''));
   }
   function canQuery(showReason = true) {
-    if (!url()) { if (showReason) message('Введите сетевой адрес сервера.', 'info'); return false; }
+    if (!url()) { if (showReason) message(rawUrl() ? 'Проверьте адрес Ollama.' : (kind() === 'ollama' ? '' : 'Введите адрес сервера.'), 'info'); return false; }
     if (!isLocal() && !key() && !compatibleSavedKey()) {
       if (showReason) message('Для ' + $('provider-kind').selectedOptions[0].text +
         ' нужен API-ключ. Укажите его, и список моделей загрузится автоматически.', 'info');
@@ -49,7 +58,7 @@ export function createModelPicker({api, getConnections, getEditId, onDiscoveryFa
     return true;
   }
   function selected() {
-    return $('provider-manual-model').value.trim() || $('provider-model').value || '';
+    return (kind() === 'ollama' ? '' : $('provider-manual-model').value.trim()) || $('provider-model').value || '';
   }
   function providerHint() {
     const p=kind();
@@ -83,17 +92,16 @@ export function createModelPicker({api, getConnections, getEditId, onDiscoveryFa
       if (id !== serial) return [];
       const details = Array.isArray(response.modelDetails) ? response.modelDetails :
         response.models.map(name=>({id:name,label:name,cloud:false}));
-      const previouslySelected = selected();
+      const previouslySelected = selected() || currentModel;
       const candidate = details.some(x=>x.id === previouslySelected) ?
-        previouslySelected : (response.suggestedModel || details[0]?.id || '');
+        previouslySelected : (kind() === 'ollama' && details.length !== 1 ? '' : (response.suggestedModel || details[0]?.id || ''));
       setOptions(details, candidate);
-      message('Найдено моделей: ' + details.length +
-        (candidate ? '. Выбрана: ' + candidate + '.' : '.'),
-        details.length ? 'ok' : 'info');
+      message(details.length && kind() === 'ollama' ? '' : (details.length ? 'Найдено моделей: '+details.length+'.' : 'На сервере нет моделей.'), details.length ? 'ok' : 'info');
       if (!quiet && !details.length) throw new Error('Провайдер не вернул доступных моделей.');
       return details;
     } catch(error) {
       if (id === serial) {
+        if (kind() === 'ollama') setOptions([], '');
         const reason = error instanceof Error ? error.message : 'Ошибка соединения';
         message('Не удалось получить список: ' + reason, 'error');
         if (existing?.baseUrl.replace(/\/$/, '') === body.baseUrl.replace(/\/$/, '')) onDiscoveryFailure(existing.id);
@@ -108,11 +116,11 @@ export function createModelPicker({api, getConnections, getEditId, onDiscoveryFa
     if (!canQuery(true)) return;
     timer = setTimeout(() => { timer=null; void discover({quiet:true}); }, 400);
   }
-  function selectExisting(c, {discoverModels = true} = {}) {
+  function selectExisting(c, {discoverModels = true, models = []} = {}) {
     cancel();
     $('provider-manual-model').value = '';
     currentModel = c?.model || '';
-    setOptions([], currentModel);
+    setOptions(models, currentModel);
     providerHint();
     if (discoverModels) schedule();
 
@@ -120,10 +128,11 @@ export function createModelPicker({api, getConnections, getEditId, onDiscoveryFa
   function onEndpointChange() {
     cancel();
     $('provider-manual-model').value = '';
+    currentModel = '';
     setOptions([], '');
-    message('Адрес или ключ изменён. Обновляю список моделей…', 'pending');
+    message('Загружаем модели…', 'pending');
     schedule();
   }
   return {discover, schedule, cancel, selectExisting, onEndpointChange,
-    selected, message, key};
+    selected, message, key, address, models:()=>last};
 }

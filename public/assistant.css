@@ -2,14 +2,14 @@
 
 /* Compact provider connection state and discoverable model selection */
 .provider-guide{font-size:12px;line-height:1.5;color:#556d81;margin:0 0 12px;padding:8px 11px;background:#f3f7fa;border-radius:8px}
-.models-chooser{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:10px;margin:10px 0 0}
-.models-chooser label{margin:0}.models-chooser button{white-space:nowrap;font-size:12px}
+.models-chooser{margin:10px 0 0}
+.models-chooser label{margin:0}
 .models-status{font-size:12px;line-height:1.5;margin:7px 0 14px;color:#5b7184;overflow-wrap:anywhere}
 .models-status.ok{color:#176847}.models-status.error{color:#a32929}.models-status.pending{color:#455e83}
 .manual-model,.mcp-help{border:1px solid var(--line);border-radius:9px;padding:10px 12px;margin:10px 0 14px}
 .manual-model summary,.mcp-help summary{font-size:12px;font-weight:600;cursor:pointer;color:#365972}
 .manual-model label{margin:9px 0 0}.mcp-help p{line-height:1.6;font-size:12px;margin:10px 0}
-@media(max-width:500px){.models-chooser{grid-template-columns:minmax(0,1fr)}.models-chooser button{width:max-content;max-width:100%}}
+
 
 .settings-tabs {
   display: flex;
@@ -84,6 +84,9 @@
 .connection-card-info strong{overflow-wrap:anywhere}
 .connection-check{margin-top:3px}
 .model-editor{margin-top:18px}
+.model-editor[data-provider=ollama]{border:0;padding:0}
+.model-editor[data-provider=ollama] .models-status:empty{margin:0}
+.model-editor[data-provider=ollama] .buttons{margin-top:12px}
 .provider-actions{display:flex;flex-wrap:wrap;gap:8px}
 .connection-help summary{cursor:pointer;font-size:.9rem}
 .connection-help[open]{padding-bottom:8px}
