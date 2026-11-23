@@ -59,11 +59,6 @@ jobs:
       - name: AGENT-A0c OAuth route and fault-design contracts
         run: node scripts/agent-contract-a0c-e2e.mjs
 
-      - name: AGENT-A1c OAuth provider compatibility
-        run: |
-          npm ci --prefix scripts/fixtures/oauth-compatibility --ignore-scripts --no-audit --no-fund
-          node scripts/agent-a1c-oauth-compatibility-e2e.mjs scripts/fixtures/oauth-compatibility
-
       - name: TypeScript strict check
         run: npm run typecheck
 
@@ -646,6 +641,11 @@ jobs:
 
       - name: Install locked dependencies
         run: npm ci --no-audit --no-fund
+
+      - name: AGENT-A1c OAuth provider compatibility
+        run: |
+          npm ci --prefix scripts/fixtures/oauth-compatibility --ignore-scripts --no-audit --no-fund
+          node scripts/agent-a1c-oauth-compatibility-e2e.mjs scripts/fixtures/oauth-compatibility
 
       - name: TypeScript strict check
         run: npm run typecheck
