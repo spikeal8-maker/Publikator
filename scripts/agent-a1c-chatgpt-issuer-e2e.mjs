@@ -78,7 +78,7 @@ try {
   const challenge = createHash('sha256').update(verifier).digest('base64url');
   const query = new URLSearchParams({
     client_id: clientId, response_type: 'code', redirect_uri: callback, resource, state,
-    scope: ['offline_access', 'publish:request', ...scopes].join(' '), prompt: 'consent',
+    scope: ['publish:request', ...scopes].join(' '), prompt: 'consent',
     code_challenge_method: 'S256', code_challenge: challenge,
   });
   let destination = new URL(metadata.authorization_endpoint + '?' + query);
@@ -164,7 +164,7 @@ try {
     method: 'POST', body: new URLSearchParams({ grant_type: 'authorization_code', client_id: clientId,
       client_secret: clientSecret, code, code_verifier: verifier, resource, redirect_uri: callback }),
   });
-  const tokens = await grant.json();
+  let tokens = await grant.json();
   assert.equal(grant.status, 200, tokens.error_description);
   assert.ok(tokens.access_token);
   assert.ok(tokens.refresh_token);
@@ -173,6 +173,36 @@ try {
   const saved = JSON.stringify(db.prepare('SELECT * FROM agent_oauth_artifacts').all());
   assert.ok(!saved.includes(tokens.access_token));
   assert.ok(!saved.includes(tokens.refresh_token));
+
+  const rotate = (refreshToken, extra = {}) => fetch(metadata.token_endpoint, {
+    method: 'POST', body: new URLSearchParams({ grant_type: 'refresh_token', client_id: clientId,
+      client_secret: clientSecret, refresh_token: refreshToken, ...extra }),
+  });
+  const previous = tokens;
+  db.prepare("UPDATE agent_oauth_artifacts SET expires_at=0 WHERE model IN ('AccessToken','Session')").run();
+  await app.close();
+  app = await buildApp();
+  await app.listen({ host: '127.0.0.1', port });
+  const expired = await fetch(resource, { method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: 'Bearer ' + previous.access_token }, body: '{}' });
+  assert.equal(expired.status, 401);
+  await expired.body?.cancel();
+  const wrongResource = await rotate(previous.refresh_token, { resource: origin + '/unapproved' });
+  assert.equal(wrongResource.status, 400);
+  await wrongResource.body?.cancel();
+  // Ordinary OAuth refresh clients need not repeat the original resource indicator.
+  const refreshed = await rotate(previous.refresh_token);
+  tokens = await refreshed.json();
+  assert.equal(refreshed.status, 200, tokens.error_description);
+  assert.ok(tokens.access_token && tokens.access_token !== previous.access_token);
+  assert.ok(tokens.refresh_token && tokens.refresh_token !== previous.refresh_token);
+  assert.deepEqual(tokens.scope.split(' ').sort(), scopes);
+  const rotatedAgain = await rotate(tokens.refresh_token, { resource });
+  const latest = await rotatedAgain.json();
+  assert.equal(rotatedAgain.status, 200, latest.error_description);
+  assert.ok(latest.refresh_token && latest.refresh_token !== tokens.refresh_token);
+  tokens = latest;
+
   browser = await chromium.launch({ channel: 'chrome', headless: true });
   const context = await browser.newContext();
   const browserLogin = await context.request.post(origin + '/api/auth/login', {
@@ -313,6 +343,9 @@ try {
     headers: { ...headers, Authorization: bearer }, body: JSON.stringify(initialize) });
   assert.equal(revoked.status, 401);
   await revoked.body?.cancel();
+  const revokedRefresh = await rotate(tokens.refresh_token);
+  assert.equal(revokedRefresh.status, 400);
+  assert.equal((await revokedRefresh.json()).error, 'invalid_grant');
 
   const relink = new URLSearchParams(query);
   relink.delete('prompt');
