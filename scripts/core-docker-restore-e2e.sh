@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 : "${PUBLIKATOR_TEST_ADMIN_PASSWORD:?PUBLIKATOR_TEST_ADMIN_PASSWORD is required}"
 : "${PUBLIKATOR_TEST_MASTER_KEY:?PUBLIKATOR_TEST_MASTER_KEY is required}"
@@ -16,6 +16,7 @@ cleanup() {
   docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
+trap 'printf "Production Docker restore acceptance failed near script line %s\n" "$LINENO" >&2' ERR
 cleanup
 
 rm -rf /tmp/publikator-bundle-check /tmp/publikator-wrong-key
