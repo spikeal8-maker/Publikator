@@ -41,8 +41,16 @@
 <label>Адрес для ChatGPT<input id="chatgpt-mcp-url" readonly></label>
 <div class="buttons"><button id="copy-chatgpt-url" type="button">Скопировать адрес</button><button id="test-chatgpt-url" type="button">Проверить адрес</button></div>
 <ol><li>В ChatGPT откройте «Плагины», нажмите «+» и добавьте собственный MCP-сервер.</li><li>Вставьте адрес, выберите OAuth и укажите данные зарегистрированного OAuth-клиента.</li><li>Войдите в Publikator и подтвердите нужные разрешения. Проверьте подключение командой «Покажи доступные проекты».</li></ol>
+<a href="https://developers.openai.com/api/docs/guides/custom-mcp-server" target="_blank" rel="noopener noreferrer">Инструкция ChatGPT</a>
+</div>
 <details id="chatgpt-permissions">
 <summary>Управлять доступом ChatGPT</summary>
+<div id="chatgpt-profile-setup" hidden>
+<label>Профиль ChatGPT<select id="chatgpt-profile-select"></select></label>
+<button id="chatgpt-create-profile" type="button">Создать профиль ChatGPT</button>
+<label id="chatgpt-profile-id-row" hidden>Идентификатор профиля<input id="chatgpt-profile-id" readonly></label>
+<p class="hint">Выберите права профиля. Для первого подключения администратор привязывает этот идентификатор к OAuth на сервере.</p>
+</div>
 <p id="chatgpt-permission-status" role="status"></p>
 <form id="chatgpt-grant-form" hidden>
 <fieldset><legend>Действия</legend><div id="chatgpt-grant-scopes"></div></fieldset>
@@ -51,9 +59,7 @@
 <label><input id="chatgpt-grant-confirm" type="checkbox" required> Подтверждаю выбранные права</label>
 <div class="buttons"><button id="chatgpt-grant-all" type="button">Выбрать все показанные</button><button type="submit">Сохранить права</button></div>
 </form>
-</details>
-<a href="https://developers.openai.com/api/docs/guides/custom-mcp-server" target="_blank" rel="noopener noreferrer">Инструкция ChatGPT</a>
-</div></section>
+</details></section>
 <section class="mcp-settings"><h3>Ключи MCP для доверенных клиентов</h3><p class="muted">Эти ключи дают административный доступ. Используйте их в клиенте с поддержкой ключа Bearer.</p><label>Адрес для клиентов с ключом<input id="mcp-url" readonly></label>
 <form id="key-form"><div class="form-grid"><label>Название бота<input id="key-name" maxlength="120" required placeholder="Мой бот"></label><label>Срок, дней<input id="key-days" type="number" min="1" max="366" value="90" required></label></div><label class="confirm-owner"><input id="confirm-owner" type="checkbox" required> Предоставляю этому боту административный доступ</label><button type="submit">Создать ключ MCP</button></form><div id="new-key" class="new-key" hidden><strong>Скопируйте ключ сейчас — повторно он не показывается.</strong><input id="new-key-value" type="password" readonly autocomplete="off"><div class="buttons"><button id="copy-key" type="button">Скопировать</button><button id="hide-key" type="button">Скрыть</button></div></div><div id="key-list" class="key-list"></div></section>
 <details><summary>Последние действия помощника</summary><button type="button" id="reload-actions">Обновить журнал</button><div id="actions-list"></div></details>
