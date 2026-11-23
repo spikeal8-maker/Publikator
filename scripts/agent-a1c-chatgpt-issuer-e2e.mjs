@@ -31,6 +31,7 @@ delete process.env.ADMIN_PASSWORD;
 
 const { db, migrate, nowIso } = await import('../dist/db.js');
 const { createAdminSetupGrant, createOrRecoverAdmin, loginAdmin } = await import('../dist/admin-auth.js');
+const { beginMaintenance } = await import('../dist/runtime-gate.js');
 const { encryptJson } = await import('../dist/crypto.js');
 const { buildApp } = await import('../dist/app.js');
 const { clearRestoredOAuthSessions } = await import('../dist/http/agent-oauth.js');
@@ -224,6 +225,14 @@ try {
       arguments: { ...args, targetAccountIds: [deniedAccount] } });
     assert.equal(denied.isError, true);
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM posts').get().n, before);
+    const release = beginMaintenance('MCP maintenance fixture');
+    try {
+      const blocked = await client.callTool({ name: 'publikator_create_text_draft', arguments: args });
+      assert.equal(blocked.isError, true);
+      assert.equal(db.prepare('SELECT COUNT(*) AS n FROM posts').get().n, before);
+    } finally {
+      release();
+    }
     const created = await client.callTool({ name: 'publikator_create_text_draft', arguments: args });
     assert.ok(!created.isError);
     const doc = JSON.parse(created.content[0].text);
