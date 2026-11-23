@@ -65,6 +65,9 @@ jobs:
       - name: Build application
         run: npm run build
 
+      - name: Production Docker and full restore
+        run: bash scripts/core-docker-restore-e2e.sh
+
       - name: Frontend syntax
         shell: bash
         run: |
@@ -617,9 +620,6 @@ jobs:
 
       - name: Cross-platform Compose fresh install
         run: bash scripts/compose-fresh-install-e2e.sh
-
-      - name: Production Docker and full restore
-        run: bash scripts/core-docker-restore-e2e.sh
 
       - name: Acceptance passed
         run: echo 'Publikator acceptance passed'
