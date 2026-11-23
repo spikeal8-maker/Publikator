@@ -28,12 +28,6 @@ jobs:
       - name: Install exact dependency graph
         run: npm ci --no-audit --no-fund
 
-      - name: Build application for production restore diagnosis
-        run: npm run build
-
-      - name: Production Docker and full restore
-        run: bash scripts/core-docker-restore-e2e.sh
-
       - name: Provision host video tools
         shell: bash
         run: |
@@ -623,6 +617,9 @@ jobs:
 
       - name: Cross-platform Compose fresh install
         run: bash scripts/compose-fresh-install-e2e.sh
+
+      - name: Production Docker and full restore
+        run: bash scripts/core-docker-restore-e2e.sh
 
       - name: Acceptance passed
         run: echo 'Publikator acceptance passed'
