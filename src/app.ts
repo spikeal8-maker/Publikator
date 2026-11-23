@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { createOwnerTools } from './owner-tools.js';
 import { registerOwnerAssistant } from './http/owner-assistant.js';
+import { registerChatGPTIssuer } from './http/agent-oauth.js';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
 import multipart from '@fastify/multipart';
@@ -102,11 +103,13 @@ export async function buildApp(): Promise<FastifyInstance> {
   await registerDiagnosticsRoutes(app);
   await registerReleaseGateRoutes(app);
   await registerOwnerAssistant(app, ownerTools);
+  await registerChatGPTIssuer(app);
 
   app.setNotFoundHandler((request, reply) => {
     const pathname=request.url.split(/[?#]/, 1)[0] ?? '';
     // Unknown MCP paths must never fall back to the browser SPA.
-    if (pathname === '/mcp' || pathname.startsWith('/mcp/')
+    if (pathname === '/mcp' || pathname.startsWith('/mcp/') || pathname.startsWith('/oauth/')
+      || pathname.startsWith('/.well-known/oauth-') || pathname === '/.well-known/openid-configuration'
       || request.url.startsWith('/api/') || request.url.startsWith('/public-media/')) {
       return reply.code(404).send({ error: 'Not found' });
     }
