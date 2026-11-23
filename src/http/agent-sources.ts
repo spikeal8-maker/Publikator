@@ -1,8 +1,8 @@
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import { db, id } from '../db.js';
 import { getOwnerAgent } from '../agent-owner-registry.js';
 import { AgentRegistryError } from '../agent-registry-error.js';
-import { assertEffectiveAgentGrant } from '../agent-grant-acl.js';
+import { assertEffectiveAgentGrant, type VerifiedAgentIdentity } from '../agent-grant-acl.js';
 import { parsePage, IDENTIFIER, type Page } from './agent-page.js';
 import {
   AgentBearerFailure, respondAgentBearerFailure, verifiedAgentBearer
@@ -16,9 +16,9 @@ type SourceRow = {
   id: string; type: string; name: string; enabled: number;
 };
 
-function scopedSources(request: FastifyRequest, page: Page) {
+export function listScopedAgentSources(getPrincipal: () => VerifiedAgentIdentity, page: Page) {
   return db.transaction(() => {
-    const principal = verifiedAgentBearer(request);
+    const principal = getPrincipal();
     const grant = getOwnerAgent(principal.agentId).grant;
     if (grant.status !== 'ACTIVE' || grant.grantVersion !== principal.grantVersion) {
       throw new AgentBearerFailure(401, 'UNAUTHORIZED', 'Разрешения источников устарели.');
@@ -90,7 +90,7 @@ function safeError(reply: FastifyReply, error: unknown) {
 export async function registerAgentSourceReadRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/agent/v1/sources', async (request, reply) => {
     try {
-      return scopedSources(request, parsePage(request.query));
+      return listScopedAgentSources(() => verifiedAgentBearer(request), parsePage(request.query));
     } catch (error) {
       return safeError(reply, error);
     }
