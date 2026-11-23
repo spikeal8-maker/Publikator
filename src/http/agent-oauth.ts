@@ -16,6 +16,7 @@ const revoke = '/oauth/revoke';
 const jwksPath = '/oauth/jwks';
 const interaction = '/oauth/interaction';
 const defaultRedirect = 'https://chatgpt.com/connector_platform_oauth_redirect';
+const daySeconds = 24 * 60 * 60;
 const idPattern = /^[a-zA-Z0-9._:-]{1,128}$/;
 
 type GrantRow = {
@@ -96,7 +97,7 @@ function ownerForm(reply: FastifyReply, uid: string, grant: VerifiedChatGPTGrant
     : '<p><a href="/" target="_blank" rel="noopener">Войти в Publikator</a>, затем обновите эту страницу.</p>';
   return headers(reply).type('text/html; charset=utf-8').send(
     '<!doctype html><html lang="ru"><meta charset="utf-8"><title>ChatGPT в Publikator</title>' +
-    '<h1>Подключение ChatGPT</h1>' + actions + '</html>',
+    '<h1>Подключение ChatGPT</h1><p>ChatGPT будет обновлять подключение автоматически. Вы можете отозвать доступ в настройках Publikator.</p>' + actions + '</html>',
   );
 }
 
@@ -146,9 +147,20 @@ export async function registerChatGPTIssuer(app: FastifyInstance) {
       short: { secure, sameSite: 'lax' },
       long: { secure, sameSite: 'lax' },
     },
-    findAccount: async (_context, accountId) => accountId === 'owner' && currentGrant(settings.agentId)
-      ? { accountId, claims: async () => ({ sub: accountId }) }
-      : undefined,
+    async findAccount(_context, accountId, source) {
+      if (accountId !== 'owner' || !currentGrant(settings.agentId)) return undefined;
+      if (source?.grantId && !(await verifyBinding(source.grantId))?.scopeIds.length) return undefined;
+      return { accountId, claims: async () => ({ sub: accountId }) };
+    },
+    // This provider registers one confidential MCP client. Approval in the owner
+    // form authorizes the persistent connection even if ChatGPT only asks for tool scopes.
+    expiresWithSession: () => false,
+    async issueRefreshToken(_context, client, source) {
+      if (client.clientId !== settings.clientId || !client.grantTypeAllowed('refresh_token')
+        || !source.grantId) return false;
+      return Boolean((await verifyBinding(source.grantId))?.scopeIds.length);
+    },
+    ttl: { Grant: 365 * daySeconds, RefreshToken: 90 * daySeconds },
     features: {
       devInteractions: { enabled: false },
       userinfo: { enabled: false },
