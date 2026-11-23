@@ -6,6 +6,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { chromium } from 'playwright-core';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
 const reservation = net.createServer().listen(0, '127.0.0.1');
 await once(reservation, 'listening');
@@ -30,6 +31,7 @@ delete process.env.ADMIN_PASSWORD;
 
 const { db, migrate, nowIso } = await import('../dist/db.js');
 const { createAdminSetupGrant, createOrRecoverAdmin, loginAdmin } = await import('../dist/admin-auth.js');
+const { encryptJson } = await import('../dist/crypto.js');
 const { buildApp } = await import('../dist/app.js');
 const { clearRestoredOAuthSessions } = await import('../dist/http/agent-oauth.js');
 let app;
@@ -41,8 +43,17 @@ try {
   createOrRecoverAdmin('INITIAL', createAdminSetupGrant('INITIAL'), 'owner', password, password);
   db.prepare("INSERT INTO agent_principals(id,name,client_kind,created_at,updated_at) VALUES(?,?,'chatgpt',?,?)")
     .run(agentId, 'Sample ChatGPT integration', stamp, stamp);
-  db.prepare('INSERT INTO agent_grants(agent_id,scope_ids_json,created_at,updated_at) VALUES(?,?,?,?)')
-    .run(agentId, JSON.stringify(['projects:read']), stamp, stamp);
+  const projectId = db.prepare('SELECT id FROM projects LIMIT 1').get().id;
+  const accountId = 'acc_oauth_mcp_fixture';
+  const deniedAccount = 'acc_oauth_mcp_hidden';
+  const canary = 'mcp-fixture-credential-canary';
+  const scopes = ['accounts:read', 'posts:write', 'projects:read'];
+  for (const id of [accountId, deniedAccount]) {
+    db.prepare("INSERT INTO social_accounts(id,platform,name,credentials_encrypted,enabled,created_at,updated_at) VALUES (?,'telegram',?,?,1,?,?)")
+      .run(id, id, encryptJson({ botToken: canary, chatId: '@fixture' }), stamp, stamp);
+  }
+  db.prepare('INSERT INTO agent_grants(agent_id,scope_ids_json,project_ids_json,account_ids_json,created_at,updated_at) VALUES(?,?,?,?,?,?)')
+    .run(agentId, JSON.stringify(scopes), JSON.stringify([projectId]), JSON.stringify([accountId]), stamp, stamp);
   const owner = loginAdmin('owner', password);
   assert.ok(owner);
   app = await buildApp();
@@ -66,7 +77,7 @@ try {
   const challenge = createHash('sha256').update(verifier).digest('base64url');
   const query = new URLSearchParams({
     client_id: clientId, response_type: 'code', redirect_uri: callback, resource, state,
-    scope: 'offline_access projects:read posts:write', prompt: 'consent',
+    scope: ['offline_access', 'publish:request', ...scopes].join(' '), prompt: 'consent',
     code_challenge_method: 'S256', code_challenge: challenge,
   });
   let destination = new URL(metadata.authorization_endpoint + '?' + query);
@@ -106,7 +117,7 @@ try {
       assert.equal(form.status, 200);
       const html = await form.text();
       assert.ok(html.includes('projects:read'));
-      assert.ok(!html.includes('posts:write'));
+      assert.ok(!html.includes('publish:request'));
       const version = /name="grant" value="([0-9.]+)"/.exec(html)?.[1];
       assert.equal(version, '1.1');
       const stale = await fetch(destination, { method: 'POST', redirect: 'manual',
@@ -156,7 +167,7 @@ try {
   assert.equal(grant.status, 200, tokens.error_description);
   assert.ok(tokens.access_token);
   assert.ok(tokens.refresh_token);
-  assert.equal(tokens.scope, 'projects:read');
+  assert.deepEqual(tokens.scope.split(' ').sort(), scopes);
 
   const saved = JSON.stringify(db.prepare('SELECT * FROM agent_oauth_artifacts').all());
   assert.ok(!saved.includes(tokens.access_token));
@@ -179,6 +190,56 @@ try {
   await page.waitForURL(callback + '?**');
   assert.ok(new URL(page.url()).searchParams.get('code'));
   await context.close();
+
+  const initialize = {
+    jsonrpc: '2.0', id: 1, method: 'initialize',
+    params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'fixture', version: '1' } },
+  };
+  const headers = { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' };
+  const missing = await fetch(resource, { method: 'POST', headers, body: JSON.stringify(initialize) });
+  assert.equal(missing.status, 401);
+  assert.match(missing.headers.get('www-authenticate'), /oauth-protected-resource\/mcp\/chatgpt/);
+  await missing.body?.cancel();
+  const bearer = 'Bearer ' + tokens.access_token;
+  const client = new Client({ name: 'issuer-mcp-fixture', version: '1.0.0' });
+  await client.connect(new StreamableHTTPClientTransport(new URL(resource), {
+    requestInit: { headers: { Authorization: bearer } },
+  }));
+  try {
+    const { tools } = await client.listTools();
+    assert.deepEqual(tools.map((tool) => tool.name).sort(), [
+      'publikator_create_text_draft', 'publikator_list_accounts', 'publikator_list_projects',
+    ]);
+    const projects = await client.callTool({ name: 'publikator_list_projects', arguments: {} });
+    assert.equal(JSON.parse(projects.content[0].text).items[0].id, projectId);
+    const accounts = await client.callTool({ name: 'publikator_list_accounts', arguments: {} });
+    assert.deepEqual(JSON.parse(accounts.content[0].text).items.map((account) => account.id), [accountId]);
+    assert.ok(!JSON.stringify(accounts).includes(canary));
+    const args = {
+      projectId, internalTitle: 'MCP draft fixture', bodyPlain: 'Fixture text.',
+      targetAccountIds: [accountId], idempotencyKey: 'test-mcp-draft',
+    };
+    const before = db.prepare('SELECT COUNT(*) AS n FROM posts').get().n;
+    const denied = await client.callTool({ name: 'publikator_create_text_draft',
+      arguments: { ...args, targetAccountIds: [deniedAccount] } });
+    assert.equal(denied.isError, true);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM posts').get().n, before);
+    const created = await client.callTool({ name: 'publikator_create_text_draft', arguments: args });
+    assert.ok(!created.isError);
+    const doc = JSON.parse(created.content[0].text);
+    assert.equal(doc.status, 'DRAFT');
+    const replay = await client.callTool({ name: 'publikator_create_text_draft', arguments: args });
+    assert.equal(JSON.parse(replay.content[0].text).postId, doc.postId);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM posts').get().n, before + 1);
+    assert.equal(db.prepare('SELECT origin FROM agent_activity_events WHERE post_id=?').get(doc.postId).origin, 'MCP');
+  } finally {
+    await client.close();
+  }
+  db.prepare('UPDATE agent_principals SET token_version=token_version+1 WHERE id=?').run(agentId);
+  const revoked = await fetch(resource, { method: 'POST',
+    headers: { ...headers, Authorization: bearer }, body: JSON.stringify(initialize) });
+  assert.equal(revoked.status, 401);
+  await revoked.body?.cancel();
 
   clearRestoredOAuthSessions();
   const afterRestore = db.prepare('SELECT model FROM agent_oauth_artifacts').all().map((row) => row.model);
