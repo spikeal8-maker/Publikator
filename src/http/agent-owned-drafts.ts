@@ -1,10 +1,10 @@
 import crypto from 'node:crypto';
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import { db, id } from '../db.js';
 import { config } from '../config.js';
 import { getOwnerAgent } from '../agent-owner-registry.js';
 import { AgentRegistryError } from '../agent-registry-error.js';
-import { assertEffectiveAgentGrant } from '../agent-grant-acl.js';
+import { assertEffectiveAgentGrant, type VerifiedAgentIdentity } from '../agent-grant-acl.js';
 import { parsePage, IDENTIFIER } from './agent-page.js';
 import {
   verifiedAgentBearer, respondAgentBearerFailure, AgentBearerFailure
@@ -14,10 +14,7 @@ type PostRow = {
   id: string; project_id: string; title: string; body: string;
   content_version: number;
 };
-type VerifiedReader = {
-  agentId: string; tokenVersion: number; grantVersion: number;
-  tokenScopes: string[];
-};
+type VerifiedReader = VerifiedAgentIdentity;
 type GrantIds = { projectIds: string[]; accountIds: string[] };
 type OwnedPage = { limit: number; cursor: string | null };
 
@@ -25,7 +22,7 @@ function invalidCursor(): never {
   throw new AgentRegistryError('VALIDATION_ERROR','Некорректный cursor.',400);
 }
 
-function parseOwnedPage(query: unknown): OwnedPage {
+export function parseOwnedPage(query: unknown): OwnedPage {
   if (!query || typeof query !== 'object' || Array.isArray(query)) {
     invalidCursor();
   }
@@ -117,10 +114,9 @@ const SAFE_DRAFT_WHERE = [
   ].join(' ')
 ].join(' AND ');
 
-function requireReader(request: FastifyRequest): {
+function requireReader(principal: VerifiedReader): {
   principal: VerifiedReader; grant: GrantIds
 } {
-  const principal = verifiedAgentBearer(request);
   const grant = getOwnerAgent(principal.agentId).grant;
   if (grant.status !== 'ACTIVE' || grant.grantVersion !== principal.grantVersion) {
     throw new AgentBearerFailure(401, 'UNAUTHORIZED', 'Разрешения агента устарели.');
@@ -169,9 +165,9 @@ function safeRowDto(row: PostRow, principal: VerifiedReader) {
   };
 }
 
-function listOwnDrafts(request: FastifyRequest, page: OwnedPage) {
+export function listOwnDrafts(getPrincipal: () => VerifiedReader, page: OwnedPage) {
   return db.transaction(() => {
-    const {principal, grant} = requireReader(request);
+    const {principal, grant} = requireReader(getPrincipal());
     const after = decodeCursor(principal,page.cursor);
     if (!grant.projectIds.length || !grant.accountIds.length) {
       return {items: [], pagination:{limit: page.limit,nextCursor:null}};
@@ -198,12 +194,12 @@ function listOwnDrafts(request: FastifyRequest, page: OwnedPage) {
   })();
 }
 
-function getOwnDraft(request: FastifyRequest, postId: string) {
+export function getOwnDraft(getPrincipal: () => VerifiedReader, postId: string) {
   if (!IDENTIFIER.test(postId)) {
     throw new AgentRegistryError('VALIDATION_ERROR','Некорректный postId.',400);
   }
   return db.transaction(() => {
-    const {principal,grant}=requireReader(request);
+    const {principal,grant}=requireReader(getPrincipal());
     const row=db.prepare([
       'SELECT p.id,p.project_id,p.title,p.body,p.content_version',
       'FROM posts p INNER JOIN agent_draft_ownership o ON o.post_id=p.id',
@@ -234,7 +230,7 @@ export async function registerAgentOwnedDraftReadRoutes(app: FastifyInstance): P
   app.get('/api/agent/v1/posts',async(request,reply)=>{
     reply.header('cache-control','no-store');
     try {
-      return listOwnDrafts(request,parseOwnedPage(request.query));
+      return listOwnDrafts(() => verifiedAgentBearer(request),parseOwnedPage(request.query));
     } catch(e) { return safeError(reply,e); }
   });
   app.get('/api/agent/v1/posts/:postId',async(request,reply)=>{
@@ -244,7 +240,7 @@ export async function registerAgentOwnedDraftReadRoutes(app: FastifyInstance): P
         'Параметры URL здесь не поддерживаются.',400));
     }
     try {
-      return getOwnDraft(request,(request.params as {postId:string}).postId);
+      return getOwnDraft(() => verifiedAgentBearer(request),(request.params as {postId:string}).postId);
     } catch(e) { return safeError(reply,e); }
   });
 }
