@@ -112,7 +112,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-      - name: AI settings tabs and owner assistant desktop/mobile browser
+      - name: AI settings, diagnostics console and owner assistant desktop/mobile browser
         env:
           OWNER_UI_EVIDENCE_DIR: test-results/owner-assistant
         run: node scripts/owner-assistant-browser-e2e.mjs

@@ -5,7 +5,7 @@
 <title>ИИ-чат — Publikator</title><link rel="icon" href="/favicon.svg"><link rel="stylesheet" href="/assistant.css"><link rel="stylesheet" href="/assistant-markdown.css">
 </head>
 <body>
-<header class="top"><a class="brand" href="/content">Publikator <span>ИИ-чат</span></a><div class="top-actions"><span id="connection-state" class="muted">Подключение…</span><button id="settings-open" type="button">Настройки</button><a href="/content" class="back">К публикациям</a></div></header>
+<header class="top"><a class="brand" href="/content">Publikator <span>ИИ-чат</span></a><div class="top-actions"><span id="connection-state" class="muted">Подключение…</span><button id="console-open" type="button" hidden>Консоль</button><button id="settings-open" type="button">Настройки</button><a href="/content" class="back">К публикациям</a></div></header>
 <div id="login-notice" class="notice" hidden>Для работы с чатом <a href="/">войдите в Publikator</a> под своим логином.</div>
 <div id="shell" class="shell" hidden>
 <aside><button id="new-thread" class="primary wide" type="button">+ Новый диалог</button><h2>Диалоги</h2><nav id="threads" aria-label="Диалоги"></nav><p class="aside-note">Помощник работает с вашими публикациями, проектами, аккаунтами и расписанием. Все действия выполняются на сервере.</p></aside>
@@ -111,5 +111,33 @@
 <details class="settings-section"><summary>Последние действия помощника</summary><button type="button" id="reload-actions">Обновить журнал</button><div id="actions-list"></div></details>
 </section>
 </div></dialog>
+<dialog id="owner-console" aria-labelledby="console-title">
+  <div class="dialog-head"><h2 id="console-title">Консоль Publikator</h2><form method="dialog"><button aria-label="Закрыть консоль">✕</button></form></div>
+  <div class="dialog-body">
+    <div class="buttons">
+      <button type="button" id="console-status">Статус Publikator</button>
+      <button type="button" id="console-actions">Последние действия</button>
+    </div>
+    <p id="console-feedback" role="status"></p>
+    <pre id="console-output" class="console-output" aria-label="Результат операции"></pre>
+    <details class="settings-section">
+      <summary>Подготовить задачу в GitHub</summary>
+      <form id="console-change-form">
+        <label>Тема<input name="title" maxlength="140" required></label>
+        <label>Что происходит<textarea name="observed" rows="2" maxlength="2000" required></textarea></label>
+        <label>Как должно работать<textarea name="expected" rows="2" maxlength="2000" required></textarea></label>
+        <label>Как проверить<textarea name="acceptance" rows="2" maxlength="2000" required></textarea></label>
+        <button type="submit">Подготовить описание</button>
+      </form>
+      <div id="console-change-result" hidden>
+        <label>Текст задачи<textarea id="console-change-text" rows="6" readonly></textarea></label>
+        <div class="buttons">
+          <button type="button" id="console-copy-change">Скопировать текст</button>
+          <a href="https://github.com/spikeal8-maker/Publikator/issues/new" target="_blank" rel="noopener noreferrer">Открыть GitHub</a>
+        </div>
+      </div>
+    </details>
+  </div>
+</dialog>
 <script type="module" src="/assistant.js"></script>
 </body></html>

@@ -1,5 +1,6 @@
 import {createModelPicker} from './assistant-model-picker.js';
 import {renderAssistantMarkdown} from './assistant-markdown.js';
+import {setupAssistantConsole} from './assistant-console.js';
 const $=id=>document.getElementById(id);
 let connections=[],threads=[],threadId=null,runId=null,pollEpoch=0,attachments=[],editId=null,statusInfo=null,busy=false;
 const defaults={openai:'https://api.openai.com/v1',deepseek:'https://api.deepseek.com',ollama:'',compatible:''};
@@ -449,5 +450,6 @@ $('delete-connection').addEventListener('click',guarded(async()=>{
  editId=null;await refreshConnections();selectConnection(null);
 }));
 $('key-form').addEventListener('submit',guarded(async event=>{event.preventDefault();const key=await api('/api/assistant/keys',{method:'POST',body:JSON.stringify({name:$('key-name').value,days:Number($('key-days').value),confirmOwnerAdmin:$('confirm-owner').checked})});$('new-key-value').value=key.token;$('new-key').hidden=false;$('confirm-owner').checked=false;await refreshKeys();}));$('copy-key').addEventListener('click',guarded(async()=>{await navigator.clipboard.writeText($('new-key-value').value);toast('Ключ скопирован.');}));$('hide-key').addEventListener('click',()=>{$('new-key-value').value='';$('new-key').hidden=true;});$('reload-actions').addEventListener('click',guarded(async()=>{const r=await api('/api/assistant/actions');$('actions-list').replaceChildren(...r.events.map(e=>element('div','action-row',`${new Date(e.created_at).toLocaleString('ru-RU')} · ${e.operation} · ${e.status}`)));}));document.querySelectorAll('[data-prompt]').forEach(b=>b.addEventListener('click',()=>{$('message-input').value=b.dataset.prompt;$('message-input').focus();}));
-async function boot(){const auth=await api('/api/auth/state');if(!auth.authenticated||auth.mode!=='login'){$('login-notice').hidden=false;$('connection-state').textContent='Требуется вход';return;}statusInfo=await api('/api/assistant/status');$('shell').hidden=false;$('connection-state').textContent=`MCP · ${statusInfo.operationCount} операций`;await Promise.all([refreshConnections(),refreshThreads()]);if(threads.length)await loadThread(threads[0].id);if(!connections.length)$('run-state').textContent='Откройте «Настройки», чтобы подключить модель.';}
+async function boot(){const auth=await api('/api/auth/state');if(!auth.authenticated||auth.mode!=='login'){$('login-notice').hidden=false;$('connection-state').textContent='Требуется вход';return;}statusInfo=await api('/api/assistant/status');$('shell').hidden=false;$('console-open').hidden=false;$('connection-state').textContent=`MCP · ${statusInfo.operationCount} операций`;await Promise.all([refreshConnections(),refreshThreads()]);if(threads.length)await loadThread(threads[0].id);if(!connections.length)$('run-state').textContent='Откройте «Настройки», чтобы подключить модель.';}
+setupAssistantConsole({ api });
 void boot().catch(error=>toast(error.message,true));

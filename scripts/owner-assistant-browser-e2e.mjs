@@ -36,6 +36,23 @@ try{
   await page.goto(base+'/assistant.html');await page.locator('#login-notice').waitFor({state:'visible'});pass('anonymous page requires owner login');
   const login=await context.request.post(base+'/api/auth/login',{headers:{origin:base},data:{username:'owner',password:'browser-owner-fixture-20261104'}});assert.equal(login.status(),200,await login.text());
   await page.goto(base+'/assistant.html');await page.locator('#shell').waitFor({state:'visible'});assert.match(await page.locator('#connection-state').innerText(),/MCP/);pass('authenticated assistant page loads');
+  await page.getByRole('button', { name:'Консоль',exact:true }).click();
+  await page.locator('#console-output').getByText('schemaVersion', { exact:false }).waitFor();
+  const consoleData=JSON.parse(await page.locator('#console-output').innerText());
+  assert.equal(consoleData.service,'publikator');
+  assert.equal(consoleData.schemaVersion,db.pragma('user_version',{simple:true}));
+  await page.getByText('Подготовить задачу в GitHub',{exact:true}).click();
+  const changeForm=page.locator('#console-change-form');
+  await changeForm.getByLabel('Тема').fill('Улучшить проверку');
+  await changeForm.getByLabel('Что происходит').fill('Текущее поведение');
+  await changeForm.getByLabel('Как должно работать').fill('Новое поведение');
+  await changeForm.getByLabel('Как проверить').fill('Запустить проверку');
+  await changeForm.getByRole('button',{name:'Подготовить описание'}).click();
+  await page.getByText('Описание задачи готово.',{exact:true}).waitFor();
+  assert.match(await page.locator('#console-change-text').inputValue(), /## Проверка результата\n\nЗапустить проверку/);
+  await page.getByRole('button',{name:'Закрыть консоль'}).click();
+  pass('browser console shows service status and prepares a GitHub change draft');
+
   await page.locator('#settings-open').click();
   await page.locator('#settings').waitFor({state:'visible'});
   const tabs = page.getByRole('tablist', { name: 'Разделы настроек ИИ' });
