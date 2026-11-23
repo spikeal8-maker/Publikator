@@ -30,3 +30,7 @@ Actual MCP client through the canonical publisher: image attachment→ready→se
 
 ## Dependency security gate
 Runtime MCP server/client pinned to 2.4.0, Zod 4.6.7, static middleware 10.1.9; compatible Fastify/URI patch updates locked. Production npm audit: zero known vulnerabilities. SDK handler body limit explicitly matches the bounded 10 MiB application envelope; a >4 MiB encoded upload regression proves the SDK security fix does not break approved uploads. Official SDK real-client suite: 48 checks PASS. Actual embedded Gemma4:12b chat with full tool registry read projects and created one exact DRAFT in an isolated database; no live social posts.
+
+## ChatGPT connection
+
+The ChatGPT endpoint is `/mcp/chatgpt`. Open **ИИ → Настройки → ChatGPT через MCP** to see the configured URL and connection steps. This surface uses owner-approved OAuth scopes and current agent grants. It exposes the granted projects/accounts and safe text draft creation through the existing editor and receipts. Publication, scheduling, secret-bearing settings, and the owner automation operation catalog are not advertised by this OAuth transport. The separate `/mcp` endpoint retains its owner-issued Bearer authentication for trusted clients. Live ChatGPT discovery is an explicit deployment acceptance check.
