@@ -189,7 +189,6 @@ try {
   }
   await page.waitForURL(callback + '?**');
   assert.ok(new URL(page.url()).searchParams.get('code'));
-  await context.close();
 
   const initialize = {
     jsonrpc: '2.0', id: 1, method: 'initialize',
@@ -235,7 +234,20 @@ try {
   } finally {
     await client.close();
   }
-  db.prepare('UPDATE agent_principals SET token_version=token_version+1 WHERE id=?').run(agentId);
+  await page.goto(origin + '/assistant.html');
+  await page.locator('#settings-open').click();
+  await page.getByText('Управлять доступом ChatGPT', { exact: true }).click();
+  const form = page.locator('#chatgpt-grant-form');
+  await form.waitFor({ state: 'visible' });
+  await form.getByText('Создавать текстовые черновики', { exact: true }).click();
+  await form.getByLabel('Подтверждаю выбранные права').check();
+  const savedGrant = page.waitForResponse((response) =>
+    response.request().method() === 'PUT' && response.url().endsWith('/grant'));
+  await form.getByRole('button', { name: 'Сохранить права' }).click();
+  assert.equal((await savedGrant).status(), 200);
+  const nextScopes = db.prepare('SELECT scope_ids_json FROM agent_grants WHERE agent_id=?').get(agentId);
+  assert.deepEqual(JSON.parse(nextScopes.scope_ids_json).sort(), ['accounts:read', 'projects:read']);
+  await context.close();
   const revoked = await fetch(resource, { method: 'POST',
     headers: { ...headers, Authorization: bearer }, body: JSON.stringify(initialize) });
   assert.equal(revoked.status, 401);
