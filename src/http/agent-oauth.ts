@@ -129,6 +129,7 @@ export async function registerChatGPTIssuer(app: FastifyInstance) {
       response_types: ['code'],
       redirect_uris: [settings.redirect],
       token_endpoint_auth_method: 'client_secret_post',
+      id_token_signed_response_alg: 'ES256',
     }],
     cookies: {
       keys: [createHmac('sha256', config.masterKey).update('publikator.chatgpt.oidc.cookies.v1').digest('base64url')],
