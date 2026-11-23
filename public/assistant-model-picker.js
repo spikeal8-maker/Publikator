@@ -27,7 +27,7 @@ export function createModelPicker({api, getConnections, getEditId, onDiscoveryFa
     const select = $('provider-model');
     select.replaceChildren(new Option('Выберите модель', ''));
     for (const m of models) {
-      const description = [
+      const description = kind() === 'ollama' ? m.id : [
         m.label && m.label !== m.id ? m.label : m.id,
         m.parameterSize,
         m.cloud ? 'облачная модель Ollama' : null,
@@ -49,7 +49,7 @@ export function createModelPicker({api, getConnections, getEditId, onDiscoveryFa
       existing.baseUrl.replace(/\/$/, '') === url().replace(/\/$/, ''));
   }
   function canQuery(showReason = true) {
-    if (!url()) { if (showReason) message(rawUrl() ? 'Проверьте адрес Ollama.' : 'Введите адрес сервера.', 'info'); return false; }
+    if (!url()) { if (showReason) message(rawUrl() ? 'Проверьте адрес Ollama.' : (kind() === 'ollama' ? '' : 'Введите адрес сервера.'), 'info'); return false; }
     if (!isLocal() && !key() && !compatibleSavedKey()) {
       if (showReason) message('Для ' + $('provider-kind').selectedOptions[0].text +
         ' нужен API-ключ. Укажите его, и список моделей загрузится автоматически.', 'info');
