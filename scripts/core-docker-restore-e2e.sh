@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 : "${PUBLIKATOR_TEST_ADMIN_PASSWORD:?PUBLIKATOR_TEST_ADMIN_PASSWORD is required}"
 : "${PUBLIKATOR_TEST_MASTER_KEY:?PUBLIKATOR_TEST_MASTER_KEY is required}"
@@ -16,6 +16,7 @@ cleanup() {
   docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
+trap 'printf "Production Docker restore acceptance failed near script line %s\n" "$LINENO" >&2' ERR
 cleanup
 
 rm -rf /tmp/publikator-bundle-check /tmp/publikator-wrong-key
@@ -157,10 +158,18 @@ curl -fsS -b "$COOKIE_FILE" -H 'x-publikator-restore: RESTORE' \
   "http://127.0.0.1:${PORT}/api/backup-bundles/restore-upload" | \
   jq -e '.ok == true and .restart == true and (.preRestoreBackup.name | contains("pre-restore"))' >/dev/null
 
+BACKUP_CREATED_AT="$(jq -er '.createdAt' /tmp/publikator-bundle-check/manifest.json)"
+restore_confirmed_in_boot_log() {
+  docker logs "$CONTAINER_NAME" 2>&1 | jq -Rse --arg stamp "$BACKUP_CREATED_AT" '
+    split("\n") | any(.[]; (fromjson? | .msg == "Publikator started" and .restoreApplied == true and .restoredBackupCreatedAt == $stamp) // false)
+  ' >/dev/null
+}
+
 RESTORED=0
 for _ in $(seq 1 60); do
   RESTART_AFTER="$(docker inspect -f '{{.RestartCount}}' "$CONTAINER_NAME" 2>/dev/null || echo 0)"
-  if [ "$RESTART_AFTER" -gt "$RESTART_BEFORE" ] && curl -fsS "http://127.0.0.1:${PORT}/api/health" >/dev/null 2>&1; then
+  if [ "$RESTART_AFTER" -gt "$RESTART_BEFORE" ] && curl -fsS "http://127.0.0.1:${PORT}/api/health" >/dev/null 2>&1 \
+    && restore_confirmed_in_boot_log; then
     RESTORED=1
     break
   fi
@@ -172,7 +181,11 @@ if [ "$RESTORED" != "1" ]; then
 fi
 
 login
-curl -fsS -b "$COOKIE_FILE" "http://127.0.0.1:${PORT}/api/projects" | jq -e --arg id "$EXTRA_PROJECT_ID" 'all(.[]; .id != $id)' >/dev/null
+if ! curl -fsS -b "$COOKIE_FILE" "http://127.0.0.1:${PORT}/api/projects" | jq -e --arg id "$EXTRA_PROJECT_ID" 'all(.[]; .id != $id)' >/dev/null; then
+  echo 'The project created after the backup is still visible after confirmed restore.' >&2
+  docker logs --tail 80 "$CONTAINER_NAME"
+  exit 1
+fi
 EXTRA_POST_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' -b "$COOKIE_FILE" "http://127.0.0.1:${PORT}/api/posts/${EXTRA_POST_ID}")"
 test "$EXTRA_POST_STATUS" = "404"
 EXTRA_MEDIA_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PORT}/public-media/${EXTRA_MEDIA_PATH}")"
