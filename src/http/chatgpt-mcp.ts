@@ -2,6 +2,7 @@ import { Readable } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
 import { McpServer, createMcpHandler } from '@modelcontextprotocol/server';
 import { z } from 'zod';
+import { beginRuntimeActivity } from '../runtime-gate.js';
 import { AgentRegistryError } from '../agent-registry-error.js';
 import type { VerifiedAgentIdentity } from '../agent-grant-acl.js';
 import { CHATGPT_MCP_PATH, CHATGPT_RESOURCE_METADATA, type registerChatGPTIssuer } from './agent-oauth.js';
@@ -73,8 +74,18 @@ export async function registerChatGPTMcp(app: FastifyInstance, issuer: Issuer | 
         if (!current.scopeIds.includes(scope)) {
           return toolError('Эта операция не входит в разрешения подключения.', challenge('insufficient_scope', scope));
         }
-        const value = operation({ ...current, tokenScopes: current.scopeIds });
-        return { content: [{ type: 'text' as const, text: JSON.stringify(value) }] };
+        let release: () => void;
+        try {
+          release = beginRuntimeActivity();
+        } catch {
+          return toolError('Publikator временно недоступен. Повторите после обслуживания.');
+        }
+        try {
+          const value = operation({ ...current, tokenScopes: current.scopeIds });
+          return { content: [{ type: 'text' as const, text: JSON.stringify(value) }] };
+        } finally {
+          release();
+        }
       } catch (error) {
         return toolError(error instanceof AgentRegistryError ? error.message : 'Операция не выполнена.');
       }
