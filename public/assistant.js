@@ -67,7 +67,7 @@ $('test-chatgpt-url').addEventListener('click',guarded(async()=>{
 const chatGPTScopeLabels = new Map([
   ['projects:read', 'Просматривать проекты'],
   ['accounts:read', 'Просматривать аккаунты и доступные форматы'],
-  ['posts:read', 'Читать свои текстовые черновики'],
+  ['posts:read', 'Читать публикации, тексты и статистику разрешённых проектов'],
   ['posts:write', 'Создавать и редактировать текстовые черновики'],
 ]);
 let editingChatGPTGrant = null;

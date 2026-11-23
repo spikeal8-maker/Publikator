@@ -246,8 +246,9 @@ try {
   try {
     const { tools } = await client.listTools();
     assert.deepEqual(tools.map((tool) => tool.name).sort(), [
-      'publikator_create_text_draft', 'publikator_edit_text_draft', 'publikator_get_text_draft',
-      'publikator_list_accounts', 'publikator_list_projects', 'publikator_list_text_drafts',
+      'publikator_create_text_draft', 'publikator_edit_text_draft', 'publikator_get_publication',
+      'publikator_get_publication_analytics', 'publikator_get_text_draft', 'publikator_list_accounts',
+      'publikator_list_projects', 'publikator_list_publications', 'publikator_list_text_drafts',
     ]);
     const projects = await client.callTool({ name: 'publikator_list_projects', arguments: {} });
     assert.equal(JSON.parse(projects.content[0].text).items[0].id, projectId);
@@ -301,6 +302,33 @@ try {
     assert.equal(JSON.parse(editReplay.content[0].text).contentVersion, edited.contentVersion);
     const origins = db.prepare('SELECT DISTINCT origin FROM agent_activity_events WHERE post_id=?').all(doc.postId);
     assert.deepEqual(origins.map((event) => event.origin), ['MCP']);
+
+    const otherDraft = await client.callTool({ name: 'publikator_create_text_draft',
+      arguments: { ...args, idempotencyKey: 'test-mcp-publication-hidden' } });
+    const hiddenPost = JSON.parse(otherDraft.content[0].text).postId;
+    db.prepare('UPDATE post_targets SET account_id=?, enabled=0 WHERE post_id=?').run(deniedAccount, hiddenPost);
+
+    const visiblePosts = await client.callTool({ name: 'publikator_list_publications', arguments: { projectId, limit: 1 } });
+    const publicationPage = JSON.parse(visiblePosts.content[0].text);
+    assert.deepEqual(publicationPage.items.map((item) => item.postId), [doc.postId]);
+    assert.equal(publicationPage.pagination.nextCursor, null);
+    const getPublication = (postId) =>
+      client.callTool({ name: 'publikator_get_publication', arguments: { projectId, postId } });
+    const publication = JSON.parse((await getPublication(doc.postId)).content[0].text);
+    assert.equal(publication.bodyPlain, revision.bodyPlain);
+    assert.equal(publication.contentVersion, edited.contentVersion);
+    assert.deepEqual(publication.targets.map((item) => item.accountId), [accountId]);
+    assert.deepEqual(publication.media, []);
+    assert.equal((await getPublication(hiddenPost)).isError, true);
+    const metrics = await client.callTool({ name: 'publikator_get_publication_analytics', arguments: { projectId } });
+    const analytics = JSON.parse(metrics.content[0].text);
+    assert.equal(analytics.totalPublications, 1);
+    assert.equal(analytics.publications[0].status, 'DRAFT');
+    assert.ok(!JSON.stringify([publication, analytics]).includes(canary));
+    const forbiddenProject = await client.callTool({
+      name: 'publikator_get_publication_analytics', arguments: { projectId: 'no-access' },
+    });
+    assert.equal(forbiddenProject.isError, true);
   } finally {
     await client.close();
   }
