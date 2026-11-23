@@ -1,8 +1,8 @@
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import { db, id } from '../db.js';
 import { getOwnerAgent } from '../agent-owner-registry.js';
 import { AgentRegistryError } from '../agent-registry-error.js';
-import { assertEffectiveAgentGrant } from '../agent-grant-acl.js';
+import { assertEffectiveAgentGrant, type VerifiedAgentIdentity } from '../agent-grant-acl.js';
 import { readCapabilityProfile, type PublicationFormat } from '../social-credential-capability.js';
 import { parsePage, IDENTIFIER, type Page } from './agent-page.js';
 import {
@@ -74,10 +74,10 @@ function publicCapability(row: AccountRow) {
   return { verified: Boolean(verified), formats };
 }
 
-function listVerifiedAccounts(request: FastifyRequest, page: Page) {
+export function listVerifiedAccounts(getPrincipal: () => VerifiedAgentIdentity, page: Page) {
   return db.transaction(() => {
     // Both token and principal/grant revalidated for every read.
-    const principal = verifiedAgentBearer(request);
+    const principal = getPrincipal();
     const grant = getOwnerAgent(principal.agentId).grant;
     if (grant.status !== 'ACTIVE' || principal.grantVersion !== grant.grantVersion) {
       throw new AgentBearerFailure(401, 'UNAUTHORIZED', 'Разрешения агента устарели.');
@@ -148,7 +148,7 @@ function readError(reply: FastifyReply, error: unknown) {
 export async function registerAgentAccountReadRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/agent/v1/accounts', async (request, reply) => {
     try {
-      return listVerifiedAccounts(request, parsePage(request.query));
+      return listVerifiedAccounts(() => verifiedAgentBearer(request), parsePage(request.query));
     } catch (error) {
       return readError(reply, error);
     }
