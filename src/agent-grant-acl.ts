@@ -22,6 +22,8 @@ export type AuthenticatedAgentClaim = {
   mediaId?: string;
 };
 
+export type VerifiedAgentIdentity = Pick<AuthenticatedAgentClaim, 'agentId' | 'tokenVersion' | 'grantVersion' | 'tokenScopes'>;
+
 function denied(): never {
   throw new AgentRegistryError('RESOURCE_DENIED',
     'Ресурс или операция недоступны.', 403);
