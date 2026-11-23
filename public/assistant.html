@@ -20,56 +20,70 @@
 <dialog id="settings" aria-labelledby="settings-title">
 <div class="dialog-head"><h2 id="settings-title">Настройки ИИ</h2><button type="button" id="settings-close" aria-label="Закрыть настройки">✕</button></div>
 <div class="settings-tabs" role="tablist" aria-label="Разделы настроек ИИ">
-  <button type="button" role="tab" id="settings-tab-general" aria-selected="true" aria-controls="settings-panel-general">Общие</button>
+  <button type="button" role="tab" id="settings-tab-general" aria-selected="true" aria-controls="settings-panel-general">Обзор</button>
   <button type="button" role="tab" id="settings-tab-local" aria-selected="false" aria-controls="settings-panel-local" tabindex="-1">Локальные модели</button>
-  <button type="button" role="tab" id="settings-tab-cloud" aria-selected="false" aria-controls="settings-panel-cloud" tabindex="-1">Облачные API</button>
+  <button type="button" role="tab" id="settings-tab-cloud" aria-selected="false" aria-controls="settings-panel-cloud" tabindex="-1">Облачные модели</button>
   <button type="button" role="tab" id="settings-tab-mcp" aria-selected="false" aria-controls="settings-panel-mcp" tabindex="-1">MCP</button>
   <button type="button" role="tab" id="settings-tab-access" aria-selected="false" aria-controls="settings-panel-access" tabindex="-1">Доступы</button>
 </div>
 <div class="dialog-body">
 <section role="tabpanel" id="settings-panel-general" aria-labelledby="settings-tab-general">
-  <h3>Модель по умолчанию</h3>
-  <label>Для чата в этом браузере<select id="default-connection"></select></label>
-  <p class="hint">Переключить модель для следующего сообщения можно над перепиской.</p>
-  <div class="buttons">
-    <button type="button" data-settings-tab="local">Настроить Ollama</button>
-    <button type="button" data-settings-tab="cloud">Подключить облачный API</button>
+  <div class="settings-summary" aria-label="Состояние подключений">
+    <div><strong id="overview-local-count">0</strong><span>Локальные модели</span></div>
+    <div><strong id="overview-cloud-count">0</strong><span>Облачные модели</span></div>
+    <div><strong id="overview-mcp-state">Проверяем</strong><span>Адрес ChatGPT MCP</span></div>
   </div>
+  <h3>Модели в чате</h3>
+  <div id="overview-models" class="settings-connections"></div>
+  <label>Модель по умолчанию для этого браузера<select id="default-connection"></select></label>
 </section>
 <section role="tabpanel" id="settings-panel-local" aria-labelledby="settings-tab-local" hidden>
-  <h3>Ollama на вашем компьютере или в локальной сети</h3>
-  <p class="muted">Укажите адрес, по которому сервер Publikator может достучаться до Ollama, затем выберите модель из списка.</p>
-  <div id="model-editor"><label>Что настроить<select id="edit-connection"><option value="">Новое подключение</option></select></label>
+  <div class="settings-section-head"><h3>Подключения в локальной сети</h3>
+    <button type="button" class="primary" data-new-provider="ollama">Добавить Ollama</button>
+  </div>
+  <div id="local-connections" class="settings-connections"></div>
+  <section id="model-editor" class="model-editor" hidden aria-labelledby="model-editor-title">
+    <div class="settings-section-head"><h4 id="model-editor-title">Подключение</h4><button id="model-editor-close" type="button">Закрыть форму</button></div>
+    <select id="provider-kind" hidden aria-label="Провайдер"></select>
   <form id="connection-form">
 <div class="form-grid">
-<label>Название подключения<input id="provider-name" maxlength="120" placeholder="Например: Gemma на сервере"></label>
-<label id="provider-kind-row">Провайдер<select id="provider-kind"></select></label>
+<label>Название в чате <span class="muted">(необязательно)</span><input id="provider-name" maxlength="120" placeholder="Например: Ollama — рабочий компьютер"></label>
 </div>
-<label><span id="provider-url-label">Адрес Ollama</span><input id="provider-url" type="url" required aria-describedby="provider-guide"></label>
-<p class="provider-guide" id="provider-guide"></p>
-<label id="provider-key-row">API-ключ<input id="provider-key" type="password" autocomplete="new-password" placeholder="Для Ollama обычно не нужен"></label>
+<label id="provider-url-row"><span id="provider-url-label">Адрес Ollama</span><input id="provider-url" type="url" required aria-describedby="provider-guide"></label>
+<details id="provider-help" class="connection-help">
+  <summary aria-label="Как настроить адрес и ключ" title="Как настроить адрес и ключ">ⓘ <span>Справка по подключению</span></summary>
+  <p class="provider-guide" id="provider-guide"></p>
+  <label id="local-provider-key-row" hidden>Ключ сервера <span class="muted">(если настроен)</span><input id="local-provider-key" type="password" autocomplete="new-password"></label>
+</details>
+<label id="provider-key-row">API-ключ<input id="provider-key" type="password" autocomplete="new-password" placeholder="Введите ключ провайдера"></label>
 <div class="models-chooser">
-<label>Доступная модель<select id="provider-model"><option value="">Загрузка списка моделей…</option></select></label>
-<button id="load-models" type="button">Обновить модели</button>
+<label>Модель<select id="provider-model"><option value="">Загрузка списка моделей…</option></select></label>
+<button id="load-models" type="button">Найти модели</button>
 </div>
-<p id="models-status" class="models-status" role="status">Модели будут получены с выбранного сервера автоматически.</p>
+<p id="models-status" class="models-status" role="status">Укажите данные подключения.</p>
 <details class="manual-model"><summary>Модель не появилась в списке?</summary><p class="hint">Только для API, не поддерживающих список моделей. В обычной ситуации вводить имя не требуется.</p><label>Ручной идентификатор модели<input id="provider-manual-model" maxlength="160" autocomplete="off" placeholder="Только если провайдер не возвращает /models"></label></details>
-<div class="buttons"><button class="primary" type="submit">Сохранить и проверить</button><button id="test-connection" type="button">Проверить повторно</button><button id="delete-connection" class="danger" type="button">Удалить</button></div>
-<p id="provider-test-result" class="test-result" role="status"></p></form></div>
+<div class="buttons"><button class="primary" type="submit">Сохранить и проверить</button><button id="test-connection" type="button">Проверить соединение</button><button id="delete-connection" class="danger" type="button">Удалить</button></div>
+<p id="provider-test-result" class="test-result" role="status"></p></form>
+  </section>
 </section>
 <section role="tabpanel" id="settings-panel-cloud" aria-labelledby="settings-tab-cloud" hidden>
-  <h3>OpenAI, DeepSeek и совместимые API</h3>
-  <p class="muted">Выберите провайдер и введите его API-ключ. Сохранённое подключение появится в списке «Модель чата».</p>
+  <h3>Облачные подключения</h3>
+  <div class="provider-actions">
+    <button type="button" data-new-provider="openai">Добавить OpenAI</button>
+    <button type="button" data-new-provider="deepseek">Добавить DeepSeek</button>
+    <button type="button" data-new-provider="compatible">Другой облачный API</button>
+  </div>
+  <div id="cloud-connections" class="settings-connections"></div>
 </section>
 <section role="tabpanel" id="settings-panel-mcp" aria-labelledby="settings-tab-mcp" hidden>
 <div class="mcp-settings"><h3>Подключить ChatGPT к Publikator</h3>
-<p class="muted">Плагин даёт внешнему чату инструменты Publikator. Выбирать модель встроенного чата можно во вкладках «Локальные модели» и «Облачные API».</p>
+<p class="muted">Позволяет ChatGPT работать с публикациями и данными Publikator.</p>
 <p id="chatgpt-mcp-state" class="hint" role="status">Проверяем настройку сервера…</p>
 <div id="chatgpt-mcp-guide" hidden>
-<label>Адрес для ChatGPT<input id="chatgpt-mcp-url" readonly></label>
+<p class="mcp-address"><code id="chatgpt-mcp-url" aria-label="Адрес для ChatGPT"></code></p>
 <div class="buttons"><button id="copy-chatgpt-url" type="button">Скопировать адрес</button><button id="test-chatgpt-url" type="button">Проверить адрес</button></div>
-<ol><li>В ChatGPT откройте «Плагины», нажмите «+» и добавьте собственный MCP-сервер.</li><li>Вставьте адрес, выберите OAuth и укажите данные зарегистрированного OAuth-клиента.</li><li>Войдите в Publikator и подтвердите нужные разрешения. Проверьте подключение командой «Покажи доступные проекты».</li></ol>
-<a href="https://developers.openai.com/api/docs/guides/custom-mcp-server" target="_blank" rel="noopener noreferrer">Инструкция ChatGPT</a>
+<details class="connection-help"><summary title="Как подключить ChatGPT">ⓘ <span>Как подключить</span></summary><ol><li>В ChatGPT откройте «Плагины», нажмите «+» и добавьте собственный MCP-сервер.</li><li>Вставьте адрес, выберите OAuth и укажите данные зарегистрированного OAuth-клиента.</li><li>Войдите в Publikator и подтвердите нужные разрешения. Проверьте подключение командой «Покажи доступные проекты».</li></ol>
+<a href="https://developers.openai.com/api/docs/guides/custom-mcp-server" target="_blank" rel="noopener noreferrer">Инструкция ChatGPT</a></details>
 </div>
 <button type="button" data-settings-tab="access">Настроить права ChatGPT</button>
 </div>
@@ -90,8 +104,8 @@
   <button id="model-access-save" type="submit">Сохранить права модели</button>
   <p id="model-access-status" role="status"></p>
 </form>
-<details id="chatgpt-permissions">
-<summary>Управлять доступом ChatGPT</summary>
+<section id="chatgpt-permissions" class="settings-section" aria-labelledby="chatgpt-access-title">
+<h4 id="chatgpt-access-title">Права ChatGPT</h4>
 <div id="chatgpt-profile-setup" hidden>
 <label>Профиль ChatGPT<select id="chatgpt-profile-select"></select></label>
 <button id="chatgpt-create-profile" type="button">Создать профиль ChatGPT</button>
@@ -107,8 +121,7 @@
 <label><input id="chatgpt-grant-confirm" type="checkbox" required> Подтверждаю выбранные права</label>
 <div class="buttons"><button id="chatgpt-grant-all" type="button">Выбрать все показанные</button><button type="submit">Сохранить права</button></div>
 </form>
-</details>
-<details class="settings-section"><summary>Последние действия помощника</summary><button type="button" id="reload-actions">Обновить журнал</button><div id="actions-list"></div></details>
+</section>
 </section>
 </div></dialog>
 <dialog id="owner-console" aria-labelledby="console-title">

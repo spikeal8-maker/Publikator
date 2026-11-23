@@ -92,7 +92,14 @@ export async function aiRequest(connection: AiConnection, suffix: string, body?:
   const url = new URL(connection.base_url + suffix);
   const local = connection.provider === 'ollama';
   const host = url.hostname.replace(/^\[|\]$/g,'');
-  const addresses = net.isIP(host) ? [{ address:host, family:net.isIP(host) }] : await dns.lookup(host,{all:true});
+  const addresses = await (net.isIP(host)
+    ? Promise.resolve([{ address:host, family:net.isIP(host) }])
+    : dns.lookup(host,{all:true}).catch(() => {
+        const hint = local
+          ? 'Publikator не находит сервер по этому имени. Укажите адрес Ollama, доступный из сети Publikator.'
+          : 'Publikator не находит адрес облачного провайдера.';
+        throw new OwnerAutomationError('MODEL_HOST_NOT_FOUND',hint,502);
+      }));
   if (!addresses.length || addresses.some(a => addressForbidden(a.address, local))) throw new OwnerAutomationError('ENDPOINT_BLOCKED', 'Адрес провайдера недопустим. Метаданные облака и непредусмотренные внутренние адреса запрещены.');
   const pinned = addresses[0]!;
   const dispatcher = new Agent({ connect: { lookup: ((_hostname: string, options: any, callback: any) => options?.all ? callback(null, [{address:pinned.address,family:pinned.family}]) : callback(null, pinned.address, pinned.family)) as any } });

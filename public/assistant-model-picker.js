@@ -8,7 +8,7 @@ export function createModelPicker({api, getConnections, getEditId}) {
   let serial = 0, timer = null, last = [], currentModel = '';
   const kind = () => $('provider-kind').value;
   const url = () => $('provider-url').value.trim();
-  const key = () => $('provider-key').value.trim();
+  const key = () => $(kind() === 'ollama' ? 'local-provider-key' : 'provider-key').value.trim();
   const oldConnection = () => getConnections().find(x => x.id === getEditId());
   const message = (text, level='') => {
     $('models-status').textContent = text;
@@ -39,7 +39,7 @@ export function createModelPicker({api, getConnections, getEditId}) {
       existing.baseUrl.replace(/\/$/, '') === url().replace(/\/$/, ''));
   }
   function canQuery(showReason = true) {
-    if (!url()) { if (showReason) message('Введите адрес сервера API.', 'info'); return false; }
+    if (!url()) { if (showReason) message('Введите сетевой адрес сервера.', 'info'); return false; }
     if (kind() !== 'ollama' && !key() && !compatibleSavedKey()) {
       if (showReason) message('Для ' + $('provider-kind').selectedOptions[0].text +
         ' нужен API-ключ. Укажите его, и список моделей загрузится автоматически.', 'info');
@@ -59,8 +59,11 @@ export function createModelPicker({api, getConnections, getEditId}) {
       : 'Совместимый HTTPS API: провайдер должен поддерживать GET /models и вызов инструментов.';
     $('provider-guide').textContent = hostHint;
     $('provider-key').required = p !== 'ollama' && !compatibleSavedKey();
-    $('provider-key-row').hidden = false;
-    $('provider-key').placeholder = p === 'ollama' ? 'Для Ollama необязательно' : (compatibleSavedKey() ? 'Ключ сохранён, при необходимости замените' : 'Введите API-ключ');
+    $('provider-key-row').hidden = p === 'ollama';
+    $('local-provider-key-row').hidden = p !== 'ollama';
+    const placeholder = compatibleSavedKey() ? 'Ключ сохранён' : '';
+    $('provider-key').placeholder = placeholder || 'Введите API-ключ';
+    $('local-provider-key').placeholder = placeholder;
   }
   async function discover({quiet = false} = {}) {
     const id = ++serial;
@@ -84,7 +87,7 @@ export function createModelPicker({api, getConnections, getEditId}) {
         previouslySelected : (response.suggestedModel || details[0]?.id || '');
       setOptions(details, candidate);
       message('Найдено моделей: ' + details.length +
-        (candidate ? '. Выбрана: ' + candidate + '. Для проверки публикационных инструментов сохраните подключение.' : '.'),
+        (candidate ? '. Выбрана: ' + candidate + '.' : '.'),
         details.length ? 'ok' : 'info');
       if (!quiet && !details.length) throw new Error('Провайдер не вернул доступных моделей.');
       return details;
@@ -125,13 +128,6 @@ export function createModelPicker({api, getConnections, getEditId}) {
     message('Адрес или ключ изменён. Обновляю список моделей…', 'pending');
     schedule();
   }
-  function onProviderChange() {
-    cancel();
-    $('provider-manual-model').value='';
-    setOptions([], '');
-    providerHint();
-    schedule();
-  }
-  return {discover, schedule, cancel, selectExisting, onProviderChange, onEndpointChange,
-    selected, providerHint, canQuery, message};
+  return {discover, schedule, cancel, selectExisting, onEndpointChange,
+    selected, message, key};
 }
