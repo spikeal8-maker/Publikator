@@ -420,6 +420,7 @@ try {
   }
   await page.goto(origin + '/assistant.html');
   await page.locator('#settings-open').click();
+  await page.getByRole('tab', { name: 'MCP', exact: true }).click();
   await page.getByRole('button', { name: 'Проверить адрес', exact: true }).click();
   await page.getByText('Адрес доступен и запрашивает OAuth.', { exact: false }).waitFor();
   await page.getByRole('tab', { name: 'Доступы', exact: true }).click();

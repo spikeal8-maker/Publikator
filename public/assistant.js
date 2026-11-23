@@ -306,9 +306,12 @@ $('chatgpt-grant-form').addEventListener('submit', guarded(async (event) => {
 
 async function saveConnection(event){
   event.preventDefault();
+  const editingGroup = modelPanel;
+  const editingConnection = editId;
   let model=modelPicker.selected();
   if(!model){
     await modelPicker.discover({quiet:false});
+    if (modelPanel !== editingGroup || editId !== editingConnection) return;
     model=modelPicker.selected();
   }
   if(!model)throw new Error('Сервер не вернул доступных моделей. Откройте диагностику или обновите список.');
@@ -324,8 +327,11 @@ async function saveConnection(event){
     modelPicker.message('Сохраняю подключение…','pending');
     const saved=await api('/api/assistant/connections',{method:'POST',body:JSON.stringify(data)});
     $('provider-key').value='';
-    editId=saved.id;
     await refreshConnections();
+    if (modelPanel !== editingGroup || editId !== editingConnection) {
+      toast('Подключение сохранено. Проверку можно запустить в его разделе.');
+      return;
+    }
     selectConnection(saved.id);
     $('connection-select').value=saved.id;
     $('edit-connection').value=saved.id;
