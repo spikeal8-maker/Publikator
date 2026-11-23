@@ -129,8 +129,11 @@ try {
     }
     storeCookies(result);
     const next = result.headers.get('location');
+    if (!next) {
+      const detail = (await result.text()).replaceAll(/<[^>]+>/g, ' ').replaceAll(/\s+/g, ' ');
+      assert.fail('Expected redirect from ' + destination.pathname + ', received ' + result.status + ' ' + detail.slice(-450));
+    }
     await result.body?.cancel();
-    assert.ok(next, 'Expected a redirect, received ' + result.status);
     destination = new URL(next, destination);
     assert.equal(destination.origin, origin);
     if (destination.href.startsWith(callback + '?')) {
