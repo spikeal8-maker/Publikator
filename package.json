@@ -28,6 +28,7 @@
     "@office-kit/xlsx": "0.11.0",
     "better-sqlite3": "^12.0.0",
     "fastify": "^5.0.0",
+    "oidc-provider": "9.15.1",
     "sharp": "0.35.5",
     "tar": "^7.5.22",
     "undici": "6.29.1",
@@ -37,6 +38,7 @@
     "@modelcontextprotocol/client": "2.4.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.0.0",
+    "@types/oidc-provider": "9.13.1",
     "playwright-core": "1.55.0",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0"
