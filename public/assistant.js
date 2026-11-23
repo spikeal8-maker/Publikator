@@ -44,6 +44,8 @@ function renderConnections(){
   defaultsPicker.value = enabled.some((connection) => connection.id === defaultConnectionId) ? defaultConnectionId : '';
   defaultsPicker.disabled = !enabled.length;
   renderConnectionEditorChoices();
+  renderModelAccessConnections();
+  updateChatAccess();
 }
 
 function connectionGroup(connection) {
@@ -58,6 +60,65 @@ function renderConnectionEditorChoices(){
     new Option(connection.name + ' · ' + connection.model, connection.id)));
   picker.value = choices.some((connection) => connection.id === editId) ? editId : '';
 }
+function updateChatAccess() {
+  const connection = connections.find((item) => item.id === $('connection-select').value);
+  const readOnly = connection?.accessMode === 'READ_ONLY';
+  $('allow-writes').disabled = readOnly;
+  if (readOnly) $('allow-writes').checked = false;
+  $('allow-writes').closest('label').title = readOnly ? 'Для этой модели включён режим «Только чтение».' : '';
+}
+
+function currentAccessConnection() {
+  return connections.find((item) => item.id === $('model-access-connection').value);
+}
+
+function syncAccessForm() {
+  const connection = currentAccessConnection();
+  $('model-access-mode').disabled = !connection;
+  $('model-access-mode').value = connection?.accessMode || 'READ_ONLY';
+  $('model-access-save').disabled = !connection;
+  $('model-access-confirm-row').hidden = true;
+  $('model-access-confirm').checked = false;
+  $('model-access-status').textContent = connection ? '' : 'Сначала подключите модель.';
+}
+
+function renderModelAccessConnections() {
+  const picker = $('model-access-connection');
+  const previous = picker.value;
+  picker.replaceChildren(...(connections.length ? connections.map(({ id, name, model }) =>
+    new Option(name + ' · ' + model, id)) : [new Option('Нет подключений', '')]));
+  if (connections.some(({ id }) => id === previous)) picker.value = previous;
+  syncAccessForm();
+}
+
+$('connection-select').addEventListener('change', updateChatAccess);
+$('model-access-connection').addEventListener('change', syncAccessForm);
+$('model-access-mode').addEventListener('change', () => {
+  const elevation = currentAccessConnection()?.accessMode === 'READ_ONLY' && $('model-access-mode').value === 'OWNER_TOOLS';
+  $('model-access-confirm-row').hidden = !elevation;
+  $('model-access-confirm').checked = false;
+});
+$('model-access-form').addEventListener('submit', guarded(async (event) => {
+  event.preventDefault();
+  const connection = currentAccessConnection();
+  if (!connection) return;
+  const button = $('model-access-save');
+  button.disabled = true;
+  try {
+    await api('/api/assistant/connections/' + encodeURIComponent(connection.id) + '/access', {
+      method: 'PATCH', body: JSON.stringify({
+        expectedRevision: connection.revision,
+        accessMode: $('model-access-mode').value,
+        confirmElevation: $('model-access-confirm').checked,
+      }),
+    });
+    await refreshConnections();
+    $('model-access-status').textContent = 'Права модели сохранены.';
+  } finally {
+    button.disabled = !currentAccessConnection();
+  }
+}));
+
 async function refreshConnections(){connections=(await api('/api/assistant/connections')).connections;renderConnections();}
 function selectConnection(id){
   const c=connections.find(c=>c.id===id && connectionGroup(c)===modelPanel);
@@ -131,6 +192,7 @@ $('default-connection').addEventListener('change', (event) => {
   defaultConnectionId = event.target.value;
   try { localStorage.setItem(defaultConnectionKey, defaultConnectionId); } catch {}
   if (!busy) $('connection-select').value = defaultConnectionId || $('connection-select').querySelector('option')?.value || '';
+  updateChatAccess();
 });
 function renderChatGPTMcp(){
   const url=statusInfo?.chatgptMcpUrl||'';
@@ -334,6 +396,7 @@ async function saveConnection(event){
     }
     selectConnection(saved.id);
     $('connection-select').value=saved.id;
+    updateChatAccess();
     $('edit-connection').value=saved.id;
     try{
       await testConnection();
@@ -362,7 +425,7 @@ async function testConnection(){
 async function refreshKeys(){const keys=(await api('/api/assistant/keys')).keys;const root=$('key-list');root.replaceChildren();for(const k of keys){const row=element('div','key-row');const info=element('div','',k.name);info.append(element('small','',k.revoked_at?'Отключён':`${k.prefix}… · до ${new Date(k.expires_at).toLocaleDateString('ru-RU')}`));row.append(info);if(!k.revoked_at){const b=element('button','danger','Отозвать');b.type='button';b.addEventListener('click',guarded(async()=>{if(!confirm('Отключить доступ этому боту?'))return;await api('/api/assistant/keys/'+encodeURIComponent(k.id)+'/revoke',{method:'POST',body:'{}'});await refreshKeys();}));row.append(b);}root.append(row);}}
 function renderAttachments(){const root=$('attachments');root.replaceChildren();for(const file of attachments){const chip=element('span','file-chip',file.name);const remove=element('button','','×');remove.type='button';remove.setAttribute('aria-label','Не использовать '+file.name);remove.addEventListener('click',()=>{attachments=attachments.filter(x=>x.id!==file.id);renderAttachments();});chip.append(remove);root.append(chip);}}
 async function uploadFiles(event){const files=[...event.target.files];event.target.value='';if(files.length>12)throw new Error('За один раз выберите не больше 12 файлов.');for(const file of files){$('run-state').textContent='Загрузка: '+file.name;const form=new FormData();form.append('file',file,file.name);const result=await api('/api/assistant/uploads',{method:'POST',body:form});attachments.push(result);renderAttachments();}$('run-state').textContent='Вложения загружены. Укажите, что с ними сделать.';}
-async function sendMessage(event){event.preventDefault();if(busy)return;let message=$('message-input').value.trim();if(!message)return;const connectionId=$('connection-select').value;if(!connectionId){await openSettings('local');throw new Error('Подключите модель для чата.');}if(!threadId)await newThread();if(attachments.length)message+='\n\nВложения к моему сообщению (используй uploadId через publikator_attach_uploaded_media):\n'+attachments.map(a=>`${a.name}; uploadId=${a.id}; тип=${a.mimeType}; размер=${a.sizeBytes}`).join('\n');const body={threadId,connectionId,message,allowWrites:$('allow-writes').checked,idempotencyKey:crypto.randomUUID()};setBusy(true);$('run-state').textContent='Запрос принят к выполнению…';try{const run=await api('/api/assistant/runs',{method:'POST',body:JSON.stringify(body)});runId=run.id;$('message-input').value='';attachments=[];renderAttachments();await refreshThreads();void pollRun(runId,++pollEpoch);}catch(error){setBusy(false);$('run-state').textContent='';throw error;}}
+async function sendMessage(event){event.preventDefault();if(busy)return;let message=$('message-input').value.trim();if(!message)return;const connectionId=$('connection-select').value;if(!connectionId){await openSettings('local');throw new Error('Подключите модель для чата.');}if(!threadId)await newThread();if(attachments.length)message+='\n\nВложения к моему сообщению (используй uploadId через publikator_attach_uploaded_media):\n'+attachments.map(a=>`${a.name}; uploadId=${a.id}; тип=${a.mimeType}; размер=${a.sizeBytes}`).join('\n');const body={threadId,connectionId,message,allowWrites:!$('allow-writes').disabled&&$('allow-writes').checked,idempotencyKey:crypto.randomUUID()};setBusy(true);$('run-state').textContent='Запрос принят к выполнению…';try{const run=await api('/api/assistant/runs',{method:'POST',body:JSON.stringify(body)});runId=run.id;$('message-input').value='';attachments=[];renderAttachments();await refreshThreads();void pollRun(runId,++pollEpoch);}catch(error){setBusy(false);$('run-state').textContent='';throw error;}}
 async function pollRun(id,epoch){try{while(epoch===pollEpoch){const [run,thread]=await Promise.all([api('/api/assistant/runs/'+encodeURIComponent(id)),api('/api/assistant/threads/'+encodeURIComponent(threadId))]);if(epoch!==pollEpoch)return;renderMessages(thread.messages);$('thread-title').textContent=thread.thread.title;$('run-state').textContent=run.status==='RUNNING'?(toolLabels[run.currentOperation]||run.currentOperation||'Подготовка запроса…'):run.status==='COMPLETED'?'Готово':run.result?.text||({'FAILED':'Запрос завершился ошибкой','CANCELLED':'Запрос остановлен','INTERRUPTED':'Запрос прерван перезапуском сервера'}[run.status]||run.status);if(run.status!=='RUNNING'){setBusy(false);runId=null;await refreshThreads();return;}await new Promise(r=>setTimeout(r,1500));}}catch(error){if(epoch===pollEpoch){setBusy(false);toast(error.message,true);$('run-state').textContent='Связь с сервером прервалась. Обновите диалог для проверки результата.';}}}
 $('new-thread').addEventListener('click',guarded(newThread));$('settings-open').addEventListener('click',guarded(()=>openSettings()));$('settings-close').addEventListener('click',()=>$('settings').close());$('settings').addEventListener('close',()=>{clearNewMcpKey();$('provider-key').value='';modelPicker.cancel();modelPanel=null;});$('composer').addEventListener('submit',guarded(sendMessage));$('message-input').addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();$('composer').requestSubmit();}});$('file-input').addEventListener('change',guarded(uploadFiles));$('stop-run').addEventListener('click',guarded(async()=>{if(runId){await api('/api/assistant/runs/'+encodeURIComponent(runId)+'/stop',{method:'POST',body:'{}'});$('run-state').textContent='Остановка новых действий…';}}));
 $('connection-form').addEventListener('submit',guarded(saveConnection));

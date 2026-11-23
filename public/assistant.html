@@ -78,7 +78,18 @@
 </section>
 <section role="tabpanel" id="settings-panel-access" aria-labelledby="settings-tab-access" hidden>
 <h3>Полномочия помощников</h3>
-<p class="muted">Встроенная модель работает от имени владельца. Перед отправкой сообщения снимите флажок «Разрешить действия», если нужно только чтение.</p>
+<form id="model-access-form" class="settings-section">
+  <h4>Модели встроенного чата</h4>
+  <label>Подключение<select id="model-access-connection"></select></label>
+  <label>Права модели<select id="model-access-mode">
+    <option value="READ_ONLY">Только чтение</option>
+    <option value="OWNER_TOOLS">Чтение и действия</option>
+  </select></label>
+  <p class="hint">В режиме «Чтение и действия» изменения разрешаются отдельно для каждого сообщения.</p>
+  <label id="model-access-confirm-row" hidden><input id="model-access-confirm" type="checkbox"> Подтверждаю, что модель сможет изменять данные Publikator</label>
+  <button id="model-access-save" type="submit">Сохранить права модели</button>
+  <p id="model-access-status" role="status"></p>
+</form>
 <details id="chatgpt-permissions">
 <summary>Управлять доступом ChatGPT</summary>
 <div id="chatgpt-profile-setup" hidden>

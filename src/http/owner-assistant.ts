@@ -5,7 +5,7 @@ import { db, nowIso } from '../db.js';
 import { config } from '../config.js';
 import { authenticateOwnerKey, createOwnerAutomationKey, listOwnerAutomationKeys, revokeOwnerAutomationKey, sessionActor, safeOutput, OwnerAutomationError, objectValue, boundedString, type OwnerActor } from '../owner-automation.js';
 import { ownerMutationOriginMatches } from './security.js';
-import { listAiConnections, saveAiConnection, getAiConnection, listAiModels, discoverAiModels } from '../owner-ai-providers.js';
+import { listAiConnections, saveAiConnection, getAiConnection, listAiModels, discoverAiModels, updateAiConnectionAccess } from '../owner-ai-providers.js';
 import { createAiThread, listAiThreads, getAiThread, startAiRun, getAiRun, stopAiRun, testAiConnection, recoverInterruptedAiRuns, stopAllAiRuns } from '../owner-ai-chat.js';
 import { stageOwnerUpload, cleanupOwnerUploads } from '../owner-ai-uploads.js';
 import type { createOwnerTools } from '../owner-tools.js';
@@ -30,6 +30,14 @@ export async function registerOwnerAssistant(app:FastifyInstance,registry:Regist
   app.get('/api/assistant/connections',async(req,reply)=>{try{const a=owner(req);return {connections:listAiConnections(a.ownerId)};}catch(e){return fail(reply,e);}});
   app.post('/api/assistant/discover-models',{bodyLimit:16384},async(req,reply)=>{try{const a=owner(req,true);return await discoverAiModels(a.ownerId,req.body);}catch(e){return fail(reply,e);}});
   app.post('/api/assistant/connections',{bodyLimit:16384},async(req,reply)=>{try{const a=owner(req,true);return saveAiConnection(a.ownerId,req.body);}catch(e){return fail(reply,e);}});
+  app.patch<{ Params: { id: string } }>('/api/assistant/connections/:id/access',{bodyLimit:4096},async(req,reply)=>{
+    try {
+      const actor = owner(req, true);
+      return updateAiConnectionAccess(actor.ownerId, req.params.id, req.body);
+    } catch (error) {
+      return fail(reply, error);
+    }
+  });
   app.post('/api/assistant/connections/:id/test',async(req,reply)=>{try{const a=owner(req,true);return await testAiConnection(a.ownerId,(req.params as any).id);}catch(e){return fail(reply,e);}});
   app.get('/api/assistant/connections/:id/models',async(req,reply)=>{try{const a=owner(req);return {models:await listAiModels(getAiConnection(a.ownerId,(req.params as any).id))};}catch(e){return fail(reply,e);}});
   app.delete('/api/assistant/connections/:id',async(req,reply)=>{try{const a=owner(req,true);const cid=(req.params as any).id;const running=db.prepare("SELECT id FROM owner_ai_runs WHERE connection_id=? AND owner_id=? AND status='RUNNING'").get(cid,a.ownerId);if(running)throw new OwnerAutomationError('CONNECTION_BUSY','Сначала остановите выполняющийся запрос.',409);const r=db.prepare('DELETE FROM owner_ai_connections WHERE id=? AND owner_id=?').run(cid,a.ownerId);if(!r.changes)throw new OwnerAutomationError('NOT_FOUND','Подключение не найдено.',404);return {ok:true};}catch(e){return fail(reply,e);}});

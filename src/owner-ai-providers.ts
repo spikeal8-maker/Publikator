@@ -6,7 +6,9 @@ import { encryptJson, decryptJson } from './crypto.js';
 import { OwnerAutomationError, boundedString, objectValue } from './owner-automation.js';
 import { completeOpenAi, OpenAiProtocolError } from './owner-ai-responses.js';
 
-export type AiConnection = { id: string; owner_id: string; name: string; provider: 'openai'|'deepseek'|'compatible'|'ollama'; base_url: string; model: string; credentials_encrypted: string; revision: number; enabled: number; tool_verified: number };
+export type AiAccessMode = 'READ_ONLY' | 'OWNER_TOOLS';
+
+export type AiConnection = { id: string; owner_id: string; name: string; provider: 'openai'|'deepseek'|'compatible'|'ollama'; base_url: string; model: string; credentials_encrypted: string; revision: number; enabled: number; tool_verified: number; access_mode: AiAccessMode };
 const DEFAULT_URLS: Record<string,string> = { openai: 'https://api.openai.com/v1', deepseek: 'https://api.deepseek.com', ollama: 'http://host.docker.internal:11434' };
 function addressForbidden(address: string, localAllowed: boolean): boolean {
   const a = address.toLowerCase().replace(/^::ffff:/, '');
@@ -30,7 +32,7 @@ function normalizedEndpoint(provider: string, input: unknown): string {
 export function connectionView(c: AiConnection): any {
   let hasKey = false;
   try { hasKey = Boolean(decryptJson<any>(c.credentials_encrypted).apiKey); } catch { /* invalid key stays unavailable */ }
-  return { id:c.id, name:c.name, provider:c.provider, baseUrl:c.base_url, model:c.model, revision:c.revision, enabled:Boolean(c.enabled), toolVerified:Boolean(c.tool_verified), hasKey };
+  return { id:c.id, name:c.name, provider:c.provider, baseUrl:c.base_url, model:c.model, revision:c.revision, enabled:Boolean(c.enabled), toolVerified:Boolean(c.tool_verified), accessMode:c.access_mode, hasKey };
 }
 export function listAiConnections(ownerId: string): any[] {
   return (db.prepare('SELECT * FROM owner_ai_connections WHERE owner_id=? ORDER BY name,id').all(ownerId) as AiConnection[]).map(connectionView);
@@ -63,6 +65,29 @@ export function saveAiConnection(ownerId: string, value: unknown): any {
     .run(connectionId,ownerId,name,b.provider,baseUrl,model,credentials,now,now);
   return connectionView(db.prepare('SELECT * FROM owner_ai_connections WHERE id=?').get(connectionId) as AiConnection);
 }
+export function updateAiConnectionAccess(ownerId: string, connectionId: string, value: unknown): ReturnType<typeof connectionView> {
+  const input = objectValue(value);
+  if (input.accessMode !== 'READ_ONLY' && input.accessMode !== 'OWNER_TOOLS') {
+    throw new OwnerAutomationError('INVALID_ACCESS_MODE', 'Выберите режим доступа модели.');
+  }
+  return db.transaction(() => {
+    const row = db.prepare('SELECT * FROM owner_ai_connections WHERE owner_id=? AND id=?')
+      .get(ownerId, connectionId) as AiConnection | undefined;
+    if (!row) throw new OwnerAutomationError('CONNECTION_NOT_FOUND', 'Подключение модели не найдено.', 404);
+    if (row.revision !== input.expectedRevision) {
+      throw new OwnerAutomationError('VERSION_CONFLICT', 'Настройки изменились. Обновите страницу.', 409);
+    }
+    if (row.access_mode === input.accessMode) return connectionView(row);
+    if (input.accessMode === 'OWNER_TOOLS' && input.confirmElevation !== true) {
+      throw new OwnerAutomationError('CONFIRM_MODEL_ACCESS', 'Подтвердите разрешение выполнять действия.', 400);
+    }
+    db.prepare(`UPDATE owner_ai_connections SET access_mode=?,revision=revision+1,updated_at=?
+      WHERE id=? AND owner_id=? AND revision=?`)
+      .run(input.accessMode, nowIso(), connectionId, ownerId, row.revision);
+    return connectionView({ ...row, access_mode: input.accessMode, revision: row.revision + 1 });
+  }).immediate();
+}
+
 export async function aiRequest(connection: AiConnection, suffix: string, body?: unknown, signal?: AbortSignal): Promise<any> {
   const url = new URL(connection.base_url + suffix);
   const local = connection.provider === 'ollama';
@@ -177,7 +202,7 @@ export async function discoverAiModels(ownerId:string,value:unknown):Promise<any
   }
   if(b.provider!=='ollama'&&!apiKey)throw new OwnerAutomationError('KEY_REQUIRED','Введите API-ключ для получения списка моделей.');
   if(apiKey.length>8192||/[\r\n\u0000]/.test(apiKey))throw new OwnerAutomationError('INVALID_KEY','Некорректный API-ключ.');
-  const ephemeral:AiConnection={id:'discovery',owner_id:ownerId,name:'discovery',provider:b.provider,base_url:baseUrl,model:'discovery',credentials_encrypted:encryptJson({apiKey}),revision:1,enabled:1,tool_verified:0};
+  const ephemeral:AiConnection={id:'discovery',owner_id:ownerId,name:'discovery',provider:b.provider,base_url:baseUrl,model:'discovery',credentials_encrypted:encryptJson({apiKey}),revision:1,enabled:1,tool_verified:0,access_mode:'READ_ONLY'};
   const details=await queryAvailableModels(ephemeral);
   const models=details.map(m=>m.id);
   const candidates=models.filter(name=>!/(?:embed|whisper|tts|audio|realtime|transcrib|moderation|dall-e|image|sora|babbage|davinci|instruct)/i.test(name));

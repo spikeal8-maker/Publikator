@@ -96,3 +96,7 @@ A coding agent adding schema `N+1` must update the migration ledger and satisfy 
 
 ## Schema 19 — owner-mcp-chat
 Additive owner-issued administrative MCP key hashes, encrypted AI provider configuration, encrypted chat history, durable chat runs and operation receipts. Existing schema 17/18 agent grants remain restricted; no key is issued or elevated during migration. Pending chat uploads are temporary (24 hours) and are not part of a canonical backup; attached canonical media are backed up normally. Downgrading to schema 16 requires restoring the verified pre-upgrade bundle, not starting an older image on the upgraded database.
+
+### Schema 21 — per-model AI tool access
+
+The connection access mode is additive. Prior connections retain the operator's existing per-request approval flow. The canonical backup carries the mode with the existing connection row. Downgrade requires a verified pre-migration backup because an earlier binary would not enforce this policy.
