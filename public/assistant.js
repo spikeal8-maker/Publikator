@@ -69,8 +69,11 @@ const chatGPTScopeLabels = new Map([
   ['accounts:read', 'Просматривать аккаунты и доступные форматы'],
   ['posts:read', 'Читать публикации, тексты и статистику разрешённых проектов'],
   ['posts:write', 'Создавать и редактировать текстовые черновики'],
+  ['sources:read', 'Просматривать разрешённые источники медиа'],
+  ['media:import', 'Прикреплять изображения и MP4 из выбранных источников'],
 ]);
 let editingChatGPTGrant = null;
+let editableChatGPTSources = [];
 let preparedChatGPTAgentId = '';
 let chatGPTProfileRequestId = null;
 let chatGPTGrantLoad = 0;
@@ -125,9 +128,10 @@ async function loadChatGPTGrant() {
       status.textContent = 'Создайте профиль, чтобы выбрать его права.';
       return;
     }
-    const [agent, projects, accounts] = await Promise.all([
+    const [agent, projects, accounts, drive, disk] = await Promise.all([
       api('/api/owner/agents/' + encodeURIComponent(agentId)),
       api('/api/projects'), api('/api/accounts'),
+      api('/api/google-drive/connectors'), api('/api/yandex-disk/connectors'),
     ]);
     if (run !== chatGPTGrantLoad) return;
     const grant = agent.grant;
@@ -136,6 +140,9 @@ async function loadChatGPTGrant() {
       return;
     }
     editingChatGPTGrant = grant;
+    const sources = [...drive.connectors, ...disk.connectors];
+    editableChatGPTSources = sources.map(({id}) => id);
+    renderGrantOptions($('chatgpt-grant-sources'), sources.map(({id, name}) => [id, name]), grant.sourceConnectorIds);
     renderGrantOptions($('chatgpt-grant-scopes'), [...chatGPTScopeLabels], grant.scopeIds);
     renderGrantOptions($('chatgpt-grant-projects'), projects.map(({id, name}) => [id, name]), grant.projectIds);
     renderGrantOptions($('chatgpt-grant-accounts'), accounts.map(({id, name}) => [id, name]), grant.accountIds);
@@ -184,7 +191,11 @@ $('chatgpt-grant-form').addEventListener('submit', guarded(async (event) => {
     body: JSON.stringify({
       expectedGrantVersion: grant.grantVersion, presetId: 'CUSTOM', publishMode: grant.publishMode,
       scopeIds, projectIds: selected('chatgpt-grant-projects'), accountIds: selected('chatgpt-grant-accounts'),
-      sourceConnectorIds: grant.sourceConnectorIds, confirmElevation: true,
+      sourceConnectorIds: [
+        ...grant.sourceConnectorIds.filter((id) => !editableChatGPTSources.includes(id)),
+        ...selected('chatgpt-grant-sources'),
+      ],
+      confirmElevation: true,
     }),
   });
   await loadChatGPTGrant();

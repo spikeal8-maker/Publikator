@@ -12,10 +12,12 @@ import { listVerifiedProjects } from './agent-projects.js';
 import { updateScopedAgentDraft } from './agent-draft-edits.js';
 import { listOwnDrafts, getOwnDraft, parseOwnedPage } from './agent-owned-drafts.js';
 import { createScopedAgentDraft } from './agent-text-drafts.js';
+import { attachManagedAgentMedia } from './agent-managed-media.js';
+import { listScopedAgentSources } from './agent-sources.js';
 import { getScopedPublication, getScopedPublicationAnalytics, listScopedPublications } from './agent-publication-read.js';
 
 type Issuer = NonNullable<Awaited<ReturnType<typeof registerChatGPTIssuer>>>;
-type Scope = 'projects:read' | 'accounts:read' | 'posts:read' | 'posts:write';
+type Scope = 'projects:read' | 'accounts:read' | 'posts:read' | 'posts:write' | 'sources:read' | 'media:import';
 
 const page = z.object({
   limit: z.number().int().min(1).max(100).optional(),
@@ -70,7 +72,7 @@ export async function registerChatGPTMcp(app: FastifyInstance, issuer: Issuer | 
       };
     }
 
-    async function invoke(scope: Scope, operation: (identity: VerifiedAgentIdentity) => object) {
+    async function invoke(scope: Scope, operation: (identity: VerifiedAgentIdentity) => object | Promise<object>) {
       try {
         const current = await issuer!.authenticate(bearer!);
         if (!current) return toolError('Подключение истекло или было отозвано.', challenge('invalid_token'));
@@ -84,7 +86,7 @@ export async function registerChatGPTMcp(app: FastifyInstance, issuer: Issuer | 
           return toolError('Publikator временно недоступен. Повторите после обслуживания.');
         }
         try {
-          const value = operation({ ...current, tokenScopes: current.scopeIds });
+          const value = await operation({ ...current, tokenScopes: current.scopeIds });
           return { content: [{ type: 'text' as const, text: JSON.stringify(value) }] };
         } finally {
           release();
@@ -163,6 +165,24 @@ export async function registerChatGPTMcp(app: FastifyInstance, issuer: Issuer | 
         ...policy('posts:read', true),
       }, async ({ projectId }) => invoke('posts:read', (identity) =>
         getScopedPublicationAnalytics(identity, projectId)));
+      server.registerTool('publikator_list_media_sources', {
+        description: 'Показать разрешённые источники медиа. Для импорта используйте ID включённого Google Drive или Яндекс Диска.',
+        inputSchema: page,
+        ...policy('sources:read', true),
+      }, async (args) => invoke('sources:read', (identity) =>
+        listScopedAgentSources(() => identity, parsePage(pageQuery(args)))));
+      server.registerTool('publikator_attach_cloud_media', {
+        description: 'Прикрепить изображение или MP4 из разрешённого Google Drive или Яндекс Диска к своему черновику. Укажите путь внутри папки и текущую версию. После загрузки черновик сохраняется без отправки.',
+        inputSchema: z.object({
+          postId: identifier,
+          connectorId: identifier,
+          relativePath: z.string().min(1).max(512),
+          expectedContentVersion: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+          idempotencyKey: identifier,
+        }).strict(),
+        ...policy('media:import', false),
+        _meta: { securitySchemes: [{ type: 'oauth2', scopes: ['media:import', 'posts:write'] }] },
+      }, async (args) => invoke('media:import', (identity) => attachManagedAgentMedia(identity, args)));
       return server;
     }, { legacy: 'stateless', maxRequestBodySize: 64 * 1024 });
 

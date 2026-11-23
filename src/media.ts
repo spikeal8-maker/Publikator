@@ -4,10 +4,15 @@ import crypto from 'node:crypto';
 import sharp from 'sharp';
 import { config } from './config.js';
 import { db, id, nowIso } from './db.js';
-import { assertContentVersion, commitContentEdit } from './content-versioning.js';
+import { assertContentVersion, commitContentEdit, type RevisionActorSource } from './content-versioning.js';
 import { prepareVideoUpload } from './video-media.js';
 
 const MAX_IMAGE_DIMENSION = 7680;
+
+type MediaCommitGuard = {
+  actorSource: RevisionActorSource;
+  beforeCommit: (resultVersion: number) => void;
+};
 
 export type MediaRow = {
   id: string;
@@ -119,20 +124,26 @@ export async function saveImage(postId: string, originalName: string, input: Buf
 }
 
 export async function saveImageVersioned(
-  postId: string, originalName: string, input: Buffer, expectedContentVersion: number
+  postId: string, originalName: string, input: Buffer, expectedContentVersion: number,
+  guard?: MediaCommitGuard,
 ): Promise<{ media: MediaRow; contentVersion: number }> {
   assertContentVersion(postId, expectedContentVersion);
   const prepared = await prepareImage(input);
   const duplicate = duplicateMedia(postId, prepared.sha256);
   if (duplicate) {
-    assertContentVersion(postId, expectedContentVersion);
-    return { media: duplicate, contentVersion: expectedContentVersion };
+    return db.transaction(() => {
+      assertContentVersion(postId, expectedContentVersion);
+      guard?.beforeCommit(expectedContentVersion);
+      return { media: duplicate, contentVersion: expectedContentVersion };
+    })();
   }
   const mediaId = id('med');
   const absolutePath = await writePreparedFile(postId, mediaId, prepared);
   try {
-    const committed = commitContentEdit(postId, expectedContentVersion, 'manual', () =>
-      insertPreparedImage(postId, originalName, prepared, mediaId));
+    const committed = commitContentEdit(postId, expectedContentVersion, guard?.actorSource ?? 'manual', () => {
+      guard?.beforeCommit(expectedContentVersion + 1);
+      return insertPreparedImage(postId, originalName, prepared, mediaId);
+    });
     if (committed.value.id !== mediaId) await fs.unlink(absolutePath).catch(() => undefined);
     return { media: committed.value, contentVersion: committed.contentVersion };
   } catch (error) {
@@ -145,7 +156,8 @@ export async function saveVideoVersioned(
   postId: string,
   originalName: string,
   input: AsyncIterable<unknown>,
-  expectedContentVersion: number
+  expectedContentVersion: number,
+  guard?: MediaCommitGuard,
 ): Promise<{ media: MediaRow; poster: MediaRow; contentVersion: number }> {
   assertContentVersion(postId, expectedContentVersion);
   const kind = (db.prepare('SELECT publication_kind FROM posts WHERE id=?').get(postId) as { publication_kind: string } | undefined)?.publication_kind;
@@ -167,7 +179,8 @@ export async function saveVideoVersioned(
     await fs.rename(preparedVideo.tempVideoPath, videoAbsolutePath);
     await fs.writeFile(posterAbsolutePath, posterPrepared.data);
 
-    const committed = commitContentEdit(postId, expectedContentVersion, 'manual', () => {
+    const committed = commitContentEdit(postId, expectedContentVersion, guard?.actorSource ?? 'manual', () => {
+      guard?.beforeCommit(expectedContentVersion + 1);
       const createdAt = nowIso();
       const nextOrder = (db.prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM media WHERE post_id=?').get(postId) as { n: number }).n;
       db.prepare(`INSERT INTO media

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, generateKeyPairSync, randomBytes } from 'node:crypto';
 import { once } from 'node:events';
 import fs from 'node:fs/promises';
 import net from 'node:net';
@@ -48,13 +48,25 @@ try {
   const accountId = 'acc_oauth_mcp_fixture';
   const deniedAccount = 'acc_oauth_mcp_hidden';
   const canary = 'mcp-fixture-credential-canary';
-  const scopes = ['accounts:read', 'posts:read', 'posts:write', 'projects:read'];
+  const scopes = ['accounts:read', 'media:import', 'posts:read', 'posts:write', 'projects:read', 'sources:read'];
+  const connectorId = 'mcp_fixture_media_drive';
+  const rootFolderId = 'mcp_fixture_drive_root';
+  const driveEmail = 'mcp-media@fixture.iam.gserviceaccount.com';
+  const driveKey = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey
+    .export({ type: 'pkcs8', format: 'pem' });
+  db.prepare(`INSERT INTO ingestion_connectors
+    (id,type,name,config_json,credentials_encrypted,created_at,updated_at)
+    VALUES (?,'google_drive','Editorial Media',?,?,?,?)`).run(
+    connectorId, JSON.stringify({ rootFolderId, rootFolderName: 'Editorial Media', serviceAccountEmail: driveEmail }),
+    encryptJson({ type: 'service_account', client_email: driveEmail, private_key: driveKey,
+      token_uri: 'https://oauth2.googleapis.com/token' }), stamp, stamp);
   for (const id of [accountId, deniedAccount]) {
     db.prepare("INSERT INTO social_accounts(id,platform,name,credentials_encrypted,enabled,created_at,updated_at) VALUES (?,'telegram',?,?,1,?,?)")
       .run(id, id, encryptJson({ botToken: canary, chatId: '@fixture' }), stamp, stamp);
   }
-  db.prepare('INSERT INTO agent_grants(agent_id,scope_ids_json,project_ids_json,account_ids_json,created_at,updated_at) VALUES(?,?,?,?,?,?)')
-    .run(agentId, JSON.stringify(scopes), JSON.stringify([projectId]), JSON.stringify([accountId]), stamp, stamp);
+  db.prepare('INSERT INTO agent_grants(agent_id,scope_ids_json,project_ids_json,account_ids_json,source_connector_ids_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?)')
+    .run(agentId, JSON.stringify(scopes), JSON.stringify([projectId]), JSON.stringify([accountId]),
+      JSON.stringify([connectorId]), stamp, stamp);
   const owner = loginAdmin('owner', password);
   assert.ok(owner);
   app = await buildApp();
@@ -238,9 +250,10 @@ try {
   try {
     const { tools } = await client.listTools();
     assert.deepEqual(tools.map((tool) => tool.name).sort(), [
-      'publikator_create_text_draft', 'publikator_edit_text_draft', 'publikator_get_publication',
-      'publikator_get_publication_analytics', 'publikator_get_text_draft', 'publikator_list_accounts',
-      'publikator_list_projects', 'publikator_list_publications', 'publikator_list_text_drafts',
+      'publikator_attach_cloud_media', 'publikator_create_text_draft', 'publikator_edit_text_draft',
+      'publikator_get_publication', 'publikator_get_publication_analytics', 'publikator_get_text_draft',
+      'publikator_list_accounts', 'publikator_list_media_sources', 'publikator_list_projects',
+      'publikator_list_publications', 'publikator_list_text_drafts',
     ]);
     const projects = await client.callTool({ name: 'publikator_list_projects', arguments: {} });
     assert.equal(JSON.parse(projects.content[0].text).items[0].id, projectId);
@@ -325,8 +338,54 @@ try {
     const { saveImageVersioned } = await import('../dist/media.js');
     const { default: sharp } = await import('sharp');
     const image = await sharp({ create: { width: 16, height: 16, channels: 3, background: 'orange' } }).png().toBuffer();
-    const attachment = await saveImageVersioned(doc.postId, 'private-test.png', image, edited.contentVersion);
-    const mediaPath = '/public-media/' + attachment.media.relative_path;
+    const availableSources = await client.callTool({ name: 'publikator_list_media_sources', arguments: {} });
+    assert.deepEqual(JSON.parse(availableSources.content[0].text).items.map((item) => item.id), [connectorId]);
+    assert.ok(!availableSources.content[0].text.includes(rootFolderId));
+    const importArgs = {
+      postId: doc.postId, connectorId, relativePath: 'private-test.png',
+      expectedContentVersion: edited.contentVersion, idempotencyKey: 'attach-test-image',
+    };
+    const attach = (args) => client.callTool({ name: 'publikator_attach_cloud_media', arguments: args });
+    const deniedSource = await attach({ ...importArgs, connectorId: 'not-allowed' });
+    assert.equal(deniedSource.isError, true);
+    const escapedRoot = await attach({ ...importArgs, relativePath: '../private-test.png' });
+    assert.equal(escapedRoot.isError, true);
+    const nativeFetch = globalThis.fetch;
+    let downloads = 0;
+    globalThis.fetch = async (input, init) => {
+      const url = new URL(input instanceof Request ? input.url : input);
+      if (url.href === 'https://oauth2.googleapis.com/token') {
+        return Response.json({ access_token: 'fixture-drive-access-token', expires_in: 3600, token_type: 'Bearer' });
+      }
+      if (url.hostname !== 'www.googleapis.com') return nativeFetch(input, init);
+      assert.match(new Headers(init?.headers).get('authorization'), /^Bearer fixture-drive-access-token$/);
+      if (url.pathname === '/drive/v3/files') {
+        assert.ok(url.searchParams.get('q').includes(rootFolderId));
+        return Response.json({ files: [{
+          id: 'file_fixture_chatgpt', name: 'private-test.png', mimeType: 'image/png',
+          size: String(image.length), parents: [rootFolderId], capabilities: { canDownload: true },
+          md5Checksum: createHash('md5').update(image).digest('hex'), version: '1',
+        }] });
+      }
+      assert.equal(url.pathname, '/drive/v3/files/file_fixture_chatgpt');
+      assert.equal(url.searchParams.get('alt'), 'media');
+      downloads++;
+      return new Response(image, { headers: { 'content-length': String(image.length), 'content-type': 'image/png' } });
+    };
+    try {
+      const imported = await attach(importArgs);
+      assert.equal(imported.isError, undefined, imported.content[0].text);
+      const data = JSON.parse(imported.content[0].text);
+      assert.deepEqual(data, { postId: doc.postId, contentVersion: edited.contentVersion + 1, status: 'DRAFT' });
+      assert.deepEqual(JSON.parse((await attach(importArgs)).content[0].text), data);
+      assert.equal(downloads, 1);
+      assert.equal((await attach({ ...importArgs, relativePath: 'other.png' })).isError, true);
+    } finally {
+      globalThis.fetch = nativeFetch;
+    }
+    const attachment = db.prepare('SELECT relative_path FROM media WHERE post_id=?').all(doc.postId);
+    assert.equal(attachment.length, 1);
+    const mediaPath = '/public-media/' + attachment[0].relative_path;
     assert.equal((await app.inject({ method: 'GET', url: mediaPath })).statusCode, 404);
     assert.equal((await app.inject({ method: 'HEAD', url: mediaPath })).statusCode, 404);
     const bearerMedia = await app.inject({ method: 'GET', url: mediaPath, headers: { authorization: bearer } });
@@ -365,7 +424,7 @@ try {
   await form.getByRole('button', { name: 'Сохранить права' }).click();
   assert.equal((await savedGrant).status(), 200);
   const nextScopes = db.prepare('SELECT scope_ids_json FROM agent_grants WHERE agent_id=?').get(agentId);
-  assert.deepEqual(JSON.parse(nextScopes.scope_ids_json).sort(), ['accounts:read', 'posts:read', 'projects:read']);
+  assert.deepEqual(JSON.parse(nextScopes.scope_ids_json).sort(), ['accounts:read', 'media:import', 'posts:read', 'projects:read', 'sources:read']);
   const revoked = await fetch(resource, { method: 'POST',
     headers: { ...headers, Authorization: bearer }, body: JSON.stringify(initialize) });
   assert.equal(revoked.status, 401);
