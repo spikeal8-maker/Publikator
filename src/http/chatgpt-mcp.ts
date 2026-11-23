@@ -9,10 +9,12 @@ import { CHATGPT_MCP_PATH, CHATGPT_RESOURCE_METADATA, type registerChatGPTIssuer
 import { listVerifiedAccounts } from './agent-accounts.js';
 import { parsePage } from './agent-page.js';
 import { listVerifiedProjects } from './agent-projects.js';
+import { updateScopedAgentDraft } from './agent-draft-edits.js';
+import { listOwnDrafts, getOwnDraft, parseOwnedPage } from './agent-owned-drafts.js';
 import { createScopedAgentDraft } from './agent-text-drafts.js';
 
 type Issuer = NonNullable<Awaited<ReturnType<typeof registerChatGPTIssuer>>>;
-type Scope = 'projects:read' | 'accounts:read' | 'posts:write';
+type Scope = 'projects:read' | 'accounts:read' | 'posts:read' | 'posts:write';
 
 const page = z.object({
   limit: z.number().int().min(1).max(100).optional(),
@@ -28,10 +30,10 @@ const draft = z.object({
 }).strict();
 
 function pageQuery(input: z.infer<typeof page>) {
-  return parsePage({
+  return {
     ...(input.limit === undefined ? {} : { limit: String(input.limit) }),
     ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
-  });
+  };
 }
 
 export async function registerChatGPTMcp(app: FastifyInstance, issuer: Issuer | null) {
@@ -107,12 +109,12 @@ export async function registerChatGPTMcp(app: FastifyInstance, issuer: Issuer | 
         description: 'Показать проекты Publikator, доступные этому подключению. Используйте ID из результата при подготовке черновика.',
         inputSchema: page,
         ...policy('projects:read', true),
-      }, async (args) => invoke('projects:read', (identity) => listVerifiedProjects(() => identity, pageQuery(args))));
+      }, async (args) => invoke('projects:read', (identity) => listVerifiedProjects(() => identity, parsePage(pageQuery(args)))));
       server.registerTool('publikator_list_accounts', {
         description: 'Показать разрешённые аккаунты, площадки и подтверждённые возможности публикации.',
         inputSchema: page,
         ...policy('accounts:read', true),
-      }, async (args) => invoke('accounts:read', (identity) => listVerifiedAccounts(() => identity, pageQuery(args))));
+      }, async (args) => invoke('accounts:read', (identity) => listVerifiedAccounts(() => identity, parsePage(pageQuery(args)))));
       server.registerTool('publikator_create_text_draft', {
         description: 'Сохранить текстовый черновик в выбранном проекте с явно выбранными получателями. Повтор того же запроса с тем же ключом возвращает исходный черновик.',
         inputSchema: draft,
@@ -121,6 +123,27 @@ export async function registerChatGPTMcp(app: FastifyInstance, issuer: Issuer | 
         createScopedAgentDraft(() => identity, {
           ...args, contentFormat: 'TEXT_ONLY', publicationKind: 'FEED', mediaAssetIds: [],
         }, idempotencyKey, 'MCP').data));
+      server.registerTool('publikator_list_text_drafts', {
+        description: 'Показать текстовые черновики, ранее созданные через это подключение. Используйте postId и текущую версию для редактирования.',
+        inputSchema: page,
+        ...policy('posts:read', true),
+      }, async (args) => invoke('posts:read', (identity) => listOwnDrafts(() => identity, parseOwnedPage(pageQuery(args)))));
+      server.registerTool('publikator_get_text_draft', {
+        description: 'Прочитать текст, получателей и текущую версию своего черновика.',
+        inputSchema: z.object({ postId: identifier }).strict(),
+        ...policy('posts:read', true),
+      }, async ({ postId }) => invoke('posts:read', (identity) => getOwnDraft(() => identity, postId)));
+      server.registerTool('publikator_edit_text_draft', {
+        description: 'Исправить текст или название ранее созданного черновика. Укажите текущую версию и новый ключ операции. Получатели и срок публикации сохраняются.',
+        inputSchema: z.object({
+          postId: identifier, expectedContentVersion: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+          internalTitle: z.string().min(1).max(160).optional(),
+          bodyPlain: z.string().min(1).max(20000).optional(),
+          idempotencyKey: identifier,
+        }).strict(),
+        ...policy('posts:write', false),
+      }, async ({ postId, idempotencyKey, ...patch }) => invoke('posts:write', (identity) =>
+        updateScopedAgentDraft(() => identity, postId, patch, idempotencyKey, 'MCP').data));
       return server;
     }, { legacy: 'stateless', maxRequestBodySize: 64 * 1024 });
 
