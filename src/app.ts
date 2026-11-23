@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { createOwnerTools } from './owner-tools.js';
 import { registerOwnerAssistant } from './http/owner-assistant.js';
 import { registerChatGPTIssuer } from './http/agent-oauth.js';
+import { registerChatGPTMcp } from './http/chatgpt-mcp.js';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
 import multipart from '@fastify/multipart';
@@ -102,8 +103,9 @@ export async function buildApp(): Promise<FastifyInstance> {
   await registerGoogleSheetsRoutes(app);
   await registerDiagnosticsRoutes(app);
   await registerReleaseGateRoutes(app);
-  await registerOwnerAssistant(app, ownerTools);
-  await registerChatGPTIssuer(app);
+  const issuer = await registerChatGPTIssuer(app);
+  await registerChatGPTMcp(app, issuer);
+  await registerOwnerAssistant(app, ownerTools, issuer?.resource);
 
   app.setNotFoundHandler((request, reply) => {
     const pathname=request.url.split(/[?#]/, 1)[0] ?? '';
