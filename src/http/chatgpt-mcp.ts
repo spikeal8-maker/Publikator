@@ -12,6 +12,7 @@ import { listVerifiedProjects } from './agent-projects.js';
 import { updateScopedAgentDraft } from './agent-draft-edits.js';
 import { listOwnDrafts, getOwnDraft, parseOwnedPage } from './agent-owned-drafts.js';
 import { createScopedAgentDraft } from './agent-text-drafts.js';
+import { getScopedPublication, getScopedPublicationAnalytics, listScopedPublications } from './agent-publication-read.js';
 
 type Issuer = NonNullable<Awaited<ReturnType<typeof registerChatGPTIssuer>>>;
 type Scope = 'projects:read' | 'accounts:read' | 'posts:read' | 'posts:write';
@@ -144,6 +145,24 @@ export async function registerChatGPTMcp(app: FastifyInstance, issuer: Issuer | 
         ...policy('posts:write', false),
       }, async ({ postId, idempotencyKey, ...patch }) => invoke('posts:write', (identity) =>
         updateScopedAgentDraft(() => identity, postId, patch, idempotencyKey, 'MCP').data));
+      server.registerTool('publikator_list_publications', {
+        description: 'Показать редакционные материалы разрешённого проекта, включая статусы и расписание. Для полного текста используйте publikator_get_publication.',
+        inputSchema: page.extend({ projectId: identifier }),
+        ...policy('posts:read', true),
+      }, async ({ projectId, ...pagination }) => invoke('posts:read', (identity) =>
+        listScopedPublications(identity, projectId, parsePage(pageQuery(pagination)))));
+      server.registerTool('publikator_get_publication', {
+        description: 'Прочитать текст, статус, расписание, состав медиа и состояние отправки разрешённой публикации. Используйте текст для редакционного анализа.',
+        inputSchema: z.object({ projectId: identifier, postId: identifier }).strict(),
+        ...policy('posts:read', true),
+      }, async ({ projectId, postId }) => invoke('posts:read', (identity) =>
+        getScopedPublication(identity, projectId, postId)));
+      server.registerTool('publikator_get_publication_analytics', {
+        description: 'Посчитать доступные публикации по редакционному статусу и расписанию, доставки по площадке и результату. Возвращает данные Publikator о доставке.',
+        inputSchema: z.object({ projectId: identifier }).strict(),
+        ...policy('posts:read', true),
+      }, async ({ projectId }) => invoke('posts:read', (identity) =>
+        getScopedPublicationAnalytics(identity, projectId)));
       return server;
     }, { legacy: 'stateless', maxRequestBodySize: 64 * 1024 });
 

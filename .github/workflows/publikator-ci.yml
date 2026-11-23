@@ -658,7 +658,9 @@ jobs:
           node scripts/schema-v20-agent-oauth-storage-e2e.mjs
           node scripts/backup-v20-agent-oauth-storage-e2e.mjs
           node scripts/agent-a1c-oauth-compatibility-e2e.mjs scripts/fixtures/oauth-compatibility --sqlite
-          node scripts/agent-a1c-chatgpt-issuer-e2e.mjs
+
+      - name: ChatGPT MCP drafts and scoped publication analytics
+        run: node scripts/agent-a1c-chatgpt-issuer-e2e.mjs
 
       - name: REST/MCP planned contract and owner additions
         run: node scripts/agent-contract-a0b-e2e.mjs
