@@ -1,8 +1,8 @@
 import crypto from 'node:crypto';
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import { db, id, nowIso } from '../db.js';
 import { AgentRegistryError } from '../agent-registry-error.js';
-import { assertEffectiveAgentGrant } from '../agent-grant-acl.js';
+import { assertEffectiveAgentGrant, type VerifiedAgentIdentity } from '../agent-grant-acl.js';
 import {
   EditorialDraftContractError,
   resolveEditorialDraftV3, applyContentPlanV3,
@@ -108,8 +108,7 @@ function safeResponse(
     editorialStage:'DRAFT' as const
   };
 }
-function verifyTargetAuthorization(req:FastifyRequest,input:DraftInput) {
-  const principal=verifiedAgentBearer(req);
+function verifyTargetAuthorization(principal:VerifiedAgentIdentity,input:DraftInput) {
   for(const accountId of input.targetAccountIds) {
     assertEffectiveAgentGrant({
       agentId:principal.agentId,
@@ -124,14 +123,17 @@ function verifyTargetAuthorization(req:FastifyRequest,input:DraftInput) {
   return principal;
 }
 
-function buildSafeDraft(req:FastifyRequest,raw:unknown,idem:string) {
+export function createScopedAgentDraft(getPrincipal:()=>VerifiedAgentIdentity,raw:unknown,idem:unknown,origin:'REST'|'MCP') {
+  if(typeof idem!=='string'||!IDEM_KEY.test(idem)) {
+    error('VALIDATION_ERROR','Требуется Idempotency-Key.');
+  }
   const input=requestBody(raw);
   const normalizedHash=hash(JSON.stringify(input));
   // An immediate SQLite write transaction covers the grant recheck, canonical
   // content-plan mutation, immutable provenance, activity and durable receipt.
   // No post can become visible without its attribution and safe DRAFT state.
   return db.transaction(()=>{
-    const principal=verifyTargetAuthorization(req,input);
+    const principal=verifyTargetAuthorization(getPrincipal(),input);
     const keyHash=receiptId(principal.agentId,idem);
     const earlier=db.prepare([
       'SELECT agent_id,canonical_payload_hash,phase,post_id,result_json',
@@ -236,8 +238,8 @@ function buildSafeDraft(req:FastifyRequest,raw:unknown,idem:string) {
       'INSERT INTO agent_activity_events',
       '(event_id,agent_id,actor_type,origin,request_id,operation_id,',
       'post_id,grant_version,stage,outcome,safe_summary,occurred_at)',
-      "VALUES (?,?,'AGENT','REST',?,?,?,?,'COMPLETED','SUCCEEDED',?,?)"
-    ].join(' ')).run(id('evt'),principal.agentId,'req_'+keyHash,OPERATION,
+      "VALUES (?,?,'AGENT',?,?,?,?,?,'COMPLETED','SUCCEEDED',?,?)"
+    ].join(' ')).run(id('evt'),principal.agentId,origin,'req_'+keyHash,OPERATION,
       postId,principal.grantVersion,'Агент создал текстовый черновик без публикации.',nowIso());
     return {replay:false,data};
   }).immediate();
@@ -275,12 +277,8 @@ export async function registerAgentTextDraftRoutes(app:FastifyInstance):Promise<
     if(req.url.includes('?'))return failure(reply,
       new AgentRegistryError('VALIDATION_ERROR','Параметры URL запрещены.',400));
     const idem=req.headers['idempotency-key'];
-    if(typeof idem!=='string'||!IDEM_KEY.test(idem)) {
-      return failure(reply,
-        new AgentRegistryError('VALIDATION_ERROR','Требуется Idempotency-Key.',400));
-    }
     try{
-      const result=buildSafeDraft(req,req.body,idem);
+      const result=createScopedAgentDraft(()=>verifiedAgentBearer(req),req.body,idem,'REST');
       return reply.code(result.replay?200:201).send(result.data);
     }catch(e){return failure(reply,e);}
   });
