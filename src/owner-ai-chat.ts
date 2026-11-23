@@ -99,8 +99,8 @@ export function startAiRun(app:FastifyInstance,registry:Registry,actor:OwnerActo
   const threadId=boundedString(b.threadId,'threadId');threadFor(actor.ownerId,threadId);
   const requestKey=boundedString(b.idempotencyKey,'idempotencyKey');
   if(!/^[A-Za-z0-9._:-]+$/.test(requestKey)) throw new OwnerAutomationError('INVALID_REQUEST_KEY','Некорректный ключ запроса.');
-  const allowWrites=b.allowWrites===true;
-  const hash=digest(canonicalJson({threadId,connectionId,message,allowWrites}));
+  const requestedWrites=b.allowWrites===true;
+  const hash=digest(canonicalJson({threadId,connectionId,message,allowWrites:requestedWrites}));
   const old=db.prepare('SELECT id,request_hash FROM owner_ai_runs WHERE owner_id=? AND request_key_hash=?').get(actor.ownerId,digest(requestKey)) as any;
   if(old){if(old.request_hash!==hash)throw new OwnerAutomationError('IDEMPOTENCY_CONFLICT','Этот запрос уже использован с другими параметрами.',409);return getAiRun(actor.ownerId,old.id);}
   if(db.prepare("SELECT id FROM owner_ai_runs WHERE thread_id=? AND status='RUNNING'").get(threadId)) throw new OwnerAutomationError('THREAD_BUSY','Предыдущий запрос ещё выполняется.',409);
@@ -117,13 +117,19 @@ export function startAiRun(app:FastifyInstance,registry:Registry,actor:OwnerActo
     const outputs:any[]=[];let calls=0;
     try {
       const c=getAiConnection(actor.ownerId,connectionId);
+      const allowWrites=requestedWrites && c.access_mode==='OWNER_TOOLS';
       const tools=toolFunctions(registry,allowWrites);
+      const advertisedTools=new Set(tools.map((tool) => tool.function.name));
+      const assertUnchangedConnection=()=>{
+        assertOwnerActor(actor);
+        if(getAiConnection(actor.ownerId,connectionId).revision!==c.revision) {
+          throw new OwnerAutomationError('CONNECTION_CHANGED','Настройки модели изменились. Запрос остановлен.',409);
+        }
+      };
       const history=[{role:'system',content:SYSTEM+(allowWrites?'\nВладелец разрешил выполнение действий в этом запросе.':'\nВ этом запросе разрешено только чтение. Никаких изменений.')},...cleanMessages(messagesFor(threadId))];
       for(let round=0;round<12;round++) {
         if(controller.signal.aborted) throw new OwnerAutomationError('CANCELLED','Запрос остановлен.',409);
-        assertOwnerActor(actor);
-        const current=getAiConnection(actor.ownerId,connectionId);
-        if(current.revision!==c.revision) throw new OwnerAutomationError('CONNECTION_CHANGED','Подключение модели изменилось. Запрос остановлен.',409);
+        assertUnchangedConnection();
         db.prepare("UPDATE owner_ai_runs SET current_operation='model',updated_at=? WHERE id=? AND status='RUNNING'").run(nowIso(),runId);
         const response=await modelCompletion(c,history,tools,controller.signal);
         history.push(response);appendMessage(threadId,response);
@@ -134,11 +140,11 @@ export function startAiRun(app:FastifyInstance,registry:Registry,actor:OwnerActo
         for(const call of response.tool_calls) {
           if(controller.signal.aborted) throw new OwnerAutomationError('CANCELLED','Запрос остановлен.',409);
           if(++calls>32) throw new OwnerAutomationError('TOOL_LIMIT','Достигнут предел действий одного запроса. Проверьте результаты перед продолжением.',409);
-          assertOwnerActor(actor);
+          assertUnchangedConnection();
           const tool=registry.tools.find(t=>t.name===call.function.name);
           let result:any;
           try {
-            if(!tool||(!allowWrites&&!tool.readOnly)) throw new OwnerAutomationError('TOOL_DENIED','Это действие не разрешено в данном запросе.',403);
+            if(!tool||!advertisedTools.has(call.function.name)||(!allowWrites&&!tool.readOnly)) throw new OwnerAutomationError('TOOL_DENIED','Это действие не разрешено в данном запросе.',403);
             const args=objectValue(JSON.parse(call.function.arguments));
             // Stable server-authored operation identity survives network retries. Never trust model-generated keys.
             if(!tool.readOnly) args.idempotencyKey=runId+':'+calls;

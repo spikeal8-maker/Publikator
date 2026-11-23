@@ -15,14 +15,16 @@ const {db,migrate}=await import('../dist/db.js');const {buildApp}=await import('
 migrate();createOrRecoverAdmin('INITIAL',createAdminSetupGrant('INITIAL'),'owner','browser-owner-fixture-20261104','browser-owner-fixture-20261104');
 const projectId=db.prepare('SELECT id FROM projects LIMIT 1').get().id;
 const formattedAnswer=['## Готово','**Тестовый черновик** создан. Отправки в социальные сети не было.','','- Получателей нет.','- Состояние: `DRAFT`.','','1. Проверить материал.','2. Указать получателей.','','[Публикации](/content)','[Документация](https://example.test/info)','[Запрещённая ссылка](javascript:alert(1))','[Закрытая ссылка](https://user:pass@example.test/)','<img src=x onerror="window.__markdownExecuted=true">','','```html','<script>window.__markdownExecuted=true</script>','x'.repeat(480),'```'].join('\n');
+let advertisedWrites;
 const mock=http.createServer(async(req,res)=>{
   res.setHeader('content-type','application/json');
   if(req.url==='/api/tags'){res.end(JSON.stringify({models:[{name:'fixture-model'}]}));return;}
   if(req.url!=='/api/chat'){res.writeHead(404).end();return;}
   let data='';for await(const chunk of req)data+=chunk;const b=JSON.parse(data);
   let message;
+  advertisedWrites = b.tools.some((tool) => tool.function.name === 'publikator_create_post');
   if(b.tools.some(t=>t.function.name==='publikator_connection_probe'))message={role:'assistant',content:'',tool_calls:[{function:{name:'publikator_connection_probe',arguments:{marker:'publikator-ready'}}}]};
-  else if(b.messages.at(-1)?.role==='tool')message={role:'assistant',content:formattedAnswer};
+  else if(b.messages.at(-1)?.role==='tool')message={role:'assistant',content:b.messages.at(-1).content.includes('TOOL_DENIED')?'Режим чтения активен.':formattedAnswer};
   else message={role:'assistant',content:'',tool_calls:[{function:{name:'publikator_create_post',arguments:{projectId,title:'Browser assistant fixture',body:'Synthetic browser text',contentFormat:'TEXT_ONLY',targetAccountIds:[]}}}]};
   res.end(JSON.stringify({message,done:true}));
 });await new Promise(r=>mock.listen(0,'127.0.0.1',r));const modelUrl='http://127.0.0.1:'+mock.address().port;
@@ -107,6 +109,30 @@ try{
   assert.equal(await answer.locator('script,img,iframe,svg').count(),0);assert.equal(await answer.locator('a[href^="javascript:"],a[href^="data:"],a[href^="https://user:"]').count(),0);assert.equal(await page.evaluate(()=>Boolean(window.__markdownExecuted)),false);assert.ok((await answer.innerText()).includes('<img src=x'));assert.equal(await answer.locator('a').count(),2);assert.equal(await answer.locator('a').first().getAttribute('rel'),'noopener noreferrer');pass('model HTML stays text and unsafe links cannot execute');
   await page.reload();await page.locator('#messages .message.assistant').last().waitFor({state:'visible'});assert.ok((await page.locator('#messages').innerText()).includes('Тестовый черновик'));assert.equal(await page.locator('.message.assistant strong').last().innerText(),'Тестовый черновик');pass('formatted conversation survives reload');
   const filePath=path.join(temp,'upload.png');await sharp({create:{width:32,height:32,channels:3,background:{r:210,g:220,b:230}}}).png().toFile(filePath);await page.locator('#file-input').setInputFiles(filePath);await page.locator('.file-chip').waitFor({state:'visible'});assert.equal(db.prepare('SELECT COUNT(*) AS n FROM owner_ai_uploads').get().n,1);pass('authenticated media upload from chat works');
+  await page.locator('#settings-open').click();
+  await tabs.getByRole('tab', { name: 'Доступы', exact: true }).click();
+  await page.locator('#model-access-connection').selectOption(savedId);
+  await page.locator('#model-access-mode').selectOption('READ_ONLY');
+  await page.locator('#model-access-save').click();
+  await page.getByText('Права модели сохранены.', { exact: true }).waitFor();
+  await page.locator('#settings-close').click();
+  assert.equal(await page.locator('#allow-writes').isDisabled(), true);
+  assert.equal(await page.locator('#allow-writes').isChecked(), false);
+  const makeReadOnlyTestThread = await context.request.post(base+'/api/assistant/threads', {headers:{origin:base},data:{}});
+  assert.equal(makeReadOnlyTestThread.status(), 201);
+  const newThread = await makeReadOnlyTestThread.json();
+  const forbiddenRun = await context.request.post(base+'/api/assistant/runs',{headers:{origin:base},data:{
+    threadId:newThread.id,connectionId:savedId,allowWrites:true,message:'Попробуй создать черновик',idempotencyKey:'force-writes-test',
+  }});
+  assert.equal(forbiddenRun.status(), 202);
+  const run = await forbiddenRun.json();
+  await page.waitForFunction(async id => (await (await fetch('/api/assistant/runs/'+id)).json()).status==='COMPLETED',run.id);
+  const result = await (await context.request.get(base+'/api/assistant/runs/'+run.id)).json();
+  assert.equal(result.result.actions[0].result.error.code, 'TOOL_DENIED');
+  assert.equal(advertisedWrites, false);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM posts').get().n,count+1);
+  pass('model-level read-only prevents mutation through a forged write request and unadvertised tool');
+
   for(const width of [1440,390,320]){
     await page.setViewportSize({width,height:900});
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1),'chat no horizontal overflow '+width);

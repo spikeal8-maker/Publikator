@@ -16,6 +16,7 @@ import { migrateAgentMachineKeys } from './agent-machine-key-migration.js';
 import { migrateAgentDraftProvenance } from './agent-draft-provenance-migration.js';
 import { migrateOwnerAutomation } from './owner-automation-migration.js';
 import { migrateAgentOAuthStorage } from './agent-oauth-storage-migration.js';
+import { migrateAiConnectionAccess } from './ai-connection-access-migration.js';
 import { canonicalPlainRichJson } from './rich-text.js';
 
 export { DATABASE_SCHEMA_VERSION } from './schema.js';
@@ -408,6 +409,7 @@ export function migrate(): void {
   if (currentSchemaVersion < 18) migrateAgentDraftProvenance(db);
   if (currentSchemaVersion < 19) migrateOwnerAutomation(db);
   if (currentSchemaVersion < 20) migrateAgentOAuthStorage(db);
+  if (currentSchemaVersion < 21) migrateAiConnectionAccess(db);
 
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_posts_status_schedule ON posts(status, schedule_mode, scheduled_at);
