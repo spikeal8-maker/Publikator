@@ -70,6 +70,8 @@ const chatGPTScopeLabels = new Map([
   ['posts:write', 'Создавать текстовые черновики'],
 ]);
 let editingChatGPTGrant = null;
+let preparedChatGPTAgentId = '';
+let chatGPTProfileRequestId = null;
 
 function renderGrantOptions(container, entries, selected) {
   const chosen = new Set(selected);
@@ -85,15 +87,40 @@ function renderGrantOptions(container, entries, selected) {
   if (!entries.length) container.textContent = 'Пока нет доступных вариантов.';
 }
 
+async function selectChatGPTProfile() {
+  const configured = statusInfo?.chatgptAgentId;
+  $('chatgpt-profile-setup').hidden = Boolean(configured);
+  if (configured) return configured;
+  const { items } = await api('/api/owner/agents?limit=100');
+  const agents = items.filter((agent) => agent.clientKind === 'chatgpt' && agent.status === 'ACTIVE');
+  const select = $('chatgpt-profile-select');
+  select.replaceChildren(...agents.map((agent) => {
+    const option = element('option', '', agent.name);
+    option.value = agent.agentId;
+    return option;
+  }));
+  if (agents.some((agent) => agent.agentId === preparedChatGPTAgentId)) {
+    select.value = preparedChatGPTAgentId;
+  }
+  preparedChatGPTAgentId = select.value;
+  $('chatgpt-create-profile').hidden = agents.length > 0;
+  $('chatgpt-profile-id').value = preparedChatGPTAgentId;
+  $('chatgpt-profile-id-row').hidden = !preparedChatGPTAgentId;
+  return preparedChatGPTAgentId;
+}
+
 async function loadChatGPTGrant() {
-  const agentId = statusInfo?.chatgptAgentId;
   const status = $('chatgpt-permission-status');
   const form = $('chatgpt-grant-form');
   form.hidden = true;
   editingChatGPTGrant = null;
-  if (!agentId) return;
   status.textContent = 'Загружаем текущие права…';
   try {
+    const agentId = await selectChatGPTProfile();
+    if (!agentId) {
+      status.textContent = 'Создайте профиль, чтобы выбрать его права.';
+      return;
+    }
     const [agent, projects, accounts] = await Promise.all([
       api('/api/owner/agents/' + encodeURIComponent(agentId)),
       api('/api/projects'), api('/api/accounts'),
@@ -115,6 +142,26 @@ async function loadChatGPTGrant() {
   }
 }
 
+$('chatgpt-profile-select').addEventListener('change', () => {
+  preparedChatGPTAgentId = $('chatgpt-profile-select').value;
+  void loadChatGPTGrant();
+});
+$('chatgpt-create-profile').addEventListener('click',guarded(async()=>{
+  const button = $('chatgpt-create-profile');
+  button.disabled = true;
+  chatGPTProfileRequestId ||= crypto.randomUUID();
+  try {
+    const agent = await api('/api/owner/agents', {
+      method: 'POST', headers: { 'Idempotency-Key': chatGPTProfileRequestId },
+      body: JSON.stringify({ name: 'ChatGPT', clientKind: 'chatgpt' }),
+    });
+    preparedChatGPTAgentId = agent.agentId;
+    chatGPTProfileRequestId = null;
+    await loadChatGPTGrant();
+  } finally {
+    button.disabled = false;
+  }
+}));
 $('chatgpt-permissions').addEventListener('toggle', () => {
   if ($('chatgpt-permissions').open) void loadChatGPTGrant();
 });
