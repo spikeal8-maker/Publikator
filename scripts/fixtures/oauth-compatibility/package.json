@@ -1,0 +1,8 @@
+{
+  "name": "publikator-oauth-compatibility-fixture",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "oidc-provider": "9.15.1"
+  }
+}
