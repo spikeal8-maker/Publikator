@@ -37,7 +37,7 @@ A3a MCP and A3b OAuth require separate issuer/resource metadata, audience, PKCE,
 
 Canonical focused regression: `scripts/agent-a1b2b2-bearer-boundary-e2e.mjs`. It covers missing/wrong/mixed auth, origin rejection, unknown paths, reserved MCP, cross-agent metadata isolation, scope/resource filtering, token expiry and pause, restart stability, and zero side effects. Keep it in the **single** `Publikator CI / Acceptance`; no second workflow or bypass.
 
-**Release gate:** full exact-head CI, independent Code Review and Security Review, plus integration acceptance of all ancestor PRs. Working Docker/D2-R2 installation is unchanged until a separately approved deployment.
+**Release gate:** full exact-head CI, independent Code Review and Security Review, plus integration acceptance of all ancestor PRs. Working Docker installation is unchanged until a separately approved deployment.
 
 
 ## AGENT-A2b3: own text-draft retrieval

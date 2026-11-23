@@ -74,11 +74,11 @@ try{
   assert.deepEqual(JSON.parse(initialGrant.scope_ids_json), []);
   pass('ChatGPT profile preparation is native and starts with an empty grant');
   await tabs.getByRole('tab', { name: 'Локальные модели', exact: true }).click();
-  assert.equal(await page.locator('#connection-form').isVisible(),false);
-  await page.getByRole('button',{name:'Добавить Ollama',exact:true}).click();
+  assert.equal(await page.locator('#connection-form').isVisible(),true);
+  assert.equal((await page.getByRole('tabpanel',{name:'Локальные модели'}).getByRole('button').allTextContents()).map(x=>x.trim()).join(','),'Сохранить');
   assert.equal(await page.locator('#provider-kind').inputValue(), 'ollama');
   assert.equal(await page.locator('#provider-key').isVisible(),false);
-  for (const id of ['provider-help','provider-name','local-provider-key','provider-manual-model','provider-model']) {
+  for (const id of ['provider-help','provider-name','provider-manual-model','provider-model','local-server-row']) {
     assert.equal(await page.locator('#'+id).isVisible(),false);
   }
   assert.equal(await page.locator('#provider-url').inputValue(), '');
@@ -103,7 +103,9 @@ try{
   assert.equal(await page.locator('#provider-key').inputValue(),'');
   pass('save automatically selects model and verifies a real tool roundtrip');
   const savedId=await page.locator('#connection-select').inputValue();
-  await page.getByRole('button',{name:'Добавить Ollama',exact:true}).click();
+  db.prepare('UPDATE owner_ai_connections SET name=? WHERE id=?').run('private-workstation',savedId);
+  await general.click();
+  await page.getByRole('button',{name:'Добавить ещё один локальный сервер',exact:true}).click();
   await page.locator('#provider-url').fill(secondModelUrl);
   await page.waitForFunction(()=>document.querySelector('#provider-model option[value="second-fixture"]'));
   assert.equal(await page.locator('#provider-model').inputValue(),'');
@@ -111,7 +113,7 @@ try{
   await page.locator('#provider-model').selectOption('second-fixture');
   await page.locator('#connection-form button[type=submit]').click();
   await page.waitForFunction(()=>document.querySelector('#models-status')?.textContent?.includes('Сохранено. Модель отвечает и умеет вызывать инструменты.'));
-  assert.equal(await page.locator('#local-connections .connection-card').count(),2);
+  assert.equal(await page.locator('#local-server option').count(),2);
   await tabs.getByRole('tab', { name: 'Облачные модели', exact: true }).click();
   assert.equal(await page.locator('#connection-form').isVisible(),false);
   await page.getByRole('button',{name:'Добавить OpenAI',exact:true}).click();
@@ -124,10 +126,17 @@ try{
   assert.equal(await page.locator('#provider-model').inputValue(),'');
   pass('OpenAI and DeepSeek have distinct entry points and preset endpoints');
   await tabs.getByRole('tab', { name: 'Локальные модели', exact: true }).click();
-  await page.getByRole('button',{name:'Настроить Ollama · '+new URL(modelUrl).host,exact:true}).click();
+  assert.equal(await page.locator('#connection-form').isVisible(),true);
+  await page.locator('#local-provider').selectOption('llamacpp');
+  assert.equal(await page.locator('#provider-url').inputValue(),'');
+  assert.equal(await page.locator('#provider-help').isVisible(),false);
+  await page.locator('#local-provider').selectOption('ollama');
+  await page.locator('#local-server').selectOption(savedId);
   await page.waitForFunction(()=>document.querySelector('#provider-model')?.value==='fixture-model');
   assert.equal(await page.locator('#provider-url').inputValue(),modelUrl);
-  pass('two Ollama endpoints are saved independently and can be reopened');
+  assert.equal(await page.locator('#settings').getByText('private-workstation',{exact:false}).count(),0);
+  assert.equal(await page.locator('#connection-select option').filter({hasText:'private-workstation'}).count(),0);
+  pass('local settings open directly, switch providers and select saved servers without machine names');
   const good = db.prepare('SELECT * FROM owner_ai_connections WHERE id=?').get(savedId);
   const failed = await context.request.post(base+'/api/assistant/connections',{headers:{origin:base},data:{
     verify:true,id:savedId,expectedRevision:good.revision,provider:'ollama',baseUrl:'http://127.0.0.1:9',

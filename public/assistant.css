@@ -84,9 +84,9 @@
 .connection-card-info strong{overflow-wrap:anywhere}
 .connection-check{margin-top:3px}
 .model-editor{margin-top:18px}
-.model-editor[data-provider=ollama]{border:0;padding:0}
-.model-editor[data-provider=ollama] .models-status:empty{margin:0}
-.model-editor[data-provider=ollama] .buttons{margin-top:12px}
+.model-editor.local-model-editor{border:0;padding:0}
+.model-editor.local-model-editor .models-status:empty{margin:0}
+.model-editor.local-model-editor .buttons{margin-top:12px}
 .provider-actions{display:flex;flex-wrap:wrap;gap:8px}
 .connection-help summary{cursor:pointer;font-size:.9rem}
 .connection-help[open]{padding-bottom:8px}
