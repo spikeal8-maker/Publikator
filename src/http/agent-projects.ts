@@ -1,19 +1,19 @@
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import { db, id } from '../db.js';
 import { getOwnerAgent } from '../agent-owner-registry.js';
 import { AgentRegistryError } from '../agent-registry-error.js';
-import { assertEffectiveAgentGrant } from '../agent-grant-acl.js';
+import { assertEffectiveAgentGrant, type VerifiedAgentIdentity } from '../agent-grant-acl.js';
 import {
   AgentBearerFailure, respondAgentBearerFailure, verifiedAgentBearer
 } from './agent-bearer-boundary.js';
 
 import { IDENTIFIER, parsePage, type Page } from './agent-page.js';
 
-function listVerifiedProjects(request: FastifyRequest, page: Page) {
+export function listVerifiedProjects(getPrincipal: () => VerifiedAgentIdentity, page: Page) {
   // One read-only SQLite snapshot. The identity comes from a fresh validated
   // machine token, never from an agent/model-supplied ID or query field.
   return db.transaction(() => {
-    const principal = verifiedAgentBearer(request);
+    const principal = getPrincipal();
     const grant = getOwnerAgent(principal.agentId).grant;
     if (grant.status !== 'ACTIVE' || grant.grantVersion !== principal.grantVersion) {
       throw new AgentBearerFailure(401, 'UNAUTHORIZED', 'Разрешения были изменены.');
@@ -80,7 +80,7 @@ export async function registerAgentProjectReadRoutes(app: FastifyInstance): Prom
   app.get('/api/agent/v1/projects', async (request, reply) => {
     try {
       const page = parsePage(request.query);
-      return listVerifiedProjects(request, page);
+      return listVerifiedProjects(() => verifiedAgentBearer(request), page);
     } catch (error) {
       return safeReadFailure(reply, error);
     }

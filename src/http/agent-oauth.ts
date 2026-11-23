@@ -8,7 +8,8 @@ import { db, nowIso } from '../db.js';
 import { ownerMutationOriginMatches } from './security.js';
 
 const metadata = '/.well-known/oauth-authorization-server';
-const resourceMetadata = '/.well-known/oauth-protected-resource/mcp';
+export const CHATGPT_MCP_PATH = '/mcp/chatgpt';
+export const CHATGPT_RESOURCE_METADATA = '/.well-known/oauth-protected-resource' + CHATGPT_MCP_PATH;
 const authorization = '/oauth/authorize';
 const token = '/oauth/token';
 const revoke = '/oauth/revoke';
@@ -105,7 +106,7 @@ export async function registerChatGPTIssuer(app: FastifyInstance) {
 
   const issuer = settings.origin.origin;
   const secure = settings.origin.protocol === 'https:';
-  const resource = issuer + '/mcp';
+  const resource = issuer + CHATGPT_MCP_PATH;
   const adapter = createSQLiteOAuthAdapter(db);
   const bindings = adapter(bindingModel);
   const keys = adapter(keyModel);
@@ -200,11 +201,12 @@ export async function registerChatGPTIssuer(app: FastifyInstance) {
     });
   }
 
-  for (const path of [resourceMetadata, '/.well-known/oauth-protected-resource']) {
+  for (const path of [CHATGPT_RESOURCE_METADATA, '/.well-known/oauth-protected-resource']) {
     app.get(path, async (request, reply) => {
       if (!checkOrigin(request, reply)) return;
       return headers(reply).send({
         resource, authorization_servers: [issuer],
+        scopes_supported: ['projects:read', 'accounts:read', 'posts:write', 'offline_access'],
         bearer_methods_supported: ['header'],
       });
     });

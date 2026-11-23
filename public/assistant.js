@@ -29,7 +29,19 @@ function selectConnection(id){
   $('test-connection').disabled=!c;
   $('delete-connection').disabled=!c;
 }
-async function openSettings(){$('settings').showModal();await Promise.all([refreshConnections(),refreshKeys()]);selectConnection(editId||$('connection-select').value);$('edit-connection').value=editId||'';if(statusInfo)$('mcp-url').value=statusInfo.mcpUrl;}
+async function openSettings(){$('settings').showModal();await Promise.all([refreshConnections(),refreshKeys()]);selectConnection(editId||$('connection-select').value);$('edit-connection').value=editId||'';statusInfo=await api('/api/assistant/status');$('mcp-url').value=statusInfo.mcpUrl;renderChatGPTMcp();}
+function renderChatGPTMcp(){
+  const url=statusInfo?.chatgptMcpUrl||'';
+  $('chatgpt-mcp-url').value=url;
+  $('chatgpt-mcp-guide').hidden=!url;
+  $('chatgpt-mcp-state').textContent=url
+    ? 'Адрес настроен. Завершите подключение и подтвердите доступ в ChatGPT.'
+    : 'OAuth для ChatGPT ещё не настроен на сервере. Встроенный чат можно настроить выше.';
+}
+$('copy-chatgpt-url').addEventListener('click',guarded(async()=>{
+  await navigator.clipboard.writeText($('chatgpt-mcp-url').value);
+  toast('Адрес ChatGPT MCP скопирован.');
+}));
 async function saveConnection(event){
   event.preventDefault();
   let model=modelPicker.selected();
