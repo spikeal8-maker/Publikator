@@ -44,6 +44,10 @@ Publikator uses monotonic, one-step schema milestones. Current ledger:
 | 16 | AGENT-A1b1 (#175) | immutable owner-operation response receipts with hashed idempotency identity; no agent bearer or publishing authority |
 | 17 | AGENT-A1b2b1 (#175) | keyed machine identities with hashed opaque tokens, scoped versions, expiry, revoke and rotation; no external agent route |
 | 18 | AGENT-A2b0 (#175) | immutable agent-created draft attribution, safe durable operation receipts, DB trigger blocking READY/queue/publish before owner-consent gate |
+| 19 | OWNER-MCP-CHAT-001 | owner MCP keys, encrypted model connections and chat, automation receipts |
+| 20 | AGENT-A1c (#175) | encrypted OAuth provider storage and atomic artifact consumption |
+
+Schema 20 creates an empty OAuth artifact table. The isolated migration and canonical backup regressions verify ciphertext preservation, expiry, atomic consumption and revocation. Activation of an issuer and handling of authorization state restored from a historical snapshot require a separate production checkpoint.
 
 A feature PR MUST NOT combine several unrelated future data-model milestones into one schema jump.
 A new schema version must represent one coherent data ownership/invariant change and migrate from the immediately previous version.
