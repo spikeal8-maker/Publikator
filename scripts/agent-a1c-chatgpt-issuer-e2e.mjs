@@ -48,7 +48,7 @@ try {
   const accountId = 'acc_oauth_mcp_fixture';
   const deniedAccount = 'acc_oauth_mcp_hidden';
   const canary = 'mcp-fixture-credential-canary';
-  const scopes = ['accounts:read', 'posts:write', 'projects:read'];
+  const scopes = ['accounts:read', 'posts:read', 'posts:write', 'projects:read'];
   for (const id of [accountId, deniedAccount]) {
     db.prepare("INSERT INTO social_accounts(id,platform,name,credentials_encrypted,enabled,created_at,updated_at) VALUES (?,'telegram',?,?,1,?,?)")
       .run(id, id, encryptJson({ botToken: canary, chatId: '@fixture' }), stamp, stamp);
@@ -208,7 +208,8 @@ try {
   try {
     const { tools } = await client.listTools();
     assert.deepEqual(tools.map((tool) => tool.name).sort(), [
-      'publikator_create_text_draft', 'publikator_list_accounts', 'publikator_list_projects',
+      'publikator_create_text_draft', 'publikator_edit_text_draft', 'publikator_get_text_draft',
+      'publikator_list_accounts', 'publikator_list_projects', 'publikator_list_text_drafts',
     ]);
     const projects = await client.callTool({ name: 'publikator_list_projects', arguments: {} });
     assert.equal(JSON.parse(projects.content[0].text).items[0].id, projectId);
@@ -240,6 +241,28 @@ try {
     assert.equal(JSON.parse(replay.content[0].text).postId, doc.postId);
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM posts').get().n, before + 1);
     assert.equal(db.prepare('SELECT origin FROM agent_activity_events WHERE post_id=?').get(doc.postId).origin, 'MCP');
+    const listed = await client.callTool({ name: 'publikator_list_text_drafts', arguments: {} });
+    assert.deepEqual(JSON.parse(listed.content[0].text).items.map((item) => item.postId), [doc.postId]);
+    const invisible = await client.callTool({ name: 'publikator_get_text_draft', arguments: { postId: 'unrelated' } });
+    assert.equal(invisible.isError, true);
+    const read = await client.callTool({ name: 'publikator_get_text_draft', arguments: { postId: doc.postId } });
+    assert.equal(JSON.parse(read.content[0].text).bodyPlain, args.bodyPlain);
+    const revision = {
+      postId: doc.postId, expectedContentVersion: doc.contentVersion,
+      bodyPlain: 'Исправленный текст.', idempotencyKey: 'test-mcp-edit',
+    };
+    const edit = await client.callTool({ name: 'publikator_edit_text_draft', arguments: revision });
+    const edited = JSON.parse(edit.content[0].text);
+    assert.equal(edited.status, 'DRAFT');
+    assert.equal(edited.bodyPlain, revision.bodyPlain);
+    assert.equal(edited.contentVersion, doc.contentVersion + 1);
+    const conflict = await client.callTool({ name: 'publikator_edit_text_draft',
+      arguments: { ...revision, idempotencyKey: 'test-mcp-stale-edit' } });
+    assert.equal(conflict.isError, true);
+    const editReplay = await client.callTool({ name: 'publikator_edit_text_draft', arguments: revision });
+    assert.equal(JSON.parse(editReplay.content[0].text).contentVersion, edited.contentVersion);
+    const origins = db.prepare('SELECT DISTINCT origin FROM agent_activity_events WHERE post_id=?').all(doc.postId);
+    assert.deepEqual(origins.map((event) => event.origin), ['MCP']);
   } finally {
     await client.close();
   }
@@ -250,14 +273,14 @@ try {
   await page.getByText('Управлять доступом ChatGPT', { exact: true }).click();
   const form = page.locator('#chatgpt-grant-form');
   await form.waitFor({ state: 'visible' });
-  await form.getByText('Создавать текстовые черновики', { exact: true }).click();
+  await form.getByText('Создавать и редактировать текстовые черновики', { exact: true }).click();
   await form.getByLabel('Подтверждаю выбранные права').check();
   const savedGrant = page.waitForResponse((response) =>
     response.request().method() === 'PUT' && response.url().endsWith('/grant'));
   await form.getByRole('button', { name: 'Сохранить права' }).click();
   assert.equal((await savedGrant).status(), 200);
   const nextScopes = db.prepare('SELECT scope_ids_json FROM agent_grants WHERE agent_id=?').get(agentId);
-  assert.deepEqual(JSON.parse(nextScopes.scope_ids_json).sort(), ['accounts:read', 'projects:read']);
+  assert.deepEqual(JSON.parse(nextScopes.scope_ids_json).sort(), ['accounts:read', 'posts:read', 'projects:read']);
   const revoked = await fetch(resource, { method: 'POST',
     headers: { ...headers, Authorization: bearer }, body: JSON.stringify(initialize) });
   assert.equal(revoked.status, 401);
