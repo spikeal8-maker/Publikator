@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { chromium } from 'playwright-core';
 
 const reservation = net.createServer().listen(0, '127.0.0.1');
 await once(reservation, 'listening');
@@ -32,6 +33,7 @@ const { createAdminSetupGrant, createOrRecoverAdmin, loginAdmin } = await import
 const { buildApp } = await import('../dist/app.js');
 const { clearRestoredOAuthSessions } = await import('../dist/http/agent-oauth.js');
 let app;
+let browser;
 try {
   migrate();
   const stamp = nowIso();
@@ -159,11 +161,31 @@ try {
   const saved = JSON.stringify(db.prepare('SELECT * FROM agent_oauth_artifacts').all());
   assert.ok(!saved.includes(tokens.access_token));
   assert.ok(!saved.includes(tokens.refresh_token));
+  browser = await chromium.launch({ channel: 'chrome', headless: true });
+  const context = await browser.newContext();
+  const browserLogin = await context.request.post(origin + '/api/auth/login', {
+    data: { username: 'owner', password }, headers: { Origin: origin },
+  });
+  assert.equal(browserLogin.status(), 200);
+  const page = await context.newPage();
+  await page.route(callback + '?**', (route) => route.fulfill({ status: 200, body: 'Fixture callback' }));
+  await page.goto(metadata.authorization_endpoint + '?' + query);
+  for (let step = 0; step < 2; step += 1) {
+    const posted = page.waitForRequest((request) =>
+      request.method() === 'POST' && request.url().includes('/oauth/interaction/'));
+    await page.getByRole('button', { name: 'Разрешить' }).click();
+    assert.equal((await (await posted).allHeaders()).origin, origin);
+  }
+  await page.waitForURL(callback + '?**');
+  assert.ok(new URL(page.url()).searchParams.get('code'));
+  await context.close();
+
   clearRestoredOAuthSessions();
   const afterRestore = db.prepare('SELECT model FROM agent_oauth_artifacts').all().map((row) => row.model);
   assert.deepEqual(afterRestore, ['PublikatorOAuthSigningKey']);
   console.log('ChatGPT issuer, owner consent, scope intersection and restore invalidation PASS');
 } finally {
+  if (browser) await browser.close();
   if (app) await app.close();
   db.close();
   await fs.rm(directory, { recursive: true, force: true, maxRetries: 5 });
