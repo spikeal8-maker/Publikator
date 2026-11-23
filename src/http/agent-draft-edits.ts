@@ -1,8 +1,8 @@
 import crypto from 'node:crypto';
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import { db, id, nowIso } from '../db.js';
 import { AgentRegistryError } from '../agent-registry-error.js';
-import { assertEffectiveAgentGrant } from '../agent-grant-acl.js';
+import { assertEffectiveAgentGrant, type VerifiedAgentIdentity } from '../agent-grant-acl.js';
 import { resolveEditorialUpdateV3, EditorialDraftContractError } from '../content-plan-v3.js';
 import {
   commitContentEdit, ContentConflictError, ContentImmutableError, type ContentRevisionRow
@@ -130,7 +130,11 @@ function revisionResponse(
 }
 
 /** A2b2: PATCH only a still-active, agent-owned, text-only DRAFT. */
-function applyPatch(req: FastifyRequest, postId: string, raw: unknown, idem: string) {
+export function updateScopedAgentDraft(getPrincipal: () => VerifiedAgentIdentity, postId: string,
+  raw: unknown, idem: unknown, origin: 'REST' | 'MCP') {
+  if (typeof idem !== 'string' || !IDENTIFIER.test(idem)) {
+    deny('VALIDATION_ERROR', 400, 'Необходим Idempotency-Key.');
+  }
   if (!IDENTIFIER.test(postId)) {
     deny('VALIDATION_ERROR', 400, 'Некорректный postId.');
   }
@@ -139,7 +143,7 @@ function applyPatch(req: FastifyRequest, postId: string, raw: unknown, idem: str
   return db.transaction(() => {
     // Do not trust the agentId, target IDs, grantVersion or content status
     // from any user/model-supplied fields: only the authenticated DB identity.
-    const principal = verifiedAgentBearer(req);
+    const principal = getPrincipal();
     const post = db.prepare([
       'SELECT p.* FROM posts p JOIN agent_draft_ownership o ON o.post_id=p.id',
       'WHERE p.id=? AND o.agent_id=?'
@@ -252,8 +256,8 @@ function applyPatch(req: FastifyRequest, postId: string, raw: unknown, idem: str
       'INSERT INTO agent_activity_events',
       '(event_id,agent_id,actor_type,origin,request_id,operation_id,',
       'post_id,grant_version,stage,outcome,safe_summary,occurred_at)',
-      "VALUES (?,?,'AGENT','REST',?,?,?,?,'COMPLETED','SUCCEEDED',?,?)"
-    ].join(' ')).run(id('evt'), principal.agentId, 'req_' + keyHash,
+      "VALUES (?,?,'AGENT',?,?,?,?,?,'COMPLETED','SUCCEEDED',?,?)"
+    ].join(' ')).run(id('evt'), principal.agentId, origin, 'req_' + keyHash,
       OPERATION, postId, principal.grantVersion,
       'Агент изменил только текст собственного черновика.', nowIso());
     return { replay: false, data: revisionResponse(revision, result, targets, post.project_id) };
@@ -299,13 +303,9 @@ export async function registerAgentDraftEditRoutes(app: FastifyInstance): Promis
         'VALIDATION_ERROR','Параметры URL запрещены.',400));
     }
     const idem=request.headers['idempotency-key'];
-    if (typeof idem !== 'string' || !IDENTIFIER.test(idem)) {
-      return safeError(reply,new AgentRegistryError(
-        'VALIDATION_ERROR','Необходим Idempotency-Key.',400));
-    }
     try {
       const postId=(request.params as {postId:string}).postId;
-      const done=applyPatch(request,postId,request.body,idem);
+      const done=updateScopedAgentDraft(() => verifiedAgentBearer(request),postId,request.body,idem,'REST');
       return reply.code(done.replay?200:200).send(done.data);
     }catch(e){return safeError(reply,e);}
   });
