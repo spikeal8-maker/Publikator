@@ -422,6 +422,7 @@ try {
   await page.locator('#settings-open').click();
   await page.getByRole('button', { name: 'Проверить адрес', exact: true }).click();
   await page.getByText('Адрес доступен и запрашивает OAuth.', { exact: false }).waitFor();
+  await page.getByRole('tab', { name: 'Доступы', exact: true }).click();
   await page.getByText('Управлять доступом ChatGPT', { exact: true }).click();
   const form = page.locator('#chatgpt-grant-form');
   await form.waitFor({ state: 'visible' });

@@ -53,9 +53,9 @@ export function createModelPicker({api, getConnections, getEditId}) {
   function providerHint() {
     const p=kind();
     const hostHint=p === 'ollama'
-      ? 'Ollama на этом компьютере: http://host.docker.internal:11434. На другом компьютере в локальной сети: http://IP-компьютера:11434. Сервер Ollama должен разрешать подключения по сети.'
+      ? 'Пример для соседнего компьютера: http://192.168.1.50:11434. Проверьте, что Ollama принимает подключения из сети сервера Publikator.'
       : p === 'deepseek' ? 'DeepSeek: используется ваш ключ API. Доступные именно ему модели определяются запросом к DeepSeek.'
-      : p === 'openai' ? 'OpenAI: используется отдельный API-ключ OpenAI, не подписка ChatGPT. Список моделей приходит из API.'
+      : p === 'openai' ? 'OpenAI: введите API-ключ аккаунта OpenAI Platform. Список моделей определяется по этому ключу.'
       : 'Совместимый HTTPS API: провайдер должен поддерживать GET /models и вызов инструментов.';
     $('provider-guide').textContent = hostHint;
     $('provider-key').required = p !== 'ollama' && !compatibleSavedKey();

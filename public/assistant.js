@@ -2,7 +2,14 @@ import {createModelPicker} from './assistant-model-picker.js';
 import {renderAssistantMarkdown} from './assistant-markdown.js';
 const $=id=>document.getElementById(id);
 let connections=[],threads=[],threadId=null,runId=null,pollEpoch=0,attachments=[],editId=null,statusInfo=null,busy=false;
-const defaults={openai:'https://api.openai.com/v1',deepseek:'https://api.deepseek.com',ollama:'http://host.docker.internal:11434',compatible:''};
+const defaults={openai:'https://api.openai.com/v1',deepseek:'https://api.deepseek.com',ollama:'',compatible:''};
+const providerGroups = { local: { ollama: 'Ollama' }, cloud: {
+  openai: 'OpenAI API', deepseek: 'DeepSeek API', compatible: 'Совместимый API',
+} };
+const defaultConnectionKey = 'publikator.assistant.defaultConnection';
+let modelPanel = null;
+let defaultConnectionId = '';
+try { defaultConnectionId = localStorage.getItem(defaultConnectionKey) || ''; } catch {}
 const modelPicker=createModelPicker({api,getConnections:()=>connections,getEditId:()=>editId});
 const toolLabels={publikator_list_projects:'Чтение проектов',publikator_list_accounts:'Проверка подключений',publikator_list_posts:'Чтение публикаций',publikator_get_post:'Чтение материала',publikator_preview_post:'Предпросмотр',publikator_create_post:'Создание черновика',publikator_update_post:'Редактирование материала',publikator_set_targets:'Выбор получателей',publikator_mark_ready:'Проверка готовности',publikator_publish_now:'Отправка публикации',publikator_set_schedule:'Изменение расписания',publikator_import_cloud_media:'Импорт вложения',publikator_attach_uploaded_media:'Прикрепление файла',publikator_call_operation:'Операция Publikator',publikator_list_operations:'Поиск доступных операций',publikator_list_uploads:'Чтение вложений',model:'Модель готовит ответ'};
 function toast(text,error=false){$('toast').textContent=text;$('toast').classList.toggle('error',error);$('toast').hidden=false;clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('toast').hidden=true,6500);}
@@ -16,27 +23,122 @@ async function refreshThreads(){threads=(await api('/api/assistant/threads')).th
 function setBusy(value){busy=value;$('send-message').disabled=value;$('stop-run').hidden=!value;$('run-state').classList.toggle('busy',value);}
 async function loadThread(id){pollEpoch++;threadId=id;runId=null;setBusy(false);const data=await api('/api/assistant/threads/'+encodeURIComponent(id));$('thread-title').textContent=data.thread.title;renderMessages(data.messages);renderThreads();$('run-state').textContent='';if(data.activeRunId){runId=data.activeRunId;setBusy(true);void pollRun(runId,++pollEpoch);}}
 async function newThread(){const result=await api('/api/assistant/threads',{method:'POST',body:'{}'});await refreshThreads();await loadThread(result.id);$('message-input').focus();}
-function renderConnections(){const previous=$('connection-select').value;$('connection-select').replaceChildren();$('edit-connection').replaceChildren(new Option('Новое подключение',''));if(!connections.length)$('connection-select').append(new Option('Подключите модель',''));for(const c of connections){if(c.enabled)$('connection-select').append(new Option(c.name+' · '+c.model,c.id));$('edit-connection').append(new Option(c.name,c.id));}if(connections.some(c=>c.id===previous))$('connection-select').value=previous;if(editId)$('edit-connection').value=editId;}
+function renderConnections(){
+  const picker = $('connection-select');
+  const previous = picker.value;
+  const enabled = connections.filter((connection) => connection.enabled);
+  const options = () => ['local','cloud'].flatMap((group) => {
+    const choices = enabled.filter((connection) => connectionGroup(connection) === group);
+    if (!choices.length) return [];
+    const label = group === 'local' ? 'Локальные модели' : 'Облачные API';
+    const optionGroup = document.createElement('optgroup');
+    optionGroup.label = label;
+    optionGroup.append(...choices.map((connection) => new Option(connection.name + ' · ' + connection.model, connection.id)));
+    return [optionGroup];
+  });
+  picker.replaceChildren(...(enabled.length ? options() : [new Option('Подключите модель', '')]));
+  picker.value = [previous, defaultConnectionId, enabled[0]?.id]
+    .find((id) => enabled.some((connection) => connection.id === id)) || '';
+  const defaultsPicker = $('default-connection');
+  defaultsPicker.replaceChildren(new Option('Первая доступная модель', ''), ...options());
+  defaultsPicker.value = enabled.some((connection) => connection.id === defaultConnectionId) ? defaultConnectionId : '';
+  defaultsPicker.disabled = !enabled.length;
+  renderConnectionEditorChoices();
+}
+
+function connectionGroup(connection) {
+  return connection.provider === 'ollama' ? 'local' : 'cloud';
+}
+
+function renderConnectionEditorChoices(){
+  if (!modelPanel) return;
+  const choices = connections.filter((connection) => connectionGroup(connection) === modelPanel);
+  const picker = $('edit-connection');
+  picker.replaceChildren(new Option('Добавить подключение', ''), ...choices.map((connection) =>
+    new Option(connection.name + ' · ' + connection.model, connection.id)));
+  picker.value = choices.some((connection) => connection.id === editId) ? editId : '';
+}
 async function refreshConnections(){connections=(await api('/api/assistant/connections')).connections;renderConnections();}
 function selectConnection(id){
-  editId=id||null;
-  const c=connections.find(c=>c.id===id);
+  const c=connections.find(c=>c.id===id && connectionGroup(c)===modelPanel);
+  editId=c?.id||null;
   $('provider-name').value=c?.name||'';
-  $('provider-kind').value=c?.provider||'ollama';
+  $('provider-kind').value=c?.provider||Object.keys(providerGroups[modelPanel || 'local'])[0];
   $('provider-url').value=c?.baseUrl||defaults[$('provider-kind').value];
   $('provider-key').value='';
   modelPicker.selectExisting(c);
   $('test-connection').disabled=!c;
   $('delete-connection').disabled=!c;
 }
-async function openSettings(){$('settings').showModal();await Promise.all([refreshConnections(),refreshKeys()]);selectConnection(editId||$('connection-select').value);$('edit-connection').value=editId||'';statusInfo=await api('/api/assistant/status');$('mcp-url').value=statusInfo.mcpUrl;renderChatGPTMcp();if($('chatgpt-permissions').open)await loadChatGPTGrant();}
+const settingsTabs = [...$('settings').querySelectorAll('[role="tab"]')];
+
+function activateSettings(tabName, { focus = false } = {}) {
+  const selected = $('settings-tab-' + tabName);
+  for (const tab of settingsTabs) {
+    const active = tab === selected;
+    tab.setAttribute('aria-selected', String(active));
+    tab.tabIndex = active ? 0 : -1;
+    $(tab.getAttribute('aria-controls')).hidden = !active;
+  }
+  if (tabName !== 'mcp') clearNewMcpKey();
+  if (providerGroups[tabName] && modelPanel !== tabName) {
+    modelPanel = tabName;
+    const local = tabName === 'local';
+    $('settings-panel-' + tabName).append($('model-editor'));
+    $('provider-kind').replaceChildren(...Object.entries(providerGroups[tabName]).map(([id, label]) =>
+      new Option(label, id)));
+    $('provider-kind-row').hidden = local;
+    $('provider-url-label').textContent = local ? 'Адрес Ollama' : 'Адрес API';
+    $('provider-url').placeholder = local ? 'http://192.168.1.50:11434' : 'https://example.com/v1';
+    selectConnection(connections.find((connection) =>
+      connection.id === $('connection-select').value && connectionGroup(connection) === tabName)?.id);
+    renderConnectionEditorChoices();
+  }
+  if (focus) selected.focus();
+}
+
+async function openSettings(tab = 'general'){
+  activateSettings('general');
+  $('settings').showModal();
+  await Promise.all([refreshConnections(), refreshKeys()]);
+  statusInfo = await api('/api/assistant/status');
+  $('mcp-url').value = statusInfo.mcpUrl;
+  renderChatGPTMcp();
+  if (!$('settings').open) return;
+  if (tab !== 'general') activateSettings(tab, { focus: true });
+  if ($('chatgpt-permissions').open) await loadChatGPTGrant();
+}
+
+function clearNewMcpKey() {
+  $('new-key-value').value = '';
+  $('new-key').hidden = true;
+}
+
+for (const [index, tab] of settingsTabs.entries()) {
+  const activate = () => activateSettings(tab.id.replace('settings-tab-', ''), { focus: true });
+  tab.addEventListener('click', activate);
+  tab.addEventListener('keydown', (event) => {
+    const next = { ArrowRight: (index + 1) % settingsTabs.length,
+      ArrowLeft: (index + settingsTabs.length - 1) % settingsTabs.length, Home: 0, End: settingsTabs.length - 1 }[event.key];
+    if (next === undefined) return;
+    event.preventDefault();
+    settingsTabs[next].click();
+  });
+}
+$('settings').querySelectorAll('[data-settings-tab]').forEach((button) =>
+  button.addEventListener('click', () => activateSettings(button.dataset.settingsTab, { focus: true })));
+$('default-connection').addEventListener('change', (event) => {
+  defaultConnectionId = event.target.value;
+  try { localStorage.setItem(defaultConnectionKey, defaultConnectionId); } catch {}
+  if (!busy) $('connection-select').value = defaultConnectionId || $('connection-select').querySelector('option')?.value || '';
+});
 function renderChatGPTMcp(){
   const url=statusInfo?.chatgptMcpUrl||'';
   $('chatgpt-mcp-url').value=url;
   $('chatgpt-mcp-guide').hidden=!url;
   $('chatgpt-mcp-state').textContent=url
     ? 'Адрес настроен. Завершите подключение и подтвердите доступ в ChatGPT.'
-    : 'OAuth для ChatGPT ещё не настроен на сервере. Встроенный чат можно настроить выше.';
+    : 'OAuth для ChatGPT ещё не настроен на сервере. Для встроенного чата выберите локальную модель или облачный API.';
 }
 $('copy-chatgpt-url').addEventListener('click',guarded(async()=>{
   await navigator.clipboard.writeText($('chatgpt-mcp-url').value);
@@ -254,9 +356,9 @@ async function testConnection(){
 async function refreshKeys(){const keys=(await api('/api/assistant/keys')).keys;const root=$('key-list');root.replaceChildren();for(const k of keys){const row=element('div','key-row');const info=element('div','',k.name);info.append(element('small','',k.revoked_at?'Отключён':`${k.prefix}… · до ${new Date(k.expires_at).toLocaleDateString('ru-RU')}`));row.append(info);if(!k.revoked_at){const b=element('button','danger','Отозвать');b.type='button';b.addEventListener('click',guarded(async()=>{if(!confirm('Отключить доступ этому боту?'))return;await api('/api/assistant/keys/'+encodeURIComponent(k.id)+'/revoke',{method:'POST',body:'{}'});await refreshKeys();}));row.append(b);}root.append(row);}}
 function renderAttachments(){const root=$('attachments');root.replaceChildren();for(const file of attachments){const chip=element('span','file-chip',file.name);const remove=element('button','','×');remove.type='button';remove.setAttribute('aria-label','Не использовать '+file.name);remove.addEventListener('click',()=>{attachments=attachments.filter(x=>x.id!==file.id);renderAttachments();});chip.append(remove);root.append(chip);}}
 async function uploadFiles(event){const files=[...event.target.files];event.target.value='';if(files.length>12)throw new Error('За один раз выберите не больше 12 файлов.');for(const file of files){$('run-state').textContent='Загрузка: '+file.name;const form=new FormData();form.append('file',file,file.name);const result=await api('/api/assistant/uploads',{method:'POST',body:form});attachments.push(result);renderAttachments();}$('run-state').textContent='Вложения загружены. Укажите, что с ними сделать.';}
-async function sendMessage(event){event.preventDefault();if(busy)return;let message=$('message-input').value.trim();if(!message)return;const connectionId=$('connection-select').value;if(!connectionId){await openSettings();throw new Error('Подключите модель для чата.');}if(!threadId)await newThread();if(attachments.length)message+='\n\nВложения к моему сообщению (используй uploadId через publikator_attach_uploaded_media):\n'+attachments.map(a=>`${a.name}; uploadId=${a.id}; тип=${a.mimeType}; размер=${a.sizeBytes}`).join('\n');const body={threadId,connectionId,message,allowWrites:$('allow-writes').checked,idempotencyKey:crypto.randomUUID()};setBusy(true);$('run-state').textContent='Запрос принят к выполнению…';try{const run=await api('/api/assistant/runs',{method:'POST',body:JSON.stringify(body)});runId=run.id;$('message-input').value='';attachments=[];renderAttachments();await refreshThreads();void pollRun(runId,++pollEpoch);}catch(error){setBusy(false);$('run-state').textContent='';throw error;}}
+async function sendMessage(event){event.preventDefault();if(busy)return;let message=$('message-input').value.trim();if(!message)return;const connectionId=$('connection-select').value;if(!connectionId){await openSettings('local');throw new Error('Подключите модель для чата.');}if(!threadId)await newThread();if(attachments.length)message+='\n\nВложения к моему сообщению (используй uploadId через publikator_attach_uploaded_media):\n'+attachments.map(a=>`${a.name}; uploadId=${a.id}; тип=${a.mimeType}; размер=${a.sizeBytes}`).join('\n');const body={threadId,connectionId,message,allowWrites:$('allow-writes').checked,idempotencyKey:crypto.randomUUID()};setBusy(true);$('run-state').textContent='Запрос принят к выполнению…';try{const run=await api('/api/assistant/runs',{method:'POST',body:JSON.stringify(body)});runId=run.id;$('message-input').value='';attachments=[];renderAttachments();await refreshThreads();void pollRun(runId,++pollEpoch);}catch(error){setBusy(false);$('run-state').textContent='';throw error;}}
 async function pollRun(id,epoch){try{while(epoch===pollEpoch){const [run,thread]=await Promise.all([api('/api/assistant/runs/'+encodeURIComponent(id)),api('/api/assistant/threads/'+encodeURIComponent(threadId))]);if(epoch!==pollEpoch)return;renderMessages(thread.messages);$('thread-title').textContent=thread.thread.title;$('run-state').textContent=run.status==='RUNNING'?(toolLabels[run.currentOperation]||run.currentOperation||'Подготовка запроса…'):run.status==='COMPLETED'?'Готово':run.result?.text||({'FAILED':'Запрос завершился ошибкой','CANCELLED':'Запрос остановлен','INTERRUPTED':'Запрос прерван перезапуском сервера'}[run.status]||run.status);if(run.status!=='RUNNING'){setBusy(false);runId=null;await refreshThreads();return;}await new Promise(r=>setTimeout(r,1500));}}catch(error){if(epoch===pollEpoch){setBusy(false);toast(error.message,true);$('run-state').textContent='Связь с сервером прервалась. Обновите диалог для проверки результата.';}}}
-$('new-thread').addEventListener('click',guarded(newThread));$('settings-open').addEventListener('click',guarded(openSettings));$('settings-close').addEventListener('click',()=>{$('settings').close();$('new-key').hidden=true;$('new-key-value').value='';});$('settings').addEventListener('close',()=>{$('new-key-value').value='';$('new-key').hidden=true;});$('composer').addEventListener('submit',guarded(sendMessage));$('message-input').addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();$('composer').requestSubmit();}});$('file-input').addEventListener('change',guarded(uploadFiles));$('stop-run').addEventListener('click',guarded(async()=>{if(runId){await api('/api/assistant/runs/'+encodeURIComponent(runId)+'/stop',{method:'POST',body:'{}'});$('run-state').textContent='Остановка новых действий…';}}));
+$('new-thread').addEventListener('click',guarded(newThread));$('settings-open').addEventListener('click',guarded(()=>openSettings()));$('settings-close').addEventListener('click',()=>$('settings').close());$('settings').addEventListener('close',()=>{clearNewMcpKey();$('provider-key').value='';modelPicker.cancel();modelPanel=null;});$('composer').addEventListener('submit',guarded(sendMessage));$('message-input').addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();$('composer').requestSubmit();}});$('file-input').addEventListener('change',guarded(uploadFiles));$('stop-run').addEventListener('click',guarded(async()=>{if(runId){await api('/api/assistant/runs/'+encodeURIComponent(runId)+'/stop',{method:'POST',body:'{}'});$('run-state').textContent='Остановка новых действий…';}}));
 $('connection-form').addEventListener('submit',guarded(saveConnection));
 $('edit-connection').addEventListener('change',event=>selectConnection(event.target.value));
 $('provider-kind').addEventListener('change',()=>{
@@ -278,5 +380,5 @@ $('delete-connection').addEventListener('click',guarded(async()=>{
  editId=null;await refreshConnections();selectConnection(null);
 }));
 $('key-form').addEventListener('submit',guarded(async event=>{event.preventDefault();const key=await api('/api/assistant/keys',{method:'POST',body:JSON.stringify({name:$('key-name').value,days:Number($('key-days').value),confirmOwnerAdmin:$('confirm-owner').checked})});$('new-key-value').value=key.token;$('new-key').hidden=false;$('confirm-owner').checked=false;await refreshKeys();}));$('copy-key').addEventListener('click',guarded(async()=>{await navigator.clipboard.writeText($('new-key-value').value);toast('Ключ скопирован.');}));$('hide-key').addEventListener('click',()=>{$('new-key-value').value='';$('new-key').hidden=true;});$('reload-actions').addEventListener('click',guarded(async()=>{const r=await api('/api/assistant/actions');$('actions-list').replaceChildren(...r.events.map(e=>element('div','action-row',`${new Date(e.created_at).toLocaleString('ru-RU')} · ${e.operation} · ${e.status}`)));}));document.querySelectorAll('[data-prompt]').forEach(b=>b.addEventListener('click',()=>{$('message-input').value=b.dataset.prompt;$('message-input').focus();}));
-async function boot(){const auth=await api('/api/auth/state');if(!auth.authenticated||auth.mode!=='login'){$('login-notice').hidden=false;$('connection-state').textContent='Требуется вход';return;}statusInfo=await api('/api/assistant/status');$('shell').hidden=false;$('connection-state').textContent=`MCP · ${statusInfo.operationCount} операций`;await Promise.all([refreshConnections(),refreshThreads()]);if(threads.length)await loadThread(threads[0].id);if(!connections.length)$('run-state').textContent='Откройте «Настройки», чтобы подключить модель.';selectConnection(null);}
+async function boot(){const auth=await api('/api/auth/state');if(!auth.authenticated||auth.mode!=='login'){$('login-notice').hidden=false;$('connection-state').textContent='Требуется вход';return;}statusInfo=await api('/api/assistant/status');$('shell').hidden=false;$('connection-state').textContent=`MCP · ${statusInfo.operationCount} операций`;await Promise.all([refreshConnections(),refreshThreads()]);if(threads.length)await loadThread(threads[0].id);if(!connections.length)$('run-state').textContent='Откройте «Настройки», чтобы подключить модель.';}
 void boot().catch(error=>toast(error.message,true));

@@ -1899,6 +1899,8 @@ Global emergency switch:
 
 ## 16.7 ИИ и API — права и прозрачность ботов
 
+Вкладки настроек ИИ и выбор модели в чате описаны в [AI_SETTINGS_001.md](AI_SETTINGS_001.md).
+
 **Обязательный продуктовый контракт:** [AGENT_ACCESS_LEVELS_AND_ACTIVITY_LOGS.md](AGENT_ACCESS_LEVELS_AND_ACTIVITY_LOGS.md), в подчинении [UNIVERSAL_AGENT_API_MCP_SPEC.md](UNIVERSAL_AGENT_API_MCP_SPEC.md). Это раздел **Настройки → ИИ и API**, не новая главная навигация.
 
 Владелец видит компактные карточки подключённых агентов:

@@ -10,3 +10,49 @@
 .manual-model summary,.mcp-help summary{font-size:12px;font-weight:600;cursor:pointer;color:#365972}
 .manual-model label{margin:9px 0 0}.mcp-help p{line-height:1.6;font-size:12px;margin:10px 0}
 @media(max-width:500px){.models-chooser{grid-template-columns:minmax(0,1fr)}.models-chooser button{width:max-content;max-width:100%}}
+
+.settings-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--line);
+  background: #f5f7fa;
+}
+.settings-tabs [role="tab"] {
+  padding: 8px 12px;
+  background: transparent;
+  border-color: transparent;
+}
+.settings-tabs [aria-selected="true"] {
+  background: #fff;
+  border-color: var(--line);
+  box-shadow: inset 0 -2px var(--accent);
+  font-weight: 600;
+}
+.dialog-body > [role="tabpanel"] {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.dialog-body > [role="tabpanel"] > h3:first-child,
+.dialog-body > [role="tabpanel"] > .mcp-settings:first-child h3 {
+  margin-top: 0;
+}
+.settings-section {
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.settings-section summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.model-select > span {
+  color: #43586e;
+  font-size: .85rem;
+}
+@media (max-width: 560px) {
+  .settings-tabs { padding: 8px 15px; gap: 4px; }
+  .settings-tabs [role="tab"] { padding: 7px 9px; }
+}
