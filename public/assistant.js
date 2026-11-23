@@ -42,6 +42,28 @@ $('copy-chatgpt-url').addEventListener('click',guarded(async()=>{
   await navigator.clipboard.writeText($('chatgpt-mcp-url').value);
   toast('Адрес ChatGPT MCP скопирован.');
 }));
+$('test-chatgpt-url').addEventListener('click',guarded(async()=>{
+  const status=$('chatgpt-mcp-state');
+  const address=statusInfo?.chatgptMcpUrl;
+  if(!address||new URL(address).origin!==location.origin)return;
+  status.textContent='Проверяем адрес…';
+  try {
+    const response=await fetch(address,{
+      method:'POST',credentials:'omit',
+      headers:{'Content-Type':'application/json',Accept:'application/json, text/event-stream'},
+      body:JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{
+        protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'publikator-setup',version:'1'},
+      }}),
+    });
+    const challenge=response.headers.get('www-authenticate')||'';
+    await response.body?.cancel();
+    status.textContent=response.status===401&&challenge.includes('resource_metadata=')
+      ? 'Адрес доступен и запрашивает OAuth. Теперь можно добавить его в ChatGPT.'
+      : `Адрес MCP ещё не готов (HTTP ${response.status}). Проверьте настройку сервера и прокси.`;
+  } catch {
+    status.textContent='Не удалось связаться с адресом MCP.';
+  }
+}));
 const chatGPTScopeLabels = new Map([
   ['projects:read', 'Просматривать проекты'],
   ['accounts:read', 'Просматривать аккаунты и доступные форматы'],
