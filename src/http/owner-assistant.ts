@@ -21,12 +21,12 @@ function owner(request:FastifyRequest,mutation=false):OwnerActor {
   if(mutation&&!ownerMutationOriginMatches(request))throw new OwnerAutomationError('INVALID_ORIGIN','Требуется запрос из интерфейса Publikator.',403);
   return actor;
 }
-export async function registerOwnerAssistant(app:FastifyInstance,registry:Registry,chatgptMcpUrl?:string):Promise<void> {
+export async function registerOwnerAssistant(app:FastifyInstance,registry:Registry,chatgpt?:{url:string;agentId:string}|null):Promise<void> {
   recoverInterruptedAiRuns();
   db.prepare("UPDATE owner_ai_uploads SET state='BROKEN' WHERE state='WRITING'").run();
   await cleanupOwnerUploads();
   app.addHook('onClose',async()=>{await stopAllAiRuns();});
-  app.get('/api/assistant/status',async(req,reply)=>{try{owner(req);return {enabled:true,role:'OWNER_ADMIN',mcpPath:'/mcp',mcpUrl:(config.publicBaseUrl||'http://127.0.0.1:8080')+'/mcp',authentication:'owner-issued bearer key',oauthAvailable:Boolean(chatgptMcpUrl),chatgptMcpUrl:chatgptMcpUrl??null,tools:registry.tools.map(t=>({name:t.name,description:t.description,readOnly:t.readOnly})),operationCount:registry.operations.size,cloudClientConnectionVerified:false};}catch(e){return fail(reply,e);}});
+  app.get('/api/assistant/status',async(req,reply)=>{try{owner(req);return {enabled:true,role:'OWNER_ADMIN',mcpPath:'/mcp',mcpUrl:(config.publicBaseUrl||'http://127.0.0.1:8080')+'/mcp',authentication:'owner-issued bearer key',oauthAvailable:Boolean(chatgpt),chatgptMcpUrl:chatgpt?.url??null,chatgptAgentId:chatgpt?.agentId??null,tools:registry.tools.map(t=>({name:t.name,description:t.description,readOnly:t.readOnly})),operationCount:registry.operations.size,cloudClientConnectionVerified:false};}catch(e){return fail(reply,e);}});
   app.get('/api/assistant/connections',async(req,reply)=>{try{const a=owner(req);return {connections:listAiConnections(a.ownerId)};}catch(e){return fail(reply,e);}});
   app.post('/api/assistant/discover-models',{bodyLimit:16384},async(req,reply)=>{try{const a=owner(req,true);return await discoverAiModels(a.ownerId,req.body);}catch(e){return fail(reply,e);}});
   app.post('/api/assistant/connections',{bodyLimit:16384},async(req,reply)=>{try{const a=owner(req,true);return saveAiConnection(a.ownerId,req.body);}catch(e){return fail(reply,e);}});
