@@ -4,6 +4,7 @@ import { McpServer, createMcpHandler } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import { beginRuntimeActivity } from '../runtime-gate.js';
 import { AgentRegistryError } from '../agent-registry-error.js';
+import { requestAgentPublication } from '../agent-publication-intent.js';
 import type { VerifiedAgentIdentity } from '../agent-grant-acl.js';
 import { CHATGPT_MCP_PATH, CHATGPT_RESOURCE_METADATA, type registerChatGPTIssuer } from './agent-oauth.js';
 import { listVerifiedAccounts } from './agent-accounts.js';
@@ -17,7 +18,7 @@ import { listScopedAgentSources } from './agent-sources.js';
 import { getScopedPublication, getScopedPublicationAnalytics, listScopedPublications } from './agent-publication-read.js';
 
 type Issuer = NonNullable<Awaited<ReturnType<typeof registerChatGPTIssuer>>>;
-type Scope = 'projects:read' | 'accounts:read' | 'posts:read' | 'posts:write' | 'sources:read' | 'media:import';
+type Scope = 'projects:read' | 'accounts:read' | 'posts:read' | 'posts:write' | 'sources:read' | 'media:import' | 'approval:request';
 
 const page = z.object({
   limit: z.number().int().min(1).max(100).optional(),
@@ -183,6 +184,20 @@ export async function registerChatGPTMcp(app: FastifyInstance, issuer: Issuer | 
         ...policy('media:import', false),
         _meta: { securitySchemes: [{ type: 'oauth2', scopes: ['media:import', 'posts:write'] }] },
       }, async (args) => invoke('media:import', (identity) => attachManagedAgentMedia(identity, args)));
+      server.registerTool('publikator_request_publication', {
+        description: 'Подготовить запрос владельцу для отправки сейчас или в точное время. Проверяет версию, получателей и форматы. Возвращает предварительную проверку; публикация и постановка в расписание требуют подтверждения владельца.',
+        inputSchema: z.object({
+          postId: identifier,
+          expectedContentVersion: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+          targetAccountIds: z.array(identifier).min(1).max(20),
+          idempotencyKey: identifier,
+          when: z.discriminatedUnion('mode', [
+            z.object({ mode: z.literal('NOW') }).strict(),
+            z.object({ mode: z.literal('AT'), scheduledAt: z.string().max(100), timezone: z.string().max(80) }).strict(),
+          ]),
+        }).strict(),
+        ...policy('approval:request', false),
+      }, async (args) => invoke('approval:request', (identity) => requestAgentPublication(identity, args)));
       return server;
     }, { legacy: 'stateless', maxRequestBodySize: 64 * 1024 });
 

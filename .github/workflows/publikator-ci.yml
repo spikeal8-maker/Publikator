@@ -662,6 +662,11 @@ jobs:
       - name: ChatGPT OAuth refresh, scoped publications and approved media import
         run: node scripts/agent-a1c-chatgpt-issuer-e2e.mjs
 
+      - name: Schema 21 approved-publication intent storage, no-send guard and canonical restore
+        run: |
+          node scripts/schema-v21-publication-intents-e2e.mjs
+          node scripts/backup-v21-publication-intents-e2e.mjs
+
       - name: REST/MCP planned contract and owner additions
         run: node scripts/agent-contract-a0b-e2e.mjs
 
