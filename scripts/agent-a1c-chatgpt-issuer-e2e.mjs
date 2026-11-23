@@ -190,6 +190,88 @@ try {
   assert.ok(tokens.refresh_token);
   assert.deepEqual(tokens.scope.split(' ').sort(), scopes);
 
+  // #287: distinguish legacy discovery from already-authorized modern SDK calls.
+  // This is the first MCP traffic after a new fixture OAuth grant, before any refresh.
+  assert.equal(tokens.expires_in, 300);
+  const legacyVersion = '2025-06-18';
+  const legacyHeaders = { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' };
+  const legacyPost = (accessToken, message, extraHeaders = {}) => fixtureFetch(resource, {
+    method: 'POST', signal: AbortSignal.timeout(15000),
+    headers: { ...legacyHeaders, Authorization: 'Bearer ' + accessToken, ...extraHeaders },
+    body: JSON.stringify(message),
+  });
+  async function legacyResult(response, id, stage) {
+    assert.equal(response.status, 200, stage);
+    const type = response.headers.get('content-type')?.split(';')[0].trim();
+    const raw = await response.text();
+    let message;
+    if (type === 'application/json') message = JSON.parse(raw);
+    else if (type === 'text/event-stream') {
+      for (const event of raw.split(/\r?\n\r?\n/)) {
+        const data = event.split(/\r?\n/).filter((line) => line.startsWith('data:'))
+          .map((line) => line.slice(5).trimStart()).join('\n');
+        if (!data) continue;
+        const candidate = JSON.parse(data);
+        if (candidate.id === id) { message = candidate; break; }
+      }
+    } else assert.fail(stage + ': unexpected response media type');
+    assert.equal(message?.jsonrpc, '2.0', stage);
+    assert.equal(message?.id, id, stage);
+    assert.ok(message?.result && !message.error, stage + ': missing result');
+    return message.result;
+  }
+  const firstInitialize = await legacyResult(await legacyPost(tokens.access_token, {
+    jsonrpc: '2.0', id: 101, method: 'initialize',
+    params: { protocolVersion: legacyVersion, capabilities: {}, clientInfo: { name: 'legacy-fixture', version: '1' } },
+  }), 101, 'fresh initialize');
+  assert.equal(firstInitialize.protocolVersion, legacyVersion);
+  const negotiated = { 'MCP-Protocol-Version': firstInitialize.protocolVersion };
+  const notification = { jsonrpc: '2.0', method: 'notifications/initialized' };
+  const initialized = await legacyPost(tokens.access_token, notification, negotiated);
+  assert.equal(initialized.status, 202, 'initialized notification');
+  assert.equal(await initialized.text(), '', 'notification must not produce a JSON-RPC response');
+  const legacyTools = await legacyResult(await legacyPost(tokens.access_token, {
+    jsonrpc: '2.0', id: 102, method: 'tools/list', params: {},
+  }, negotiated), 102, 'fresh tools/list');
+  for (const name of ['publikator_list_projects', 'publikator_list_accounts']) {
+    assert.ok(legacyTools.tools.some((tool) => tool.name === name));
+  }
+  async function legacyRead(accessToken, name, id) {
+    const result = await legacyResult(await legacyPost(accessToken, {
+      jsonrpc: '2.0', id, method: 'tools/call', params: { name, arguments: {} },
+    }, negotiated), id, name);
+    assert.ok(!result.isError, name + ': tool error');
+    return JSON.parse(result.content.find((part) => part.type === 'text').text).items;
+  }
+  assert.deepEqual((await legacyRead(tokens.access_token, 'publikator_list_projects', 103)).map((item) => item.id), [projectId]);
+  assert.deepEqual((await legacyRead(tokens.access_token, 'publikator_list_accounts', 104)).map((item) => item.id), [accountId]);
+  console.log('#287 legacy fresh OAuth -> initialize 200 -> initialized 202 -> tools/list 200 -> tools/call 200 PASS');
+
+  // Unsupported framing is a legitimate 415, not a reason to relax all content parsers.
+  const octet = await legacyPost(tokens.access_token, notification, {
+    ...negotiated, 'Content-Type': 'application/octet-stream',
+  });
+  assert.equal(octet.status, 415);
+  await octet.body?.cancel();
+  const absentType = await fixtureFetch(resource, {
+    method: 'POST', signal: AbortSignal.timeout(15000),
+    headers: { Accept: legacyHeaders.Accept, Authorization: 'Bearer ' + tokens.access_token, ...negotiated },
+    body: Buffer.from(JSON.stringify(notification)),
+  });
+  assert.equal(absentType.status, 415);
+  await absentType.body?.cancel();
+  const malformed = await fixtureFetch(resource, {
+    method: 'POST', signal: AbortSignal.timeout(15000),
+    headers: { ...legacyHeaders, Authorization: 'Bearer ' + tokens.access_token, ...negotiated }, body: '{',
+  });
+  assert.equal(malformed.status, 400);
+  await malformed.body?.cancel();
+  console.log('#287 malformed JSON and unsupported Content-Type rejected PASS');
+  const concurrentReads = await Promise.all(Array.from({ length: 12 }, (_, index) =>
+    legacyRead(tokens.access_token, 'publikator_list_projects', 200 + index)));
+  assert.ok(concurrentReads.every((items) => items.length === 1 && items[0].id === projectId));
+  console.log('#287 parallel authorized HTTP reads 12/12 PASS');
+
   const saved = JSON.stringify(db.prepare('SELECT * FROM agent_oauth_artifacts').all());
   assert.ok(!saved.includes(tokens.access_token));
   assert.ok(!saved.includes(tokens.refresh_token));
@@ -240,6 +322,49 @@ try {
   }
   await page.waitForURL(callback + '?**');
   assert.ok(new URL(page.url()).searchParams.get('code'));
+
+  // The browser consent flow above issues a second, independent fixture grant.
+  // Test parallel refresh on both grants, then replay only the second grant's
+  // credential. Never weaken rotation or require a replayed token family to survive.
+  const secondCode = new URL(page.url()).searchParams.get('code');
+  const secondGrantResponse = await fixtureFetch(metadata.token_endpoint, {
+    method: 'POST', body: new URLSearchParams({ grant_type: 'authorization_code', client_id: clientId,
+      client_secret: clientSecret, code: secondCode, code_verifier: verifier, resource, redirect_uri: callback }),
+  });
+  assert.equal(secondGrantResponse.status, 200, 'second fixture grant');
+  const secondGrant = await secondGrantResponse.json();
+  assert.ok(secondGrant.refresh_token && secondGrant.refresh_token !== tokens.refresh_token);
+  const parallelRotation = await Promise.all([
+    rotate(tokens.refresh_token), rotate(secondGrant.refresh_token),
+  ]);
+  assert.deepEqual(parallelRotation.map((response) => response.status), [200, 200], 'independent refresh chains');
+  const [primaryRotated, secondaryRotated] = await Promise.all(parallelRotation.map((response) => response.json()));
+  assert.ok(primaryRotated.refresh_token && primaryRotated.refresh_token !== tokens.refresh_token);
+  assert.ok(secondaryRotated.refresh_token && secondaryRotated.refresh_token !== secondGrant.refresh_token);
+  assert.ok(primaryRotated.refresh_token !== secondaryRotated.refresh_token);
+  tokens = primaryRotated;
+  const twoGrants = await Promise.all([
+    legacyRead(tokens.access_token, 'publikator_list_projects', 301),
+    legacyRead(secondaryRotated.access_token, 'publikator_list_accounts', 302),
+  ]);
+  assert.equal(twoGrants[0][0].id, projectId);
+  assert.equal(twoGrants[1][0].id, accountId);
+  console.log('#287 independent parallel refresh chains 2/2 PASS');
+
+  // All credentials and the replay are confined to the temporary fixture DB.
+  const replayResponses = await Promise.all(Array.from({ length: 4 }, () =>
+    rotate(secondaryRotated.refresh_token)));
+  const replayOutcomes = await Promise.all(replayResponses.map(async (response) => {
+    const body = await response.json().catch(() => ({}));
+    return { status: response.status, error: typeof body.error === 'string' ? body.error : null };
+  }));
+  console.log('#287 concurrent same-token refresh statuses', JSON.stringify(replayOutcomes));
+  assert.ok(replayOutcomes.filter((outcome) => outcome.status === 200).length <= 1, 'refresh replay issued multiple successes');
+  assert.ok(replayOutcomes.some((outcome) => outcome.status === 400 && outcome.error === 'invalid_grant'), 'replay must be rejected');
+  assert.ok(replayOutcomes.every((outcome) => outcome.status === 200
+    || (outcome.status === 400 && outcome.error === 'invalid_grant')), 'refresh race must not yield server errors');
+  assert.deepEqual((await legacyRead(tokens.access_token, 'publikator_list_projects', 303)).map((item) => item.id), [projectId]);
+  console.log('#287 same-token replay rejected without affecting independent grant PASS');
 
   const initialize = {
     jsonrpc: '2.0', id: 1, method: 'initialize',
