@@ -256,11 +256,19 @@ try {
   assert.equal((await savedGrant).status(), 200);
   const nextScopes = db.prepare('SELECT scope_ids_json FROM agent_grants WHERE agent_id=?').get(agentId);
   assert.deepEqual(JSON.parse(nextScopes.scope_ids_json).sort(), ['accounts:read', 'projects:read']);
-  await context.close();
   const revoked = await fetch(resource, { method: 'POST',
     headers: { ...headers, Authorization: bearer }, body: JSON.stringify(initialize) });
   assert.equal(revoked.status, 401);
   await revoked.body?.cancel();
+
+  const relink = new URLSearchParams(query);
+  relink.delete('prompt');
+  relink.set('state', randomBytes(16).toString('base64url'));
+  await page.goto(metadata.authorization_endpoint + '?' + relink);
+  await page.getByRole('button', { name: 'Разрешить' }).waitFor();
+  assert.ok(page.url().includes('/oauth/interaction/'));
+  assert.ok(!(await page.locator('body').innerText()).includes('posts:write'));
+  await context.close();
 
   clearRestoredOAuthSessions();
   const afterRestore = db.prepare('SELECT model FROM agent_oauth_artifacts').all().map((row) => row.model);
