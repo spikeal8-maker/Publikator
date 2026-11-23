@@ -1,7 +1,6 @@
 import { Readable } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
-import { McpServer } from '@modelcontextprotocol/server';
-import { createMcpHandler } from '@modelcontextprotocol/server/streamableHttp';
+import { McpServer, createMcpHandler } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import { AgentRegistryError } from '../agent-registry-error.js';
 import type { VerifiedAgentIdentity } from '../agent-grant-acl.js';
