@@ -24,7 +24,8 @@ export const SCHEMA_MILESTONES = [
   { version: 18, key: 'agent-draft-provenance-receipts', migrationRegression: 'scripts/schema-v18-agent-draft-provenance-e2e.mjs', backupRegression: 'scripts/backup-v18-agent-draft-provenance-e2e.mjs' },
   { version: 19, key: 'owner-mcp-chat', migrationRegression: 'scripts/schema-v19-owner-automation-e2e.mjs', backupRegression: 'scripts/backup-v19-owner-automation-e2e.mjs' },
   { version: 20, key: 'agent-oauth-storage', migrationRegression: 'scripts/schema-v20-agent-oauth-storage-e2e.mjs', backupRegression: 'scripts/backup-v20-agent-oauth-storage-e2e.mjs' },
-  { version: 21, key: 'ai-connection-access', migrationRegression: 'scripts/schema-v21-ai-connection-access-e2e.mjs', backupRegression: 'scripts/backup-v21-ai-connection-access-e2e.mjs' }
+  { version: 21, key: 'ai-connection-access', migrationRegression: 'scripts/schema-v21-ai-connection-access-e2e.mjs', backupRegression: 'scripts/backup-v21-ai-connection-access-e2e.mjs' },
+  { version: 22, key: 'local-llamacpp-provider', migrationRegression: 'scripts/schema-v22-llamacpp-e2e.mjs', backupRegression: 'scripts/backup-v22-llamacpp-e2e.mjs' }
 ] as const satisfies readonly SchemaMilestone[];
 
 export const DATABASE_SCHEMA_VERSION = SCHEMA_MILESTONES[SCHEMA_MILESTONES.length - 1]!.version;

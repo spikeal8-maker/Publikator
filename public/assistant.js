@@ -3,8 +3,8 @@ import {renderAssistantMarkdown} from './assistant-markdown.js';
 import {setupAssistantConsole} from './assistant-console.js';
 const $=id=>document.getElementById(id);
 let connections=[],threads=[],threadId=null,runId=null,pollEpoch=0,attachments=[],editId=null,statusInfo=null,busy=false;
-const defaults={openai:'https://api.openai.com/v1',deepseek:'https://api.deepseek.com',ollama:'',compatible:''};
-const providerGroups = { local: { ollama: 'Ollama' }, cloud: {
+const defaults={openai:'https://api.openai.com/v1',deepseek:'https://api.deepseek.com',ollama:'',llamacpp:'',compatible:''};
+const providerGroups = { local: { ollama: 'Ollama', llamacpp: 'llama.cpp' }, cloud: {
   openai: 'OpenAI', deepseek: 'DeepSeek', compatible: 'Совместимый API',
 } };
 const connectionChecks = new Map();
@@ -51,7 +51,7 @@ function renderConnections(){
 }
 
 function connectionGroup(connection) {
-  return connection.provider === 'ollama' ? 'local' : 'cloud';
+  return Object.hasOwn(providerGroups.local, connection.provider) ? 'local' : 'cloud';
 }
 
 function renderConnectionCards() {
@@ -162,7 +162,7 @@ function openConnectionEditor(provider, id = null) {
   $('provider-url').value = connection?.baseUrl || defaults[provider];
   $('provider-url-label').textContent = local ? 'Сетевой адрес сервера' : 'Адрес API';
   $('provider-url-row').hidden = !local && provider !== 'compatible';
-  $('provider-url').placeholder = local ? 'http://192.168.1.50:11434' : 'https://example.com/v1';
+  $('provider-url').placeholder = local ? (provider === 'ollama' ? 'http://192.168.1.50:11434' : 'http://192.168.1.50:8080') : 'https://example.com/v1';
   $('provider-key').value = '';
   $('local-provider-key').value = '';
   $('provider-help').open = false;
@@ -422,7 +422,7 @@ async function saveConnection(event){
   const data={
     name:$('provider-name').value.trim()||$('provider-kind').selectedOptions[0].text,
     provider:$('provider-kind').value,baseUrl:$('provider-url').value,
-    model,apiKey:modelPicker.key(),...(old?{id:old.id,expectedRevision:old.revision}:{})
+    model,apiKey:modelPicker.key(),...(old?{id:old.id,expectedRevision:old.revision,enabled:old.enabled}:{})
   };
   const btn=$('connection-form').querySelector('button[type=submit]');
   btn.disabled=true;

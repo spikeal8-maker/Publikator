@@ -39,7 +39,10 @@
 </section>
 <section role="tabpanel" id="settings-panel-local" aria-labelledby="settings-tab-local" hidden>
   <div class="settings-section-head"><h3>Подключения в локальной сети</h3>
-    <button type="button" class="primary" data-new-provider="ollama">Добавить Ollama</button>
+    <div class="provider-actions">
+      <button type="button" class="primary" data-new-provider="ollama">Добавить Ollama</button>
+      <button type="button" data-new-provider="llamacpp">Добавить llama.cpp</button>
+    </div>
   </div>
   <div id="local-connections" class="settings-connections"></div>
   <section id="model-editor" class="model-editor" hidden aria-labelledby="model-editor-title">
