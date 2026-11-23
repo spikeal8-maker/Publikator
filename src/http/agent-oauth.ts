@@ -213,7 +213,14 @@ export async function registerChatGPTIssuer(app: FastifyInstance) {
   await app.register(async (browser) => {
     browser.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string', bodyLimit: 4096 },
       (_request, body, done) => done(null, body));
-    browser.get<{ Params: { uid: string } }>(interaction + '/:uid', async (request, reply) => {
+    browser.get<{ Params: { uid: string } }>(interaction + '/:uid', {
+      onSend(_request, reply, payload, done) {
+        // Chrome must include the same-origin Origin on a navigation form POST.
+        // The route hook runs after the global no-referrer default.
+        reply.header('Referrer-Policy', 'strict-origin');
+        done(null, payload);
+      },
+    }, async (request, reply) => {
       if (!checkOrigin(request, reply)) return;
       const live = currentGrant(settings.agentId);
       if (!live || !idPattern.test(request.params.uid)) return headers(reply).code(404).send('Сеанс подключения недоступен.');
