@@ -35,6 +35,14 @@ const { beginMaintenance } = await import('../dist/runtime-gate.js');
 const { encryptJson } = await import('../dist/crypto.js');
 const { buildApp } = await import('../dist/app.js');
 const { clearRestoredOAuthSessions } = await import('../dist/http/agent-oauth.js');
+// The issuer is deliberately closed and reopened on the same port. Prevent
+// Undici from reusing a connection to the old server on the first request.
+function fixtureFetch(input, init) {
+  const headers = new Headers(init?.headers);
+  headers.set('connection', 'close');
+  return fetch(input, { ...init, headers });
+}
+
 let app;
 let browser;
 try {
@@ -61,7 +69,7 @@ try {
   await app.listen({ host: '127.0.0.1', port });
 
   async function json(address) {
-    const response = await fetch(origin + address);
+    const response = await fixtureFetch(origin + address);
     assert.equal(response.status, 200);
     return response.json();
   }
@@ -105,7 +113,7 @@ try {
     let result;
     if (destination.pathname.startsWith('/oauth/interaction/')) {
       if (!blocked) {
-        const untrusted = await fetch(destination, { method: 'POST',
+        const untrusted = await fixtureFetch(destination, { method: 'POST',
           headers: { Cookie: cookie, Origin: origin },
           body: new URLSearchParams({ grant: '1.1', decision: 'allow' }),
         });
@@ -114,32 +122,32 @@ try {
         blocked = true;
       }
       const ownerCookie = [cookie, 'publikator_session=' + owner].filter(Boolean).join('; ');
-      const form = await fetch(destination, { headers: { Cookie: ownerCookie } });
+      const form = await fixtureFetch(destination, { headers: { Cookie: ownerCookie } });
       assert.equal(form.status, 200);
       const html = await form.text();
       assert.ok(html.includes('projects:read'));
       assert.ok(!html.includes('publish:request'));
       const version = /name="grant" value="([0-9.]+)"/.exec(html)?.[1];
       assert.equal(version, '1.1');
-      const stale = await fetch(destination, { method: 'POST', redirect: 'manual',
+      const stale = await fixtureFetch(destination, { method: 'POST', redirect: 'manual',
         headers: { Cookie: ownerCookie, Origin: origin },
         body: new URLSearchParams({ grant: '99.99', decision: 'allow' }),
       });
       assert.equal(stale.status, 409);
       await stale.body?.cancel();
-      const crossOrigin = await fetch(destination, { method: 'POST', redirect: 'manual',
+      const crossOrigin = await fixtureFetch(destination, { method: 'POST', redirect: 'manual',
         headers: { Cookie: ownerCookie, Origin: 'https://untrusted.invalid' },
         body: new URLSearchParams({ grant: version, decision: 'allow' }),
       });
       assert.equal(crossOrigin.status, 403);
       await crossOrigin.body?.cancel();
-      result = await fetch(destination, {
+      result = await fixtureFetch(destination, {
         method: 'POST', redirect: 'manual', headers: { Cookie: ownerCookie, Origin: origin },
         body: new URLSearchParams({ grant: version, decision: 'allow' }),
       });
       approved += 1;
     } else {
-      result = await fetch(destination, { redirect: 'manual', headers: cookie ? { Cookie: cookie } : undefined });
+      result = await fixtureFetch(destination, { redirect: 'manual', headers: cookie ? { Cookie: cookie } : undefined });
     }
     storeCookies(result);
     const next = result.headers.get('location');
@@ -160,7 +168,7 @@ try {
   assert.ok(code);
   assert.equal(approved, 2);
 
-  const grant = await fetch(metadata.token_endpoint, {
+  const grant = await fixtureFetch(metadata.token_endpoint, {
     method: 'POST', body: new URLSearchParams({ grant_type: 'authorization_code', client_id: clientId,
       client_secret: clientSecret, code, code_verifier: verifier, resource, redirect_uri: callback }),
   });
@@ -174,7 +182,7 @@ try {
   assert.ok(!saved.includes(tokens.access_token));
   assert.ok(!saved.includes(tokens.refresh_token));
 
-  const rotate = (refreshToken, extra = {}) => fetch(metadata.token_endpoint, {
+  const rotate = (refreshToken, extra = {}) => fixtureFetch(metadata.token_endpoint, {
     method: 'POST', body: new URLSearchParams({ grant_type: 'refresh_token', client_id: clientId,
       client_secret: clientSecret, refresh_token: refreshToken, ...extra }),
   });
@@ -183,7 +191,7 @@ try {
   await app.close();
   app = await buildApp();
   await app.listen({ host: '127.0.0.1', port });
-  const expired = await fetch(resource, { method: 'POST',
+  const expired = await fixtureFetch(resource, { method: 'POST',
     headers: { 'content-type': 'application/json', authorization: 'Bearer ' + previous.access_token }, body: '{}' });
   assert.equal(expired.status, 401);
   await expired.body?.cancel();
@@ -226,7 +234,7 @@ try {
     params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'fixture', version: '1' } },
   };
   const headers = { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' };
-  const missing = await fetch(resource, { method: 'POST', headers, body: JSON.stringify(initialize) });
+  const missing = await fixtureFetch(resource, { method: 'POST', headers, body: JSON.stringify(initialize) });
   assert.equal(missing.status, 401);
   assert.match(missing.headers.get('www-authenticate'), /oauth-protected-resource\/mcp\/chatgpt/);
   await missing.body?.cancel();
@@ -339,7 +347,7 @@ try {
   assert.equal((await savedGrant).status(), 200);
   const nextScopes = db.prepare('SELECT scope_ids_json FROM agent_grants WHERE agent_id=?').get(agentId);
   assert.deepEqual(JSON.parse(nextScopes.scope_ids_json).sort(), ['accounts:read', 'posts:read', 'projects:read']);
-  const revoked = await fetch(resource, { method: 'POST',
+  const revoked = await fixtureFetch(resource, { method: 'POST',
     headers: { ...headers, Authorization: bearer }, body: JSON.stringify(initialize) });
   assert.equal(revoked.status, 401);
   await revoked.body?.cancel();
