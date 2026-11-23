@@ -13,7 +13,7 @@ import { updateScopedAgentDraft } from './agent-draft-edits.js';
 import { listOwnDrafts, getOwnDraft, parseOwnedPage } from './agent-owned-drafts.js';
 import { createScopedAgentDraft } from './agent-text-drafts.js';
 import { attachManagedAgentMedia } from './agent-managed-media.js';
-import { listScopedAgentSources } from './agent-sources.js';
+import { listScopedAgentSources, listScopedMediaFiles } from './agent-sources.js';
 import { getScopedPublication, getScopedPublicationAnalytics, listScopedPublications } from './agent-publication-read.js';
 
 type Issuer = NonNullable<Awaited<ReturnType<typeof registerChatGPTIssuer>>>;
@@ -171,6 +171,15 @@ export async function registerChatGPTMcp(app: FastifyInstance, issuer: Issuer | 
         ...policy('sources:read', true),
       }, async (args) => invoke('sources:read', (identity) =>
         listScopedAgentSources(() => identity, parsePage(pageQuery(args)))));
+      server.registerTool('publikator_list_media_files', {
+        description: 'Открыть выбранную папку разрешённого источника. Показывает вложенные папки, изображения и MP4. Используйте относительный путь из ответа для прикрепления к черновику.',
+        inputSchema: z.object({
+          connectorId: identifier, folder: z.string().max(512).optional(), cursor: z.string().max(8192).optional(),
+        }).strict(),
+        ...policy('sources:read', true),
+        _meta: { securitySchemes: [{ type: 'oauth2', scopes: ['sources:read', 'media:import'] }] },
+      }, async ({ connectorId, folder, cursor }) => invoke('media:import', (identity) =>
+        listScopedMediaFiles(identity, connectorId, folder ?? '', cursor)));
       server.registerTool('publikator_attach_cloud_media', {
         description: 'Прикрепить изображение или MP4 из разрешённого Google Drive или Яндекс Диска к своему черновику. Укажите путь внутри папки и текущую версию. После загрузки черновик сохраняется без отправки.',
         inputSchema: z.object({

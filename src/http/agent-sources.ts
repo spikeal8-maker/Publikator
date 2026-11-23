@@ -2,6 +2,10 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { db, id } from '../db.js';
 import { getOwnerAgent } from '../agent-owner-registry.js';
 import { AgentRegistryError } from '../agent-registry-error.js';
+import { normalizeRelativePath } from '../cloud-media-reference.js';
+import { decryptJson, encryptJson } from '../crypto.js';
+import { listGoogleDriveFolder } from '../google-drive-media.js';
+import { listYandexDiskFolder } from '../yandex-disk-media.js';
 import { assertEffectiveAgentGrant, type VerifiedAgentIdentity } from '../agent-grant-acl.js';
 import { parsePage, IDENTIFIER, type Page } from './agent-page.js';
 import {
@@ -95,4 +99,60 @@ export async function registerAgentSourceReadRoutes(app: FastifyInstance): Promi
       return safeError(reply, error);
     }
   });
+}
+
+type MediaConnector = { type: 'google_drive' | 'yandex_disk'; config_json: string; credentials_encrypted: string; updated_at: string };
+type FolderPage = { items: Array<{ relativePath: string; isDirectory: boolean; mimeType: string | null; sizeBytes: number; modifiedAt: string | null }>; nextCursor: string | null };
+type FolderCursor = { agentId: string; grantVersion: number; connectorId: string; folder: string; providerCursor: string; until: number };
+
+export async function listScopedMediaFiles(identity: VerifiedAgentIdentity, connectorId: string, requestedFolder: string, cursor?: string) {
+  let folder: string;
+  let page: string | undefined;
+  try {
+    folder = requestedFolder ? normalizeRelativePath(requestedFolder) : '';
+    if (folder.includes('%')) throw new Error('encoded folder');
+    if (cursor) {
+      const data = decryptJson<FolderCursor>(cursor);
+      if (data.agentId !== identity.agentId || data.grantVersion !== identity.grantVersion
+        || data.connectorId !== connectorId || data.folder !== folder || data.until <= Date.now()) {
+        throw new Error('expired or unrelated cursor');
+      }
+      page = data.providerCursor;
+    }
+  } catch {
+    throw new AgentRegistryError('VALIDATION_ERROR', 'Путь к папке или курсор недействительны.', 400);
+  }
+
+  function authorizedConnector(): MediaConnector {
+    return db.transaction(() => {
+      assertEffectiveAgentGrant({ ...identity, requiredScope: 'sources:read', sourceConnectorId: connectorId });
+      const connector = db.prepare(`SELECT type,config_json,credentials_encrypted,updated_at FROM ingestion_connectors
+        WHERE id=? AND enabled=1 AND type IN ('google_drive','yandex_disk')`).get(connectorId) as MediaConnector | undefined;
+      if (!connector) throw new AgentRegistryError('RESOURCE_DENIED', 'Источник медиа недоступен.', 403);
+      return connector;
+    })();
+  }
+
+  const connector = authorizedConnector();
+  let listing: FolderPage;
+  try {
+    listing = await (connector.type === 'google_drive'
+      ? listGoogleDriveFolder(connectorId, folder, page)
+      : listYandexDiskFolder(connectorId, folder, page));
+  } catch {
+    throw new AgentRegistryError('MEDIA_SOURCE_UNAVAILABLE', 'Папку не удалось открыть. Проверьте путь и доступ к источнику.', 422);
+  }
+  if (JSON.stringify(connector) !== JSON.stringify(authorizedConnector())) {
+    throw new AgentRegistryError('SOURCE_CHANGED', 'Подключение источника изменилось. Откройте папку снова.', 409);
+  }
+
+  const items = listing.items
+    .filter((item) => item.isDirectory || item.mimeType?.startsWith('image/') || item.mimeType === 'video/mp4')
+    .map(({ relativePath, isDirectory, mimeType, sizeBytes, modifiedAt }) =>
+      ({ relativePath, isDirectory, mimeType, sizeBytes, modifiedAt }));
+  const nextCursor = listing.nextCursor ? encryptJson({
+    agentId: identity.agentId, grantVersion: identity.grantVersion, connectorId, folder,
+    providerCursor: listing.nextCursor, until: Date.now() + 20 * 60 * 1000,
+  } satisfies FolderCursor) : null;
+  return { connectorId, folder, items, nextCursor };
 }
