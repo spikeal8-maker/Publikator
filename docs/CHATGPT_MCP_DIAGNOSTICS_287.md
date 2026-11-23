@@ -61,16 +61,26 @@ The original site file is preserved under the root-only backup path. The install
 Before running it, independently validate the original backup against `site-original.sha256` and check that the current site file and diagnostic file agree with their saved hashes. Check hostname and `nginx -t`. Preserve any necessary sanitized incident evidence in issue #287, not raw application logs. If a hash differs, **stop**: the site may have changed since installation. Reconcile the current config with only the temporary additions; do not blindly overwrite newer site settings. If no divergence exists:
 
 ```bash
-test "$(hostname)" = admins-MS-7D22
-b=/root/publikator-mcp-diagnostics-287
-test "$(sha256sum "$b/pub.asa-lab.ru.conf" | cut -d' ' -f1)" = "$(cat "$b/site-original.sha256")"
-docker exec 1Panel-openresty-fc55 nginx -t
-"$b/rollback.sh"
-docker exec 1Panel-openresty-fc55 nginx -t
-test ! -e /opt/1panel/www/conf.d/00-publikator-mcp-diag-287.conf
-test "$(sha256sum /opt/1panel/www/conf.d/pub.asa-lab.ru.conf | cut -d' ' -f1)" = "$(cat "$b/site-original.sha256")"
-docker inspect --format '{{.State.Health.Status}}' publikator-live-publikator-1
+(
+  set -euo pipefail
+  test "$(hostname)" = admins-MS-7D22
+  b=/root/publikator-mcp-diagnostics-287
+  s=/opt/1panel/www/conf.d/pub.asa-lab.ru.conf
+  d=/opt/1panel/www/conf.d/00-publikator-mcp-diag-287.conf
+  test "$(sha256sum "$b/pub.asa-lab.ru.conf" | cut -d' ' -f1)" = "$(cat "$b/site-original.sha256")"
+  test "$(sha256sum "$s" | cut -d' ' -f1)" = "$(cat "$b/site-diagnostic.sha256")"
+  test "$(sha256sum "$d" | cut -d' ' -f1)" = "$(cat "$b/diagnostic.sha256")"
+  test "$(sha256sum "$b/rollback.sh" | cut -d' ' -f1)" = b12eb581f43d4ce46aaa98fdda8e6d5bf71cad1a5a5652762347fd2be8bb621e
+  docker exec 1Panel-openresty-fc55 nginx -t
+  "$b/rollback.sh"
+  docker exec 1Panel-openresty-fc55 nginx -t
+  test ! -e "$d"
+  test "$(sha256sum "$s" | cut -d' ' -f1)" = "$(cat "$b/site-original.sha256")"
+  test "$(docker inspect --format '{{.State.Health.Status}}' publikator-live-publikator-1)" = healthy
+)
 ```
+
+Run this fail-closed subshell as a standalone command in Bash, not as part of a condition that disables `errexit`. If any preflight fails, the rollback command is not reached. If a post-rollback check fails, stop and investigate; do not blindly retry.
 
 Verify that the active MCP location no longer includes the extra log, HTTPS discovery and two real ChatGPT read calls still succeed, and the image revision is unchanged. Once the old proxy workers no longer have the file open, retain only the necessary sanitized incident summary, then remove the temporary diagnostic log under owner-authorized retention policy. Never remove ordinary access logs, backups, application data or OAuth artifacts. Keep the root-only original configuration/rollback evidence under the host's backup policy until acceptance is closed. Record actual removal time, config test, live checks and outcome in issue #287.
 
