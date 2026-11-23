@@ -291,6 +291,33 @@ try {
       name: 'publikator_get_publication_analytics', arguments: { projectId: 'no-access' },
     });
     assert.equal(forbiddenProject.isError, true);
+
+    const { saveImageVersioned } = await import('../dist/media.js');
+    const { default: sharp } = await import('sharp');
+    const image = await sharp({ create: { width: 16, height: 16, channels: 3, background: 'orange' } }).png().toBuffer();
+    const attachment = await saveImageVersioned(doc.postId, 'private-test.png', image, edited.contentVersion);
+    const mediaPath = '/public-media/' + attachment.media.relative_path;
+    assert.equal((await app.inject({ method: 'GET', url: mediaPath })).statusCode, 404);
+    assert.equal((await app.inject({ method: 'HEAD', url: mediaPath })).statusCode, 404);
+    const bearerMedia = await app.inject({ method: 'GET', url: mediaPath, headers: { authorization: bearer } });
+    assert.equal(bearerMedia.statusCode, 404);
+    const ownerMedia = await app.inject({
+      method: 'GET', url: mediaPath, headers: { cookie: 'publikator_session=' + owner },
+    });
+    assert.equal(ownerMedia.statusCode, 200);
+    assert.equal(ownerMedia.headers['cache-control'], 'private, no-store');
+    assert.equal(ownerMedia.headers['content-type'], 'image/jpeg');
+
+    const manualPost = await app.inject({
+      method: 'POST', url: '/api/posts',
+      headers: { cookie: 'publikator_session=' + owner, origin },
+      payload: { projectId, title: 'Existing owner media route', body: 'Public preview fixture', scheduleMode: 'MANUAL' },
+    });
+    assert.equal(manualPost.statusCode, 201);
+    const manual = manualPost.json();
+    const manualImage = await saveImageVersioned(manual.id, 'owner-test.png', image, manual.content_version);
+    const existingMedia = await app.inject({ method: 'GET', url: '/public-media/' + manualImage.media.relative_path });
+    assert.equal(existingMedia.statusCode, 200);
   } finally {
     await client.close();
   }
