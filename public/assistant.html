@@ -41,6 +41,17 @@
 <label>Адрес для ChatGPT<input id="chatgpt-mcp-url" readonly></label>
 <div class="buttons"><button id="copy-chatgpt-url" type="button">Скопировать адрес</button></div>
 <ol><li>В ChatGPT откройте «Плагины», нажмите «+» и добавьте собственный MCP-сервер.</li><li>Вставьте адрес, выберите OAuth и укажите данные зарегистрированного OAuth-клиента.</li><li>Войдите в Publikator и подтвердите нужные разрешения. Проверьте подключение командой «Покажи доступные проекты».</li></ol>
+<details id="chatgpt-permissions">
+<summary>Управлять доступом ChatGPT</summary>
+<p id="chatgpt-permission-status" role="status"></p>
+<form id="chatgpt-grant-form" hidden>
+<fieldset><legend>Действия</legend><div id="chatgpt-grant-scopes"></div></fieldset>
+<fieldset><legend>Проекты</legend><div id="chatgpt-grant-projects"></div></fieldset>
+<fieldset><legend>Аккаунты публикации</legend><div id="chatgpt-grant-accounts"></div></fieldset>
+<label><input id="chatgpt-grant-confirm" type="checkbox" required> Подтверждаю выбранные права</label>
+<div class="buttons"><button id="chatgpt-grant-all" type="button">Выбрать все показанные</button><button type="submit">Сохранить права</button></div>
+</form>
+</details>
 <a href="https://developers.openai.com/api/docs/guides/custom-mcp-server" target="_blank" rel="noopener noreferrer">Инструкция ChatGPT</a>
 </div></section>
 <section class="mcp-settings"><h3>Ключи MCP для доверенных клиентов</h3><p class="muted">Эти ключи дают административный доступ. Используйте их в клиенте с поддержкой ключа Bearer.</p><label>Адрес для клиентов с ключом<input id="mcp-url" readonly></label>
