@@ -260,7 +260,7 @@ try {
     assert.deepEqual(tools.map((tool) => tool.name).sort(), [
       'publikator_attach_cloud_media', 'publikator_create_text_draft', 'publikator_edit_text_draft',
       'publikator_get_publication', 'publikator_get_publication_analytics', 'publikator_get_text_draft',
-      'publikator_list_accounts', 'publikator_list_media_sources', 'publikator_list_projects',
+      'publikator_list_accounts', 'publikator_list_media_files', 'publikator_list_media_sources', 'publikator_list_projects',
       'publikator_list_publications', 'publikator_list_text_drafts',
     ]);
     const projects = await client.callTool({ name: 'publikator_list_projects', arguments: {} });
@@ -381,6 +381,15 @@ try {
       return new Response(image, { headers: { 'content-length': String(image.length), 'content-type': 'image/png' } });
     };
     try {
+      const files = (args) => client.callTool({ name: 'publikator_list_media_files', arguments: args });
+      const listing = await files({ connectorId });
+      const firstPage = JSON.parse(listing.content[0].text);
+      assert.deepEqual(firstPage.items.map((item) => item.relativePath), ['private-test.png']);
+      assert.ok(!listing.content[0].text.includes('file_fixture_chatgpt'));
+      assert.ok(!listing.content[0].text.includes(rootFolderId));
+      assert.equal((await files({ connectorId, folder: '../' })).isError, true);
+      assert.equal((await files({ connectorId: 'not-allowed' })).isError, true);
+      assert.equal((await files({ connectorId, cursor: 'invalid' })).isError, true);
       const imported = await attach(importArgs);
       assert.equal(imported.isError, undefined, imported.content[0].text);
       const data = JSON.parse(imported.content[0].text);

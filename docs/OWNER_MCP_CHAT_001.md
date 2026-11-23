@@ -40,3 +40,5 @@ ChatGPT receives rotating refresh tokens after the owner approves the connection
 Canonical attachments on agent-managed drafts can be previewed in the authenticated owner UI. Their existing static paths require the owner session and are not cacheable. The publication analytics tool returns attachment identifiers without returning asset URLs.
 
 With explicit `media:import` and `posts:write` permissions, ChatGPT can attach an image or MP4 to its own draft from a selected Google Drive or Yandex Disk connector using a path relative to its configured root. `sources:read` permits listing selected sources without their credentials or roots. Asset preparation uses the existing publication editor. An import retry with the original idempotency key returns the recorded draft version.
+
+`publikator_list_media_files` browses only explicitly granted Google Drive and Yandex Disk folder trees with both `sources:read` and `media:import` permissions. It returns relative paths for attachment, without provider file IDs or share links.
