@@ -1,3 +1,4 @@
+import { changeDraftSchema, collectOwnerConsoleStatus, prepareOwnerChangeDraft } from '../owner-console.js';
 import { Readable } from 'node:stream';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { McpServer, createMcpHandler } from '@modelcontextprotocol/server';
@@ -51,6 +52,24 @@ export async function registerOwnerAssistant(app:FastifyInstance,registry:Regist
   app.get('/api/assistant/runs/:id',async(req,reply)=>{try{const a=owner(req);return getAiRun(a.ownerId,(req.params as any).id);}catch(e){return fail(reply,e);}});
   app.post('/api/assistant/runs/:id/stop',async(req,reply)=>{try{const a=owner(req,true);return stopAiRun(a.ownerId,(req.params as any).id);}catch(e){return fail(reply,e);}});
   app.post('/api/assistant/uploads',{bodyLimit:520*1024*1024},async(req,reply)=>{try{const a=owner(req,true);await cleanupOwnerUploads();const part=await req.file({limits:{fileSize:512*1024*1024,files:1}});if(!part)throw new OwnerAutomationError('FILE_REQUIRED','Выберите файл.');const result=await stageOwnerUpload(a,part.filename,part.mimetype,part.file);if(part.file.truncated)throw new OwnerAutomationError('UPLOAD_TOO_LARGE','Файл превышает допустимый размер.',413);return reply.code(201).send(result);}catch(e){return fail(reply,e);}});
+  app.get('/api/assistant/console/status', async(req,reply)=>{
+    try {
+      const actor = owner(req);
+      return reply.header('cache-control','no-store').send(collectOwnerConsoleStatus(actor.ownerId));
+    } catch (error) {
+      return fail(reply,error);
+    }
+  });
+  app.post('/api/assistant/console/change-draft',{bodyLimit:16384},async(req,reply)=>{
+    try {
+      owner(req,true);
+      const input = changeDraftSchema.safeParse(req.body);
+      if (!input.success) throw new OwnerAutomationError('INVALID_CHANGE_DRAFT','Заполните тему, описание и проверку изменения.');
+      return prepareOwnerChangeDraft(input.data);
+    } catch (error) {
+      return fail(reply,error);
+    }
+  });
   app.get('/api/assistant/actions',async(req,reply)=>{try{const a=owner(req);return {events:db.prepare('SELECT id,actor_id,operation,status,receipt_id,created_at FROM owner_automation_events WHERE owner_id=? ORDER BY created_at DESC,id DESC LIMIT 100').all(a.ownerId)};}catch(e){return fail(reply,e);}});
 
   // Protected MCP is independent of the browser-cookie namespace and the legacy DRAFT API.

@@ -1,3 +1,4 @@
+import { changeDraftSchema, collectOwnerConsoleStatus, prepareOwnerChangeDraft } from './owner-console.js';
 import fs from 'node:fs';
 import { Readable } from 'node:stream';
 import { attachOwnerUpload, listOwnerUploads, stageOwnerUpload, beginOwnerUpload, appendOwnerUpload, finalizeOwnerUpload, abortOwnerUpload } from './owner-ai-uploads.js';
@@ -129,6 +130,10 @@ export function createOwnerTools(app: FastifyInstance): { tools: OwnerTool[]; op
   add('publikator_attach_uploaded_media','Прикрепить загруженное изображение или MP4 к публикации. Порядок добавления сохраняется; версию поста после каждого вложения нужно обновлять.',z.object({postId:resourceId,uploadId:resourceId,expectedContentVersion:version,idempotencyKey:requestKey}).strict(),false,(a,b)=>attachOwnerUpload(a,b));
   add('publikator_upload_small_media','Загрузить файл до 5 МБ в base64 для последующего прикрепления. Большие файлы загружаются через защищённую multipart-загрузку в чате. Не передавайте путь локального компьютера вместо содержимого.',z.object({filename:z.string().min(1).max(180),mimeType:z.enum(['image/jpeg','image/png','image/webp','image/gif','video/mp4']),dataBase64:z.string().min(4).max(7000000),idempotencyKey:requestKey}).strict(),false,(a,b)=>withOwnerReceipt(a,'upload_small_media',b,b.idempotencyKey,async()=>{if(!/^[A-Za-z0-9+/]*={0,2}$/.test(b.dataBase64))throw new OwnerAutomationError('INVALID_BASE64','Некорректное содержимое файла.');const buffer=Buffer.from(b.dataBase64,'base64');if(buffer.length>5*1024*1024)throw new OwnerAutomationError('FILE_TOO_LARGE','Лимит этого инструмента — 5 МБ.');return {status:201,data:await stageOwnerUpload(a,b.filename,b.mimeType,Readable.from(buffer))};}));
   add('publikator_recent_actions','Проверить реальные выполненные действия MCP и чата. Журнал не содержит секретов.',z.object({limit:z.number().int().min(1).max(100).optional()}).strict(),true,async(a,b)=>({events:db.prepare('SELECT id,actor_id,operation,status,receipt_id,created_at FROM owner_automation_events WHERE owner_id=? ORDER BY created_at DESC,id DESC LIMIT ?').all(a.ownerId,b.limit||30)}));
+  add('publikator_system_status','Прочитать версию Publikator, схему, сводку очереди и запусков помощника.',z.object({}).strict(),true,
+    async (actor) => collectOwnerConsoleStatus(actor.ownerId));
+  add('publikator_prepare_change_draft','Подготовить текст задачи для репозитория Publikator по фактам, ожидаемому поведению и проверке.',changeDraftSchema,true,
+    async (_actor, input) => prepareOwnerChangeDraft(input));
   async function execute(actor:OwnerActor,name:string,input:unknown):Promise<any> {
     assertOwnerActor(actor);
     const tool=tools.find(t=>t.name===name);

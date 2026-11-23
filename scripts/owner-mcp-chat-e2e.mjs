@@ -63,6 +63,20 @@ try{
   assert.equal((await app.inject({method:'POST',url:'/mcp',headers:{host:new URL(origin).host,authorization:'Bearer '+created.token,origin:'https://foreign.invalid'},payload:{jsonrpc:'2.0',id:1,method:'tools/list'}})).statusCode,403);check('MCP rejects foreign Origin');
   await client.connect(new StreamableHTTPClientTransport(new URL(origin+'/mcp'),{requestInit:{headers:{authorization:'Bearer '+created.token}}}));
   const tools=await client.listTools();assert.ok(tools.tools.some(t=>t.name==='publikator_publish_now'));assert.ok(tools.tools.some(t=>t.name==='publikator_call_operation'));assert.ok(tools.tools.length>=18);check('actual official SDK client discovers protected MCP tools');
+  assert.equal((await app.inject('/api/assistant/console/status')).statusCode,401);
+  const webStatus=(await browser('GET','/api/assistant/console/status')).json();
+  const mcpStatus=await call('publikator_system_status',{});
+  assert.equal(mcpStatus.service,webStatus.service);
+  assert.equal(mcpStatus.schemaVersion,webStatus.schemaVersion);
+  assert.deepEqual(mcpStatus.publicationQueue,webStatus.publicationQueue);
+  assert.ok(!JSON.stringify(mcpStatus).includes(created.token));
+  const ticket=await call('publikator_prepare_change_draft',{
+    title:'Improve diagnostics',observed:'The current result',expected:'The expected result',acceptance:'Run the regression',
+  });
+  assert.match(ticket.body,/## Проверка результата\n\nRun the regression/);
+  assert.equal(ticket.repositoryUrl,'https://github.com/spikeal8-maker/Publikator/issues/new');
+  check('web console and MCP share a sanitized status and prepare a non-publishing GitHub draft');
+
   const projects=await call('publikator_list_projects',{});assert.equal(projects.status,200);assert.ok(projects.data.some(p=>p.id===projectId));check('SDK tools/call executes canonical read');
   const read=await call('publikator_read_operation',{operation:'get_projects'});assert.equal(read.status,200);check('read-only generic operation reaches canonical GET');
   const deniedWrite=await call('publikator_read_operation',{operation:'post_projects'});assert.equal(deniedWrite.error.code,'READ_OPERATION_REQUIRED');check('read-only generic operation refuses mutations');

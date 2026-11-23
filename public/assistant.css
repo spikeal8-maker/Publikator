@@ -56,3 +56,18 @@
   .settings-tabs { padding: 8px 15px; gap: 4px; }
   .settings-tabs [role="tab"] { padding: 7px 9px; }
 }
+
+.console-output {
+  max-height: 320px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #f5f7fa;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+#owner-console textarea {
+  width: 100%;
+  resize: vertical;
+}
