@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import { mediaAbsolutePath } from '../media.js';
 import type { MediaRow } from '../media.js';
 import type { PublishInput, PublishResult, SocialPublisher } from './types.js';
-import { PlatformError, requireString, responseJson } from './types.js';
+import { PlatformError, requireString } from './types.js';
 import { compileLiteralPlainText } from '../platform-text.js';
 
 const MAX_TEXT_LENGTH = 4000;
@@ -38,6 +38,7 @@ function validVideoUploadUrl(value: string): boolean {
     const url = new URL(value);
     return url.protocol === 'https:'
       && url.hostname === MAX_VIDEO_UPLOAD_HOST
+      && !url.port
       && !url.username
       && !url.password;
   } catch {
@@ -45,6 +46,8 @@ function validVideoUploadUrl(value: string): boolean {
   }
 }
 
+// Provider messages, response bodies, URLs and exception strings may contain
+// bot or attachment tokens. Persist only locally constructed diagnostics.
 function preparationError(error: unknown, context: string): PlatformError {
   if (error instanceof PlatformError) {
     return new PlatformError(`${context}: ${error.message}`, {
@@ -54,31 +57,56 @@ function preparationError(error: unknown, context: string): PlatformError {
       code: error.code
     });
   }
-  return new PlatformError(`${context}: ${error instanceof Error ? error.message : String(error)}`, {
+  return new PlatformError(`${context}: ошибка сети или чтения ответа MAX`, {
     retryable: true,
     outcomeUnknown: false
   });
 }
 
-function attachmentNotReadyError(message: string, status?: number): PlatformError {
-  return new PlatformError(message, {
+function preparationHttpError(context: string, status: number): PlatformError {
+  return new PlatformError(`${context}: HTTP ${status}`, {
+    retryable: status === 408 || status === 425 || status === 429 || status >= 500,
+    outcomeUnknown: false,
+    status,
+    code: `HTTP_${status}`
+  });
+}
+
+// Error paths that deliberately do not read a provider body must still release
+// the stream. Cleanup failure must never change a public POST's classification.
+async function releaseUnreadResponse(response: Response): Promise<void> {
+  if (!response.body || response.bodyUsed) return;
+  try { await response.body.cancel(); } catch { /* preserve the original outcome */ }
+}
+
+async function readMaxObject(response: Response): Promise<Record<string, any> | null> {
+  try {
+    const value: unknown = await response.json();
+    return value !== null && typeof value === 'object' && !Array.isArray(value)
+      ? value as Record<string, any> : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readPreparationObject(response: Response, context: string): Promise<Record<string, any>> {
+  if (!response.ok) {
+    await releaseUnreadResponse(response);
+    throw preparationHttpError(context, response.status);
+  }
+  const body = await readMaxObject(response);
+  if (!body) throw new PlatformError(`${context}: некорректный JSON-ответ MAX`, {
+    retryable: true, outcomeUnknown: false, status: response.status
+  });
+  return body;
+}
+
+function attachmentNotReadyError(status: number): PlatformError {
+  return new PlatformError(`MAX POST /messages: HTTP ${status} attachment.not.ready — вложение ещё обрабатывается`, {
     retryable: true,
     outcomeUnknown: false,
     status,
     code: 'attachment.not.ready'
-  });
-}
-
-function normalizePublicPostError(error: unknown): PlatformError {
-  if (error instanceof PlatformError) {
-    if (error.code === 'attachment.not.ready' || /attachment\.not\.ready/.test(error.message)) {
-      return attachmentNotReadyError(error.message, error.status);
-    }
-    return error;
-  }
-  return new PlatformError(`MAX POST /messages: ${error instanceof Error ? error.message : String(error)}`, {
-    retryable: false,
-    outcomeUnknown: true
   });
 }
 
@@ -152,7 +180,7 @@ async function prepareImagePayloads(accessToken: string, mediaRows: MediaRow[]):
       const reservationResponse = await maxFetch('https://platform-api2.max.ru/uploads?type=image', {
         method: 'POST', headers: { Authorization: accessToken }, signal: AbortSignal.timeout(MAX_REQUEST_TIMEOUT_MS), redirect: 'error'
       });
-      const reservation = await responseJson(reservationResponse, 'MAX image upload reservation');
+      const reservation = await readPreparationObject(reservationResponse, 'MAX image upload reservation');
       const uploadUrl = typeof reservation?.url === 'string' ? reservation.url : '';
       let allowed = false;
       try {
@@ -166,7 +194,7 @@ async function prepareImagePayloads(accessToken: string, mediaRows: MediaRow[]):
       const uploadedResponse = await maxFetch(uploadUrl, {
         method: 'POST', body: form, signal: AbortSignal.timeout(MAX_IMAGE_UPLOAD_TIMEOUT_MS), redirect: 'error'
       });
-      const uploaded = await responseJson(uploadedResponse, 'MAX image upload');
+      const uploaded = await readPreparationObject(uploadedResponse, 'MAX image upload');
       if (uploaded?.error) throw new PlatformError('MAX: сервер отклонил загрузку изображения', { retryable: false, outcomeUnknown: false });
       const photoTokens = uploaded?.photos && typeof uploaded.photos === 'object'
         ? Object.values(uploaded.photos).map((photo: any) => photo?.token).filter((token: unknown): token is string => typeof token === 'string' && token.length > 0)
@@ -205,20 +233,11 @@ async function reserveVideoUpload(accessToken: string): Promise<{ url: string; t
       headers: { Authorization: accessToken },
       signal: AbortSignal.timeout(MAX_REQUEST_TIMEOUT_MS)
     });
-    const body = await responseJson(response, 'MAX POST /uploads?type=video');
-    if (!response.ok) {
-      const code = typeof body?.code === 'string' ? body.code : `HTTP_${response.status}`;
-      throw new PlatformError(`MAX POST /uploads?type=video: HTTP ${response.status}: ${body?.message || body?.code || 'ошибка подготовки upload'}`, {
-        retryable: response.status === 408 || response.status === 429 || response.status >= 500,
-        outcomeUnknown: false,
-        status: response.status,
-        code
-      });
-    }
+    const body = await readPreparationObject(response, 'MAX POST /uploads?type=video');
     const url = typeof body?.url === 'string' ? body.url : '';
     const token = typeof body?.token === 'string' && body.token ? body.token : null;
     if (!url) {
-      throw new PlatformError(`MAX: POST /uploads не вернул url: ${JSON.stringify(body)}`, {
+      throw new PlatformError('MAX: POST /uploads не вернул url', {
         retryable: false,
         outcomeUnknown: false,
         status: response.status
@@ -247,6 +266,10 @@ async function uploadVideoFile(uploadUrl: string, media: MediaRow, blob: Blob): 
       body: form,
       signal: AbortSignal.timeout(MAX_VIDEO_UPLOAD_TIMEOUT_MS)
     });
+    if (!response.ok) {
+      await releaseUnreadResponse(response);
+      throw preparationHttpError('MAX upload video', response.status);
+    }
     const raw = await response.text();
     let body: any;
     if (response.ok && /^\s*<retval>\s*1\s*<\/retval>\s*$/i.test(raw)) body = {};
@@ -254,13 +277,9 @@ async function uploadVideoFile(uploadUrl: string, media: MediaRow, blob: Blob): 
       try { body = JSON.parse(raw); }
       catch { throw new PlatformError('MAX upload video: неподтверждённый ответ сервера загрузки', { retryable: true, outcomeUnknown: false, status: response.status }); }
     }
-    if (!response.ok) {
-      const code = typeof body?.code === 'string' ? body.code : `HTTP_${response.status}`;
-      throw new PlatformError(`MAX upload video: HTTP ${response.status}: ${body?.message || body?.code || 'ошибка upload host'}`, {
-        retryable: response.status === 408 || response.status === 429 || response.status >= 500,
-        outcomeUnknown: false,
-        status: response.status,
-        code
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      throw new PlatformError('MAX upload video: некорректный ответ сервера загрузки', {
+        retryable: true, outcomeUnknown: false, status: response.status
       });
     }
     return body;
@@ -274,7 +293,7 @@ async function prepareVideoToken(accessToken: string, media: MediaRow): Promise<
   const reservation = await reserveVideoUpload(accessToken);
   const uploaded = await uploadVideoFile(reservation.url, media, blob);
   if (uploaded?.error) {
-    throw new PlatformError(`MAX upload video: ${typeof uploaded.error === 'string' ? uploaded.error : JSON.stringify(uploaded.error)}`, {
+    throw new PlatformError('MAX upload video: сервер отклонил загрузку видео', {
       retryable: false,
       outcomeUnknown: false
     });
@@ -283,7 +302,7 @@ async function prepareVideoToken(accessToken: string, media: MediaRow): Promise<
     ?? (typeof uploaded?.token === 'string' && uploaded.token ? uploaded.token : null)
     ?? (typeof uploaded?.payload?.token === 'string' && uploaded.payload.token ? uploaded.payload.token : null);
   if (!token) {
-    throw new PlatformError(`MAX: после загрузки видео отсутствует attachment token: ${JSON.stringify(uploaded)}`, {
+    throw new PlatformError('MAX: после загрузки видео отсутствует attachment token', {
       retryable: false,
       outcomeUnknown: false
     });
@@ -306,9 +325,10 @@ async function postMessage(
   text: string,
   format: 'html',
   attachments: Array<{ type: string; payload: Record<string, string> }>
-): Promise<any> {
+): Promise<Record<string, any>> {
+  let response: Response;
   try {
-    const response = await maxFetch(`https://platform-api2.max.ru/messages?chat_id=${encodeURIComponent(chatId)}`, {
+    response = await maxFetch(`https://platform-api2.max.ru/messages?chat_id=${encodeURIComponent(chatId)}`, {
       method: 'POST',
       headers: {
         Authorization: accessToken,
@@ -317,38 +337,44 @@ async function postMessage(
       body: JSON.stringify({ text, format, attachments }),
       signal: AbortSignal.timeout(MAX_REQUEST_TIMEOUT_MS)
     });
-    const body = await responseJson(response, 'MAX POST /messages');
-    const code = typeof body?.code === 'string' ? body.code : null;
-    const message = `MAX POST /messages: HTTP ${response.status}${code ? ` ${code}` : ''}: ${body?.message || body?.code || 'неизвестная ошибка'}`;
-
-    if (code === 'attachment.not.ready') throw attachmentNotReadyError(message, response.status);
-    if (response.status === 429 || code === 'rate.limit') {
+  } catch {
+    throw new PlatformError('MAX POST /messages: ошибка сети или тайм-аут, результат неизвестен', {
+      retryable: false, outcomeUnknown: true
+    });
+  }
+  try {
+    const status = response.status;
+    const message = `MAX POST /messages: HTTP ${status}`;
+    // An ambiguous HTTP outcome always takes precedence over a provider body.
+    // Never interpret an arbitrary error string as an explicit rejection.
+    if (status === 408 || status >= 500) {
       throw new PlatformError(message, {
-        retryable: true,
-        outcomeUnknown: false,
-        status: response.status,
-        code: code || 'rate.limit'
+        retryable: false, outcomeUnknown: true, status, code: `HTTP_${status}`
       });
     }
-    if (response.status >= 500) {
+    if (status === 425 || status === 429) {
       throw new PlatformError(message, {
-        retryable: false,
-        outcomeUnknown: true,
-        status: response.status,
-        code: code || undefined
+        retryable: true, outcomeUnknown: false, status, code: status === 429 ? 'rate.limit' : 'HTTP_425'
       });
     }
-    if (!response.ok || code) {
+    if (!response.ok) {
+      if (status === 400) {
+        const body = await readMaxObject(response);
+        if (body?.code === 'attachment.not.ready') throw attachmentNotReadyError(status);
+      }
       throw new PlatformError(message, {
-        retryable: false,
-        outcomeUnknown: false,
-        status: response.status,
-        code: code || undefined
+        retryable: false, outcomeUnknown: status < 400, status, code: `HTTP_${status}`
+      });
+    }
+    const body = await readMaxObject(response);
+    if (!body || body.code || body.error) {
+      throw new PlatformError(`${message}: неподтверждённый ответ MAX`, {
+        retryable: false, outcomeUnknown: true, status
       });
     }
     return body;
-  } catch (error) {
-    throw normalizePublicPostError(error);
+  } finally {
+    await releaseUnreadResponse(response);
   }
 }
 
@@ -401,8 +427,8 @@ export const maxPublisher: SocialPublisher = {
 
     const message = body.message ?? body;
     const externalId = message?.body?.mid ?? message?.mid ?? message?.id ?? message?.message_id;
-    if (!externalId) {
-      throw new PlatformError(`MAX: API не вернул идентификатор сообщения: ${JSON.stringify(body)}`, {
+    if (!(typeof externalId === 'string' && externalId.trim()) && !(typeof externalId === 'number' && Number.isSafeInteger(externalId) && externalId > 0)) {
+      throw new PlatformError('MAX: API не вернул идентификатор сообщения', {
         retryable: false,
         outcomeUnknown: true
       });

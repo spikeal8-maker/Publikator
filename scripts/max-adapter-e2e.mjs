@@ -467,9 +467,200 @@ try {
     });
   }
 
+  // 22. A 5xx or timeout HTTP outcome wins over any claimed provider error code.
+  // In particular, the old substring match could repeat a public POST.
+  for (const status of [408, 500, 503]) {
+    const steps = [
+      { response: { url: 'https://omub.okcdn.ru/upload.do?sig=fixture-redact', token: 'fixture-attachment-secret' } },
+      { response: { retval: 1 } },
+      { status, response: { code: 'attachment.not.ready', message: 'fixture-bot-secret' } }
+    ];
+    const calls = mockFetch(steps);
+    await assert.rejects(maxPublisher.publish(videoInput()), error => {
+      assert.ok(error instanceof PlatformError);
+      assert.equal(error.outcomeUnknown, true);
+      assert.equal(error.retryable, false);
+      assert.equal(error.status, status);
+      assert.match(error.message, new RegExp('HTTP ' + status));
+      assert.doesNotMatch(error.message, /fixture-bot-secret|fixture-attachment-secret|fixture-redact/);
+      return true;
+    });
+    assert.equal(calls.length, 3, 'ambiguous public POST must not repeat');
+    assert.equal(steps.length, 0);
+  }
+
+  // Explicit throttling / early rejection remains retryable; the adapter never resends here.
+  for (const status of [425, 429]) {
+    let calls = 0;
+    globalThis.fetch = async () => {
+      calls++;
+      return new Response(JSON.stringify({ code: 'fixture-bot-secret', message: 'attachment.not.ready' }), {
+        status, headers: { 'content-type': 'application/json', 'Retry-After': '120' }
+      });
+    };
+    await assert.rejects(maxPublisher.publish(input()), error => {
+      assert.ok(error instanceof PlatformError);
+      assert.equal(error.status, status);
+      assert.equal(error.retryable, true);
+      assert.equal(error.outcomeUnknown, false);
+      assert.doesNotMatch(error.message, /fixture-bot-secret/);
+      return true;
+    });
+    assert.equal(calls, 1);
+  }
+
+  // 23. Only the structured code in an explicit HTTP 400 is attachment.not.ready.
+  {
+    const steps = [
+      { response: { url: 'https://omub.okcdn.ru/upload.do?sig=fixture-redact', token: 'fixture-attachment-secret' } },
+      { response: { retval: 1 } },
+      { status: 400, response: { code: 'invalid.request', message: 'attachment.not.ready fixture-bot-secret' } }
+    ];
+    const calls = mockFetch(steps);
+    await assert.rejects(maxPublisher.publish(videoInput()), error => {
+      assert.ok(error instanceof PlatformError);
+      assert.equal(error.outcomeUnknown, false);
+      assert.equal(error.retryable, false);
+      assert.doesNotMatch(error.message, /fixture-bot-secret|attachment\.not\.ready/);
+      return true;
+    });
+    assert.equal(calls.length, 3);
+  }
+
+  // 24. Reservation errors, upload errors and missing tokens never disclose provider payloads.
+  {
+    const privateFields = {
+      token: 'fixture-attachment-secret',
+      url: 'https://omub.okcdn.ru/upload.do?sig=fixture-signed-url',
+      message: 'fixture-bot-secret'
+    };
+    const reservation = { response: { url: privateFields.url, token: privateFields.token } };
+    const noTokenReservation = { response: { url: privateFields.url } };
+    const cases = [
+      [{ status: 403, response: { ...privateFields, code: 'fixture-bot-secret' } }],
+      [{ response: { token: privateFields.token, message: privateFields.message } }],
+      [reservation, { status: 503, response: privateFields }],
+      [reservation, { response: { error: privateFields } }],
+      [noTokenReservation, { response: { uploadUrl: privateFields.url, message: privateFields.message } }],
+      [{ error: new Error('transport error ' + privateFields.url) }]
+    ];
+    for (const steps of cases) {
+      const calls = mockFetch(steps);
+      await assert.rejects(maxPublisher.publish(videoInput()), error => {
+        assert.ok(error instanceof PlatformError);
+        assert.equal(error.outcomeUnknown, false);
+        assert.doesNotMatch(error.message, /fixture-attachment-secret|fixture-signed-url|fixture-bot-secret/);
+        assert.doesNotMatch(String(error.code ?? ''), /fixture-attachment-secret|fixture-signed-url|fixture-bot-secret/);
+        return true;
+      });
+      assert.ok(calls.every(call => !call.url.includes('/messages?')));
+      assert.equal(steps.length, 0);
+    }
+  }
+
+  // 25. Successful HTTP status is not a receipt if the response is malformed or lacks a valid ID.
+  for (const response of [
+    { message: { body: {}, attachments: [{ token: 'fixture-attachment-secret' }] } },
+    { message: { body: { mid: { token: 'fixture-attachment-secret' } } } },
+    { message: { body: { mid: '   ' } } },
+    { code: 'attachment.not.ready', message: 'fixture-bot-secret' },
+    null,
+    []
+  ]) {
+    let calls = 0;
+    globalThis.fetch = async () => { calls++; return json(response); };
+    await assert.rejects(maxPublisher.publish(input()), error => {
+      assert.ok(error instanceof PlatformError);
+      assert.equal(error.outcomeUnknown, true);
+      assert.equal(error.retryable, false);
+      assert.doesNotMatch(error.message, /fixture-attachment-secret|fixture-bot-secret/);
+      return true;
+    });
+    assert.equal(calls, 1);
+  }
+  for (const status of [200, 500]) {
+    globalThis.fetch = async () => new Response('fixture-attachment-secret', { status });
+    await assert.rejects(maxPublisher.publish(input()), error =>
+      error instanceof PlatformError && error.outcomeUnknown === true && error.retryable === false
+      && !error.message.includes('fixture-attachment-secret'));
+  }
+
+  // 26. Image preparation shares the same secret-safe error boundary.
+  {
+    const image = media(0);
+    const absolute = path.join(dataDir, 'media', image.relative_path);
+    await fs.mkdir(path.dirname(absolute), { recursive: true });
+    await fs.writeFile(absolute, Buffer.from('image fixture'));
+    const cases = [
+      [{ status: 403, response: { code: 'fixture-bot-secret', url: 'https://iu.oneme.ru/uploadImage?sig=fixture-signed-url' } }],
+      [{ response: { url: 'https://iu.oneme.ru/uploadImage?sig=fixture-signed-url' } },
+       { status: 503, response: { token: 'fixture-attachment-secret' } }]
+    ];
+    for (const steps of cases) {
+      const calls = mockFetch(steps);
+      await assert.rejects(maxPublisher.publish({ ...input(), media: [image], publicMediaUrls: [] }), error =>
+        error instanceof PlatformError && error.outcomeUnknown === false
+        && !/fixture-bot-secret|fixture-signed-url|fixture-attachment-secret/.test(error.message));
+      assert.ok(calls.every(call => !call.url.includes('/messages?')));
+      assert.equal(steps.length, 0);
+    }
+  }
+
+  // 27. Every deliberately unread error response is released, even under
+  // repeated failures. A failed cleanup cannot change public outcome semantics.
+  {
+    const localImage = { ...input(), publicMediaUrls: [] };
+    const imageReservation = () => json({ url: 'https://iu.oneme.ru/uploadImage?sig=fixture' });
+    const videoReservation = () => json({ url: 'https://omub.okcdn.ru/upload.do?sig=fixture', token: 'fixture-video' });
+    let released = 0;
+    let produced = 0;
+    const failing = (status, failCancel = false) => {
+      produced++;
+      // An open stream simulates a provider that leaves its body unread.
+      const stream = new ReadableStream({
+        start(controller) { controller.enqueue(new TextEncoder().encode('fixture-provider-secret')); },
+        cancel() { released++; if (failCancel) throw new Error('fixture-cleanup-secret'); }
+      });
+      return new Response(stream, { status });
+    };
+    const run = async (publication, replies, expected) => {
+      let sends = 0;
+      globalThis.fetch = async () => {
+        const reply = replies[sends++];
+        assert.ok(reply, 'unexpected extra send');
+        return reply();
+      };
+      await assert.rejects(maxPublisher.publish(publication), error => {
+        assert.ok(error instanceof PlatformError);
+        assert.equal(error.status, expected.status);
+        assert.equal(error.outcomeUnknown, expected.unknown);
+        assert.equal(error.retryable, expected.retryable);
+        assert.doesNotMatch(error.message, /fixture-provider-secret|fixture-cleanup-secret/);
+        return true;
+      });
+      assert.equal(sends, replies.length);
+      assert.equal(released, produced, 'an unread error body was not released');
+    };
+    for (let repeat = 0; repeat < 4; repeat++) {
+      for (const status of [403, 408, 425, 429, 500, 503]) {
+        await run(input(), [() => failing(status, repeat === 3)], {
+          status, unknown: status === 408 || status >= 500,
+          retryable: status === 425 || status === 429
+        });
+        const preparation = { status, unknown: false, retryable: status !== 403 };
+        await run(localImage, [() => failing(status)], preparation);
+        await run(localImage, [imageReservation, () => failing(status)], preparation);
+        await run(videoInput(), [() => failing(status)], preparation);
+        await run(videoInput(), [videoReservation, () => failing(status)], preparation);
+      }
+    }
+    assert.equal(produced, 120);
+    assert.equal(released, 120);
+  }
+
   console.log(JSON.stringify({
     ok: true,
-    scenarios: 21,
+    scenarios: 27,
     unicodeBoundary: 4000,
     feedVideoAdapterImplemented: true,
     formatAwarePublicMediaUrls: true,
