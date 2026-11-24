@@ -76,8 +76,10 @@ function matchesServerName(hello, expected) {
 export function inspectClientHello(prefix, expected) {
   if (prefix.length > MAX_HELLO_BYTES) return 'deny';
   let offset = 0;
+  let records = 0;
   let handshake = Buffer.alloc(0);
   while (offset < prefix.length) {
+    if (++records > 64) return 'deny';
     if (prefix[offset] !== 22) return 'deny';
     if (prefix.length - offset < 5) return 'need';
     const version = prefix.readUInt16BE(offset+1);
@@ -105,6 +107,7 @@ function reject(socket, status) {
 function readClientHello(socket, head, expected, timeoutMs) {
   return new Promise((resolve,rejectHello) => {
     let prefix = Buffer.alloc(0);
+    let chunks = 0;
     let settled = false;
     const finish = (err,bytes) => {
       if (settled) return;
@@ -118,7 +121,7 @@ function readClientHello(socket, head, expected, timeoutMs) {
     };
     const onClose = () => finish(new Error('TLS hello closed'));
     const onData = chunk => {
-      if (prefix.length + chunk.length > MAX_HELLO_BYTES) return finish(new Error('TLS hello limit'));
+      if (++chunks > 256 || prefix.length + chunk.length > MAX_HELLO_BYTES) return finish(new Error('TLS hello limit'));
       prefix = Buffer.concat([prefix,chunk]);
       const result = inspectClientHello(prefix,expected);
       if (result === 'deny') finish(new Error('TLS hello rejected'));
