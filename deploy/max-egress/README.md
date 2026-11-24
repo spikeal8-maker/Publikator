@@ -1,0 +1,24 @@
+# MAX-RUNTIME-EGRESS-001 (#294) — installation candidate
+
+## Scope and evidence
+
+Opt-in MAX-only HTTP CONNECT link. Keep the existing runtime private and preserve ingress, volumes, OAuth, environment and all automation settings. No global HTTP(S)_PROXY, no host firewall/DNS modifications, no TLS interception. The sidecar accepts CONNECT only from the assigned application address, only for three literal authorities on port 443; it resolves IPv4 and refuses non-public destinations. The application retains the approved host checks, redirect refusal and scoped certificate verification.
+
+Isolated proof on admins-MS-7D22, operation 33365d85978d4dd8bc60ff4375e1b3f3, code SHA 36939effb64933f00c752773c0b0d9768686f51a: actual HTTPS 401/404/404; all seven forbidden CONNECT authorities denied; direct Sheets fetch failed; no default route; separately addressed client got HTTP 403. Compose merge retained original ports, data mounts, image and private runtime network. No bot token, publish POST, production database mount or production restart was used.
+
+This is a candidate, not production acceptance. CONNECT authority/address restrictions are not a general TLS SNI inspection boundary; the trusted application dispatcher also enforces the exact HTTPS destination and certificate. Independent security review must check this threat model, concurrency, DNS failure/rebinding and TLS behavior before deployment. Do not treat source IP as cryptographic identity.
+
+## Deployment gate and backup
+
+- Require accepted application SHA, full canonical Acceptance, independent review and explicit owner approval of the network policy. Validate the overlay against the exact deployed base Compose. Confirm both candidate /28 subnets are still free in Docker IPAM and host routes. Do not change host global Docker address pools.
+- Verified configuration snapshot is already present at /var/backups/publikator/max-runtime-egress-001-20261124 on the host. It contains private copies of compose.yaml, .env if present, and the runtime image identity. Retain permissions 0700 directory / 0600 files; never print or upload secrets. Before actual deployment take a fresh consistent application-level database/media backup and verify restore/rollback according to existing operations policy. Keep old image available.
+- Stage deploy/compose.max-egress.yaml and deploy/max-egress/proxy.mjs from the accepted Git SHA into the existing compose project (overlay and max-egress/proxy.mjs relative to the existing base compose). Pin MAX_EGRESS_IMAGE to the accepted immutable application image, and use the accepted image for the application itself through the existing 1Panel release mechanism. Validate the merged configuration without emitting raw environment values.
+- Use the existing 1Panel infrastructure to deploy only Publikator and the new sidecar after authorization. Never attach Publikator to the outbound network or publish the proxy port. The two new networks have explicit addresses, the dedicated app link is internal, and the existing runtime network remains untouched. Verify actual merged config, Docker health, ingress/MCP, direct network isolation and scoped MAX TLS. Recheck only the existing MAX account using its normal server-side route; never edit the database by hand or export tokens. Verify other connector automation settings unchanged.
+
+## Rollback
+
+If any health, security or scope check fails, stop the newly introduced sidecar using the exact overlay project configuration, remove only that stopped service, restore the backed-up base Compose configuration and previous immutable image through 1Panel, and recreate only the application from the base configuration (without the overlay). Preserve the original internal network and all data volumes. Never run down -v, network prune or global firewall/DNS changes. Remove only the two newly introduced project networks if they are empty; verify old health, ingress, image revision and existing data. If a database schema changed, use the separately verified canonical application rollback/restore procedure; do not overwrite a live database casually.
+
+## Live acceptance remains gated
+
+After network acceptance: штатный Recheck, confirm bot identity and exact destination/rights, then authorized separate test chat only. Record external receipts and independent readback. No assumption that a 401 unauthenticated probe proves valid saved credentials or publishing readiness.
