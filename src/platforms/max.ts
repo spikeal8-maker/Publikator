@@ -72,6 +72,13 @@ function preparationHttpError(context: string, status: number): PlatformError {
   });
 }
 
+// Error paths that deliberately do not read a provider body must still release
+// the stream. Cleanup failure must never change a public POST's classification.
+async function releaseUnreadResponse(response: Response): Promise<void> {
+  if (!response.body || response.bodyUsed) return;
+  try { await response.body.cancel(); } catch { /* preserve the original outcome */ }
+}
+
 async function readMaxObject(response: Response): Promise<Record<string, any> | null> {
   try {
     const value: unknown = await response.json();
@@ -83,7 +90,10 @@ async function readMaxObject(response: Response): Promise<Record<string, any> | 
 }
 
 async function readPreparationObject(response: Response, context: string): Promise<Record<string, any>> {
-  if (!response.ok) throw preparationHttpError(context, response.status);
+  if (!response.ok) {
+    await releaseUnreadResponse(response);
+    throw preparationHttpError(context, response.status);
+  }
   const body = await readMaxObject(response);
   if (!body) throw new PlatformError(`${context}: некорректный JSON-ответ MAX`, {
     retryable: true, outcomeUnknown: false, status: response.status
@@ -256,7 +266,10 @@ async function uploadVideoFile(uploadUrl: string, media: MediaRow, blob: Blob): 
       body: form,
       signal: AbortSignal.timeout(MAX_VIDEO_UPLOAD_TIMEOUT_MS)
     });
-    if (!response.ok) throw preparationHttpError('MAX upload video', response.status);
+    if (!response.ok) {
+      await releaseUnreadResponse(response);
+      throw preparationHttpError('MAX upload video', response.status);
+    }
     const raw = await response.text();
     let body: any;
     if (response.ok && /^\s*<retval>\s*1\s*<\/retval>\s*$/i.test(raw)) body = {};
@@ -329,36 +342,40 @@ async function postMessage(
       retryable: false, outcomeUnknown: true
     });
   }
-  const status = response.status;
-  const message = `MAX POST /messages: HTTP ${status}`;
-  // An ambiguous HTTP outcome always takes precedence over a provider body.
-  // Never interpret an arbitrary error string as an explicit rejection.
-  if (status === 408 || status >= 500) {
-    throw new PlatformError(message, {
-      retryable: false, outcomeUnknown: true, status, code: `HTTP_${status}`
-    });
-  }
-  if (status === 425 || status === 429) {
-    throw new PlatformError(message, {
-      retryable: true, outcomeUnknown: false, status, code: status === 429 ? 'rate.limit' : 'HTTP_425'
-    });
-  }
-  if (!response.ok) {
-    if (status === 400) {
-      const body = await readMaxObject(response);
-      if (body?.code === 'attachment.not.ready') throw attachmentNotReadyError(status);
+  try {
+    const status = response.status;
+    const message = `MAX POST /messages: HTTP ${status}`;
+    // An ambiguous HTTP outcome always takes precedence over a provider body.
+    // Never interpret an arbitrary error string as an explicit rejection.
+    if (status === 408 || status >= 500) {
+      throw new PlatformError(message, {
+        retryable: false, outcomeUnknown: true, status, code: `HTTP_${status}`
+      });
     }
-    throw new PlatformError(message, {
-      retryable: false, outcomeUnknown: status < 400, status, code: `HTTP_${status}`
-    });
+    if (status === 425 || status === 429) {
+      throw new PlatformError(message, {
+        retryable: true, outcomeUnknown: false, status, code: status === 429 ? 'rate.limit' : 'HTTP_425'
+      });
+    }
+    if (!response.ok) {
+      if (status === 400) {
+        const body = await readMaxObject(response);
+        if (body?.code === 'attachment.not.ready') throw attachmentNotReadyError(status);
+      }
+      throw new PlatformError(message, {
+        retryable: false, outcomeUnknown: status < 400, status, code: `HTTP_${status}`
+      });
+    }
+    const body = await readMaxObject(response);
+    if (!body || body.code || body.error) {
+      throw new PlatformError(`${message}: неподтверждённый ответ MAX`, {
+        retryable: false, outcomeUnknown: true, status
+      });
+    }
+    return body;
+  } finally {
+    await releaseUnreadResponse(response);
   }
-  const body = await readMaxObject(response);
-  if (!body || body.code || body.error) {
-    throw new PlatformError(`${message}: неподтверждённый ответ MAX`, {
-      retryable: false, outcomeUnknown: true, status
-    });
-  }
-  return body;
 }
 
 async function prepareMixedPayloads(accessToken: string, mediaRows: MediaRow[]) {
