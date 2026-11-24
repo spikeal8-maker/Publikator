@@ -1,5 +1,5 @@
 import { rootCertificates } from 'node:tls';
-import { Agent } from 'undici';
+import { Agent, ProxyAgent } from 'undici';
 
 // Public CA from https://gu-st.ru/content/Other/doc/russian_trusted_root_ca.cer
 // SHA-256: D26D2D0231B7C39F92CC738512BA54103519E4405D68B5BD703E9788CA8ECF31.
@@ -39,10 +39,15 @@ EYVMxjh8zNbFuoc7fzvvrFILLe7ifvEIUqSVIC/AzplM/Jxw7buXFeGP1qVCBEHq
 391d/9RAfaZ12zkwFsl+IKwE/OZxW8AHa9i1p4GO0YSNuczzEm4=
 -----END CERTIFICATE-----`;
 
-export function createMaxDispatcher(): Agent {
-  return new Agent({
-    connect: { ca: [...rootCertificates, MAX_ROOT_CA], rejectUnauthorized: true }
-  });
+// Optional installation-local gateway for a runtime with no external route.
+// Do not inherit HTTP(S)_PROXY and never route non-MAX requests through it.
+export function createMaxDispatcher(proxyUrl = process.env.MAX_EGRESS_PROXY_URL): Agent | ProxyAgent {
+  const tls = { ca: [...rootCertificates, MAX_ROOT_CA], rejectUnauthorized: true };
+  if (!proxyUrl) return new Agent({ connect: tls });
+  if (proxyUrl !== 'http://max-egress:3128') {
+    throw new Error('MAX_EGRESS_PROXY_URL must be the dedicated internal MAX gateway');
+  }
+  return new ProxyAgent({ uri: proxyUrl, requestTls: tls });
 }
 const maxDispatcher = createMaxDispatcher();
 const MAX_TLS_HOSTS = new Set(['platform-api2.max.ru', 'iu.oneme.ru', 'omub.okcdn.ru']);
@@ -54,7 +59,7 @@ export async function maxFetch(input: string | URL, init: RequestInit = {}): Pro
     throw new Error('MAX transport requires an approved HTTPS host');
   }
   // Redirects must never carry the bot token or the scoped CA to another host.
-  const options: RequestInit & { dispatcher: Agent } = {
+  const options: RequestInit & { dispatcher: Agent | ProxyAgent } = {
     ...init, redirect: 'error', dispatcher: maxDispatcher
   };
   return await globalThis.fetch(url, options);
