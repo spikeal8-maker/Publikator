@@ -489,6 +489,26 @@ try {
     assert.equal(steps.length, 0);
   }
 
+  // Explicit throttling / early rejection remains retryable; the adapter never resends here.
+  for (const status of [425, 429]) {
+    let calls = 0;
+    globalThis.fetch = async () => {
+      calls++;
+      return new Response(JSON.stringify({ code: 'fixture-bot-secret', message: 'attachment.not.ready' }), {
+        status, headers: { 'content-type': 'application/json', 'Retry-After': '120' }
+      });
+    };
+    await assert.rejects(maxPublisher.publish(input()), error => {
+      assert.ok(error instanceof PlatformError);
+      assert.equal(error.status, status);
+      assert.equal(error.retryable, true);
+      assert.equal(error.outcomeUnknown, false);
+      assert.doesNotMatch(error.message, /fixture-bot-secret/);
+      return true;
+    });
+    assert.equal(calls, 1);
+  }
+
   // 23. Only the structured code in an explicit HTTP 400 is attachment.not.ready.
   {
     const steps = [
@@ -575,7 +595,6 @@ try {
       [{ status: 403, response: { code: 'fixture-bot-secret', url: 'https://iu.oneme.ru/uploadImage?sig=fixture-signed-url' } }],
       [{ response: { url: 'https://iu.oneme.ru/uploadImage?sig=fixture-signed-url' } },
        { status: 503, response: { token: 'fixture-attachment-secret' } }]
-      ]
     ];
     for (const steps of cases) {
       const calls = mockFetch(steps);
