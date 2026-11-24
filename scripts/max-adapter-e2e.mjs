@@ -606,9 +606,61 @@ try {
     }
   }
 
+  // 27. Every deliberately unread error response is released, even under
+  // repeated failures. A failed cleanup cannot change public outcome semantics.
+  {
+    const localImage = { ...input(), publicMediaUrls: [] };
+    const imageReservation = () => json({ url: 'https://iu.oneme.ru/uploadImage?sig=fixture' });
+    const videoReservation = () => json({ url: 'https://omub.okcdn.ru/upload.do?sig=fixture', token: 'fixture-video' });
+    let released = 0;
+    let produced = 0;
+    const failing = (status, failCancel = false) => {
+      produced++;
+      // An open stream simulates a provider that leaves its body unread.
+      const stream = new ReadableStream({
+        start(controller) { controller.enqueue(new TextEncoder().encode('fixture-provider-secret')); },
+        cancel() { released++; if (failCancel) throw new Error('fixture-cleanup-secret'); }
+      });
+      return new Response(stream, { status });
+    };
+    const run = async (publication, replies, expected) => {
+      let sends = 0;
+      globalThis.fetch = async () => {
+        const reply = replies[sends++];
+        assert.ok(reply, 'unexpected extra send');
+        return reply();
+      };
+      await assert.rejects(maxPublisher.publish(publication), error => {
+        assert.ok(error instanceof PlatformError);
+        assert.equal(error.status, expected.status);
+        assert.equal(error.outcomeUnknown, expected.unknown);
+        assert.equal(error.retryable, expected.retryable);
+        assert.doesNotMatch(error.message, /fixture-provider-secret|fixture-cleanup-secret/);
+        return true;
+      });
+      assert.equal(sends, replies.length);
+      assert.equal(released, produced, 'an unread error body was not released');
+    };
+    for (let repeat = 0; repeat < 4; repeat++) {
+      for (const status of [403, 408, 425, 429, 500, 503]) {
+        await run(input(), [() => failing(status, repeat === 3)], {
+          status, unknown: status === 408 || status >= 500,
+          retryable: status === 425 || status === 429
+        });
+        const preparation = { status, unknown: false, retryable: status !== 403 };
+        await run(localImage, [() => failing(status)], preparation);
+        await run(localImage, [imageReservation, () => failing(status)], preparation);
+        await run(videoInput(), [() => failing(status)], preparation);
+        await run(videoInput(), [videoReservation, () => failing(status)], preparation);
+      }
+    }
+    assert.equal(produced, 120);
+    assert.equal(released, 120);
+  }
+
   console.log(JSON.stringify({
     ok: true,
-    scenarios: 26,
+    scenarios: 27,
     unicodeBoundary: 4000,
     feedVideoAdapterImplemented: true,
     formatAwarePublicMediaUrls: true,
