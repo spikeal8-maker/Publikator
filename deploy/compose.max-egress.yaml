@@ -1,0 +1,43 @@
+# Installation-specific Compose override, not part of default startup.
+# Before using: confirm both subnets are still free; preserve original compose.yaml.
+# MAX_EGRESS_IMAGE must name the exact accepted application image, preferably digest-pinned.
+services:
+  publikator:
+    environment:
+      MAX_EGRESS_PROXY_URL: http://max-egress:3128
+    networks:
+      max_proxy_link:
+        ipv4_address: 10.247.0.2
+  max-egress:
+    image: ${MAX_EGRESS_IMAGE:?Set MAX_EGRESS_IMAGE to the accepted immutable runtime image}
+    entrypoint: ["node", "/opt/max-egress/proxy.mjs"]
+    environment:
+      MAX_PROXY_BIND_ADDRESS: 10.247.0.3
+      MAX_PROXY_CLIENT_ADDRESS: 10.247.0.2
+    volumes:
+      - ./max-egress/proxy.mjs:/opt/max-egress/proxy.mjs:ro
+    networks:
+      max_proxy_link:
+        ipv4_address: 10.247.0.3
+      max_proxy_outbound: {}
+    user: "1000:1000"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    pids_limit: 48
+    restart: unless-stopped
+    # Inherited application healthcheck does not apply to this CONNECT-only service.
+    healthcheck:
+      disable: true
+networks:
+  max_proxy_link:
+    internal: true
+    ipam:
+      config:
+        - subnet: 10.247.0.0/28
+  max_proxy_outbound:
+    internal: false
+    ipam:
+      config:
+        - subnet: 10.247.0.16/28

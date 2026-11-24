@@ -243,6 +243,8 @@ jobs:
 
       - name: MAX real dispatcher compatibility and certificate verification
         run: node scripts/max-transport-e2e.mjs
+      - name: MAX dedicated egress policy and TLS SNI boundary
+        run: node scripts/max-egress-policy-e2e.mjs
 
       - name: TG-MAX-FEED-PUBLISH-001 text and local-image operator journey
         run: node scripts/telegram-max-feed-publish-e2e.mjs
